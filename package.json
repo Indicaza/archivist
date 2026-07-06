@@ -1,0 +1,31 @@
+{
+  "name": "archivist",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local-first AI librarian desktop app.",
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "check-node": "node scripts/check-node-version.mjs",
+    "dev": "npm run check-node && concurrently -n BACKEND,FRONTEND,ELECTRON -c blue,green,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\" \"wait-on http://127.0.0.1:5173 http://127.0.0.1:3333/health && npm run electron -w frontend\"",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:electron": "npm run electron -w frontend",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "lint": "npm run lint -w frontend",
+    "audit": "npm audit --workspaces",
+    "clean": "rimraf node_modules frontend/node_modules backend/node_modules package-lock.json frontend/package-lock.json backend/package-lock.json"
+  },
+  "devDependencies": {
+    "concurrently": "latest",
+    "rimraf": "latest",
+    "wait-on": "latest"
+  }
+}
