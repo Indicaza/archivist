@@ -1,0 +1,93 @@
+/* frontend/src/components/topbar/ActiveLibraryBadge/ActiveLibraryBadge.module.css */
+.badge {
+  position: fixed;
+  top: calc(var(--topbar-height) + 12px);
+  right: 24px;
+  z-index: calc(var(--z-topbar) + 1);
+  width: min(320px, calc(100vw - 48px));
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--r-xl);
+  color: var(--app-text);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.045), transparent),
+    rgba(20, 19, 16, 0.94);
+  border: 1px solid rgba(214, 198, 170, 0.18);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 250, 240, 0.04);
+  pointer-events: none;
+}
+
+.iconWrap {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-round);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text);
+  background:
+    radial-gradient(
+      circle at 35% 25%,
+      rgba(255, 255, 255, 0.34),
+      transparent 24%
+    ),
+    linear-gradient(135deg, var(--app-accent), #0f766e);
+  box-shadow: var(--shadow-avatar);
+  flex: 0 0 auto;
+}
+
+.text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--app-muted-text);
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--topbar-title);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusDot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-round);
+  flex: 0 0 auto;
+  background: var(--app-muted-text);
+}
+
+.active {
+  background: var(--app-success);
+}
+
+.draft {
+  background: var(--app-warning);
+}
+
+.offline {
+  background: var(--app-muted-text);
+}
+
+@media (max-width: 900px) {
+  .badge {
+    top: calc(var(--topbar-height) + 10px);
+    right: 14px;
+    width: min(300px, calc(100vw - 28px));
+  }
+}
