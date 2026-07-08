@@ -1,0 +1,68 @@
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: var(--topbar-height);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--topbar-border);
+  box-shadow: var(--shadow-soft);
+  z-index: var(--z-topbar);
+  overflow: hidden;
+}
+
+.topbarContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--topbar-padding-x);
+}
+
+.topbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+}
+
+.topbarTitle {
+  font-size: var(--topbar-title-size);
+  font-family: "IM Fell English SC", serif;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--topbar-title);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.topbarRight {
+  display: flex;
+  align-items: center;
+}
+
+.userAvatar {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 35% 25%,
+      rgba(255, 255, 255, 0.45),
+      transparent 24%
+    ),
+    linear-gradient(135deg, var(--app-accent), #0f766e);
+  cursor: pointer;
+  transition:
+    transform var(--dur-slow),
+    box-shadow var(--dur-slow);
+  box-shadow: var(--shadow-avatar);
+}
+
+.userAvatar:hover {
+  transform: scale(1.1);
+}
