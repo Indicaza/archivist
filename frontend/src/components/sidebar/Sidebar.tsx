@@ -1,7 +1,6 @@
 // frontend/src/components/sidebar/Sidebar.tsx
 import { useEffect, useState } from "react";
 import styles from "./Sidebar.module.css";
-import { Logo } from "../logo/Logo";
 import { Chats } from "./Chats/Chats";
 import { Libraries } from "./Libraries/Libraries";
 import type { LibraryListItem } from "../../domains/library/library.types";
@@ -70,11 +69,6 @@ export function Sidebar({
             >
               <ChevronLeft size={20} strokeWidth={2.25} />
             </button>
-
-            <div className={styles.brand}>
-              <Logo size="sm" />
-              <span className={styles.title}>Archivist</span>
-            </div>
           </div>
 
           <div className={styles.scrollArea}>

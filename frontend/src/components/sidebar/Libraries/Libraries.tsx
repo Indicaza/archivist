@@ -1,4 +1,3 @@
-// frontend/src/components/sidebar/Libraries/Libraries.tsx
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, ChevronRight, Library, Plus } from "lucide-react";
 import { SidebarButton } from "../SidebarButton/SidebarButton";
@@ -22,6 +21,7 @@ export function Libraries({
   const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -41,6 +41,17 @@ export function Libraries({
       return haystack.includes(debouncedSearch);
     });
   }, [debouncedSearch, libraries]);
+
+  function selectLibrary(libraryId: string) {
+    setPressedLibraryId(libraryId);
+    onSelectLibrary(libraryId);
+
+    window.setTimeout(() => {
+      setPressedLibraryId((current) =>
+        current === libraryId ? null : current,
+      );
+    }, 360);
+  }
 
   return (
     <section>
@@ -111,15 +122,16 @@ export function Libraries({
               <ul className={styles.list}>
                 {filteredLibraries.map((library) => {
                   const selected = library.id === selectedLibraryId;
+                  const pressed = library.id === pressedLibraryId;
 
                   return (
-                    <li key={library.id}>
+                    <li key={library.id} className={styles.item}>
                       <button
                         className={`${styles.row} ${
                           selected ? styles.rowActive : ""
-                        }`}
+                        } ${pressed ? styles.rowPressed : ""}`}
                         type="button"
-                        onClick={() => onSelectLibrary(library.id)}
+                        onClick={() => selectLibrary(library.id)}
                         aria-current={selected ? "page" : undefined}
                       >
                         <span className={styles.libraryGlyph} aria-hidden>

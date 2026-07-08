@@ -3,18 +3,19 @@
   --sidebar-overshoot-buffer: 44px;
 
   position: fixed;
-  top: 0;
+  top: var(--topbar-height);
   left: calc(-1 * var(--sidebar-overshoot-buffer));
-  height: 100dvh;
+  height: calc(100dvh - var(--topbar-height));
   width: calc(var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer));
   background: var(--sidebar-bg);
-  box-shadow: 3px 0 12px rgba(0, 0, 0, 0.45);
+  border-top: 1px solid var(--sidebar-border);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.42);
   overflow: hidden;
   z-index: var(--z-sidebar);
   transform: translateX(0);
   transition:
-    transform var(--dur-slow) var(--ease-bouncy),
-    box-shadow 160ms ease;
+    transform 520ms cubic-bezier(0.18, 1.22, 0.32, 1),
+    box-shadow 220ms ease;
   will-change: transform;
 }
 
@@ -23,48 +24,37 @@
     calc(-1 * (var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer)))
   );
   pointer-events: none;
+  box-shadow: none;
 }
 
 .sidebarPanel {
   position: absolute;
   top: 0;
   right: 0;
-  height: 100dvh;
+  height: calc(100dvh - var(--topbar-height));
   width: var(--sidebar-panel-width);
   overflow: hidden;
   background: var(--sidebar-bg);
-}
-
-.scrollArea {
-  height: calc(100dvh - var(--topbar-height));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-bottom: 16px;
+  border-right: 1px solid var(--sidebar-border);
 }
 
 .topRow {
+  height: 54px;
   display: flex;
   align-items: center;
-  height: var(--topbar-height);
-  gap: 12px;
-  padding: 12px;
+  justify-content: flex-end;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent),
+    var(--sidebar-bg);
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.title {
-  font-size: 22px;
-  font-family: "IM Fell English SC", serif;
-  font-weight: 600;
-  line-height: 1;
-  color: var(--topbar-title);
-  margin: 0;
-  white-space: nowrap;
+.scrollArea {
+  height: calc(100% - 54px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 0 16px;
 }
 
 .collapseBtn,
@@ -73,7 +63,7 @@
   height: var(--sidebar-collapse-btn-size);
   border-radius: var(--r-pill);
   color: var(--app-text);
-  background: transparent;
+  background: rgba(16, 15, 13, 0.88);
   border: 1px solid var(--sidebar-btn-border);
   cursor: pointer;
   display: inline-flex;
@@ -83,12 +73,16 @@
   font-size: 1.6rem;
   transition:
     transform var(--dur-base) var(--ease-standard-inout),
-    background var(--dur-base);
+    background var(--dur-base),
+    border-color var(--dur-base),
+    box-shadow var(--dur-base);
 }
 
 .collapseBtn:hover {
   background: var(--sidebar-reveal-hover);
-  transform: scale(1.12) rotate(4deg);
+  border-color: rgba(143, 122, 223, 0.32);
+  transform: scale(1.08) rotate(4deg);
+  box-shadow: var(--shadow-soft);
 }
 
 .revealBtn {
@@ -98,11 +92,13 @@
   z-index: var(--z-reveal);
   background: var(--sidebar-bg);
   box-shadow: var(--shadow-soft);
+  animation: revealButtonIn 260ms cubic-bezier(0.18, 1.22, 0.32, 1) both;
 }
 
 .revealBtn:hover {
   background: var(--sidebar-reveal-hover);
-  transform: scale(1.15) rotate(-6deg);
+  border-color: rgba(143, 122, 223, 0.32);
+  transform: scale(1.12) rotate(-6deg);
 }
 
 .groupHeader {
@@ -172,13 +168,28 @@
   border: 1px dashed rgba(255, 255, 255, 0.12);
 }
 
+@keyframes revealButtonIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
 @media (max-width: 900px) {
   .sidebarShell {
     --sidebar-overshoot-buffer: 36px;
+    top: var(--topbar-height);
+    height: calc(100dvh - var(--topbar-height));
   }
 
   .sidebarPanel {
     width: min(80vw, 320px);
+    height: calc(100dvh - var(--topbar-height));
   }
 }
 

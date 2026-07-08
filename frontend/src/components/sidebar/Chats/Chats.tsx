@@ -1,4 +1,3 @@
-// frontend/src/components/sidebar/Chats/Chats.tsx
 import { useState } from "react";
 import { ChevronRight, MessageSquareText, Sparkles } from "lucide-react";
 import styles from "./Chats.module.css";
@@ -30,6 +29,16 @@ const mockChats: ChatListItem[] = [
 export function Chats() {
   const [chatsOpen, setChatsOpen] = useState(true);
   const [allChatsOpen, setAllChatsOpen] = useState(true);
+  const [pressedChatId, setPressedChatId] = useState<string | null>(null);
+
+  function selectChat(chatId: string) {
+    setPressedChatId(chatId);
+    console.log("Open chat", chatId);
+
+    window.setTimeout(() => {
+      setPressedChatId((current) => (current === chatId ? null : current));
+    }, 360);
+  }
 
   return (
     <section>
@@ -80,24 +89,30 @@ export function Chats() {
           >
             {mockChats.length ? (
               <ul className={styles.list}>
-                {mockChats.map((chat) => (
-                  <li key={chat.id}>
-                    <button
-                      className={styles.row}
-                      type="button"
-                      onClick={() => console.log("Open chat", chat.id)}
-                    >
-                      <span className={styles.chatGlyph} aria-hidden>
-                        <Sparkles size={18} strokeWidth={2.15} />
-                      </span>
+                {mockChats.map((chat) => {
+                  const pressed = chat.id === pressedChatId;
 
-                      <span className={styles.meta}>
-                        <span className={styles.name}>{chat.title}</span>
-                        <span className={styles.sub}>{chat.subtitle}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                  return (
+                    <li key={chat.id} className={styles.item}>
+                      <button
+                        className={`${styles.row} ${
+                          pressed ? styles.rowPressed : ""
+                        }`}
+                        type="button"
+                        onClick={() => selectChat(chat.id)}
+                      >
+                        <span className={styles.chatGlyph} aria-hidden>
+                          <Sparkles size={18} strokeWidth={2.15} />
+                        </span>
+
+                        <span className={styles.meta}>
+                          <span className={styles.name}>{chat.title}</span>
+                          <span className={styles.sub}>{chat.subtitle}</span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <div className={styles.empty}>No chats yet.</div>
