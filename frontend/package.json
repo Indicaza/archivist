@@ -6,7 +6,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite",
     "electron": "electron .",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

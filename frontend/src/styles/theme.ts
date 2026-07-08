@@ -1,15 +1,16 @@
+// frontend/src/styles/theme.ts
 export const theme = {
   layout: {
-    topbarHeight: "80px",
+    topbarHeight: "75px",
     sidebarWidth: "300px",
     sidebarPanelWidth: "300px",
     inspectorWidth: "320px",
     contentMaxWidth: "920px",
     viewportMobile: "900px",
     zIndex: {
-      sidebar: 25,
-      topbar: 15,
-      revealBtn: 30,
+      sidebar: 10,
+      topbar: 30,
+      revealBtn: 20,
       inspector: 20,
       modal: 50,
       toast: 60,

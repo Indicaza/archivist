@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { SendHorizontal, Sparkles } from "lucide-react";
+import type { LibraryListItem } from "../../domains/library/library.types";
 import styles from "./ChatWindow.module.css";
 
 type ChatRole = "user" | "assistant" | "system";
@@ -23,7 +24,8 @@ type MessageBlock =
       id: string;
       type: "contextPacket";
       title: string;
-      lines: string[];
+      lines?: string[];
+      dynamic?: "activeLibrary";
     };
 
 type ChatMessage = {
@@ -35,6 +37,7 @@ type ChatMessage = {
 
 type ChatWindowProps = {
   scrollContainerRef: RefObject<HTMLElement | null>;
+  selectedLibrary: LibraryListItem | null;
 };
 
 const starterMessages: ChatMessage[] = [
@@ -60,18 +63,13 @@ const starterMessages: ChatMessage[] = [
         id: "assistant-intro-block",
         type: "markdown",
         content:
-          "Add a Library when you are ready. Soon I will be able to scan folders, read the wiki, show sources, and propose careful changes.",
+          "Choose a Library when you are ready. Soon I will be able to scan folders, read the wiki, show sources, and propose careful changes.",
       },
       {
         id: "assistant-context-block",
         type: "contextPacket",
-        title: "Mock Context Packet",
-        lines: [
-          "Library: none selected",
-          "Profile: Archivist",
-          "Mode: Main Timeline",
-          "Provider: mock",
-        ],
+        title: "Current Context",
+        dynamic: "activeLibrary",
       },
     ],
   },
@@ -94,7 +92,10 @@ function scrollToBottom(
   });
 }
 
-export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
+export function ChatWindow({
+  scrollContainerRef,
+  selectedLibrary,
+}: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
   const [input, setInput] = useState("");
   const [grown, setGrown] = useState(false);
@@ -106,9 +107,19 @@ export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
 
   const hasMessages = messages.length > 0;
 
+  const activeLibraryLines = useMemo(() => {
+    return [
+      `Library: ${selectedLibrary ? selectedLibrary.name : "none selected"}`,
+      `Status: ${selectedLibrary ? selectedLibrary.status : "idle"}`,
+      "Profile: Archivist",
+      "Mode: Main Timeline",
+      "Provider: mock",
+    ];
+  }, [selectedLibrary]);
+
   const canSend = useMemo(() => {
-    return input.trim().length > 0 && !sending;
-  }, [input, sending]);
+    return input.trim().length > 0 && !sending && Boolean(selectedLibrary);
+  }, [input, sending, selectedLibrary]);
 
   function resizeTextarea() {
     const textarea = textareaRef.current;
@@ -121,7 +132,7 @@ export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
 
   async function send() {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || !selectedLibrary) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -151,8 +162,13 @@ export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
           {
             id: crypto.randomUUID(),
             type: "markdown",
-            content:
-              "Mock response received. Later this will route through the Context Compiler, AI Harness, source cards, proposals, and tool calls.",
+            content: `Mock response received inside ${selectedLibrary.name}. Later this will route through the Context Compiler, AI Harness, source cards, proposals, and tool calls.`,
+          },
+          {
+            id: crypto.randomUUID(),
+            type: "contextPacket",
+            title: "Context Used",
+            lines: activeLibraryLines,
           },
         ],
       };
@@ -172,6 +188,16 @@ export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
       event.preventDefault();
       void send();
     }
+  }
+
+  function getContextLines(block: MessageBlock): string[] {
+    if (block.type !== "contextPacket") return [];
+
+    if (block.dynamic === "activeLibrary") {
+      return activeLibraryLines;
+    }
+
+    return block.lines ?? [];
   }
 
   useEffect(() => {
@@ -244,7 +270,7 @@ export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
                             {block.title}
                           </div>
                           <ul className={styles.contextList}>
-                            {block.lines.map((line) => (
+                            {getContextLines(block).map((line) => (
                               <li key={line}>{line}</li>
                             ))}
                           </ul>
@@ -285,10 +311,14 @@ export function ChatWindow({ scrollContainerRef }: ChatWindowProps) {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Message Archivist..."
+              placeholder={
+                selectedLibrary
+                  ? `Message ${selectedLibrary.name}...`
+                  : "Choose a Library..."
+              }
               autoComplete="off"
               rows={1}
-              disabled={sending}
+              disabled={sending || !selectedLibrary}
             />
 
             <button
