@@ -1,33 +1,25 @@
+/* frontend/src/App.css */
 .app-main {
-  min-height: 100dvh;
+  height: 100dvh;
   padding-top: var(--topbar-height);
   background: var(--workspace-bg);
   color: var(--app-text);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scroll-padding-top: var(--topbar-height);
 }
 
 .app-main-inner {
   min-height: calc(100dvh - var(--topbar-height));
-  padding: var(--workspace-padding);
-  padding-left: calc(var(--sidebar-width) + var(--workspace-padding));
   background:
-    radial-gradient(
-      circle at top right,
-      var(--app-accent-soft),
-      transparent 32%
+    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 26%),
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.18),
+      transparent 18%,
+      transparent 82%,
+      rgba(0, 0, 0, 0.12)
     ),
     var(--workspace-bg);
-  transition: padding-left var(--dur-base) var(--ease-standard-inout);
-}
-
-@media (max-width: 900px) {
-  .app-main-inner {
-    padding-left: var(--workspace-padding);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-main-inner {
-    transition: none;
-  }
 }

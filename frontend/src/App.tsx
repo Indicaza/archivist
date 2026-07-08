@@ -1,10 +1,13 @@
-import { useState } from "react";
+// frontend/src/App.tsx
+import { useRef, useState } from "react";
+import { ChatWindow } from "./components/chat/ChatWindow";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Topbar } from "./components/topbar/Topbar";
 import "./App.css";
 
 export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const appMainRef = useRef<HTMLElement | null>(null);
 
   return (
     <>
@@ -15,8 +18,10 @@ export function App() {
 
       <Topbar />
 
-      <main className="app-main">
-        <div className="app-main-inner">Archivist workspace goes here.</div>
+      <main ref={appMainRef} className="app-main">
+        <div className="app-main-inner">
+          <ChatWindow scrollContainerRef={appMainRef} />
+        </div>
       </main>
     </>
   );

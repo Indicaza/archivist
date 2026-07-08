@@ -1,0 +1,296 @@
+/* frontend/src/components/chat/ChatWindow.module.css */
+.chatWindow {
+  min-height: calc(100dvh - var(--topbar-height));
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.chatContent {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-height));
+}
+
+.messages {
+  flex: 1;
+  padding: 38px var(--workspace-padding) 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  overflow: visible;
+}
+
+.emptyState {
+  flex: 1;
+  min-height: 50dvh;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  color: var(--workspace-empty-text);
+  font-size: 15px;
+  opacity: 0.85;
+  text-align: center;
+  padding: 20px;
+}
+
+.message {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: messageIn 180ms var(--ease-standard-inout) forwards;
+}
+
+.user {
+  align-items: flex-end;
+}
+
+.assistant,
+.system {
+  align-items: stretch;
+}
+
+.messageMeta {
+  padding: 0 4px;
+}
+
+.user .messageMeta {
+  width: min(640px, 78%);
+  align-self: flex-end;
+}
+
+.assistant .messageMeta,
+.system .messageMeta {
+  width: 100%;
+}
+
+.roleLabel {
+  font-size: 10px;
+  color: var(--app-muted-text);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.user .roleLabel {
+  display: block;
+  text-align: right;
+}
+
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.user .blocks {
+  width: min(640px, 78%);
+  align-self: flex-end;
+}
+
+.assistant .blocks,
+.system .blocks {
+  width: 100%;
+}
+
+.markdownBlock {
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  padding: var(--message-padding);
+  border-radius: var(--message-radius);
+  color: var(--message-assistant-text);
+  background: var(--artifact-card-bg);
+  border: 1px solid var(--artifact-card-border);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 rgba(255, 250, 240, 0.04);
+}
+
+.user .markdownBlock {
+  color: var(--message-user-text);
+  background:
+    linear-gradient(90deg, transparent, rgba(196, 154, 90, 0.035)),
+    var(--message-user-bg);
+  border-color: var(--message-user-border);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(255, 250, 240, 0.03);
+}
+
+.assistant .markdownBlock {
+  color: var(--message-assistant-text);
+  background:
+    linear-gradient(
+      90deg,
+      rgba(143, 122, 223, 0.2) 0,
+      rgba(143, 122, 223, 0.09) 4px,
+      transparent 4px
+    ),
+    var(--message-assistant-bg);
+  border-color: var(--message-assistant-border);
+  box-shadow:
+    var(--shadow-card-lift),
+    inset 0 1px 0 rgba(255, 250, 240, 0.045);
+}
+
+.system .markdownBlock {
+  color: var(--message-system-text);
+  background: var(--message-system-bg);
+  border-color: rgba(196, 154, 90, 0.16);
+}
+
+.contextPacket {
+  padding: 12px 14px;
+  border-radius: var(--artifact-card-radius);
+  background: var(--artifact-source-bg);
+  border: 1px solid var(--artifact-source-border);
+  color: var(--artifact-system-text);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(255, 250, 240, 0.025);
+}
+
+.contextTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.contextList {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--app-muted-text);
+}
+
+.typing {
+  width: fit-content;
+  padding: var(--message-padding);
+  border-radius: var(--message-radius);
+  background: var(--message-assistant-bg);
+  color: var(--message-assistant-text);
+  border: 1px solid var(--message-assistant-border);
+  box-shadow: var(--shadow-card);
+  opacity: 0.85;
+}
+
+.composer {
+  position: sticky;
+  bottom: 18px;
+  max-width: var(--content-max-width);
+  width: 100%;
+  margin-top: auto;
+  padding: 0 var(--composer-padding-x) 18px;
+  z-index: var(--z-composer);
+  pointer-events: none;
+}
+
+.composerInner {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+  background: var(--composer-bg);
+  border: 1px solid var(--composer-ring);
+  box-shadow:
+    0 22px 54px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 250, 240, 0.045);
+  transition:
+    border-color var(--dur-base) var(--ease-standard-inout),
+    border-radius var(--dur-base) var(--ease-standard-inout),
+    box-shadow var(--dur-base) var(--ease-standard-inout);
+  padding: 6px var(--composer-padding-right-reserve) 6px
+    var(--composer-padding-x);
+  border-radius: var(--composer-pill-radius);
+}
+
+.composerInner:focus-within {
+  border-color: var(--composer-ring-focus);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.64),
+    0 0 0 1px rgba(143, 122, 223, 0.14),
+    inset 0 1px 0 rgba(255, 250, 240, 0.055);
+}
+
+.composerInner.grown {
+  border-radius: var(--composer-grown-radius);
+}
+
+.composerInput {
+  flex: 1;
+  resize: none;
+  overflow-y: auto;
+  max-height: var(--composer-max-height);
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--composer-input-text);
+  font: inherit;
+  line-height: 1.5;
+  padding: 8px 0;
+}
+
+.composerInput::placeholder {
+  color: var(--composer-placeholder);
+}
+
+.composerButton {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  width: var(--composer-send-size);
+  height: var(--composer-send-size);
+  border-radius: 50%;
+  background: linear-gradient(
+    180deg,
+    var(--composer-send-bg),
+    var(--composer-send-bg-hover)
+  );
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform var(--dur-fast) var(--ease-standard-inout),
+    opacity var(--dur-fast);
+}
+
+.composerButton:hover:not(:disabled) {
+  transform: scale(1.07);
+}
+
+.composerButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@keyframes messageIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message,
+  .composerButton,
+  .composerInner {
+    animation: none;
+    transition: none;
+  }
+}

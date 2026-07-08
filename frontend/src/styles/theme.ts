@@ -1,7 +1,8 @@
 export const theme = {
   layout: {
     topbarHeight: "80px",
-    sidebarWidth: "260px",
+    sidebarWidth: "300px",
+    sidebarPanelWidth: "300px",
     inspectorWidth: "320px",
     contentMaxWidth: "920px",
     viewportMobile: "900px",
@@ -12,6 +13,7 @@ export const theme = {
       inspector: 20,
       modal: 50,
       toast: 60,
+      composer: 12,
     },
     radii: {
       sm: "8px",
@@ -22,12 +24,14 @@ export const theme = {
       round: "999px",
     },
     shadows: {
-      soft: "2px 2px 10px 1px rgba(0,0,0,0.75)",
-      panel: "0 12px 32px rgba(0,0,0,0.32)",
-      insetThin: "inset 0 0 0 1px #141414",
-      avatar: "3px 3px 3px rgba(1,1,1,0.95)",
-      modal: "0 12px 30px rgba(0,0,0,0.4)",
-      glow: "0 0 24px rgba(125, 92, 255, 0.16)",
+      soft: "0 10px 26px rgba(0, 0, 0, 0.46)",
+      panel: "0 18px 46px rgba(0, 0, 0, 0.44)",
+      card: "0 16px 34px rgba(0, 0, 0, 0.48)",
+      cardLift: "0 22px 52px rgba(0, 0, 0, 0.58)",
+      insetThin: "inset 0 0 0 1px rgba(255,255,255,0.035)",
+      avatar: "0 8px 20px rgba(0,0,0,0.48)",
+      modal: "0 18px 44px rgba(0,0,0,0.52)",
+      glow: "0 0 24px rgba(143, 122, 223, 0.14)",
     },
   },
 
@@ -40,98 +44,102 @@ export const theme = {
     easings: {
       standard: "ease",
       standardInOut: "cubic-bezier(0.4, 0, 0.2, 1)",
-      bouncy: "cubic-bezier(0.68, -0.55, 0.27, 1.5)",
-      springy: "cubic-bezier(0.25, 1.25, 0.5, 1)",
+      bouncy: "cubic-bezier(0.22, 1.18, 0.36, 1)",
+      springy: "cubic-bezier(0.25, 1.08, 0.5, 1)",
     },
     anim: {
-      popStartY: "50px",
-      popOvershootY: "-10px",
-      popStartScale: "0.95",
-      popOvershootScale: "1.025",
+      popStartY: "10px",
+      popOvershootY: "-2px",
+      popStartScale: "0.99",
+      popOvershootScale: "1.006",
     },
   },
 
   colors: {
     app: {
-      bg: "#171717",
-      bgDeep: "#0f1115",
-      text: "#e5e7eb",
-      mutedText: "#94a3b8",
-      border: "rgba(83,83,83,0.75)",
-      accent: "#8b5cf6",
-      accentSoft: "rgba(139, 92, 246, 0.16)",
-      success: "#22c55e",
-      warning: "#f59e0b",
-      danger: "#ef4444",
+      bg: "#11100e",
+      bgDeep: "#090908",
+      text: "#eee8dc",
+      mutedText: "#a79d8e",
+      border: "rgba(214, 198, 170, 0.16)",
+      accent: "#8f7adf",
+      accentSoft: "rgba(143, 122, 223, 0.13)",
+      success: "#7fa878",
+      warning: "#c49a5a",
+      danger: "#c85f5f",
     },
 
     topbar: {
-      bg: "#181818",
-      border: "rgba(83,83,83,0.75)",
-      title: "#ffffff",
-      subtitle: "#94a3b8",
+      bg: "#12110f",
+      border: "rgba(214, 198, 170, 0.14)",
+      title: "#f6efe4",
+      subtitle: "#a79d8e",
     },
 
     sidebar: {
-      bg: "#181818",
-      border: "rgba(83,83,83,0.75)",
-      hover: "#111827",
-      active: "#0b1222",
-      title: "#94a3b8",
-      dotOnline: "#22c55e",
-      revealHover: "#273244",
-      btnBorder: "#334155",
+      bg: "#100f0d",
+      border: "rgba(214, 198, 170, 0.12)",
+      hover: "rgba(246, 239, 228, 0.045)",
+      active: "rgba(143, 122, 223, 0.12)",
+      title: "#a79d8e",
+      dotOnline: "#7fa878",
+      revealHover: "rgba(143, 122, 223, 0.14)",
+      btnBorder: "rgba(214, 198, 170, 0.22)",
     },
 
     workspace: {
-      bg: "#212121",
-      panelBg: "#181818",
-      panelBorder: "rgba(83,83,83,0.75)",
-      emptyText: "#94a3b8",
+      bg: "#151410",
+      bgDeep: "#0d0c0a",
+      panelBg: "rgba(34, 31, 26, 0.82)",
+      panelBorder: "rgba(214, 198, 170, 0.16)",
+      emptyText: "#a79d8e",
     },
 
     artifactStream: {
-      systemBg: "#1f2937",
-      systemText: "#cbd5e1",
-      cardBg: "#20242c",
-      cardBorder: "#101010",
-      cardShadow: "2px 2px 10px 1px rgba(0,0,0,0.65)",
-      sourceBg: "#111827",
-      sourceBorder: "#334155",
+      systemBg: "rgba(35, 32, 27, 0.78)",
+      systemText: "#d0c5b4",
+      cardBg: "rgba(34, 31, 26, 0.86)",
+      cardBgLifted: "rgba(42, 38, 31, 0.9)",
+      cardBorder: "rgba(214, 198, 170, 0.14)",
+      cardShadow: "0 16px 34px rgba(0, 0, 0, 0.48)",
+      sourceBg: "rgba(18, 17, 15, 0.74)",
+      sourceBorder: "rgba(196, 154, 90, 0.24)",
     },
 
     messages: {
-      userBg: "#1d4ed8",
-      userText: "#e6eeff",
-      assistantBg: "#0f766e",
-      assistantText: "#eafffa",
-      systemBg: "#1f2937",
-      systemText: "#cbd5e1",
+      userBg: "rgba(24, 23, 20, 0.82)",
+      userText: "#eee8dc",
+      userBorder: "rgba(214, 198, 170, 0.16)",
+      assistantBg: "rgba(38, 35, 29, 0.9)",
+      assistantText: "#f3eadb",
+      assistantBorder: "rgba(214, 198, 170, 0.18)",
+      systemBg: "rgba(35, 32, 27, 0.7)",
+      systemText: "#d0c5b4",
     },
 
     composer: {
-      bg: "#303030",
-      ring: "#1f2937",
-      ringFocus: "#334155",
-      inputText: "#e5e7eb",
-      placeholder: "#94a3b8",
-      sendBg: "#2563eb",
-      sendBgHover: "#1d4ed8",
+      bg: "rgba(29, 27, 23, 0.96)",
+      ring: "rgba(214, 198, 170, 0.18)",
+      ringFocus: "rgba(143, 122, 223, 0.45)",
+      inputText: "#eee8dc",
+      placeholder: "#918779",
+      sendBg: "#6f5bb8",
+      sendBgHover: "#8f7adf",
     },
 
     inspector: {
-      bg: "#181818",
-      border: "rgba(83,83,83,0.75)",
-      title: "#ffffff",
-      text: "#cbd5e1",
-      mutedText: "#94a3b8",
-      chipBg: "#111827",
-      chipBorder: "#334155",
+      bg: "#100f0d",
+      border: "rgba(214, 198, 170, 0.12)",
+      title: "#f6efe4",
+      text: "#d0c5b4",
+      mutedText: "#a79d8e",
+      chipBg: "rgba(246, 239, 228, 0.045)",
+      chipBorder: "rgba(214, 198, 170, 0.16)",
     },
 
     modal: {
-      bg: "#ffffff",
-      text: "#0f172a",
+      bg: "#fffaf0",
+      text: "#221f1a",
     },
   },
 
@@ -158,16 +166,16 @@ export const theme = {
     gap: "12px",
     padding: "16px",
     cardPadding: "14px 18px",
-    cardRadius: "14px",
+    cardRadius: "16px",
   },
 
   messages: {
     maxWidth: "760px",
-    relativeMax: "85%",
-    radius: "14px",
-    padding: "12px 22px",
-    tailSize: "15px",
-    tailWidth: "10px",
+    relativeMax: "92%",
+    radius: "16px",
+    padding: "14px 18px",
+    tailSize: "0px",
+    tailWidth: "0px",
   },
 
   composer: {
@@ -175,7 +183,7 @@ export const theme = {
     paddingX: "16px",
     paddingRightReserve: "56px",
     pillRadius: "100px",
-    grownRadius: "14px",
+    grownRadius: "16px",
     sendSize: "42px",
     sendFontSize: "1.1rem",
   },
@@ -192,6 +200,7 @@ export function applyTheme(t: typeof theme = theme): void {
 
   set("--topbar-height", t.layout.topbarHeight);
   set("--sidebar-width", t.layout.sidebarWidth);
+  set("--sidebar-panel-width", t.layout.sidebarPanelWidth);
   set("--inspector-width", t.layout.inspectorWidth);
   set("--content-max-width", t.layout.contentMaxWidth);
   set("--viewport-mobile", t.layout.viewportMobile);
@@ -202,6 +211,7 @@ export function applyTheme(t: typeof theme = theme): void {
   set("--z-inspector", t.layout.zIndex.inspector);
   set("--z-modal", t.layout.zIndex.modal);
   set("--z-toast", t.layout.zIndex.toast);
+  set("--z-composer", t.layout.zIndex.composer);
 
   set("--r-sm", t.layout.radii.sm);
   set("--r-md", t.layout.radii.md);
@@ -212,6 +222,8 @@ export function applyTheme(t: typeof theme = theme): void {
 
   set("--shadow-soft", t.layout.shadows.soft);
   set("--shadow-panel", t.layout.shadows.panel);
+  set("--shadow-card", t.layout.shadows.card);
+  set("--shadow-card-lift", t.layout.shadows.cardLift);
   set("--shadow-inset-thin", t.layout.shadows.insetThin);
   set("--shadow-avatar", t.layout.shadows.avatar);
   set("--shadow-modal", t.layout.shadows.modal);
