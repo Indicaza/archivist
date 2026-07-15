@@ -139,8 +139,16 @@ export const theme = {
     },
 
     modal: {
-      bg: "#fffaf0",
-      text: "#221f1a",
+      overlay: "rgba(5, 5, 4, 0.72)",
+      bg: "rgba(24, 22, 18, 0.98)",
+      surface: "rgba(34, 31, 26, 0.9)",
+      surfaceHover: "rgba(42, 38, 31, 0.94)",
+      text: "#f3eadb",
+      mutedText: "#a79d8e",
+      border: "rgba(214, 198, 170, 0.16)",
+      inputBg: "rgba(13, 12, 10, 0.72)",
+      dangerSoft: "rgba(200, 95, 95, 0.12)",
+      dangerBorder: "rgba(200, 95, 95, 0.3)",
     },
   },
 

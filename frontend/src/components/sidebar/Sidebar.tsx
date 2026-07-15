@@ -1,16 +1,22 @@
-// frontend/src/components/sidebar/Sidebar.tsx
 import { useEffect, useState } from "react";
-import styles from "./Sidebar.module.css";
+import { ChevronLeft, ChevronRight, UserRoundCog, Wrench } from "lucide-react";
+import type { LibraryListItem } from "../../domains/library/library.types";
 import { Chats } from "./Chats/Chats";
 import { Libraries } from "./Libraries/Libraries";
-import type { LibraryListItem } from "../../domains/library/library.types";
-import { ChevronLeft, ChevronRight, UserRoundCog, Wrench } from "lucide-react";
+import styles from "./Sidebar.module.css";
 
 type SidebarProps = {
   collapsed?: boolean;
   libraries: LibraryListItem[];
+  archivedLibraries: LibraryListItem[];
   selectedLibraryId: string | null;
+  loadingLibraries: boolean;
+  addingLibrary: boolean;
+  restoringLibraryId: string | null;
   onSelectLibrary: (libraryId: string) => void;
+  onAddLibrary: () => void;
+  onManageLibrary: (libraryId: string) => void;
+  onRestoreLibrary: (libraryId: string) => void;
   onToggle: () => void;
 };
 
@@ -20,8 +26,15 @@ const SIDEBAR_COLLAPSED_WIDTH = 0;
 export function Sidebar({
   collapsed = false,
   libraries,
+  archivedLibraries,
   selectedLibraryId,
+  loadingLibraries,
+  addingLibrary,
+  restoringLibraryId,
   onSelectLibrary,
+  onAddLibrary,
+  onManageLibrary,
+  onRestoreLibrary,
   onToggle,
 }: SidebarProps) {
   const [profilesOpen, setProfilesOpen] = useState(false);
@@ -74,9 +87,15 @@ export function Sidebar({
           <div className={styles.scrollArea}>
             <Libraries
               libraries={libraries}
+              archivedLibraries={archivedLibraries}
               selectedLibraryId={selectedLibraryId}
+              loading={loadingLibraries}
+              adding={addingLibrary}
+              restoringLibraryId={restoringLibraryId}
               onSelectLibrary={onSelectLibrary}
-              onAddLibrary={() => console.log("Add Library")}
+              onAddLibrary={onAddLibrary}
+              onManageLibrary={onManageLibrary}
+              onRestoreLibrary={onRestoreLibrary}
             />
 
             <Chats />

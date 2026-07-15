@@ -1,24 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, ChevronRight, Library, Plus } from "lucide-react";
-import { SidebarButton } from "../SidebarButton/SidebarButton";
+import {
+  ArchiveRestore,
+  BookOpen,
+  ChevronRight,
+  FolderArchive,
+  Library,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import type { LibraryListItem } from "../../../domains/library/library.types";
+import { SidebarButton } from "../SidebarButton/SidebarButton";
 import styles from "./Libraries.module.css";
 
 type LibrariesProps = {
   libraries: LibraryListItem[];
+  archivedLibraries: LibraryListItem[];
   selectedLibraryId: string | null;
+  loading: boolean;
+  adding: boolean;
+  restoringLibraryId: string | null;
   onSelectLibrary: (libraryId: string) => void;
   onAddLibrary: () => void;
+  onManageLibrary: (libraryId: string) => void;
+  onRestoreLibrary: (libraryId: string) => void;
 };
 
 export function Libraries({
   libraries,
+  archivedLibraries,
   selectedLibraryId,
+  loading,
+  adding,
+  restoringLibraryId,
   onSelectLibrary,
   onAddLibrary,
+  onManageLibrary,
+  onRestoreLibrary,
 }: LibrariesProps) {
   const [librariesOpen, setLibrariesOpen] = useState(true);
   const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
+  const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
@@ -32,15 +53,30 @@ export function Libraries({
   }, [search]);
 
   const filteredLibraries = useMemo(() => {
-    if (!debouncedSearch) return libraries;
+    if (!debouncedSearch) {
+      return libraries;
+    }
 
     return libraries.filter((library) => {
       const haystack =
-        `${library.name} ${library.subtitle} ${library.status}`.toLowerCase();
+        `${library.name} ${library.subtitle} ${library.rootPath}`.toLowerCase();
 
       return haystack.includes(debouncedSearch);
     });
   }, [debouncedSearch, libraries]);
+
+  const filteredArchivedLibraries = useMemo(() => {
+    if (!debouncedSearch) {
+      return archivedLibraries;
+    }
+
+    return archivedLibraries.filter((library) => {
+      const haystack =
+        `${library.name} ${library.subtitle} ${library.rootPath}`.toLowerCase();
+
+      return haystack.includes(debouncedSearch);
+    });
+  }, [archivedLibraries, debouncedSearch]);
 
   function selectLibrary(libraryId: string) {
     setPressedLibraryId(libraryId);
@@ -50,7 +86,7 @@ export function Libraries({
       setPressedLibraryId((current) =>
         current === libraryId ? null : current,
       );
-    }, 360);
+    }, 240);
   }
 
   return (
@@ -68,6 +104,7 @@ export function Libraries({
             librariesOpen ? styles.caretOpen : styles.caretClosed
           }`}
         />
+
         <Library size={16} strokeWidth={2.1} />
         <span>Libraries</span>
       </div>
@@ -80,7 +117,7 @@ export function Libraries({
         <div className={styles.groupInner}>
           <div className={styles.actionsAreaTop}>
             <SidebarButton
-              label="Add Library"
+              label={adding ? "Adding Library..." : "Add Library"}
               icon={<Plus size={16} strokeWidth={2.25} />}
               onClick={onAddLibrary}
             />
@@ -93,6 +130,7 @@ export function Libraries({
               onChange={(event) => setSearch(event.target.value)}
               type="text"
               placeholder="Search libraries..."
+              disabled={loading}
             />
           </div>
 
@@ -109,6 +147,7 @@ export function Libraries({
                 allLibrariesOpen ? styles.caretOpen : styles.caretClosed
               }`}
             />
+
             <BookOpen size={16} strokeWidth={2.1} />
             <span>All Libraries</span>
           </div>
@@ -118,10 +157,13 @@ export function Libraries({
               allLibrariesOpen ? styles.open : styles.closed
             }`}
           >
-            {filteredLibraries.length ? (
+            {loading ? (
+              <div className={styles.empty}>Loading Libraries...</div>
+            ) : filteredLibraries.length ? (
               <ul className={styles.list}>
                 {filteredLibraries.map((library) => {
                   const selected = library.id === selectedLibraryId;
+
                   const pressed = library.id === pressedLibraryId;
 
                   return (
@@ -140,16 +182,19 @@ export function Libraries({
 
                         <span className={styles.meta}>
                           <span className={styles.name}>{library.name}</span>
+
                           <span className={styles.sub}>{library.subtitle}</span>
                         </span>
+                      </button>
 
-                        <span
-                          className={`${styles.statusDot} ${
-                            styles[library.status]
-                          }`}
-                          title={library.status}
-                          aria-label={library.status}
-                        />
+                      <button
+                        className={styles.manageButton}
+                        type="button"
+                        onClick={() => onManageLibrary(library.id)}
+                        aria-label={`Manage ${library.name}`}
+                        title="Manage Library"
+                      >
+                        <Pencil size={13} strokeWidth={2.2} />
                       </button>
                     </li>
                   );
@@ -157,7 +202,90 @@ export function Libraries({
               </ul>
             ) : (
               <div className={styles.empty}>
-                No Libraries match your search.
+                {debouncedSearch
+                  ? "No active Libraries match your search."
+                  : "No active Libraries yet."}
+              </div>
+            )}
+          </div>
+
+          <div
+            className={`${styles.subHeader} ${styles.indent1}`}
+            onClick={() => setArchivedLibrariesOpen((value) => !value)}
+            role="button"
+            tabIndex={0}
+          >
+            <ChevronRight
+              size={16}
+              strokeWidth={2.25}
+              className={`${styles.caret} ${
+                archivedLibrariesOpen ? styles.caretOpen : styles.caretClosed
+              }`}
+            />
+
+            <FolderArchive size={16} strokeWidth={2.1} />
+            <span>Archived Libraries</span>
+
+            {archivedLibraries.length ? (
+              <span className={styles.archiveCount}>
+                {archivedLibraries.length}
+              </span>
+            ) : null}
+          </div>
+
+          <div
+            className={`${styles.subContent} ${styles.indent2} ${
+              archivedLibrariesOpen ? styles.open : styles.closed
+            }`}
+          >
+            {loading ? (
+              <div className={styles.empty}>Loading archived Libraries...</div>
+            ) : filteredArchivedLibraries.length ? (
+              <ul className={styles.list}>
+                {filteredArchivedLibraries.map((library) => {
+                  const restoring = restoringLibraryId === library.id;
+
+                  return (
+                    <li
+                      key={library.id}
+                      className={`${styles.item} ${styles.archivedItem}`}
+                    >
+                      <div className={`${styles.row} ${styles.archivedRow}`}>
+                        <span
+                          className={`${styles.libraryGlyph} ${styles.archivedGlyph}`}
+                          aria-hidden
+                        >
+                          {library.name.slice(0, 1)}
+                        </span>
+
+                        <span className={styles.meta}>
+                          <span className={styles.name}>{library.name}</span>
+
+                          <span className={styles.sub}>{library.subtitle}</span>
+                        </span>
+                      </div>
+
+                      <button
+                        className={styles.restoreButton}
+                        type="button"
+                        onClick={() => onRestoreLibrary(library.id)}
+                        disabled={restoringLibraryId !== null}
+                        aria-label={`Restore ${library.name}`}
+                        title="Restore Library"
+                      >
+                        <ArchiveRestore size={14} strokeWidth={2.2} />
+
+                        <span>{restoring ? "Restoring..." : "Restore"}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className={styles.empty}>
+                {debouncedSearch
+                  ? "No archived Libraries match your search."
+                  : "No archived Libraries."}
               </div>
             )}
           </div>

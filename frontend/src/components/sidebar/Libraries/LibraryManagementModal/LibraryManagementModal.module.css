@@ -1,0 +1,408 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(5, 5, 4, 0.84);
+  animation: backdropIn 90ms ease-out both;
+}
+
+.modal {
+  width: min(680px, 100%);
+  max-height: calc(100dvh - 56px);
+  overflow-y: auto;
+  contain: layout paint;
+  border: 1px solid var(--workspace-panel-border);
+  border-radius: var(--r-xl);
+  color: var(--app-text);
+  background: #181612;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  transform: translateZ(0);
+  animation: modalIn 100ms ease-out both;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 26px 20px;
+  border-bottom: 1px solid var(--workspace-panel-border);
+}
+
+.heading {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin-bottom: 5px;
+  color: var(--app-accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--topbar-title);
+  font-size: 24px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.closeButton {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--workspace-panel-border);
+  border-radius: var(--r-round);
+  color: var(--app-muted-text);
+  background: var(--artifact-card-bg);
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 180ms var(--ease-springy);
+}
+
+.closeButton:hover:not(:disabled) {
+  color: var(--app-text);
+  background: var(--artifact-card-bg-lifted);
+  border-color: rgba(143, 122, 223, 0.34);
+  transform: scale(1.05);
+}
+
+.closeButton:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 70ms;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 26px 26px;
+}
+
+.field {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.label {
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  border: 1px solid var(--workspace-panel-border);
+  border-radius: var(--r-md);
+  color: var(--app-text);
+  background: #0f0e0c;
+  font: inherit;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+
+.input {
+  height: 44px;
+  padding: 0 13px;
+}
+
+.textarea {
+  min-height: 108px;
+  padding: 12px 13px 28px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--app-muted-text);
+  opacity: 0.72;
+}
+
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--composer-ring-focus);
+  background: #12110e;
+  box-shadow: 0 0 0 2px rgba(143, 122, 223, 0.11);
+}
+
+.characterCount {
+  position: absolute;
+  right: 11px;
+  bottom: 8px;
+  color: var(--app-muted-text);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.detailsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.detailCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--workspace-panel-border);
+  border-radius: var(--r-md);
+  color: var(--app-muted-text);
+  background: #201d18;
+}
+
+.detailCard:first-child {
+  grid-column: 1 / -1;
+}
+
+.detailIcon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--app-accent);
+}
+
+.detailContent {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.detailLabel {
+  color: var(--app-muted-text);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.detailValue,
+.pathValue {
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.pathValue {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archiveNotice {
+  padding: 12px 14px;
+  border: 1px solid rgba(200, 95, 95, 0.3);
+  border-radius: var(--r-md);
+  color: #d9b0b0;
+  background: rgba(200, 95, 95, 0.1);
+  font-size: 12px;
+  line-height: 1.5;
+  animation: archiveNoticeIn 120ms ease-out both;
+}
+
+.archiveNoticeTitle {
+  margin-bottom: 3px;
+  color: #e2b5b5;
+  font-weight: 700;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+.primaryActions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.archiveButton,
+.cancelButton,
+.saveButton {
+  min-height: 40px;
+  border-radius: var(--r-md);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    transform 180ms var(--ease-springy),
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.archiveButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid rgba(200, 95, 95, 0.3);
+  color: var(--app-danger);
+  background: rgba(200, 95, 95, 0.1);
+}
+
+.archiveButtonConfirming {
+  border-color: rgba(200, 95, 95, 0.5);
+  color: #f0c1c1;
+  background: rgba(200, 95, 95, 0.18);
+}
+
+.cancelButton {
+  padding: 0 15px;
+  border: 1px solid var(--workspace-panel-border);
+  color: var(--app-muted-text);
+  background: transparent;
+}
+
+.saveButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid rgba(143, 122, 223, 0.38);
+  color: var(--app-text);
+  background: #6f5bb8;
+}
+
+.archiveButton:hover:not(:disabled),
+.cancelButton:hover:not(:disabled),
+.saveButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.archiveButton:hover:not(:disabled) {
+  border-color: rgba(200, 95, 95, 0.46);
+  background: rgba(200, 95, 95, 0.16);
+}
+
+.cancelButton:hover:not(:disabled) {
+  color: var(--app-text);
+  background: var(--artifact-card-bg);
+}
+
+.saveButton:hover:not(:disabled) {
+  background: var(--app-accent);
+}
+
+.archiveButton:active:not(:disabled),
+.cancelButton:active:not(:disabled),
+.saveButton:active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: 70ms;
+}
+
+.archiveButton:disabled,
+.cancelButton:disabled,
+.saveButton:disabled,
+.closeButton:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+@keyframes backdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes archiveNoticeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 620px) {
+  .backdrop {
+    padding: 14px;
+  }
+
+  .header,
+  .form {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .detailsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .detailCard:first-child {
+    grid-column: auto;
+  }
+
+  .footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .primaryActions {
+    justify-content: flex-end;
+  }
+
+  .archiveButton {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .modal,
+  .archiveNotice {
+    animation: none;
+  }
+
+  .closeButton,
+  .archiveButton,
+  .cancelButton,
+  .saveButton,
+  .input,
+  .textarea {
+    transition: none;
+  }
+}

@@ -6,3 +6,5 @@ build
 *.log
 frontend/dist
 backend/dist
+
+backend/data/

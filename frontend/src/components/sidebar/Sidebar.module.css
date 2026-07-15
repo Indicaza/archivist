@@ -1,48 +1,46 @@
-/* frontend/src/components/sidebar/Sidebar.module.css */
 .sidebarShell {
   --sidebar-overshoot-buffer: 44px;
 
   position: fixed;
   top: var(--topbar-height);
   left: calc(-1 * var(--sidebar-overshoot-buffer));
-  height: calc(100dvh - var(--topbar-height));
-  width: calc(var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer));
-  background: var(--sidebar-bg);
-  border-top: 1px solid var(--sidebar-border);
-  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.42);
-  overflow: hidden;
   z-index: var(--z-sidebar);
+  width: calc(var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer));
+  height: calc(100dvh - var(--topbar-height));
+  overflow: hidden;
+  border-top: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.42);
   transform: translateX(0);
   transition:
-    transform 520ms cubic-bezier(0.18, 1.22, 0.32, 1),
-    box-shadow 220ms ease;
-  will-change: transform;
+    transform 480ms cubic-bezier(0.18, 1.16, 0.32, 1),
+    box-shadow 180ms ease;
 }
 
 .sidebarShell.collapsed {
+  pointer-events: none;
+  box-shadow: none;
   transform: translateX(
     calc(-1 * (var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer)))
   );
-  pointer-events: none;
-  box-shadow: none;
 }
 
 .sidebarPanel {
   position: absolute;
   top: 0;
   right: 0;
-  height: calc(100dvh - var(--topbar-height));
   width: var(--sidebar-panel-width);
+  height: calc(100dvh - var(--topbar-height));
   overflow: hidden;
-  background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
 }
 
 .topRow {
-  height: 54px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  height: 54px;
   padding: 8px 10px;
   border-bottom: 1px solid rgba(214, 198, 170, 0.08);
   background:
@@ -52,37 +50,37 @@
 
 .scrollArea {
   height: calc(100% - 54px);
+  padding: 12px 0 16px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px 0 16px;
 }
 
 .collapseBtn,
 .revealBtn {
-  width: var(--sidebar-collapse-btn-size);
-  height: var(--sidebar-collapse-btn-size);
-  border-radius: var(--r-pill);
-  color: var(--app-text);
-  background: rgba(16, 15, 13, 0.88);
-  border: 1px solid var(--sidebar-btn-border);
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
+  width: var(--sidebar-collapse-btn-size);
+  height: var(--sidebar-collapse-btn-size);
+  border: 1px solid var(--sidebar-btn-border);
+  border-radius: var(--r-pill);
+  color: var(--app-text);
+  background: rgba(16, 15, 13, 0.88);
+  cursor: pointer;
   font-size: 1.6rem;
+  line-height: 1;
   transition:
-    transform var(--dur-base) var(--ease-standard-inout),
-    background var(--dur-base),
-    border-color var(--dur-base),
-    box-shadow var(--dur-base);
+    transform 220ms var(--ease-springy),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .collapseBtn:hover {
-  background: var(--sidebar-reveal-hover);
   border-color: rgba(143, 122, 223, 0.32);
-  transform: scale(1.08) rotate(4deg);
-  box-shadow: var(--shadow-soft);
+  background: var(--sidebar-reveal-hover);
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.3);
+  transform: scale(1.06) rotate(3deg);
 }
 
 .revealBtn {
@@ -92,13 +90,13 @@
   z-index: var(--z-reveal);
   background: var(--sidebar-bg);
   box-shadow: var(--shadow-soft);
-  animation: revealButtonIn 260ms cubic-bezier(0.18, 1.22, 0.32, 1) both;
+  animation: revealButtonIn 220ms var(--ease-springy) both;
 }
 
 .revealBtn:hover {
-  background: var(--sidebar-reveal-hover);
   border-color: rgba(143, 122, 223, 0.32);
-  transform: scale(1.12) rotate(-6deg);
+  background: var(--sidebar-reveal-hover);
+  transform: scale(1.08) rotate(-4deg);
 }
 
 .groupHeader {
@@ -106,9 +104,9 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  cursor: pointer;
-  font-weight: 600;
   color: var(--app-text);
+  font-weight: 600;
+  cursor: pointer;
   user-select: none;
 }
 
@@ -117,14 +115,14 @@
 }
 
 .caret {
-  flex: 0 0 auto;
   width: 16px;
   height: 16px;
-  transform-origin: 50% 50%;
-  transition:
-    transform 220ms cubic-bezier(0.2, 0, 0, 1),
-    opacity 180ms ease;
+  flex: 0 0 auto;
   opacity: 0.9;
+  transform-origin: center;
+  transition:
+    transform 220ms var(--ease-standard-inout),
+    opacity 180ms ease;
 }
 
 .caretOpen {
@@ -138,8 +136,8 @@
 .groupContent {
   overflow: hidden;
   transition:
-    max-height 260ms cubic-bezier(0.2, 0, 0, 1),
-    opacity 220ms ease;
+    max-height 260ms var(--ease-standard-inout),
+    opacity 200ms ease;
 }
 
 .open {
@@ -156,22 +154,22 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 6px 6px 10px 6px;
+  padding: 6px 6px 10px;
 }
 
 .empty {
-  color: var(--app-muted-text);
-  opacity: 0.85;
-  font-size: 13px;
   padding: 8px;
-  border-radius: var(--r-sm);
   border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-sm);
+  color: var(--app-muted-text);
+  font-size: 13px;
+  opacity: 0.85;
 }
 
 @keyframes revealButtonIn {
   from {
     opacity: 0;
-    transform: translateX(-10px) scale(0.94);
+    transform: translateX(-8px) scale(0.96);
   }
 
   to {
@@ -183,6 +181,7 @@
 @media (max-width: 900px) {
   .sidebarShell {
     --sidebar-overshoot-buffer: 36px;
+
     top: var(--topbar-height);
     height: calc(100dvh - var(--topbar-height));
   }
