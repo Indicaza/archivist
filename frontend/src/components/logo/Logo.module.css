@@ -10,8 +10,8 @@
     ),
     linear-gradient(120deg, #f8fafc 0%, #8b5cf6 34%, #14b8a6 62%, #f8fafc 100%);
 
-  background-size: 240% 240%;
-  background-position: 0% 50%;
+  background-size: 100% 100%;
+  background-position: center;
 
   mask-repeat: no-repeat;
   mask-position: center;
@@ -21,8 +21,7 @@
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
 
-  animation: logoBreathe 10s ease-in-out infinite alternate;
-  filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.16));
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.13));
 }
 
 .sm {
@@ -33,22 +32,4 @@
 .md {
   width: 65px;
   height: 65px;
-}
-
-@keyframes logoBreathe {
-  from {
-    background-position: 0% 50%;
-    filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.12));
-  }
-
-  to {
-    background-position: 100% 50%;
-    filter: drop-shadow(0 0 14px rgba(20, 184, 166, 0.2));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .logo {
-    animation: none;
-  }
 }

@@ -14,7 +14,7 @@
   },
   "scripts": {
     "check-node": "node scripts/check-node-version.mjs",
-    "dev": "npm run check-node && concurrently -n BACKEND,FRONTEND,ELECTRON -c blue,green,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\" \"wait-on http://127.0.0.1:5173 http://127.0.0.1:3333/health && npm run electron -w frontend\"",
+    "dev": "npm run check-node && concurrently -n BACKEND,FRONTEND,ELECTRON -c blue,green,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\" \"wait-on http://127.0.0.1:5173 http://127.0.0.1:3333/api/health && npm run electron -w frontend\"",
     "dev:backend": "npm run dev -w backend",
     "dev:frontend": "npm run dev -w frontend",
     "dev:electron": "npm run electron -w frontend",
