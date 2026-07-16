@@ -2,6 +2,7 @@ import type {
   ArchiveChatResult,
   Chat,
   ChatMessage,
+  CompleteChatTurnResult,
   CreateChatInput,
   CreateMessageInput,
   DeleteChatResult,
@@ -34,6 +35,14 @@ type MessagesResponse = {
 type MessageResponse = {
   ok: true;
   message: ChatMessage;
+};
+
+type CompleteChatTurnResponse = {
+  ok: true;
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  provider: string;
+  model: string;
 };
 
 type SelectedChatResponse = {
@@ -161,6 +170,28 @@ export async function addMessage(
   });
 
   return response.message;
+}
+
+export async function respondToChat(
+  chatId: string,
+  content: string,
+): Promise<CompleteChatTurnResult> {
+  const response = await request<CompleteChatTurnResponse>(
+    `/chats/${chatId}/respond`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+      }),
+    },
+  );
+
+  return {
+    userMessage: response.userMessage,
+    assistantMessage: response.assistantMessage,
+    provider: response.provider,
+    model: response.model,
+  };
 }
 
 export async function updateSelectedChat(

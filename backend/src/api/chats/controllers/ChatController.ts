@@ -1,7 +1,6 @@
 import type { RequestHandler } from "express";
 import { AppError } from "../../../errors/app-error.js";
 import {
-  archiveChat,
   createChat,
   createMessage,
   deleteChat,
@@ -9,16 +8,17 @@ import {
   getArchivedChats,
   getChatById,
   getMessagesByChatId,
-  restoreChat,
   selectChat,
   updateChat,
 } from "../models/Chat.js";
 import {
   chatIdParamsSchema,
+  completeChatTurnSchema,
   createChatSchema,
   createMessageSchema,
   updateChatSchema,
 } from "../schemas/ChatSchemas.js";
+import { completeChatTurn } from "../services/ChatCompletionService.js";
 
 function parseChatId(params: unknown): string {
   const parsed = chatIdParamsSchema.safeParse(params);
@@ -73,6 +73,7 @@ export const postChat: RequestHandler = (request, response) => {
 
 export const patchChat: RequestHandler = (request, response) => {
   const chatId = parseChatId(request.params);
+
   const body = updateChatSchema.safeParse(request.body);
 
   if (!body.success) {
@@ -85,30 +86,12 @@ export const patchChat: RequestHandler = (request, response) => {
   });
 };
 
-export const postArchiveChat: RequestHandler = (request, response) => {
-  const chatId = parseChatId(request.params);
-
-  response.json({
-    ok: true,
-    ...archiveChat(chatId),
-  });
-};
-
-export const postRestoreChat: RequestHandler = (request, response) => {
-  const chatId = parseChatId(request.params);
-
-  response.json({
-    ok: true,
-    chat: restoreChat(chatId),
-  });
-};
-
 export const removeChat: RequestHandler = (request, response) => {
   const chatId = parseChatId(request.params);
 
   response.json({
     ok: true,
-    ...deleteChat(chatId),
+    selectedChatId: deleteChat(chatId),
   });
 };
 
@@ -123,6 +106,7 @@ export const getChatMessages: RequestHandler = (request, response) => {
 
 export const postChatMessage: RequestHandler = (request, response) => {
   const chatId = parseChatId(request.params);
+
   const body = createMessageSchema.safeParse(request.body);
 
   if (!body.success) {
@@ -132,6 +116,23 @@ export const postChatMessage: RequestHandler = (request, response) => {
   response.status(201).json({
     ok: true,
     message: createMessage(chatId, body.data),
+  });
+};
+
+export const postChatResponse: RequestHandler = async (request, response) => {
+  const chatId = parseChatId(request.params);
+
+  const body = completeChatTurnSchema.safeParse(request.body);
+
+  if (!body.success) {
+    throw new AppError(400, "Invalid Chat message.", body.error.flatten());
+  }
+
+  const result = await completeChatTurn(chatId, body.data.content);
+
+  response.status(201).json({
+    ok: true,
+    ...result,
   });
 };
 
