@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { appStateRouter } from "./api/appState/routes/AppStateRoutes.js";
+import { chatRouter } from "./api/chats/routes/ChatRoutes.js";
 import { libraryRouter } from "./api/libraries/routes/LibraryRoutes.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
@@ -22,6 +23,7 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/libraries", libraryRouter);
+app.use("/api/chats", chatRouter);
 app.use("/api/app-state", appStateRouter);
 
 app.use(errorHandler);

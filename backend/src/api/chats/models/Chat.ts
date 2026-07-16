@@ -1,0 +1,484 @@
+import { database } from "../../../database/database.js";
+import { AppError } from "../../../errors/app-error.js";
+import type {
+  ArchiveChatResult,
+  Chat,
+  ChatMessage,
+  CreateChatInput,
+  CreateMessageInput,
+  DeleteChatResult,
+  UpdateChatInput,
+} from "../types/ChatTypes.js";
+
+type ChatRow = {
+  id: string;
+  title: string;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type MessageRow = {
+  id: string;
+  chat_id: string;
+  role: ChatMessage["role"];
+  content: string;
+  status: ChatMessage["status"];
+  created_at: string;
+  updated_at: string;
+};
+
+type AppSettingsRow = {
+  selected_chat_id: string | null;
+};
+
+function mapChat(row: ChatRow): Chat {
+  return {
+    id: row.id,
+    title: row.title,
+    archivedAt: row.archived_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMessage(row: MessageRow): ChatMessage {
+  return {
+    id: row.id,
+    chatId: row.chat_id,
+    role: row.role,
+    content: row.content,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function deriveChatTitle(input?: string): string {
+  return input?.trim() || "New Chat";
+}
+
+function getSelectedChatId(): string | null {
+  const row = database
+    .prepare(
+      `
+        SELECT selected_chat_id
+        FROM app_settings
+        WHERE id = 1
+      `,
+    )
+    .get() as AppSettingsRow | undefined;
+
+  if (!row) {
+    throw new Error("Archivist app settings could not be loaded.");
+  }
+
+  return row.selected_chat_id;
+}
+
+function setSelectedChatId(chatId: string | null): void {
+  database
+    .prepare(
+      `
+        UPDATE app_settings
+        SET
+          selected_chat_id = ?,
+          updated_at = strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            'now'
+          )
+        WHERE id = 1
+      `,
+    )
+    .run(chatId);
+}
+
+function findFallbackChatId(excludedChatId?: string): string | null {
+  const row = database
+    .prepare(
+      `
+        SELECT id
+        FROM chats
+        WHERE library_id IS NULL
+          AND type = 'standard'
+          AND archived_at IS NULL
+          AND (? IS NULL OR id != ?)
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `,
+    )
+    .get(excludedChatId ?? null, excludedChatId ?? null) as
+    | { id: string }
+    | undefined;
+
+  return row?.id ?? null;
+}
+
+export function getAllChats(): Chat[] {
+  const rows = database
+    .prepare(
+      `
+        SELECT
+          id,
+          title,
+          archived_at,
+          created_at,
+          updated_at
+        FROM chats
+        WHERE library_id IS NULL
+          AND type = 'standard'
+          AND archived_at IS NULL
+        ORDER BY updated_at DESC, created_at DESC
+      `,
+    )
+    .all() as ChatRow[];
+
+  return rows.map(mapChat);
+}
+
+export function getArchivedChats(): Chat[] {
+  const rows = database
+    .prepare(
+      `
+        SELECT
+          id,
+          title,
+          archived_at,
+          created_at,
+          updated_at
+        FROM chats
+        WHERE library_id IS NULL
+          AND type = 'standard'
+          AND archived_at IS NOT NULL
+        ORDER BY archived_at DESC
+      `,
+    )
+    .all() as ChatRow[];
+
+  return rows.map(mapChat);
+}
+
+export function getChatById(chatId: string): Chat | null {
+  const row = database
+    .prepare(
+      `
+        SELECT
+          id,
+          title,
+          archived_at,
+          created_at,
+          updated_at
+        FROM chats
+        WHERE id = ?
+          AND library_id IS NULL
+          AND type = 'standard'
+      `,
+    )
+    .get(chatId) as ChatRow | undefined;
+
+  return row ? mapChat(row) : null;
+}
+
+function requireActiveChat(chatId: string): Chat {
+  const chat = getChatById(chatId);
+
+  if (!chat) {
+    throw new AppError(404, "Chat not found.");
+  }
+
+  if (chat.archivedAt) {
+    throw new AppError(
+      409,
+      "This chat is archived. Restore it before continuing the conversation.",
+    );
+  }
+
+  return chat;
+}
+
+export function createChat(input: CreateChatInput): Chat {
+  const chatId = crypto.randomUUID();
+  const title = deriveChatTitle(input.title);
+
+  const createTransaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          INSERT INTO chats (
+            id,
+            library_id,
+            title,
+            type
+          )
+          VALUES (?, NULL, ?, 'standard')
+        `,
+      )
+      .run(chatId, title);
+
+    setSelectedChatId(chatId);
+
+    const chat = getChatById(chatId);
+
+    if (!chat) {
+      throw new Error("The newly created chat could not be loaded.");
+    }
+
+    return chat;
+  });
+
+  return createTransaction();
+}
+
+export function updateChat(chatId: string, input: UpdateChatInput): Chat {
+  const chat = getChatById(chatId);
+
+  if (!chat) {
+    throw new AppError(404, "Chat not found.");
+  }
+
+  database
+    .prepare(
+      `
+        UPDATE chats
+        SET
+          title = ?,
+          updated_at = strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            'now'
+          )
+        WHERE id = ?
+      `,
+    )
+    .run(input.title.trim(), chatId);
+
+  const updatedChat = getChatById(chatId);
+
+  if (!updatedChat) {
+    throw new Error("The updated chat could not be loaded.");
+  }
+
+  return updatedChat;
+}
+
+export function archiveChat(chatId: string): ArchiveChatResult {
+  const chat = getChatById(chatId);
+
+  if (!chat) {
+    throw new AppError(404, "Chat not found.");
+  }
+
+  if (chat.archivedAt) {
+    throw new AppError(409, "Chat is already archived.");
+  }
+
+  const archiveTransaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          UPDATE chats
+          SET
+            archived_at = strftime(
+              '%Y-%m-%dT%H:%M:%fZ',
+              'now'
+            ),
+            updated_at = strftime(
+              '%Y-%m-%dT%H:%M:%fZ',
+              'now'
+            )
+          WHERE id = ?
+        `,
+      )
+      .run(chatId);
+
+    let selectedChatId = getSelectedChatId();
+
+    if (selectedChatId === chatId) {
+      selectedChatId = findFallbackChatId(chatId);
+      setSelectedChatId(selectedChatId);
+    }
+
+    const archivedChat = getChatById(chatId);
+
+    if (!archivedChat) {
+      throw new Error("The archived chat could not be loaded.");
+    }
+
+    return {
+      chat: archivedChat,
+      selectedChatId,
+    };
+  });
+
+  return archiveTransaction();
+}
+
+export function restoreChat(chatId: string): Chat {
+  const chat = getChatById(chatId);
+
+  if (!chat) {
+    throw new AppError(404, "Chat not found.");
+  }
+
+  if (!chat.archivedAt) {
+    throw new AppError(409, "Chat is already active.");
+  }
+
+  database
+    .prepare(
+      `
+        UPDATE chats
+        SET
+          archived_at = NULL,
+          updated_at = strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            'now'
+          )
+        WHERE id = ?
+      `,
+    )
+    .run(chatId);
+
+  const restoredChat = getChatById(chatId);
+
+  if (!restoredChat) {
+    throw new Error("The restored chat could not be loaded.");
+  }
+
+  return restoredChat;
+}
+
+export function deleteChat(chatId: string): DeleteChatResult {
+  const chat = getChatById(chatId);
+
+  if (!chat) {
+    throw new AppError(404, "Chat not found.");
+  }
+
+  const deleteTransaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          DELETE FROM chats
+          WHERE id = ?
+        `,
+      )
+      .run(chatId);
+
+    let selectedChatId = getSelectedChatId();
+
+    if (selectedChatId === chatId) {
+      selectedChatId = findFallbackChatId(chatId);
+      setSelectedChatId(selectedChatId);
+    }
+
+    return {
+      selectedChatId,
+    };
+  });
+
+  return deleteTransaction();
+}
+
+export function getMessagesByChatId(chatId: string): ChatMessage[] {
+  requireActiveChat(chatId);
+
+  const rows = database
+    .prepare(
+      `
+        SELECT
+          id,
+          chat_id,
+          role,
+          content,
+          status,
+          created_at,
+          updated_at
+        FROM messages
+        WHERE chat_id = ?
+        ORDER BY created_at ASC, rowid ASC
+      `,
+    )
+    .all(chatId) as MessageRow[];
+
+  return rows.map(mapMessage);
+}
+
+export function createMessage(
+  chatId: string,
+  input: CreateMessageInput,
+): ChatMessage {
+  requireActiveChat(chatId);
+
+  const messageId = crypto.randomUUID();
+
+  const createTransaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          INSERT INTO messages (
+            id,
+            chat_id,
+            role,
+            content,
+            status
+          )
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        messageId,
+        chatId,
+        input.role,
+        input.content.trim(),
+        input.status ?? "complete",
+      );
+
+    database
+      .prepare(
+        `
+          UPDATE chats
+          SET updated_at = strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            'now'
+          )
+          WHERE id = ?
+        `,
+      )
+      .run(chatId);
+
+    const row = database
+      .prepare(
+        `
+          SELECT
+            id,
+            chat_id,
+            role,
+            content,
+            status,
+            created_at,
+            updated_at
+          FROM messages
+          WHERE id = ?
+        `,
+      )
+      .get(messageId) as MessageRow | undefined;
+
+    if (!row) {
+      throw new Error("The newly created message could not be loaded.");
+    }
+
+    return mapMessage(row);
+  });
+
+  return createTransaction();
+}
+
+export function selectChat(chatId: string | null): string | null {
+  if (chatId !== null) {
+    requireActiveChat(chatId);
+  }
+
+  setSelectedChatId(chatId);
+
+  return getSelectedChatId();
+}

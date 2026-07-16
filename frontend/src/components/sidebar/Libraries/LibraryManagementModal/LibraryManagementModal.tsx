@@ -95,12 +95,12 @@ export function LibraryManagementModal({
 
   return createPortal(
     <div
-      className={styles.backdrop}
+      className={`appModalBackdrop ${styles.backdrop}`}
       role="presentation"
       onMouseDown={handleBackdropClick}
     >
       <section
-        className={styles.modal}
+        className={`appModalSurface ${styles.modal}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="library-management-title"

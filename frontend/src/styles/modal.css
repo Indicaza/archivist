@@ -1,0 +1,70 @@
+.appModalBackdrop {
+  position: fixed;
+  z-index: var(--z-modal);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  overflow-y: auto;
+  background: transparent;
+}
+
+.appModalSurface {
+  max-height: calc(100dvh - 56px);
+  overflow-y: auto;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--r-xl);
+  color: var(--modal-text);
+  background: var(--modal-bg);
+  box-shadow: var(--shadow-modal);
+  transform-origin: center;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  animation: appModalEnter var(--modal-enter-duration) both;
+}
+
+@keyframes appModalBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes appModalEnter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, var(--modal-start-y), 0)
+      scale(var(--modal-start-scale));
+  }
+
+  72% {
+    opacity: 1;
+    transform: translate3d(0, var(--modal-overshoot-y), 0)
+      scale(var(--modal-overshoot-scale));
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (max-width: 680px) {
+  .appModalBackdrop {
+    padding: 14px;
+  }
+
+  .appModalSurface {
+    max-height: calc(100dvh - 28px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appModalBackdrop,
+  .appModalSurface {
+    animation: none;
+  }
+}

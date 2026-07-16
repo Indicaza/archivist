@@ -175,9 +175,7 @@ export function getLibraryById(libraryId: string): Library | null {
   return row ? mapLibrary(row) : null;
 }
 
-export function createLibrary(
-  input: CreateLibraryInput,
-): CreateLibraryResult {
+export function createLibrary(input: CreateLibraryInput): CreateLibraryResult {
   const rootPath = normalizeRootPath(input.rootPath);
 
   const existingLibrary = database
@@ -209,18 +207,13 @@ export function createLibrary(
       );
     }
 
-    throw new AppError(
-      409,
-      "This folder is already registered as a Library.",
-      {
-        code: "LIBRARY_EXISTS",
-        libraryId: existingLibrary.id,
-      },
-    );
+    throw new AppError(409, "This folder is already registered as a Library.", {
+      code: "LIBRARY_EXISTS",
+      libraryId: existingLibrary.id,
+    });
   }
 
   const libraryId = crypto.randomUUID();
-  const mainChatId = crypto.randomUUID();
   const name = input.name?.trim() || deriveLibraryName(rootPath);
   const description = input.description?.trim() || null;
 
@@ -238,20 +231,6 @@ export function createLibrary(
         `,
       )
       .run(libraryId, name, description, rootPath);
-
-    database
-      .prepare(
-        `
-          INSERT INTO chats (
-            id,
-            library_id,
-            title,
-            type
-          )
-          VALUES (?, ?, ?, 'main')
-        `,
-      )
-      .run(mainChatId, libraryId, "Main Timeline");
 
     if (getSelectedLibraryId() === null) {
       setSelectedLibraryId(libraryId);
@@ -283,9 +262,7 @@ export function updateLibrary(
   }
 
   const name =
-    input.name === undefined
-      ? currentLibrary.name
-      : input.name.trim();
+    input.name === undefined ? currentLibrary.name : input.name.trim();
 
   const description =
     input.description === undefined
@@ -317,9 +294,7 @@ export function updateLibrary(
   return updatedLibrary;
 }
 
-export function archiveLibrary(
-  libraryId: string,
-): ArchiveLibraryResult {
+export function archiveLibrary(libraryId: string): ArchiveLibraryResult {
   const library = getLibraryById(libraryId);
 
   if (!library) {

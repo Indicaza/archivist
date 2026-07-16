@@ -12,11 +12,26 @@
   justify-content: space-between;
   gap: 24px;
   padding: 24px 26px 20px;
-  border-bottom: 1px solid var(--workspace-panel-border);
+  border-bottom: 1px solid var(--modal-border);
 }
 
 .heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   min-width: 0;
+}
+
+.headingIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(143, 122, 223, 0.25);
+  border-radius: var(--r-md);
+  color: var(--app-accent);
+  background: var(--app-accent-soft);
 }
 
 .eyebrow {
@@ -38,6 +53,13 @@
   white-space: nowrap;
 }
 
+.subtitle {
+  margin: 6px 0 0;
+  color: var(--modal-muted-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .closeButton {
   display: grid;
   place-items: center;
@@ -45,10 +67,10 @@
   height: 36px;
   flex: 0 0 auto;
   padding: 0;
-  border: 1px solid var(--workspace-panel-border);
+  border: 1px solid var(--modal-border);
   border-radius: var(--r-round);
-  color: var(--app-muted-text);
-  background: var(--artifact-card-bg);
+  color: var(--modal-muted-text);
+  background: var(--modal-surface);
   cursor: pointer;
   transition:
     color 150ms ease,
@@ -58,15 +80,14 @@
 }
 
 .closeButton:hover:not(:disabled) {
-  color: var(--app-text);
-  background: var(--artifact-card-bg-lifted);
+  color: var(--modal-text);
+  background: var(--modal-surface-hover);
   border-color: rgba(143, 122, 223, 0.34);
   transform: scale(1.05);
 }
 
 .closeButton:active:not(:disabled) {
   transform: scale(0.96);
-  transition-duration: 70ms;
 }
 
 .form {
@@ -83,56 +104,38 @@
 }
 
 .label {
-  color: var(--app-text);
+  color: var(--modal-text);
   font-size: 13px;
   font-weight: 650;
 }
 
-.input,
-.textarea {
+.input {
   width: 100%;
-  border: 1px solid var(--workspace-panel-border);
+  height: 44px;
+  padding: 0 58px 0 13px;
+  border: 1px solid var(--modal-border);
   border-radius: var(--r-md);
-  color: var(--app-text);
-  background: #0f0e0c;
+  color: var(--modal-text);
+  background: var(--modal-input-bg);
   font: inherit;
+  outline: none;
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease,
     background-color 150ms ease;
 }
 
-.input {
-  height: 44px;
-  padding: 0 13px;
-}
-
-.textarea {
-  min-height: 108px;
-  padding: 12px 13px 28px;
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.input::placeholder,
-.textarea::placeholder {
-  color: var(--app-muted-text);
-  opacity: 0.72;
-}
-
-.input:focus,
-.textarea:focus {
-  outline: none;
+.input:focus {
   border-color: var(--composer-ring-focus);
-  background: #12110e;
+  background: var(--app-bg-deep);
   box-shadow: 0 0 0 2px rgba(143, 122, 223, 0.11);
 }
 
 .characterCount {
   position: absolute;
   right: 11px;
-  bottom: 8px;
-  color: var(--app-muted-text);
+  bottom: 14px;
+  color: var(--modal-muted-text);
   font-size: 11px;
   pointer-events: none;
 }
@@ -149,14 +152,10 @@
   gap: 10px;
   min-width: 0;
   padding: 13px;
-  border: 1px solid var(--workspace-panel-border);
+  border: 1px solid var(--modal-border);
   border-radius: var(--r-md);
-  color: var(--app-muted-text);
-  background: #201d18;
-}
-
-.detailCard:first-child {
-  grid-column: 1 / -1;
+  color: var(--modal-muted-text);
+  background: var(--modal-surface);
 }
 
 .detailIcon {
@@ -172,41 +171,35 @@
 }
 
 .detailLabel {
-  color: var(--app-muted-text);
+  color: var(--modal-muted-text);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.detailValue,
-.pathValue {
-  color: var(--app-text);
+.detailValue {
+  color: var(--modal-text);
   font-size: 13px;
 }
 
-.pathValue {
-  overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.archiveNotice {
+.warningNotice {
+  display: grid;
+  gap: 3px;
   padding: 12px 14px;
-  border: 1px solid rgba(200, 95, 95, 0.3);
+  border: 1px solid rgba(196, 154, 90, 0.3);
   border-radius: var(--r-md);
-  color: #d9b0b0;
-  background: rgba(200, 95, 95, 0.1);
+  color: #ddc9a7;
+  background: rgba(196, 154, 90, 0.09);
   font-size: 12px;
   line-height: 1.5;
-  animation: archiveNoticeIn 120ms ease-out both;
+  animation: noticeIn 130ms ease-out both;
 }
 
-.archiveNoticeTitle {
-  margin-bottom: 3px;
+.deleteNotice {
+  border-color: var(--modal-danger-border);
   color: #e2b5b5;
-  font-weight: 700;
+  background: var(--modal-danger-soft);
 }
 
 .footer {
@@ -214,9 +207,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
+.destructiveActions,
 .primaryActions {
   display: flex;
   align-items: center;
@@ -224,6 +218,8 @@
 }
 
 .archiveButton,
+.restoreButton,
+.deleteButton,
 .cancelButton,
 .saveButton {
   min-height: 40px;
@@ -233,60 +229,89 @@
   font-weight: 650;
   cursor: pointer;
   transition:
-    transform 180ms var(--ease-springy),
+    transform 170ms var(--ease-springy),
     background-color 150ms ease,
     border-color 150ms ease,
     color 150ms ease,
     opacity 150ms ease;
 }
 
-.archiveButton {
+.archiveButton,
+.restoreButton,
+.deleteButton,
+.saveButton {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   padding: 0 13px;
-  border: 1px solid rgba(200, 95, 95, 0.3);
-  color: var(--app-danger);
-  background: rgba(200, 95, 95, 0.1);
+}
+
+.archiveButton {
+  border: 1px solid rgba(196, 154, 90, 0.28);
+  color: #d8bd92;
+  background: rgba(196, 154, 90, 0.08);
 }
 
 .archiveButtonConfirming {
-  border-color: rgba(200, 95, 95, 0.5);
+  border-color: rgba(196, 154, 90, 0.48);
+  background: rgba(196, 154, 90, 0.16);
+}
+
+.restoreButton {
+  border: 1px solid rgba(127, 168, 120, 0.3);
+  color: var(--app-success);
+  background: rgba(127, 168, 120, 0.1);
+}
+
+.deleteButton {
+  border: 1px solid var(--modal-danger-border);
+  color: var(--app-danger);
+  background: var(--modal-danger-soft);
+}
+
+.deleteButtonConfirming {
+  border-color: rgba(200, 95, 95, 0.52);
   color: #f0c1c1;
   background: rgba(200, 95, 95, 0.18);
 }
 
 .cancelButton {
   padding: 0 15px;
-  border: 1px solid var(--workspace-panel-border);
-  color: var(--app-muted-text);
+  border: 1px solid var(--modal-border);
+  color: var(--modal-muted-text);
   background: transparent;
 }
 
 .saveButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   padding: 0 16px;
   border: 1px solid rgba(143, 122, 223, 0.38);
-  color: var(--app-text);
+  color: var(--modal-text);
   background: #6f5bb8;
 }
 
 .archiveButton:hover:not(:disabled),
+.restoreButton:hover:not(:disabled),
+.deleteButton:hover:not(:disabled),
 .cancelButton:hover:not(:disabled),
 .saveButton:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
 .archiveButton:hover:not(:disabled) {
-  border-color: rgba(200, 95, 95, 0.46);
+  background: rgba(196, 154, 90, 0.14);
+}
+
+.restoreButton:hover:not(:disabled) {
+  background: rgba(127, 168, 120, 0.16);
+}
+
+.deleteButton:hover:not(:disabled) {
   background: rgba(200, 95, 95, 0.16);
 }
 
 .cancelButton:hover:not(:disabled) {
-  color: var(--app-text);
-  background: var(--artifact-card-bg);
+  color: var(--modal-text);
+  background: var(--modal-surface);
 }
 
 .saveButton:hover:not(:disabled) {
@@ -294,21 +319,24 @@
 }
 
 .archiveButton:active:not(:disabled),
+.restoreButton:active:not(:disabled),
+.deleteButton:active:not(:disabled),
 .cancelButton:active:not(:disabled),
 .saveButton:active:not(:disabled) {
   transform: scale(0.98);
-  transition-duration: 70ms;
 }
 
 .archiveButton:disabled,
+.restoreButton:disabled,
+.deleteButton:disabled,
 .cancelButton:disabled,
 .saveButton:disabled,
 .closeButton:disabled {
   cursor: default;
-  opacity: 0.48;
+  opacity: 0.46;
 }
 
-@keyframes archiveNoticeIn {
+@keyframes noticeIn {
   from {
     opacity: 0;
     transform: translateY(-3px);
@@ -320,11 +348,7 @@
   }
 }
 
-@media (max-width: 620px) {
-  .backdrop {
-    padding: 14px;
-  }
-
+@media (max-width: 680px) {
   .header,
   .form {
     padding-left: 18px;
@@ -335,37 +359,30 @@
     grid-template-columns: 1fr;
   }
 
-  .detailCard:first-child {
-    grid-column: auto;
-  }
-
   .footer {
     align-items: stretch;
-    flex-direction: column-reverse;
+    flex-direction: column;
   }
 
+  .destructiveActions,
   .primaryActions {
     justify-content: flex-end;
-  }
-
-  .archiveButton {
-    justify-content: center;
+    flex-wrap: wrap;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .backdrop,
-  .modal,
-  .archiveNotice {
+  .warningNotice {
     animation: none;
   }
 
   .closeButton,
   .archiveButton,
+  .restoreButton,
+  .deleteButton,
   .cancelButton,
   .saveButton,
-  .input,
-  .textarea {
+  .input {
     transition: none;
   }
 }

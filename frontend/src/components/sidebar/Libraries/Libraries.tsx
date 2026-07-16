@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { LibraryListItem } from "../../../domains/library/library.types";
 import { SidebarButton } from "../SidebarButton/SidebarButton";
+import { SidebarCard } from "../SidebarCard/SidebarCard";
 import styles from "./Libraries.module.css";
 
 type LibrariesProps = {
@@ -40,8 +41,10 @@ export function Libraries({
   const [librariesOpen, setLibrariesOpen] = useState(true);
   const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
   const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
+
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
   const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,7 +52,9 @@ export function Libraries({
       setDebouncedSearch(search.trim().toLowerCase());
     }, 200);
 
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [search]);
 
   const filteredLibraries = useMemo(() => {
@@ -167,36 +172,41 @@ export function Libraries({
                   const pressed = library.id === pressedLibraryId;
 
                   return (
-                    <li key={library.id} className={styles.item}>
-                      <button
-                        className={`${styles.row} ${
-                          selected ? styles.rowActive : ""
-                        } ${pressed ? styles.rowPressed : ""}`}
-                        type="button"
-                        onClick={() => selectLibrary(library.id)}
-                        aria-current={selected ? "page" : undefined}
-                      >
+                    <SidebarCard
+                      key={library.id}
+                      title={library.name}
+                      subtitle={library.subtitle}
+                      leading={
                         <span className={styles.libraryGlyph} aria-hidden>
                           {library.name.slice(0, 1)}
                         </span>
-
-                        <span className={styles.meta}>
-                          <span className={styles.name}>{library.name}</span>
-
-                          <span className={styles.sub}>{library.subtitle}</span>
-                        </span>
-                      </button>
-
-                      <button
-                        className={styles.manageButton}
-                        type="button"
-                        onClick={() => onManageLibrary(library.id)}
-                        aria-label={`Manage ${library.name}`}
-                        title="Manage Library"
-                      >
-                        <Pencil size={13} strokeWidth={2.2} />
-                      </button>
-                    </li>
+                      }
+                      trailing={
+                        <span
+                          className={`${styles.statusDot} ${
+                            styles[library.status]
+                          }`}
+                          title={selected ? "Selected" : "Available"}
+                          aria-label={selected ? "Selected" : "Available"}
+                        />
+                      }
+                      selected={selected}
+                      pressed={pressed}
+                      shimmerOnPress
+                      onClick={() => selectLibrary(library.id)}
+                      aria-current={selected ? "page" : undefined}
+                      action={
+                        <button
+                          className={styles.manageButton}
+                          type="button"
+                          onClick={() => onManageLibrary(library.id)}
+                          aria-label={`Manage ${library.name}`}
+                          title="Manage Library"
+                        >
+                          <Pencil size={13} strokeWidth={2.2} />
+                        </button>
+                      }
+                    />
                   );
                 })}
               </ul>
@@ -246,11 +256,8 @@ export function Libraries({
                   const restoring = restoringLibraryId === library.id;
 
                   return (
-                    <li
-                      key={library.id}
-                      className={`${styles.item} ${styles.archivedItem}`}
-                    >
-                      <div className={`${styles.row} ${styles.archivedRow}`}>
+                    <li key={library.id} className={`${styles.archivedItem}`}>
+                      <div className={styles.archivedRow}>
                         <span
                           className={`${styles.libraryGlyph} ${styles.archivedGlyph}`}
                           aria-hidden
@@ -258,10 +265,14 @@ export function Libraries({
                           {library.name.slice(0, 1)}
                         </span>
 
-                        <span className={styles.meta}>
-                          <span className={styles.name}>{library.name}</span>
+                        <span className={styles.archivedMeta}>
+                          <span className={styles.archivedName}>
+                            {library.name}
+                          </span>
 
-                          <span className={styles.sub}>{library.subtitle}</span>
+                          <span className={styles.archivedSubtitle}>
+                            {library.subtitle}
+                          </span>
                         </span>
                       </div>
 

@@ -4,6 +4,7 @@ import type { AppState } from "../types/AppStateTypes.js";
 
 type AppStateRow = {
   selected_library_id: string | null;
+  selected_chat_id: string | null;
 };
 
 type ExistsRow = {
@@ -14,7 +15,9 @@ export function getAppState(): AppState {
   const row = database
     .prepare(
       `
-        SELECT selected_library_id
+        SELECT
+          selected_library_id,
+          selected_chat_id
         FROM app_settings
         WHERE id = 1
       `,
@@ -27,12 +30,11 @@ export function getAppState(): AppState {
 
   return {
     selectedLibraryId: row.selected_library_id,
+    selectedChatId: row.selected_chat_id,
   };
 }
 
-export function setSelectedLibrary(
-  selectedLibraryId: string | null,
-): AppState {
+export function setSelectedLibrary(selectedLibraryId: string | null): AppState {
   if (selectedLibraryId !== null) {
     const row = database
       .prepare(
