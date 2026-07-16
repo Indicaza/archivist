@@ -33,27 +33,37 @@ export function App() {
 
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [archivedLibraries, setArchivedLibraries] = useState<Library[]>([]);
+
   const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(
     null,
   );
+
   const [managedLibraryId, setManagedLibraryId] = useState<string | null>(null);
+
   const [loadingLibraries, setLoadingLibraries] = useState(true);
+
   const [addingLibrary, setAddingLibrary] = useState(false);
+
   const [savingLibrary, setSavingLibrary] = useState(false);
+
   const [archivingLibrary, setArchivingLibrary] = useState(false);
-  const [restoringLibraryId, setRestoringLibraryId] = useState<string | null>(
-    null,
-  );
+
+  const [restoringManagedLibrary, setRestoringManagedLibrary] = useState(false);
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [archivedChats, setArchivedChats] = useState<Chat[]>([]);
+
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
   const [managedChatId, setManagedChatId] = useState<string | null>(null);
+
   const [loadingChats, setLoadingChats] = useState(true);
   const [addingChat, setAddingChat] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
   const [archivingChat, setArchivingChat] = useState(false);
+
   const [deletingChat, setDeletingChat] = useState(false);
+
   const [restoringManagedChat, setRestoringManagedChat] = useState(false);
 
   const appMainRef = useRef<HTMLElement | null>(null);
@@ -86,8 +96,12 @@ export function App() {
   }, [chats, selectedChatId]);
 
   const managedLibrary = useMemo(() => {
-    return libraries.find((library) => library.id === managedLibraryId) ?? null;
-  }, [libraries, managedLibraryId]);
+    return (
+      libraries.find((library) => library.id === managedLibraryId) ??
+      archivedLibraries.find((library) => library.id === managedLibraryId) ??
+      null
+    );
+  }, [archivedLibraries, libraries, managedLibraryId]);
 
   const managedChat = useMemo(() => {
     return (
@@ -116,8 +130,10 @@ export function App() {
 
         setLibraries(loadedLibraries);
         setArchivedLibraries(loadedArchivedLibraries);
+
         setChats(loadedChats);
         setArchivedChats(loadedArchivedChats);
+
         setSelectedLibraryId(appState.selectedLibraryId);
 
         const selectedChatStillExists = loadedChats.some(
@@ -151,6 +167,7 @@ export function App() {
 
     try {
       const appState = await updateSelectedLibrary(libraryId);
+
       setSelectedLibraryId(appState.selectedLibraryId);
     } catch (error) {
       window.alert(
@@ -170,6 +187,7 @@ export function App() {
       window.alert(
         "The folder picker is only available inside the Electron app.",
       );
+
       return;
     }
 
@@ -183,7 +201,9 @@ export function App() {
 
     try {
       const result = await addLibrary(rootPath);
+
       setLibraries((current) => [...current, result.library]);
+
       setSelectedLibraryId(result.selectedLibraryId);
     } catch (error) {
       window.alert(
@@ -208,11 +228,19 @@ export function App() {
     try {
       const updatedLibrary = await editLibrary(libraryId, input);
 
-      setLibraries((current) =>
-        current.map((library) =>
-          library.id === libraryId ? updatedLibrary : library,
-        ),
-      );
+      if (updatedLibrary.archivedAt) {
+        setArchivedLibraries((current) =>
+          current.map((library) =>
+            library.id === libraryId ? updatedLibrary : library,
+          ),
+        );
+      } else {
+        setLibraries((current) =>
+          current.map((library) =>
+            library.id === libraryId ? updatedLibrary : library,
+          ),
+        );
+      }
 
       setManagedLibraryId(null);
     } catch (error) {
@@ -239,6 +267,7 @@ export function App() {
       setArchivedLibraries((current) => [result.library, ...current]);
 
       setSelectedLibraryId(result.selectedLibraryId);
+
       setManagedLibraryId(null);
     } catch (error) {
       window.alert(
@@ -251,12 +280,12 @@ export function App() {
     }
   }
 
-  async function handleRestoreLibrary(libraryId: string) {
-    if (restoringLibraryId) {
+  async function handleRestoreManagedLibrary(libraryId: string) {
+    if (restoringManagedLibrary) {
       return;
     }
 
-    setRestoringLibraryId(libraryId);
+    setRestoringManagedLibrary(true);
 
     try {
       const restoredLibrary = await restoreLibrary(libraryId);
@@ -266,6 +295,8 @@ export function App() {
       );
 
       setLibraries((current) => [restoredLibrary, ...current]);
+
+      setManagedLibraryId(null);
     } catch (error) {
       window.alert(
         error instanceof Error
@@ -273,7 +304,7 @@ export function App() {
           : "Archivist could not restore the Library.",
       );
     } finally {
-      setRestoringLibraryId(null);
+      setRestoringManagedLibrary(false);
     }
   }
 
@@ -370,6 +401,10 @@ export function App() {
   }
 
   async function handleRestoreManagedChat(chatId: string) {
+    if (restoringManagedChat) {
+      return;
+    }
+
     setRestoringManagedChat(true);
 
     try {
@@ -380,6 +415,7 @@ export function App() {
       );
 
       setChats((current) => [restoredChat, ...current]);
+
       setManagedChatId(null);
     } catch (error) {
       window.alert(
@@ -443,11 +479,10 @@ export function App() {
         selectedLibraryId={selectedLibraryId}
         loadingLibraries={loadingLibraries}
         addingLibrary={addingLibrary}
-        restoringLibraryId={restoringLibraryId}
         onSelectLibrary={handleSelectLibrary}
         onAddLibrary={handleAddLibrary}
         onManageLibrary={setManagedLibraryId}
-        onRestoreLibrary={handleRestoreLibrary}
+        onManageArchivedLibrary={setManagedLibraryId}
         chats={chats}
         archivedChats={archivedChats}
         selectedChatId={selectedChatId}
@@ -477,9 +512,11 @@ export function App() {
           library={managedLibrary}
           saving={savingLibrary}
           archiving={archivingLibrary}
+          restoring={restoringManagedLibrary}
           onClose={() => setManagedLibraryId(null)}
           onSave={handleSaveLibrary}
           onArchive={handleArchiveLibrary}
+          onRestore={handleRestoreManagedLibrary}
         />
       ) : null}
 

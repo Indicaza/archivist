@@ -254,107 +254,10 @@
 /* =========================================================
    ARCHIVED LIBRARY CARD
    ========================================================= */
-
-.archivedItem {
-  position: relative;
-  display: block;
-  opacity: 0.76;
-  transition: opacity 160ms ease;
-}
-
-.archivedItem:hover,
-.archivedItem:focus-within {
-  opacity: 1;
-}
-
-.archivedRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 58px;
-  padding: 8px 84px 8px 8px;
-  border: 1px solid transparent;
-  border-radius: var(--sidebar-card-radius);
-  color: inherit;
-  background: transparent;
-}
-
 .archivedGlyph {
   opacity: 0.72;
   filter: saturate(0.55);
 }
-
-.archivedMeta {
-  display: grid;
-  flex: 1;
-  gap: 2px;
-  min-width: 0;
-}
-
-.archivedName {
-  overflow: hidden;
-  color: var(--app-text);
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.archivedSubtitle {
-  overflow: hidden;
-  color: var(--app-muted-text);
-  font-size: 12px;
-  opacity: 0.9;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.restoreButton {
-  position: absolute;
-  z-index: 4;
-  top: 50%;
-  right: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 70px;
-  height: 29px;
-  padding: 0 9px;
-  border: 1px solid rgba(127, 168, 120, 0.25);
-  border-radius: var(--r-pill);
-  color: var(--app-success);
-  background: rgba(127, 168, 120, 0.08);
-  font-size: 11px;
-  font-weight: 650;
-  cursor: pointer;
-  transform: translateY(-50%);
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    color 150ms ease,
-    transform 150ms ease,
-    opacity 150ms ease;
-}
-
-.restoreButton:hover:not(:disabled),
-.restoreButton:focus-visible:not(:disabled) {
-  border-color: rgba(127, 168, 120, 0.44);
-  background: rgba(127, 168, 120, 0.15);
-  outline: none;
-  transform: translateY(-50%) scale(1.03);
-}
-
-.restoreButton:active:not(:disabled) {
-  transform: translateY(-50%) scale(0.97);
-}
-
-.restoreButton:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 /* =========================================================
    EMPTY STATE
    ========================================================= */
@@ -380,9 +283,7 @@
   .caret,
   .searchInput,
   .statusDot,
-  .manageButton,
-  .archivedItem,
-  .restoreButton {
+  .manageButton {
     transition: none;
   }
 }

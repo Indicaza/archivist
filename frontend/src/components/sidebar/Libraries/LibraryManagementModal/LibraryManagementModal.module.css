@@ -6,13 +6,17 @@
   width: min(680px, 100%);
 }
 
+/* =========================================================
+   HEADER
+   ========================================================= */
+
 .header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
   padding: 24px 26px 20px;
-  border-bottom: 1px solid var(--workspace-panel-border);
+  border-bottom: 1px solid var(--modal-border);
 }
 
 .heading {
@@ -38,6 +42,13 @@
   white-space: nowrap;
 }
 
+.subtitle {
+  margin: 6px 0 0;
+  color: var(--modal-muted-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .closeButton {
   display: grid;
   place-items: center;
@@ -45,10 +56,10 @@
   height: 36px;
   flex: 0 0 auto;
   padding: 0;
-  border: 1px solid var(--workspace-panel-border);
+  border: 1px solid var(--modal-border);
   border-radius: var(--r-round);
-  color: var(--app-muted-text);
-  background: var(--artifact-card-bg);
+  color: var(--modal-muted-text);
+  background: var(--modal-surface);
   cursor: pointer;
   transition:
     color 150ms ease,
@@ -58,8 +69,8 @@
 }
 
 .closeButton:hover:not(:disabled) {
-  color: var(--app-text);
-  background: var(--artifact-card-bg-lifted);
+  color: var(--modal-text);
+  background: var(--modal-surface-hover);
   border-color: rgba(143, 122, 223, 0.34);
   transform: scale(1.05);
 }
@@ -68,6 +79,10 @@
   transform: scale(0.96);
   transition-duration: 70ms;
 }
+
+/* =========================================================
+   FORM
+   ========================================================= */
 
 .form {
   display: flex;
@@ -83,7 +98,7 @@
 }
 
 .label {
-  color: var(--app-text);
+  color: var(--modal-text);
   font-size: 13px;
   font-weight: 650;
 }
@@ -91,11 +106,12 @@
 .input,
 .textarea {
   width: 100%;
-  border: 1px solid var(--workspace-panel-border);
+  border: 1px solid var(--modal-border);
   border-radius: var(--r-md);
-  color: var(--app-text);
-  background: #0f0e0c;
+  color: var(--modal-text);
+  background: var(--modal-input-bg);
   font: inherit;
+  outline: none;
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease,
@@ -116,15 +132,14 @@
 
 .input::placeholder,
 .textarea::placeholder {
-  color: var(--app-muted-text);
+  color: var(--modal-muted-text);
   opacity: 0.72;
 }
 
 .input:focus,
 .textarea:focus {
-  outline: none;
   border-color: var(--composer-ring-focus);
-  background: #12110e;
+  background: var(--app-bg-deep);
   box-shadow: 0 0 0 2px rgba(143, 122, 223, 0.11);
 }
 
@@ -132,10 +147,14 @@
   position: absolute;
   right: 11px;
   bottom: 8px;
-  color: var(--app-muted-text);
+  color: var(--modal-muted-text);
   font-size: 11px;
   pointer-events: none;
 }
+
+/* =========================================================
+   DETAILS
+   ========================================================= */
 
 .detailsGrid {
   display: grid;
@@ -149,10 +168,10 @@
   gap: 10px;
   min-width: 0;
   padding: 13px;
-  border: 1px solid var(--workspace-panel-border);
+  border: 1px solid var(--modal-border);
   border-radius: var(--r-md);
-  color: var(--app-muted-text);
-  background: #201d18;
+  color: var(--modal-muted-text);
+  background: var(--modal-surface);
 }
 
 .detailCard:first-child {
@@ -172,7 +191,7 @@
 }
 
 .detailLabel {
-  color: var(--app-muted-text);
+  color: var(--modal-muted-text);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -181,7 +200,7 @@
 
 .detailValue,
 .pathValue {
-  color: var(--app-text);
+  color: var(--modal-text);
   font-size: 13px;
 }
 
@@ -192,12 +211,16 @@
   white-space: nowrap;
 }
 
+/* =========================================================
+   ARCHIVE NOTICE
+   ========================================================= */
+
 .archiveNotice {
   padding: 12px 14px;
-  border: 1px solid rgba(200, 95, 95, 0.3);
+  border: 1px solid var(--modal-danger-border);
   border-radius: var(--r-md);
   color: #d9b0b0;
-  background: rgba(200, 95, 95, 0.1);
+  background: var(--modal-danger-soft);
   font-size: 12px;
   line-height: 1.5;
   animation: archiveNoticeIn 120ms ease-out both;
@@ -208,6 +231,10 @@
   color: #e2b5b5;
   font-weight: 700;
 }
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
 
 .footer {
   display: flex;
@@ -223,7 +250,12 @@
   gap: 9px;
 }
 
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
 .archiveButton,
+.restoreButton,
 .cancelButton,
 .saveButton {
   min-height: 40px;
@@ -240,14 +272,23 @@
     opacity 150ms ease;
 }
 
-.archiveButton {
+.archiveButton,
+.restoreButton,
+.saveButton {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.archiveButton,
+.restoreButton {
   padding: 0 13px;
-  border: 1px solid rgba(200, 95, 95, 0.3);
+}
+
+.archiveButton {
+  border: 1px solid var(--modal-danger-border);
   color: var(--app-danger);
-  background: rgba(200, 95, 95, 0.1);
+  background: var(--modal-danger-soft);
 }
 
 .archiveButtonConfirming {
@@ -256,24 +297,28 @@
   background: rgba(200, 95, 95, 0.18);
 }
 
+.restoreButton {
+  border: 1px solid rgba(127, 168, 120, 0.3);
+  color: var(--app-success);
+  background: rgba(127, 168, 120, 0.1);
+}
+
 .cancelButton {
   padding: 0 15px;
-  border: 1px solid var(--workspace-panel-border);
-  color: var(--app-muted-text);
+  border: 1px solid var(--modal-border);
+  color: var(--modal-muted-text);
   background: transparent;
 }
 
 .saveButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   padding: 0 16px;
   border: 1px solid rgba(143, 122, 223, 0.38);
-  color: var(--app-text);
+  color: var(--modal-text);
   background: #6f5bb8;
 }
 
 .archiveButton:hover:not(:disabled),
+.restoreButton:hover:not(:disabled),
 .cancelButton:hover:not(:disabled),
 .saveButton:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -284,9 +329,14 @@
   background: rgba(200, 95, 95, 0.16);
 }
 
+.restoreButton:hover:not(:disabled) {
+  border-color: rgba(127, 168, 120, 0.44);
+  background: rgba(127, 168, 120, 0.16);
+}
+
 .cancelButton:hover:not(:disabled) {
-  color: var(--app-text);
-  background: var(--artifact-card-bg);
+  color: var(--modal-text);
+  background: var(--modal-surface);
 }
 
 .saveButton:hover:not(:disabled) {
@@ -294,6 +344,7 @@
 }
 
 .archiveButton:active:not(:disabled),
+.restoreButton:active:not(:disabled),
 .cancelButton:active:not(:disabled),
 .saveButton:active:not(:disabled) {
   transform: scale(0.98);
@@ -301,12 +352,17 @@
 }
 
 .archiveButton:disabled,
+.restoreButton:disabled,
 .cancelButton:disabled,
 .saveButton:disabled,
 .closeButton:disabled {
   cursor: default;
   opacity: 0.48;
 }
+
+/* =========================================================
+   ANIMATIONS
+   ========================================================= */
 
 @keyframes archiveNoticeIn {
   from {
@@ -320,11 +376,11 @@
   }
 }
 
-@media (max-width: 620px) {
-  .backdrop {
-    padding: 14px;
-  }
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
 
+@media (max-width: 620px) {
   .header,
   .form {
     padding-left: 18px;
@@ -348,20 +404,24 @@
     justify-content: flex-end;
   }
 
-  .archiveButton {
+  .archiveButton,
+  .restoreButton {
     justify-content: center;
   }
 }
 
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
 @media (prefers-reduced-motion: reduce) {
-  .backdrop,
-  .modal,
   .archiveNotice {
     animation: none;
   }
 
   .closeButton,
   .archiveButton,
+  .restoreButton,
   .cancelButton,
   .saveButton,
   .input,

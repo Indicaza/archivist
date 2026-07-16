@@ -56,13 +56,13 @@ export function Chats({
 
   const [pressedChatId, setPressedChatId] = useState<string | null>(null);
 
-  function selectChat(chatId: string) {
+  function pressChat(chatId: string, action: (chatId: string) => void) {
     setPressedChatId(chatId);
-    onSelectChat(chatId);
+    action(chatId);
 
     window.setTimeout(() => {
       setPressedChatId((current) => (current === chatId ? null : current));
-    }, 240);
+    }, 280);
   }
 
   return (
@@ -143,7 +143,7 @@ export function Chats({
                       }
                       selected={selected}
                       pressed={pressed}
-                      onClick={() => selectChat(chat.id)}
+                      onClick={() => pressChat(chat.id, onSelectChat)}
                       aria-current={selected ? "page" : undefined}
                       action={
                         <button
@@ -200,34 +200,39 @@ export function Chats({
               <div className={styles.empty}>Loading archived chats...</div>
             ) : archivedChats.length ? (
               <ul className={styles.list}>
-                {archivedChats.map((chat) => (
-                  <SidebarCard
-                    key={chat.id}
-                    title={chat.title}
-                    subtitle="Archived conversation"
-                    leading={
-                      <span
-                        className={`${styles.chatGlyph} ${styles.archivedGlyph}`}
-                        aria-hidden
-                      >
-                        <Sparkles size={18} strokeWidth={2.15} />
-                      </span>
-                    }
-                    archived
-                    interactive={false}
-                    action={
-                      <button
-                        className={styles.manageButton}
-                        type="button"
-                        onClick={() => onManageArchivedChat(chat.id)}
-                        aria-label={`Manage archived chat ${chat.title}`}
-                        title="Manage Archived Chat"
-                      >
-                        <Pencil size={13} strokeWidth={2.2} />
-                      </button>
-                    }
-                  />
-                ))}
+                {archivedChats.map((chat) => {
+                  const pressed = chat.id === pressedChatId;
+
+                  return (
+                    <SidebarCard
+                      key={chat.id}
+                      title={chat.title}
+                      subtitle="Archived conversation"
+                      leading={
+                        <span
+                          className={`${styles.chatGlyph} ${styles.archivedGlyph}`}
+                          aria-hidden
+                        >
+                          <Sparkles size={18} strokeWidth={2.15} />
+                        </span>
+                      }
+                      archived
+                      pressed={pressed}
+                      onClick={() => pressChat(chat.id, onManageArchivedChat)}
+                      action={
+                        <button
+                          className={styles.manageButton}
+                          type="button"
+                          onClick={() => onManageArchivedChat(chat.id)}
+                          aria-label={`Manage archived chat ${chat.title}`}
+                          title="Manage Archived Chat"
+                        >
+                          <Pencil size={13} strokeWidth={2.2} />
+                        </button>
+                      }
+                    />
+                  );
+                })}
               </ul>
             ) : (
               <div className={styles.empty}>No archived chats.</div>

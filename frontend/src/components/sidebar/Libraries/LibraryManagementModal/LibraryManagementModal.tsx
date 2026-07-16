@@ -1,4 +1,11 @@
-import { Archive, CalendarClock, FolderOpen, Save, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  CalendarClock,
+  FolderOpen,
+  Save,
+  X,
+} from "lucide-react";
 import { type FormEvent, type MouseEvent, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Library } from "../../../../domains/library/library.types";
@@ -8,6 +15,7 @@ type LibraryManagementModalProps = {
   library: Library;
   saving: boolean;
   archiving: boolean;
+  restoring: boolean;
   onClose: () => void;
   onSave: (
     libraryId: string,
@@ -17,6 +25,7 @@ type LibraryManagementModalProps = {
     },
   ) => Promise<void>;
   onArchive: (libraryId: string) => Promise<void>;
+  onRestore: (libraryId: string) => Promise<void>;
 };
 
 function formatTimestamp(timestamp: string): string {
@@ -30,15 +39,19 @@ export function LibraryManagementModal({
   library,
   saving,
   archiving,
+  restoring,
   onClose,
   onSave,
   onArchive,
+  onRestore,
 }: LibraryManagementModalProps) {
   const [name, setName] = useState(library.name);
   const [description, setDescription] = useState(library.description ?? "");
   const [confirmingArchive, setConfirmingArchive] = useState(false);
 
-  const busy = saving || archiving;
+  const archived = library.archivedAt !== null;
+  const busy = saving || archiving || restoring;
+
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
 
@@ -107,11 +120,19 @@ export function LibraryManagementModal({
       >
         <header className={styles.header}>
           <div className={styles.heading}>
-            <div className={styles.eyebrow}>Library management</div>
+            <div className={styles.eyebrow}>
+              {archived ? "Archived Library" : "Library management"}
+            </div>
 
             <h2 id="library-management-title" className={styles.title}>
               {library.name}
             </h2>
+
+            <p className={styles.subtitle}>
+              {archived
+                ? "Restore this Library or update its details."
+                : "Update or archive this Library."}
+            </p>
           </div>
 
           <button
@@ -136,7 +157,10 @@ export function LibraryManagementModal({
               id="library-name"
               className={styles.input}
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setConfirmingArchive(false);
+              }}
               maxLength={120}
               disabled={busy}
             />
@@ -151,7 +175,10 @@ export function LibraryManagementModal({
               id="library-description"
               className={styles.textarea}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setConfirmingArchive(false);
+              }}
               maxLength={500}
               rows={4}
               placeholder="What does this Library contain?"
@@ -220,29 +247,42 @@ export function LibraryManagementModal({
               </div>
 
               <div>
-                This removes it from the active sidebar, but keeps its folder,
-                chats, and Archivist history intact.
+                This removes it from the active sidebar, but keeps its folder
+                and Archivist history intact.
               </div>
             </div>
           ) : null}
 
           <footer className={styles.footer}>
-            <button
-              className={`${styles.archiveButton} ${
-                confirmingArchive ? styles.archiveButtonConfirming : ""
-              }`}
-              type="button"
-              onClick={handleArchive}
-              disabled={busy}
-            >
-              <Archive size={17} strokeWidth={2.15} />
+            {archived ? (
+              <button
+                className={styles.restoreButton}
+                type="button"
+                onClick={() => void onRestore(library.id)}
+                disabled={busy}
+              >
+                <ArchiveRestore size={17} strokeWidth={2.15} />
 
-              {archiving
-                ? "Archiving..."
-                : confirmingArchive
-                  ? "Confirm archive"
-                  : "Archive Library"}
-            </button>
+                {restoring ? "Restoring..." : "Restore Library"}
+              </button>
+            ) : (
+              <button
+                className={`${styles.archiveButton} ${
+                  confirmingArchive ? styles.archiveButtonConfirming : ""
+                }`}
+                type="button"
+                onClick={() => void handleArchive()}
+                disabled={busy}
+              >
+                <Archive size={17} strokeWidth={2.15} />
+
+                {archiving
+                  ? "Archiving..."
+                  : confirmingArchive
+                    ? "Confirm archive"
+                    : "Archive Library"}
+              </button>
+            )}
 
             <div className={styles.primaryActions}>
               <button
@@ -260,6 +300,7 @@ export function LibraryManagementModal({
                 disabled={!trimmedName || !changed || busy}
               >
                 <Save size={17} strokeWidth={2.15} />
+
                 {saving ? "Saving..." : "Save changes"}
               </button>
             </div>

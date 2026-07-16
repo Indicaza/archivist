@@ -14,11 +14,10 @@ type SidebarProps = {
   selectedLibraryId: string | null;
   loadingLibraries: boolean;
   addingLibrary: boolean;
-  restoringLibraryId: string | null;
   onSelectLibrary: (libraryId: string) => void;
   onAddLibrary: () => void;
   onManageLibrary: (libraryId: string) => void;
-  onRestoreLibrary: (libraryId: string) => void;
+  onManageArchivedLibrary: (libraryId: string) => void;
 
   chats: Chat[];
   archivedChats: Chat[];
@@ -44,11 +43,10 @@ export function Sidebar({
   selectedLibraryId,
   loadingLibraries,
   addingLibrary,
-  restoringLibraryId,
   onSelectLibrary,
   onAddLibrary,
   onManageLibrary,
-  onRestoreLibrary,
+  onManageArchivedLibrary,
 
   chats,
   archivedChats,
@@ -116,11 +114,10 @@ export function Sidebar({
               selectedLibraryId={selectedLibraryId}
               loading={loadingLibraries}
               adding={addingLibrary}
-              restoringLibraryId={restoringLibraryId}
               onSelectLibrary={onSelectLibrary}
               onAddLibrary={onAddLibrary}
               onManageLibrary={onManageLibrary}
-              onRestoreLibrary={onRestoreLibrary}
+              onManageArchivedLibrary={onManageArchivedLibrary}
             />
 
             <Chats
