@@ -8,3 +8,8 @@ frontend/dist
 backend/dist
 
 backend/data/
+
+# Local Archivist databases
+*.db
+*.db-shm
+*.db-wal
