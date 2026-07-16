@@ -1,0 +1,307 @@
+.item {
+  position: relative;
+  display: block;
+}
+
+/* =========================================================
+   CARD BASE
+   ========================================================= */
+
+.card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sidebar-card-gap);
+  width: 100%;
+  min-height: var(--sidebar-card-min-height);
+  padding: var(--sidebar-card-padding-y) var(--sidebar-card-action-reserve)
+    var(--sidebar-card-padding-y) var(--sidebar-card-padding-x);
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--sidebar-card-radius);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  transform: translateX(0) scale(1);
+  transform-origin: left center;
+  animation: sidebarCardEnter var(--sidebar-card-enter-duration) ease both;
+  transition:
+    transform var(--sidebar-card-motion-duration)
+      var(--sidebar-card-motion-easing),
+    background-color var(--sidebar-card-color-duration) ease,
+    border-color var(--sidebar-card-color-duration) ease,
+    box-shadow var(--sidebar-card-shadow-duration) ease,
+    opacity var(--sidebar-card-color-duration) ease;
+}
+
+button.card {
+  cursor: pointer;
+}
+
+.card > * {
+  position: relative;
+  z-index: 3;
+}
+
+/* =========================================================
+   HOVER / FOCUS
+   ========================================================= */
+
+button.card:hover,
+button.card:focus-visible {
+  border-color: var(--sidebar-card-hover-border);
+  background: var(--sidebar-card-hover-bg);
+  box-shadow: var(--sidebar-card-hover-shadow);
+  outline: none;
+  transform: translateX(var(--sidebar-card-hover-x))
+    scale(var(--sidebar-card-hover-scale));
+}
+
+.item:has(button.card:hover) + .item .card,
+.item:has(button.card:focus-visible) + .item .card,
+.item:has(+ .item button.card:hover) .card,
+.item:has(+ .item button.card:focus-visible) .card {
+  border-color: var(--sidebar-card-neighbor-border);
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(var(--sidebar-card-neighbor-x))
+    scale(var(--sidebar-card-neighbor-scale));
+}
+
+/* =========================================================
+   PRESS / SELECTED
+   ========================================================= */
+
+button.card:active,
+.pressed {
+  transform: translateX(var(--sidebar-card-hover-x))
+    scale(var(--sidebar-card-press-scale));
+  transition-duration: var(--sidebar-card-press-duration);
+}
+
+.selected {
+  border-color: var(--sidebar-card-selected-border);
+  background: var(--sidebar-card-selected-bg);
+  box-shadow: var(--sidebar-card-selected-shadow);
+}
+
+/* =========================================================
+   CONTENT
+   ========================================================= */
+
+.leading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  transition: transform var(--sidebar-card-motion-duration)
+    var(--sidebar-card-motion-easing);
+}
+
+button.card:hover .leading,
+button.card:focus-visible .leading {
+  transform: scale(var(--sidebar-card-leading-hover-scale))
+    rotate(var(--sidebar-card-leading-hover-rotate));
+}
+
+.content {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  transition: transform var(--sidebar-card-motion-duration)
+    var(--sidebar-card-motion-easing);
+}
+
+button.card:hover .content,
+button.card:focus-visible .content {
+  transform: translateX(var(--sidebar-card-content-hover-x));
+}
+
+.title {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 12px;
+  opacity: 0.9;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+/* =========================================================
+   ACTION
+   ========================================================= */
+
+.action {
+  position: absolute;
+  z-index: 5;
+  top: var(--sidebar-card-action-top);
+  right: var(--sidebar-card-action-right);
+  opacity: 0;
+  transform: translateY(-2px) scale(0.94);
+  transition:
+    opacity 150ms ease,
+    transform 180ms var(--ease-springy);
+}
+
+.item:hover .action,
+.item:focus-within .action,
+.item:has(.selected) .action {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* =========================================================
+   ARCHIVED / STATIC
+   ========================================================= */
+
+.archived {
+  opacity: var(--sidebar-card-archived-opacity);
+}
+
+.item:hover .archived,
+.item:focus-within .archived {
+  opacity: 1;
+}
+
+.static {
+  cursor: default;
+}
+
+/* =========================================================
+   ANIME-GLASS CLICK SLASH
+   ========================================================= */
+
+.shimmer::before,
+.shimmer::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: -70%;
+  bottom: -70%;
+  pointer-events: none;
+  transform-origin: center;
+}
+
+.shimmer::before {
+  left: -42%;
+  width: var(--sidebar-card-shimmer-width);
+  opacity: var(--sidebar-card-shimmer-opacity);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 22%,
+    var(--sidebar-card-shimmer-accent) 39%,
+    var(--sidebar-card-shimmer-highlight) 48%,
+    rgba(255, 255, 255, 0.92) 50%,
+    var(--sidebar-card-shimmer-highlight) 52%,
+    var(--sidebar-card-shimmer-warm) 61%,
+    transparent 78%,
+    transparent 100%
+  );
+  transform: translate3d(-165%, 0, 0) skewX(var(--sidebar-card-shimmer-skew));
+  animation: sidebarCardGlassSlash var(--sidebar-card-shimmer-duration)
+    cubic-bezier(0.15, 0.7, 0.25, 1) both;
+}
+
+.shimmer::after {
+  left: -34%;
+  width: 3px;
+  opacity: 0.95;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    -5px 0 0 rgba(143, 122, 223, 0.42),
+    6px 0 0 rgba(196, 154, 90, 0.26);
+  transform: translate3d(-180%, 0, 0) skewX(var(--sidebar-card-shimmer-skew));
+  animation: sidebarCardGlassEdge var(--sidebar-card-shimmer-duration)
+    cubic-bezier(0.12, 0.72, 0.22, 1) both;
+}
+
+/* =========================================================
+   ANIMATIONS
+   ========================================================= */
+
+@keyframes sidebarCardEnter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes sidebarCardGlassSlash {
+  0% {
+    opacity: 0;
+    transform: translate3d(-165%, 0, 0) skewX(var(--sidebar-card-shimmer-skew));
+  }
+
+  12% {
+    opacity: var(--sidebar-card-shimmer-opacity);
+  }
+
+  78% {
+    opacity: var(--sidebar-card-shimmer-opacity);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(560%, 0, 0) skewX(var(--sidebar-card-shimmer-skew));
+  }
+}
+
+@keyframes sidebarCardGlassEdge {
+  0% {
+    opacity: 0;
+    transform: translate3d(-180%, 0, 0) skewX(var(--sidebar-card-shimmer-skew));
+  }
+
+  18% {
+    opacity: 0.95;
+  }
+
+  72% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(1900%, 0, 0) skewX(var(--sidebar-card-shimmer-skew));
+  }
+}
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .leading,
+  .content,
+  .action {
+    animation: none;
+    transition: none;
+  }
+
+  .shimmer::before,
+  .shimmer::after {
+    animation: none;
+  }
+}

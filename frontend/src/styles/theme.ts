@@ -1,4 +1,5 @@
 // frontend/src/styles/theme.ts
+
 export const theme = {
   layout: {
     topbarHeight: "75px",
@@ -7,6 +8,7 @@ export const theme = {
     inspectorWidth: "320px",
     contentMaxWidth: "920px",
     viewportMobile: "900px",
+
     zIndex: {
       sidebar: 10,
       topbar: 30,
@@ -16,6 +18,7 @@ export const theme = {
       toast: 60,
       composer: 12,
     },
+
     radii: {
       sm: "8px",
       md: "12px",
@@ -24,14 +27,15 @@ export const theme = {
       pill: "100px",
       round: "999px",
     },
+
     shadows: {
       soft: "0 10px 26px rgba(0, 0, 0, 0.46)",
       panel: "0 18px 46px rgba(0, 0, 0, 0.44)",
       card: "0 16px 34px rgba(0, 0, 0, 0.48)",
       cardLift: "0 22px 52px rgba(0, 0, 0, 0.58)",
-      insetThin: "inset 0 0 0 1px rgba(255,255,255,0.035)",
-      avatar: "0 8px 20px rgba(0,0,0,0.48)",
-      modal: "0 18px 44px rgba(0,0,0,0.52)",
+      insetThin: "inset 0 0 0 1px rgba(255, 255, 255, 0.035)",
+      avatar: "0 8px 20px rgba(0, 0, 0, 0.48)",
+      modal: "0 18px 44px rgba(0, 0, 0, 0.52)",
       glow: "0 0 24px rgba(143, 122, 223, 0.14)",
     },
   },
@@ -42,17 +46,28 @@ export const theme = {
       base: "0.25s",
       slow: "0.35s",
     },
+
     easings: {
       standard: "ease",
       standardInOut: "cubic-bezier(0.4, 0, 0.2, 1)",
       bouncy: "cubic-bezier(0.22, 1.18, 0.36, 1)",
       springy: "cubic-bezier(0.25, 1.08, 0.5, 1)",
     },
+
     anim: {
       popStartY: "10px",
       popOvershootY: "-2px",
       popStartScale: "0.99",
       popOvershootScale: "1.006",
+    },
+
+    modal: {
+      backdropDuration: "160ms",
+      enterDuration: "320ms",
+      startY: "20px",
+      overshootY: "-3px",
+      startScale: "0.88",
+      overshootScale: "1.025",
     },
   },
 
@@ -166,6 +181,65 @@ export const theme = {
     revealBtnSize: "42px",
   },
 
+  sidebarCard: {
+    minHeight: "58px",
+    gap: "10px",
+
+    paddingX: "8px",
+    paddingY: "8px",
+    actionReserve: "38px",
+    radius: "10px",
+
+    actionTop: "7px",
+    actionRight: "7px",
+
+    enterDuration: "180ms",
+    motionDuration: "260ms",
+    colorDuration: "180ms",
+    shadowDuration: "220ms",
+    pressDuration: "80ms",
+
+    motionEasing: "cubic-bezier(0.18, 1.12, 0.32, 1)",
+
+    hoverX: "4px",
+    hoverScale: "1.018",
+
+    neighborX: "2px",
+    neighborScale: "1.01",
+
+    pressScale: "0.99",
+
+    leadingHoverScale: "1.09",
+    leadingHoverRotate: "-2deg",
+    contentHoverX: "1px",
+
+    hoverBg: "rgba(255, 255, 255, 0.045)",
+    hoverBorder: "rgba(214, 198, 170, 0.14)",
+    hoverShadow: "0 8px 18px rgba(0, 0, 0, 0.22)",
+
+    neighborBg: "rgba(255, 255, 255, 0.024)",
+    neighborBorder: "rgba(214, 198, 170, 0.075)",
+
+    selectedBg:
+      "linear-gradient(90deg, rgba(143, 122, 223, 0.11), transparent 64%), rgba(255, 255, 255, 0.035)",
+
+    selectedBorder: "rgba(143, 122, 223, 0.23)",
+
+    selectedShadow:
+      "0 8px 20px rgba(0, 0, 0, 0.24), inset 0 0 0 1px rgba(143, 122, 223, 0.07)",
+
+    archivedOpacity: "0.72",
+
+    shimmerWidth: "22%",
+    shimmerOpacity: "0.82",
+    shimmerDuration: "270ms",
+    shimmerSkew: "-24deg",
+
+    shimmerAccent: "rgba(143, 122, 223, 0.38)",
+    shimmerHighlight: "rgba(235, 245, 255, 0.68)",
+    shimmerWarm: "rgba(196, 154, 90, 0.3)",
+  },
+
   workspace: {
     gap: "10px",
     padding: "16px",
@@ -252,6 +326,13 @@ export function applyTheme(t: typeof theme = theme): void {
   set("--anim-pop-start-scale", t.motion.anim.popStartScale);
   set("--anim-pop-overshoot-scale", t.motion.anim.popOvershootScale);
 
+  set("--modal-backdrop-duration", t.motion.modal.backdropDuration);
+  set("--modal-enter-duration", t.motion.modal.enterDuration);
+  set("--modal-start-y", t.motion.modal.startY);
+  set("--modal-overshoot-y", t.motion.modal.overshootY);
+  set("--modal-start-scale", t.motion.modal.startScale);
+  set("--modal-overshoot-scale", t.motion.modal.overshootScale);
+
   setGroup("--app", t.colors.app);
   setGroup("--topbar", t.colors.topbar);
   setGroup("--sidebar", t.colors.sidebar);
@@ -274,6 +355,61 @@ export function applyTheme(t: typeof theme = theme): void {
     itemRadius: t.sidebar.itemRadius,
     collapseBtnSize: t.sidebar.collapseBtnSize,
     revealBtnSize: t.sidebar.revealBtnSize,
+  });
+
+  setGroup("--sidebar-card", {
+    minHeight: t.sidebarCard.minHeight,
+    gap: t.sidebarCard.gap,
+
+    paddingX: t.sidebarCard.paddingX,
+    paddingY: t.sidebarCard.paddingY,
+    actionReserve: t.sidebarCard.actionReserve,
+    radius: t.sidebarCard.radius,
+
+    actionTop: t.sidebarCard.actionTop,
+    actionRight: t.sidebarCard.actionRight,
+
+    enterDuration: t.sidebarCard.enterDuration,
+    motionDuration: t.sidebarCard.motionDuration,
+    colorDuration: t.sidebarCard.colorDuration,
+    shadowDuration: t.sidebarCard.shadowDuration,
+    pressDuration: t.sidebarCard.pressDuration,
+
+    motionEasing: t.sidebarCard.motionEasing,
+
+    hoverX: t.sidebarCard.hoverX,
+    hoverScale: t.sidebarCard.hoverScale,
+
+    neighborX: t.sidebarCard.neighborX,
+    neighborScale: t.sidebarCard.neighborScale,
+
+    pressScale: t.sidebarCard.pressScale,
+
+    leadingHoverScale: t.sidebarCard.leadingHoverScale,
+    leadingHoverRotate: t.sidebarCard.leadingHoverRotate,
+    contentHoverX: t.sidebarCard.contentHoverX,
+
+    hoverBg: t.sidebarCard.hoverBg,
+    hoverBorder: t.sidebarCard.hoverBorder,
+    hoverShadow: t.sidebarCard.hoverShadow,
+
+    neighborBg: t.sidebarCard.neighborBg,
+    neighborBorder: t.sidebarCard.neighborBorder,
+
+    selectedBg: t.sidebarCard.selectedBg,
+    selectedBorder: t.sidebarCard.selectedBorder,
+    selectedShadow: t.sidebarCard.selectedShadow,
+
+    archivedOpacity: t.sidebarCard.archivedOpacity,
+
+    shimmerWidth: t.sidebarCard.shimmerWidth,
+    shimmerOpacity: t.sidebarCard.shimmerOpacity,
+    shimmerDuration: t.sidebarCard.shimmerDuration,
+    shimmerSkew: t.sidebarCard.shimmerSkew,
+
+    shimmerAccent: t.sidebarCard.shimmerAccent,
+    shimmerHighlight: t.sidebarCard.shimmerHighlight,
+    shimmerWarm: t.sidebarCard.shimmerWarm,
   });
 
   setGroup("--workspace", {
@@ -321,9 +457,13 @@ export function applyTheme(t: typeof theme = theme): void {
     prefix: string,
     obj: Record<string, string | number>,
   ): void {
-    Object.entries(obj).forEach(([k, v]) => {
-      const kebab = k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-      root.style.setProperty(`${prefix}-${kebab}`, String(v));
+    Object.entries(obj).forEach(([key, value]) => {
+      const kebabCaseKey = key.replace(
+        /[A-Z]/g,
+        (character) => `-${character.toLowerCase()}`,
+      );
+
+      root.style.setProperty(`${prefix}-${kebabCaseKey}`, String(value));
     });
   }
 }

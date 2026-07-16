@@ -6,10 +6,6 @@
   width: min(680px, 100%);
 }
 
-/* =========================================================
-   HEADER
-   ========================================================= */
-
 .header {
   display: flex;
   align-items: flex-start;
@@ -20,7 +16,22 @@
 }
 
 .heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   min-width: 0;
+}
+
+.headingIcon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(143, 122, 223, 0.25);
+  border-radius: var(--r-md);
+  color: var(--app-accent);
+  background: var(--app-accent-soft);
 }
 
 .eyebrow {
@@ -77,12 +88,7 @@
 
 .closeButton:active:not(:disabled) {
   transform: scale(0.96);
-  transition-duration: 70ms;
 }
-
-/* =========================================================
-   FORM
-   ========================================================= */
 
 .form {
   display: flex;
@@ -103,9 +109,10 @@
   font-weight: 650;
 }
 
-.input,
-.textarea {
+.input {
   width: 100%;
+  height: 44px;
+  padding: 0 58px 0 13px;
   border: 1px solid var(--modal-border);
   border-radius: var(--r-md);
   color: var(--modal-text);
@@ -118,26 +125,7 @@
     background-color 150ms ease;
 }
 
-.input {
-  height: 44px;
-  padding: 0 13px;
-}
-
-.textarea {
-  min-height: 108px;
-  padding: 12px 13px 28px;
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.input::placeholder,
-.textarea::placeholder {
-  color: var(--modal-muted-text);
-  opacity: 0.72;
-}
-
-.input:focus,
-.textarea:focus {
+.input:focus {
   border-color: var(--composer-ring-focus);
   background: var(--app-bg-deep);
   box-shadow: 0 0 0 2px rgba(143, 122, 223, 0.11);
@@ -146,15 +134,11 @@
 .characterCount {
   position: absolute;
   right: 11px;
-  bottom: 8px;
+  bottom: 14px;
   color: var(--modal-muted-text);
   font-size: 11px;
   pointer-events: none;
 }
-
-/* =========================================================
-   DETAILS
-   ========================================================= */
 
 .detailsGrid {
   display: grid;
@@ -172,10 +156,6 @@
   border-radius: var(--r-md);
   color: var(--modal-muted-text);
   background: var(--modal-surface);
-}
-
-.detailCard:first-child {
-  grid-column: 1 / -1;
 }
 
 .detailIcon {
@@ -198,64 +178,48 @@
   text-transform: uppercase;
 }
 
-.detailValue,
-.pathValue {
+.detailValue {
   color: var(--modal-text);
   font-size: 13px;
 }
 
-.pathValue {
-  overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* =========================================================
-   ARCHIVE NOTICE
-   ========================================================= */
-
-.archiveNotice {
+.warningNotice {
+  display: grid;
+  gap: 3px;
   padding: 12px 14px;
-  border: 1px solid var(--modal-danger-border);
+  border: 1px solid rgba(196, 154, 90, 0.3);
   border-radius: var(--r-md);
-  color: #d9b0b0;
-  background: var(--modal-danger-soft);
+  color: #ddc9a7;
+  background: rgba(196, 154, 90, 0.09);
   font-size: 12px;
   line-height: 1.5;
-  animation: archiveNoticeIn 120ms ease-out both;
+  animation: noticeIn 130ms ease-out both;
 }
 
-.archiveNoticeTitle {
-  margin-bottom: 3px;
+.deleteNotice {
+  border-color: var(--modal-danger-border);
   color: #e2b5b5;
-  font-weight: 700;
+  background: var(--modal-danger-soft);
 }
-
-/* =========================================================
-   FOOTER
-   ========================================================= */
 
 .footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
+.destructiveActions,
 .primaryActions {
   display: flex;
   align-items: center;
   gap: 9px;
 }
 
-/* =========================================================
-   BUTTONS
-   ========================================================= */
-
 .archiveButton,
 .restoreButton,
+.deleteButton,
 .cancelButton,
 .saveButton {
   min-height: 40px;
@@ -265,7 +229,7 @@
   font-weight: 650;
   cursor: pointer;
   transition:
-    transform 180ms var(--ease-springy),
+    transform 170ms var(--ease-springy),
     background-color 150ms ease,
     border-color 150ms ease,
     color 150ms ease,
@@ -274,33 +238,41 @@
 
 .archiveButton,
 .restoreButton,
+.deleteButton,
 .saveButton {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-
-.archiveButton,
-.restoreButton {
+  gap: 7px;
   padding: 0 13px;
 }
 
 .archiveButton {
-  border: 1px solid var(--modal-danger-border);
-  color: var(--app-danger);
-  background: var(--modal-danger-soft);
+  border: 1px solid rgba(196, 154, 90, 0.28);
+  color: #d8bd92;
+  background: rgba(196, 154, 90, 0.08);
 }
 
 .archiveButtonConfirming {
-  border-color: rgba(200, 95, 95, 0.5);
-  color: #f0c1c1;
-  background: rgba(200, 95, 95, 0.18);
+  border-color: rgba(196, 154, 90, 0.48);
+  background: rgba(196, 154, 90, 0.16);
 }
 
 .restoreButton {
   border: 1px solid rgba(127, 168, 120, 0.3);
   color: var(--app-success);
   background: rgba(127, 168, 120, 0.1);
+}
+
+.deleteButton {
+  border: 1px solid var(--modal-danger-border);
+  color: var(--app-danger);
+  background: var(--modal-danger-soft);
+}
+
+.deleteButtonConfirming {
+  border-color: rgba(200, 95, 95, 0.52);
+  color: #f0c1c1;
+  background: rgba(200, 95, 95, 0.18);
 }
 
 .cancelButton {
@@ -319,19 +291,22 @@
 
 .archiveButton:hover:not(:disabled),
 .restoreButton:hover:not(:disabled),
+.deleteButton:hover:not(:disabled),
 .cancelButton:hover:not(:disabled),
 .saveButton:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
 .archiveButton:hover:not(:disabled) {
-  border-color: rgba(200, 95, 95, 0.46);
-  background: rgba(200, 95, 95, 0.16);
+  background: rgba(196, 154, 90, 0.14);
 }
 
 .restoreButton:hover:not(:disabled) {
-  border-color: rgba(127, 168, 120, 0.44);
   background: rgba(127, 168, 120, 0.16);
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: rgba(200, 95, 95, 0.16);
 }
 
 .cancelButton:hover:not(:disabled) {
@@ -345,26 +320,23 @@
 
 .archiveButton:active:not(:disabled),
 .restoreButton:active:not(:disabled),
+.deleteButton:active:not(:disabled),
 .cancelButton:active:not(:disabled),
 .saveButton:active:not(:disabled) {
   transform: scale(0.98);
-  transition-duration: 70ms;
 }
 
 .archiveButton:disabled,
 .restoreButton:disabled,
+.deleteButton:disabled,
 .cancelButton:disabled,
 .saveButton:disabled,
 .closeButton:disabled {
   cursor: default;
-  opacity: 0.48;
+  opacity: 0.46;
 }
 
-/* =========================================================
-   ANIMATIONS
-   ========================================================= */
-
-@keyframes archiveNoticeIn {
+@keyframes noticeIn {
   from {
     opacity: 0;
     transform: translateY(-3px);
@@ -376,11 +348,7 @@
   }
 }
 
-/* =========================================================
-   RESPONSIVE
-   ========================================================= */
-
-@media (max-width: 620px) {
+@media (max-width: 680px) {
   .header,
   .form {
     padding-left: 18px;
@@ -391,41 +359,30 @@
     grid-template-columns: 1fr;
   }
 
-  .detailCard:first-child {
-    grid-column: auto;
-  }
-
   .footer {
     align-items: stretch;
-    flex-direction: column-reverse;
+    flex-direction: column;
   }
 
+  .destructiveActions,
   .primaryActions {
     justify-content: flex-end;
-  }
-
-  .archiveButton,
-  .restoreButton {
-    justify-content: center;
+    flex-wrap: wrap;
   }
 }
 
-/* =========================================================
-   REDUCED MOTION
-   ========================================================= */
-
 @media (prefers-reduced-motion: reduce) {
-  .archiveNotice {
+  .warningNotice {
     animation: none;
   }
 
   .closeButton,
   .archiveButton,
   .restoreButton,
+  .deleteButton,
   .cancelButton,
   .saveButton,
-  .input,
-  .textarea {
+  .input {
     transition: none;
   }
 }

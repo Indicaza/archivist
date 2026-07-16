@@ -1,4 +1,3 @@
-// frontend/src/components/chat/ChatWindow.tsx
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -9,71 +8,15 @@ import {
   useState,
 } from "react";
 import { SendHorizontal, Sparkles } from "lucide-react";
-import type { LibraryListItem } from "../../domains/library/library.types";
+import { addMessage, fetchMessages } from "../../domains/chat/chat.api";
+import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
 import styles from "./ChatWindow.module.css";
-
-type ChatRole = "user" | "assistant" | "system";
-
-type MessageBlock =
-  | {
-      id: string;
-      type: "markdown";
-      content: string;
-    }
-  | {
-      id: string;
-      type: "contextPacket";
-      title: string;
-      lines?: string[];
-      dynamic?: "activeLibrary";
-    };
-
-type ChatMessage = {
-  id: string;
-  role: ChatRole;
-  blocks: MessageBlock[];
-  createdAt: string;
-};
 
 type ChatWindowProps = {
   scrollContainerRef: RefObject<HTMLElement | null>;
-  selectedLibrary: LibraryListItem | null;
+  selectedChat: Chat | null;
+  onChatActivity: (chatId: string) => void;
 };
-
-const starterMessages: ChatMessage[] = [
-  {
-    id: "system-welcome",
-    role: "system",
-    createdAt: new Date().toISOString(),
-    blocks: [
-      {
-        id: "system-welcome-block",
-        type: "markdown",
-        content:
-          "Archivist shell online. This is still a mock chat, but the artifact stream is waking up.",
-      },
-    ],
-  },
-  {
-    id: "assistant-intro",
-    role: "assistant",
-    createdAt: new Date().toISOString(),
-    blocks: [
-      {
-        id: "assistant-intro-block",
-        type: "markdown",
-        content:
-          "Choose a Library when you are ready. Soon I will be able to scan folders, read the wiki, show sources, and propose careful changes.",
-      },
-      {
-        id: "assistant-context-block",
-        type: "contextPacket",
-        title: "Current Context",
-        dynamic: "activeLibrary",
-      },
-    ],
-  },
-];
 
 function isNearBottom(container: HTMLElement, threshold = 120): boolean {
   const distanceFromBottom =
@@ -94,11 +37,13 @@ function scrollToBottom(
 
 export function ChatWindow({
   scrollContainerRef,
-  selectedLibrary,
+  selectedChat,
+  onChatActivity,
 }: ChatWindowProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [grown, setGrown] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
@@ -107,23 +52,21 @@ export function ChatWindow({
 
   const hasMessages = messages.length > 0;
 
-  const activeLibraryLines = useMemo(() => {
-    return [
-      `Library: ${selectedLibrary ? selectedLibrary.name : "none selected"}`,
-      `Status: ${selectedLibrary ? selectedLibrary.status : "idle"}`,
-      "Profile: Archivist",
-      "Mode: Main Timeline",
-      "Provider: mock",
-    ];
-  }, [selectedLibrary]);
-
   const canSend = useMemo(() => {
-    return input.trim().length > 0 && !sending && Boolean(selectedLibrary);
-  }, [input, sending, selectedLibrary]);
+    return (
+      input.trim().length > 0 &&
+      !sending &&
+      !loadingMessages &&
+      Boolean(selectedChat)
+    );
+  }, [input, loadingMessages, selectedChat, sending]);
 
   function resizeTextarea() {
     const textarea = textareaRef.current;
-    if (!textarea) return;
+
+    if (!textarea) {
+      return;
+    }
 
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
@@ -132,50 +75,35 @@ export function ChatWindow({
 
   async function send() {
     const text = input.trim();
-    if (!text || sending || !selectedLibrary) return;
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      createdAt: new Date().toISOString(),
-      blocks: [
-        {
-          id: crypto.randomUUID(),
-          type: "markdown",
-          content: text,
-        },
-      ],
-    };
+    if (!text || sending || !selectedChat) {
+      return;
+    }
 
+    setSending(true);
+    setInput("");
     forceScrollRef.current = true;
     setPinnedToBottom(true);
-    setMessages((current) => [...current, userMessage]);
-    setInput("");
-    setSending(true);
 
-    window.setTimeout(() => {
-      const assistantMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        createdAt: new Date().toISOString(),
-        blocks: [
-          {
-            id: crypto.randomUUID(),
-            type: "markdown",
-            content: `Mock response received inside ${selectedLibrary.name}. Later this will route through the Context Compiler, AI Harness, source cards, proposals, and tool calls.`,
-          },
-          {
-            id: crypto.randomUUID(),
-            type: "contextPacket",
-            title: "Context Used",
-            lines: activeLibraryLines,
-          },
-        ],
-      };
+    try {
+      const message = await addMessage(selectedChat.id, {
+        role: "user",
+        content: text,
+      });
 
-      setMessages((current) => [...current, assistantMessage]);
+      setMessages((current) => [...current, message]);
+      onChatActivity(selectedChat.id);
+    } catch (error) {
+      setInput(text);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not save the message.",
+      );
+    } finally {
       setSending(false);
-    }, 450);
+    }
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -190,29 +118,75 @@ export function ChatWindow({
     }
   }
 
-  function getContextLines(block: MessageBlock): string[] {
-    if (block.type !== "contextPacket") return [];
+  useEffect(() => {
+    let cancelled = false;
 
-    if (block.dynamic === "activeLibrary") {
-      return activeLibraryLines;
+    async function loadMessages() {
+      if (!selectedChat) {
+        setMessages([]);
+        setLoadingMessages(false);
+        return;
+      }
+
+      setLoadingMessages(true);
+      setMessages([]);
+
+      try {
+        const loadedMessages = await fetchMessages(selectedChat.id);
+
+        if (cancelled) {
+          return;
+        }
+
+        setMessages(loadedMessages);
+        forceScrollRef.current = true;
+        setPinnedToBottom(true);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Archivist could not load the conversation.",
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingMessages(false);
+        }
+      }
     }
 
-    return block.lines ?? [];
-  }
+    void loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChat]);
 
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    const currentContainer = scrollContainerRef.current;
 
-    function onScroll() {
-      if (!container) return;
+    if (!currentContainer) {
+      return;
+    }
+
+    const container: HTMLElement = currentContainer;
+
+    function handleScroll() {
       setPinnedToBottom(isNearBottom(container));
     }
 
-    container.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
+    container.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
 
-    return () => container.removeEventListener("scroll", onScroll);
+    handleScroll();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
   }, [scrollContainerRef]);
 
   useEffect(() => {
@@ -220,10 +194,15 @@ export function ChatWindow({
   }, [input]);
 
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    const currentContainer = scrollContainerRef.current;
 
-    window.requestAnimationFrame(() => {
+    if (!currentContainer) {
+      return;
+    }
+
+    const container: HTMLElement = currentContainer;
+
+    const animationFrameId = window.requestAnimationFrame(() => {
       if (forceScrollRef.current) {
         scrollToBottom(container, "smooth");
         forceScrollRef.current = false;
@@ -234,16 +213,32 @@ export function ChatWindow({
         scrollToBottom(container, "smooth");
       }
     });
-  }, [messages.length, sending, pinnedToBottom, scrollContainerRef]);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [loadingMessages, messages, pinnedToBottom, scrollContainerRef, sending]);
 
   return (
     <section className={styles.chatWindow}>
       <div className={styles.chatContent}>
         <div className={styles.messages} aria-live="polite">
-          {!hasMessages ? (
+          {!selectedChat ? (
             <div className={styles.emptyState}>
               <Sparkles size={24} strokeWidth={2} />
-              <span>Select or create a Library to begin.</span>
+              <span>Select or create a chat to begin.</span>
+            </div>
+          ) : loadingMessages ? (
+            <div className={styles.emptyState}>
+              <Sparkles size={24} strokeWidth={2} />
+              <span>Loading {selectedChat.title}...</span>
+            </div>
+          ) : !hasMessages ? (
+            <div className={styles.emptyState}>
+              <Sparkles size={24} strokeWidth={2} />
+              <span>
+                {selectedChat.title} is empty. Send the first message.
+              </span>
             </div>
           ) : (
             messages.map((message) => (
@@ -262,40 +257,20 @@ export function ChatWindow({
                 </div>
 
                 <div className={styles.blocks}>
-                  {message.blocks.map((block) => {
-                    if (block.type === "contextPacket") {
-                      return (
-                        <div key={block.id} className={styles.contextPacket}>
-                          <div className={styles.contextTitle}>
-                            {block.title}
-                          </div>
-                          <ul className={styles.contextList}>
-                            {getContextLines(block).map((line) => (
-                              <li key={line}>{line}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={block.id} className={styles.markdownBlock}>
-                        {block.content}
-                      </div>
-                    );
-                  })}
+                  <div className={styles.markdownBlock}>{message.content}</div>
                 </div>
               </article>
             ))
           )}
 
           {sending ? (
-            <article className={`${styles.message} ${styles.assistant}`}>
+            <article className={`${styles.message} ${styles.user}`}>
               <div className={styles.messageMeta}>
-                <span className={styles.roleLabel}>Archivist</span>
+                <span className={styles.roleLabel}>You</span>
               </div>
+
               <div className={styles.blocks}>
-                <div className={styles.typing}>Thinking...</div>
+                <div className={styles.typing}>Saving message...</div>
               </div>
             </article>
           ) : null}
@@ -312,13 +287,13 @@ export function ChatWindow({
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={onKeyDown}
               placeholder={
-                selectedLibrary
-                  ? `Message ${selectedLibrary.name}...`
-                  : "Choose a Library..."
+                selectedChat
+                  ? `Message ${selectedChat.title}...`
+                  : "Choose or create a chat..."
               }
               autoComplete="off"
               rows={1}
-              disabled={sending || !selectedLibrary}
+              disabled={sending || loadingMessages || !selectedChat}
             />
 
             <button

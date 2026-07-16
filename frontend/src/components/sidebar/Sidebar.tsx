@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, UserRoundCog, Wrench } from "lucide-react";
+import type { Chat } from "../../domains/chat/chat.types";
 import type { LibraryListItem } from "../../domains/library/library.types";
 import { Chats } from "./Chats/Chats";
 import { Libraries } from "./Libraries/Libraries";
@@ -7,16 +8,27 @@ import styles from "./Sidebar.module.css";
 
 type SidebarProps = {
   collapsed?: boolean;
+
   libraries: LibraryListItem[];
   archivedLibraries: LibraryListItem[];
   selectedLibraryId: string | null;
   loadingLibraries: boolean;
   addingLibrary: boolean;
-  restoringLibraryId: string | null;
   onSelectLibrary: (libraryId: string) => void;
   onAddLibrary: () => void;
   onManageLibrary: (libraryId: string) => void;
-  onRestoreLibrary: (libraryId: string) => void;
+  onManageArchivedLibrary: (libraryId: string) => void;
+
+  chats: Chat[];
+  archivedChats: Chat[];
+  selectedChatId: string | null;
+  loadingChats: boolean;
+  addingChat: boolean;
+  onAddChat: () => void;
+  onSelectChat: (chatId: string) => void;
+  onManageChat: (chatId: string) => void;
+  onManageArchivedChat: (chatId: string) => void;
+
   onToggle: () => void;
 };
 
@@ -25,16 +37,27 @@ const SIDEBAR_COLLAPSED_WIDTH = 0;
 
 export function Sidebar({
   collapsed = false,
+
   libraries,
   archivedLibraries,
   selectedLibraryId,
   loadingLibraries,
   addingLibrary,
-  restoringLibraryId,
   onSelectLibrary,
   onAddLibrary,
   onManageLibrary,
-  onRestoreLibrary,
+  onManageArchivedLibrary,
+
+  chats,
+  archivedChats,
+  selectedChatId,
+  loadingChats,
+  addingChat,
+  onAddChat,
+  onSelectChat,
+  onManageChat,
+  onManageArchivedChat,
+
   onToggle,
 }: SidebarProps) {
   const [profilesOpen, setProfilesOpen] = useState(false);
@@ -91,14 +114,23 @@ export function Sidebar({
               selectedLibraryId={selectedLibraryId}
               loading={loadingLibraries}
               adding={addingLibrary}
-              restoringLibraryId={restoringLibraryId}
               onSelectLibrary={onSelectLibrary}
               onAddLibrary={onAddLibrary}
               onManageLibrary={onManageLibrary}
-              onRestoreLibrary={onRestoreLibrary}
+              onManageArchivedLibrary={onManageArchivedLibrary}
             />
 
-            <Chats />
+            <Chats
+              chats={chats}
+              archivedChats={archivedChats}
+              selectedChatId={selectedChatId}
+              loading={loadingChats}
+              adding={addingChat}
+              onAddChat={onAddChat}
+              onSelectChat={onSelectChat}
+              onManageChat={onManageChat}
+              onManageArchivedChat={onManageArchivedChat}
+            />
 
             <div
               className={styles.groupHeader}
@@ -113,6 +145,7 @@ export function Sidebar({
                   profilesOpen ? styles.caretOpen : styles.caretClosed
                 }`}
               />
+
               <UserRoundCog size={16} strokeWidth={2.1} />
               <span>Profiles</span>
             </div>
@@ -143,6 +176,7 @@ export function Sidebar({
                   toolsOpen ? styles.caretOpen : styles.caretClosed
                 }`}
               />
+
               <Wrench size={16} strokeWidth={2.1} />
               <span>Tools</span>
             </div>

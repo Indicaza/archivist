@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatWindow } from "./components/chat/ChatWindow";
+import { ChatManagementModal } from "./components/sidebar/Chats/ChatManagementModal/ChatManagementModal";
 import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Topbar } from "./components/topbar/Topbar";
+import {
+  addChat,
+  archiveChat,
+  editChat,
+  fetchArchivedChats,
+  fetchChats,
+  removeChat,
+  restoreChat,
+  updateSelectedChat,
+} from "./domains/chat/chat.api";
+import type { Chat } from "./domains/chat/chat.types";
 import {
   addLibrary,
   archiveLibrary,
@@ -18,19 +30,41 @@ import "./App.css";
 
 export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [archivedLibraries, setArchivedLibraries] = useState<Library[]>([]);
+
   const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(
     null,
   );
+
   const [managedLibraryId, setManagedLibraryId] = useState<string | null>(null);
+
   const [loadingLibraries, setLoadingLibraries] = useState(true);
+
   const [addingLibrary, setAddingLibrary] = useState(false);
+
   const [savingLibrary, setSavingLibrary] = useState(false);
+
   const [archivingLibrary, setArchivingLibrary] = useState(false);
-  const [restoringLibraryId, setRestoringLibraryId] = useState<string | null>(
-    null,
-  );
+
+  const [restoringManagedLibrary, setRestoringManagedLibrary] = useState(false);
+
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [archivedChats, setArchivedChats] = useState<Chat[]>([]);
+
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+  const [managedChatId, setManagedChatId] = useState<string | null>(null);
+
+  const [loadingChats, setLoadingChats] = useState(true);
+  const [addingChat, setAddingChat] = useState(false);
+  const [savingChat, setSavingChat] = useState(false);
+  const [archivingChat, setArchivingChat] = useState(false);
+
+  const [deletingChat, setDeletingChat] = useState(false);
+
+  const [restoringManagedChat, setRestoringManagedChat] = useState(false);
 
   const appMainRef = useRef<HTMLElement | null>(null);
 
@@ -57,23 +91,60 @@ export function App() {
     );
   }, [libraryListItems, selectedLibraryId]);
 
+  const selectedChat = useMemo(() => {
+    return chats.find((chat) => chat.id === selectedChatId) ?? null;
+  }, [chats, selectedChatId]);
+
   const managedLibrary = useMemo(() => {
-    return libraries.find((library) => library.id === managedLibraryId) ?? null;
-  }, [libraries, managedLibraryId]);
+    return (
+      libraries.find((library) => library.id === managedLibraryId) ??
+      archivedLibraries.find((library) => library.id === managedLibraryId) ??
+      null
+    );
+  }, [archivedLibraries, libraries, managedLibraryId]);
+
+  const managedChat = useMemo(() => {
+    return (
+      chats.find((chat) => chat.id === managedChatId) ??
+      archivedChats.find((chat) => chat.id === managedChatId) ??
+      null
+    );
+  }, [archivedChats, chats, managedChatId]);
 
   useEffect(() => {
     async function loadArchivistState() {
       try {
-        const [loadedLibraries, loadedArchivedLibraries, appState] =
-          await Promise.all([
-            fetchLibraries(),
-            fetchArchivedLibraries(),
-            fetchAppState(),
-          ]);
+        const [
+          loadedLibraries,
+          loadedArchivedLibraries,
+          loadedChats,
+          loadedArchivedChats,
+          appState,
+        ] = await Promise.all([
+          fetchLibraries(),
+          fetchArchivedLibraries(),
+          fetchChats(),
+          fetchArchivedChats(),
+          fetchAppState(),
+        ]);
 
         setLibraries(loadedLibraries);
         setArchivedLibraries(loadedArchivedLibraries);
+
+        setChats(loadedChats);
+        setArchivedChats(loadedArchivedChats);
+
         setSelectedLibraryId(appState.selectedLibraryId);
+
+        const selectedChatStillExists = loadedChats.some(
+          (chat) => chat.id === appState.selectedChatId,
+        );
+
+        setSelectedChatId(
+          selectedChatStillExists
+            ? appState.selectedChatId
+            : (loadedChats[0]?.id ?? null),
+        );
       } catch (error) {
         window.alert(
           error instanceof Error
@@ -82,6 +153,7 @@ export function App() {
         );
       } finally {
         setLoadingLibraries(false);
+        setLoadingChats(false);
       }
     }
 
@@ -131,6 +203,7 @@ export function App() {
       const result = await addLibrary(rootPath);
 
       setLibraries((current) => [...current, result.library]);
+
       setSelectedLibraryId(result.selectedLibraryId);
     } catch (error) {
       window.alert(
@@ -155,11 +228,19 @@ export function App() {
     try {
       const updatedLibrary = await editLibrary(libraryId, input);
 
-      setLibraries((current) =>
-        current.map((library) =>
-          library.id === libraryId ? updatedLibrary : library,
-        ),
-      );
+      if (updatedLibrary.archivedAt) {
+        setArchivedLibraries((current) =>
+          current.map((library) =>
+            library.id === libraryId ? updatedLibrary : library,
+          ),
+        );
+      } else {
+        setLibraries((current) =>
+          current.map((library) =>
+            library.id === libraryId ? updatedLibrary : library,
+          ),
+        );
+      }
 
       setManagedLibraryId(null);
     } catch (error) {
@@ -186,6 +267,7 @@ export function App() {
       setArchivedLibraries((current) => [result.library, ...current]);
 
       setSelectedLibraryId(result.selectedLibraryId);
+
       setManagedLibraryId(null);
     } catch (error) {
       window.alert(
@@ -198,12 +280,12 @@ export function App() {
     }
   }
 
-  async function handleRestoreLibrary(libraryId: string) {
-    if (restoringLibraryId) {
+  async function handleRestoreManagedLibrary(libraryId: string) {
+    if (restoringManagedLibrary) {
       return;
     }
 
-    setRestoringLibraryId(libraryId);
+    setRestoringManagedLibrary(true);
 
     try {
       const restoredLibrary = await restoreLibrary(libraryId);
@@ -213,6 +295,8 @@ export function App() {
       );
 
       setLibraries((current) => [restoredLibrary, ...current]);
+
+      setManagedLibraryId(null);
     } catch (error) {
       window.alert(
         error instanceof Error
@@ -220,8 +304,170 @@ export function App() {
           : "Archivist could not restore the Library.",
       );
     } finally {
-      setRestoringLibraryId(null);
+      setRestoringManagedLibrary(false);
     }
+  }
+
+  async function handleAddChat() {
+    if (addingChat) {
+      return;
+    }
+
+    setAddingChat(true);
+
+    try {
+      const chat = await addChat();
+
+      setChats((current) => [chat, ...current]);
+      setSelectedChatId(chat.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not create the chat.",
+      );
+    } finally {
+      setAddingChat(false);
+    }
+  }
+
+  async function handleSelectChat(chatId: string) {
+    if (chatId === selectedChatId) {
+      return;
+    }
+
+    try {
+      const nextSelectedChatId = await updateSelectedChat(chatId);
+
+      setSelectedChatId(nextSelectedChatId);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not select the chat.",
+      );
+    }
+  }
+
+  async function handleSaveChat(chatId: string, title: string) {
+    setSavingChat(true);
+
+    try {
+      const updatedChat = await editChat(chatId, title);
+
+      if (updatedChat.archivedAt) {
+        setArchivedChats((current) =>
+          current.map((chat) => (chat.id === chatId ? updatedChat : chat)),
+        );
+      } else {
+        setChats((current) =>
+          current.map((chat) => (chat.id === chatId ? updatedChat : chat)),
+        );
+      }
+
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not rename the chat.",
+      );
+    } finally {
+      setSavingChat(false);
+    }
+  }
+
+  async function handleArchiveChat(chatId: string) {
+    setArchivingChat(true);
+
+    try {
+      const result = await archiveChat(chatId);
+
+      setChats((current) => current.filter((chat) => chat.id !== chatId));
+
+      setArchivedChats((current) => [result.chat, ...current]);
+
+      setSelectedChatId(result.selectedChatId);
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not archive the chat.",
+      );
+    } finally {
+      setArchivingChat(false);
+    }
+  }
+
+  async function handleRestoreManagedChat(chatId: string) {
+    if (restoringManagedChat) {
+      return;
+    }
+
+    setRestoringManagedChat(true);
+
+    try {
+      const restoredChat = await restoreChat(chatId);
+
+      setArchivedChats((current) =>
+        current.filter((chat) => chat.id !== chatId),
+      );
+
+      setChats((current) => [restoredChat, ...current]);
+
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not restore the chat.",
+      );
+    } finally {
+      setRestoringManagedChat(false);
+    }
+  }
+
+  async function handleDeleteChat(chatId: string) {
+    setDeletingChat(true);
+
+    try {
+      const result = await removeChat(chatId);
+
+      setArchivedChats((current) =>
+        current.filter((chat) => chat.id !== chatId),
+      );
+
+      setSelectedChatId(result.selectedChatId);
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not permanently delete the chat.",
+      );
+    } finally {
+      setDeletingChat(false);
+    }
+  }
+
+  function handleChatActivity(chatId: string) {
+    const now = new Date().toISOString();
+
+    setChats((current) => {
+      const activeChat = current.find((chat) => chat.id === chatId);
+
+      if (!activeChat) {
+        return current;
+      }
+
+      const updatedChat = {
+        ...activeChat,
+        updatedAt: now,
+      };
+
+      return [updatedChat, ...current.filter((chat) => chat.id !== chatId)];
+    });
   }
 
   return (
@@ -233,11 +479,19 @@ export function App() {
         selectedLibraryId={selectedLibraryId}
         loadingLibraries={loadingLibraries}
         addingLibrary={addingLibrary}
-        restoringLibraryId={restoringLibraryId}
         onSelectLibrary={handleSelectLibrary}
         onAddLibrary={handleAddLibrary}
         onManageLibrary={setManagedLibraryId}
-        onRestoreLibrary={handleRestoreLibrary}
+        onManageArchivedLibrary={setManagedLibraryId}
+        chats={chats}
+        archivedChats={archivedChats}
+        selectedChatId={selectedChatId}
+        loadingChats={loadingChats}
+        addingChat={addingChat}
+        onAddChat={handleAddChat}
+        onSelectChat={handleSelectChat}
+        onManageChat={setManagedChatId}
+        onManageArchivedChat={setManagedChatId}
         onToggle={() => setSidebarCollapsed((value) => !value)}
       />
 
@@ -247,7 +501,8 @@ export function App() {
         <div className="app-main-inner">
           <ChatWindow
             scrollContainerRef={appMainRef}
-            selectedLibrary={selectedLibrary}
+            selectedChat={selectedChat}
+            onChatActivity={handleChatActivity}
           />
         </div>
       </main>
@@ -257,9 +512,26 @@ export function App() {
           library={managedLibrary}
           saving={savingLibrary}
           archiving={archivingLibrary}
+          restoring={restoringManagedLibrary}
           onClose={() => setManagedLibraryId(null)}
           onSave={handleSaveLibrary}
           onArchive={handleArchiveLibrary}
+          onRestore={handleRestoreManagedLibrary}
+        />
+      ) : null}
+
+      {managedChat ? (
+        <ChatManagementModal
+          chat={managedChat}
+          saving={savingChat}
+          archiving={archivingChat}
+          restoring={restoringManagedChat}
+          deleting={deletingChat}
+          onClose={() => setManagedChatId(null)}
+          onSave={handleSaveChat}
+          onArchive={handleArchiveChat}
+          onRestore={handleRestoreManagedChat}
+          onDelete={handleDeleteChat}
         />
       ) : null}
     </>

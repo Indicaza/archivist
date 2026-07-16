@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArchiveRestore,
   BookOpen,
   ChevronRight,
   FolderArchive,
@@ -10,6 +9,7 @@ import {
 } from "lucide-react";
 import type { LibraryListItem } from "../../../domains/library/library.types";
 import { SidebarButton } from "../SidebarButton/SidebarButton";
+import { SidebarCard } from "../SidebarCard/SidebarCard";
 import styles from "./Libraries.module.css";
 
 type LibrariesProps = {
@@ -18,11 +18,10 @@ type LibrariesProps = {
   selectedLibraryId: string | null;
   loading: boolean;
   adding: boolean;
-  restoringLibraryId: string | null;
   onSelectLibrary: (libraryId: string) => void;
   onAddLibrary: () => void;
   onManageLibrary: (libraryId: string) => void;
-  onRestoreLibrary: (libraryId: string) => void;
+  onManageArchivedLibrary: (libraryId: string) => void;
 };
 
 export function Libraries({
@@ -31,17 +30,18 @@ export function Libraries({
   selectedLibraryId,
   loading,
   adding,
-  restoringLibraryId,
   onSelectLibrary,
   onAddLibrary,
   onManageLibrary,
-  onRestoreLibrary,
+  onManageArchivedLibrary,
 }: LibrariesProps) {
   const [librariesOpen, setLibrariesOpen] = useState(true);
   const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
   const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
+
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
   const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,7 +49,9 @@ export function Libraries({
       setDebouncedSearch(search.trim().toLowerCase());
     }, 200);
 
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [search]);
 
   const filteredLibraries = useMemo(() => {
@@ -78,15 +80,18 @@ export function Libraries({
     });
   }, [archivedLibraries, debouncedSearch]);
 
-  function selectLibrary(libraryId: string) {
+  function pressLibrary(
+    libraryId: string,
+    action: (libraryId: string) => void,
+  ) {
     setPressedLibraryId(libraryId);
-    onSelectLibrary(libraryId);
+    action(libraryId);
 
     window.setTimeout(() => {
       setPressedLibraryId((current) =>
         current === libraryId ? null : current,
       );
-    }, 240);
+    }, 280);
   }
 
   return (
@@ -167,36 +172,40 @@ export function Libraries({
                   const pressed = library.id === pressedLibraryId;
 
                   return (
-                    <li key={library.id} className={styles.item}>
-                      <button
-                        className={`${styles.row} ${
-                          selected ? styles.rowActive : ""
-                        } ${pressed ? styles.rowPressed : ""}`}
-                        type="button"
-                        onClick={() => selectLibrary(library.id)}
-                        aria-current={selected ? "page" : undefined}
-                      >
+                    <SidebarCard
+                      key={library.id}
+                      title={library.name}
+                      subtitle={library.subtitle}
+                      leading={
                         <span className={styles.libraryGlyph} aria-hidden>
                           {library.name.slice(0, 1)}
                         </span>
-
-                        <span className={styles.meta}>
-                          <span className={styles.name}>{library.name}</span>
-
-                          <span className={styles.sub}>{library.subtitle}</span>
-                        </span>
-                      </button>
-
-                      <button
-                        className={styles.manageButton}
-                        type="button"
-                        onClick={() => onManageLibrary(library.id)}
-                        aria-label={`Manage ${library.name}`}
-                        title="Manage Library"
-                      >
-                        <Pencil size={13} strokeWidth={2.2} />
-                      </button>
-                    </li>
+                      }
+                      trailing={
+                        <span
+                          className={`${styles.statusDot} ${
+                            styles[library.status]
+                          }`}
+                          title={selected ? "Selected" : "Available"}
+                          aria-label={selected ? "Selected" : "Available"}
+                        />
+                      }
+                      selected={selected}
+                      pressed={pressed}
+                      onClick={() => pressLibrary(library.id, onSelectLibrary)}
+                      aria-current={selected ? "page" : undefined}
+                      action={
+                        <button
+                          className={styles.manageButton}
+                          type="button"
+                          onClick={() => onManageLibrary(library.id)}
+                          aria-label={`Manage ${library.name}`}
+                          title="Manage Library"
+                        >
+                          <Pencil size={13} strokeWidth={2.2} />
+                        </button>
+                      }
+                    />
                   );
                 })}
               </ul>
@@ -243,41 +252,38 @@ export function Libraries({
             ) : filteredArchivedLibraries.length ? (
               <ul className={styles.list}>
                 {filteredArchivedLibraries.map((library) => {
-                  const restoring = restoringLibraryId === library.id;
+                  const pressed = library.id === pressedLibraryId;
 
                   return (
-                    <li
+                    <SidebarCard
                       key={library.id}
-                      className={`${styles.item} ${styles.archivedItem}`}
-                    >
-                      <div className={`${styles.row} ${styles.archivedRow}`}>
+                      title={library.name}
+                      subtitle={library.subtitle}
+                      leading={
                         <span
                           className={`${styles.libraryGlyph} ${styles.archivedGlyph}`}
                           aria-hidden
                         >
                           {library.name.slice(0, 1)}
                         </span>
-
-                        <span className={styles.meta}>
-                          <span className={styles.name}>{library.name}</span>
-
-                          <span className={styles.sub}>{library.subtitle}</span>
-                        </span>
-                      </div>
-
-                      <button
-                        className={styles.restoreButton}
-                        type="button"
-                        onClick={() => onRestoreLibrary(library.id)}
-                        disabled={restoringLibraryId !== null}
-                        aria-label={`Restore ${library.name}`}
-                        title="Restore Library"
-                      >
-                        <ArchiveRestore size={14} strokeWidth={2.2} />
-
-                        <span>{restoring ? "Restoring..." : "Restore"}</span>
-                      </button>
-                    </li>
+                      }
+                      archived
+                      pressed={pressed}
+                      onClick={() =>
+                        pressLibrary(library.id, onManageArchivedLibrary)
+                      }
+                      action={
+                        <button
+                          className={styles.manageButton}
+                          type="button"
+                          onClick={() => onManageArchivedLibrary(library.id)}
+                          aria-label={`Manage archived Library ${library.name}`}
+                          title="Manage Archived Library"
+                        >
+                          <Pencil size={13} strokeWidth={2.2} />
+                        </button>
+                      }
+                    />
                   );
                 })}
               </ul>

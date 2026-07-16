@@ -24,10 +24,6 @@ export type CreateChatInput = {
   title?: string;
 };
 
-export type UpdateChatInput = {
-  title: string;
-};
-
 export type CreateMessageInput = {
   role: MessageRole;
   content: string;
