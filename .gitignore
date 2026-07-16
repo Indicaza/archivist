@@ -13,3 +13,8 @@ backend/data/
 *.db
 *.db-shm
 *.db-wal
+
+# .env files
+.env
+.env.local
+.env.*.local

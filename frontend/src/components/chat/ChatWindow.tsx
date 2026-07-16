@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { SendHorizontal, Sparkles } from "lucide-react";
-import { addMessage, fetchMessages } from "../../domains/chat/chat.api";
+import { fetchMessages, respondToChat } from "../../domains/chat/chat.api";
 import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
 import styles from "./ChatWindow.module.css";
 
@@ -35,20 +35,44 @@ function scrollToBottom(
   });
 }
 
+function createOptimisticUserMessage(
+  chatId: string,
+  content: string,
+): ChatMessage {
+  const now = new Date().toISOString();
+
+  return {
+    id: `optimistic-${crypto.randomUUID()}`,
+    chatId,
+    role: "user",
+    content,
+    status: "streaming",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function ChatWindow({
   scrollContainerRef,
   selectedChat,
   onChatActivity,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
   const [input, setInput] = useState("");
   const [grown, setGrown] = useState(false);
+
   const [loadingMessages, setLoadingMessages] = useState(false);
+
   const [sending, setSending] = useState(false);
+
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   const forceScrollRef = useRef(false);
+
+  const activeRequestChatIdRef = useRef<string | null>(null);
 
   const hasMessages = messages.length > 0;
 
@@ -70,39 +94,63 @@ export function ChatWindow({
 
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
+
     setGrown(textarea.scrollHeight > 48);
   }
 
   async function send() {
     const text = input.trim();
+    const chat = selectedChat;
 
-    if (!text || sending || !selectedChat) {
+    if (!text || sending || !chat) {
       return;
     }
 
+    const optimisticMessage = createOptimisticUserMessage(chat.id, text);
+
+    activeRequestChatIdRef.current = chat.id;
+
     setSending(true);
     setInput("");
+
+    setMessages((current) => [...current, optimisticMessage]);
+
     forceScrollRef.current = true;
     setPinnedToBottom(true);
 
     try {
-      const message = await addMessage(selectedChat.id, {
-        role: "user",
-        content: text,
-      });
+      const result = await respondToChat(chat.id, text);
 
-      setMessages((current) => [...current, message]);
-      onChatActivity(selectedChat.id);
+      if (activeRequestChatIdRef.current !== chat.id) {
+        return;
+      }
+
+      setMessages((current) => [
+        ...current.filter((message) => message.id !== optimisticMessage.id),
+        result.userMessage,
+        result.assistantMessage,
+      ]);
+
+      onChatActivity(chat.id);
     } catch (error) {
-      setInput(text);
+      if (activeRequestChatIdRef.current === chat.id) {
+        setMessages((current) =>
+          current.filter((message) => message.id !== optimisticMessage.id),
+        );
 
-      window.alert(
-        error instanceof Error
-          ? error.message
-          : "Archivist could not save the message.",
-      );
+        setInput(text);
+
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Archivist could not complete the response.",
+        );
+      }
     } finally {
-      setSending(false);
+      if (activeRequestChatIdRef.current === chat.id) {
+        activeRequestChatIdRef.current = null;
+        setSending(false);
+      }
     }
   }
 
@@ -120,6 +168,8 @@ export function ChatWindow({
 
   useEffect(() => {
     let cancelled = false;
+
+    activeRequestChatIdRef.current = null;
 
     async function loadMessages() {
       if (!selectedChat) {
@@ -139,6 +189,7 @@ export function ChatWindow({
         }
 
         setMessages(loadedMessages);
+
         forceScrollRef.current = true;
         setPinnedToBottom(true);
       } catch (error) {
@@ -163,7 +214,7 @@ export function ChatWindow({
     return () => {
       cancelled = true;
     };
-  }, [selectedChat]);
+  }, [selectedChat, selectedChat?.id]);
 
   useEffect(() => {
     const currentContainer = scrollContainerRef.current;
@@ -226,16 +277,19 @@ export function ChatWindow({
           {!selectedChat ? (
             <div className={styles.emptyState}>
               <Sparkles size={24} strokeWidth={2} />
+
               <span>Select or create a chat to begin.</span>
             </div>
           ) : loadingMessages ? (
             <div className={styles.emptyState}>
               <Sparkles size={24} strokeWidth={2} />
+
               <span>Loading {selectedChat.title}...</span>
             </div>
-          ) : !hasMessages ? (
+          ) : !hasMessages && !sending ? (
             <div className={styles.emptyState}>
               <Sparkles size={24} strokeWidth={2} />
+
               <span>
                 {selectedChat.title} is empty. Send the first message.
               </span>
@@ -264,13 +318,13 @@ export function ChatWindow({
           )}
 
           {sending ? (
-            <article className={`${styles.message} ${styles.user}`}>
+            <article className={`${styles.message} ${styles.assistant}`}>
               <div className={styles.messageMeta}>
-                <span className={styles.roleLabel}>You</span>
+                <span className={styles.roleLabel}>Archivist</span>
               </div>
 
               <div className={styles.blocks}>
-                <div className={styles.typing}>Saving message...</div>
+                <div className={styles.typing}>Thinking...</div>
               </div>
             </article>
           ) : null}

@@ -30,6 +30,13 @@ export type CreateMessageInput = {
   status?: MessageStatus;
 };
 
+export type CompleteChatTurnResult = {
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  provider: string;
+  model: string;
+};
+
 export type ArchiveChatResult = {
   chat: Chat;
   selectedChatId: string | null;
