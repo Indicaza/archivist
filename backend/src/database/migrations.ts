@@ -174,6 +174,96 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    migrate(database) {
+      database.exec(`
+        CREATE VIRTUAL TABLE message_search USING fts5(
+          message_id UNINDEXED,
+          chat_id UNINDEXED,
+          role UNINDEXED,
+          content,
+          created_at UNINDEXED,
+          tokenize = 'unicode61'
+        );
+
+        INSERT INTO message_search (
+          message_id,
+          chat_id,
+          role,
+          content,
+          created_at
+        )
+        SELECT
+          id,
+          chat_id,
+          role,
+          content,
+          created_at
+        FROM messages
+        WHERE status = 'complete'
+          AND length(trim(content)) > 0;
+
+        CREATE TRIGGER messages_search_after_insert
+        AFTER INSERT ON messages
+        WHEN
+          new.status = 'complete'
+          AND length(trim(new.content)) > 0
+        BEGIN
+          INSERT INTO message_search (
+            message_id,
+            chat_id,
+            role,
+            content,
+            created_at
+          )
+          VALUES (
+            new.id,
+            new.chat_id,
+            new.role,
+            new.content,
+            new.created_at
+          );
+        END;
+
+        CREATE TRIGGER messages_search_after_update
+        AFTER UPDATE OF
+          chat_id,
+          role,
+          content,
+          status,
+          created_at
+        ON messages
+        BEGIN
+          DELETE FROM message_search
+          WHERE message_id = old.id;
+
+          INSERT INTO message_search (
+            message_id,
+            chat_id,
+            role,
+            content,
+            created_at
+          )
+          SELECT
+            new.id,
+            new.chat_id,
+            new.role,
+            new.content,
+            new.created_at
+          WHERE new.status = 'complete'
+            AND length(trim(new.content)) > 0;
+        END;
+
+        CREATE TRIGGER messages_search_after_delete
+        AFTER DELETE ON messages
+        BEGIN
+          DELETE FROM message_search
+          WHERE message_id = old.id;
+        END;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {
