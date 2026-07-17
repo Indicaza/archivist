@@ -101,6 +101,7 @@
   position: relative;
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .label {
@@ -138,6 +139,159 @@
   color: var(--modal-muted-text);
   font-size: 11px;
   pointer-events: none;
+}
+
+.compilerSection {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--r-lg);
+  background: var(--modal-surface);
+}
+
+.compilerHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--app-accent);
+}
+
+.compilerHeading h3 {
+  margin: 0;
+  color: var(--modal-text);
+  font-size: 15px;
+}
+
+.compilerHeading p {
+  margin: 4px 0 0;
+  color: var(--modal-muted-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.compilerSelectRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.resetCompilerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--r-md);
+  color: var(--modal-muted-text);
+  background: var(--modal-input-bg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 170ms var(--ease-springy),
+    opacity 150ms ease;
+}
+
+.resetCompilerButton:hover:not(:disabled) {
+  color: var(--modal-text);
+  border-color: rgba(143, 122, 223, 0.34);
+  background: var(--modal-surface-hover);
+  transform: translateY(-1px);
+}
+
+.resetCompilerButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.resetCompilerButton:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.compilerFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.compilerError {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--modal-danger-border);
+  border-radius: var(--r-md);
+  color: #e2b5b5;
+  background: var(--modal-danger-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.select,
+.numberInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--r-md);
+  color: var(--modal-text);
+  background: var(--modal-input-bg);
+  font: inherit;
+  outline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+
+.select:focus,
+.numberInput:focus {
+  border-color: var(--composer-ring-focus);
+  background: var(--app-bg-deep);
+  box-shadow: 0 0 0 2px rgba(143, 122, 223, 0.11);
+}
+
+.fieldDescription {
+  color: var(--modal-muted-text);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.toggleField {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--modal-border);
+  border-radius: var(--r-md);
+  background: var(--modal-input-bg);
+}
+
+.toggleField input {
+  margin-top: 3px;
+}
+
+.toggleField span {
+  display: grid;
+  gap: 3px;
+}
+
+.toggleField strong {
+  color: var(--modal-text);
+  font-size: 13px;
+}
+
+.toggleField small {
+  color: var(--modal-muted-text);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .detailsGrid {
@@ -355,6 +509,8 @@
     padding-right: 18px;
   }
 
+  .compilerSelectRow,
+  .compilerFields,
   .detailsGrid {
     grid-template-columns: 1fr;
   }
@@ -377,12 +533,15 @@
   }
 
   .closeButton,
+  .resetCompilerButton,
   .archiveButton,
   .restoreButton,
   .deleteButton,
   .cancelButton,
   .saveButton,
-  .input {
+  .input,
+  .select,
+  .numberInput {
     transition: none;
   }
 }

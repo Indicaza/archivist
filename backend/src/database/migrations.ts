@@ -155,6 +155,25 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    migrate(database) {
+      database.exec(`
+        ALTER TABLE chats
+        ADD COLUMN context_compiler_id TEXT NOT NULL
+          DEFAULT 'recent-history';
+
+        ALTER TABLE chats
+        ADD COLUMN context_compiler_version INTEGER NOT NULL
+          DEFAULT 1
+          CHECK (context_compiler_version > 0);
+
+        ALTER TABLE chats
+        ADD COLUMN context_compiler_config TEXT NOT NULL
+          DEFAULT '{"totalTokens":32000,"responseTokenReserve":4000}';
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

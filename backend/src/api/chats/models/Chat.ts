@@ -3,6 +3,7 @@ import { AppError } from "../../../errors/app-error.js";
 import type {
   ArchiveChatResult,
   Chat,
+  ChatContextSettings,
   ChatMessage,
   CreateChatInput,
   CreateMessageInput,
@@ -13,6 +14,9 @@ import type {
 type ChatRow = {
   id: string;
   title: string;
+  context_compiler_id: string;
+  context_compiler_version: number;
+  context_compiler_config: string;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -32,10 +36,46 @@ type AppSettingsRow = {
   selected_chat_id: string | null;
 };
 
+const DEFAULT_CHAT_CONTEXT: ChatContextSettings = {
+  compiler: {
+    id: "recent-history",
+    version: 1,
+  },
+  config: {
+    totalTokens: 32_000,
+    responseTokenReserve: 4_000,
+  },
+};
+
+function parseContextConfig(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return { ...DEFAULT_CHAT_CONTEXT.config };
+  }
+
+  return { ...DEFAULT_CHAT_CONTEXT.config };
+}
+
 function mapChat(row: ChatRow): Chat {
   return {
     id: row.id,
     title: row.title,
+    context: {
+      compiler: {
+        id: row.context_compiler_id,
+        version: row.context_compiler_version,
+      },
+      config: parseContextConfig(row.context_compiler_config),
+    },
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -121,6 +161,9 @@ export function getAllChats(): Chat[] {
         SELECT
           id,
           title,
+          context_compiler_id,
+          context_compiler_version,
+          context_compiler_config,
           archived_at,
           created_at,
           updated_at
@@ -143,6 +186,9 @@ export function getArchivedChats(): Chat[] {
         SELECT
           id,
           title,
+          context_compiler_id,
+          context_compiler_version,
+          context_compiler_config,
           archived_at,
           created_at,
           updated_at
@@ -165,6 +211,9 @@ export function getChatById(chatId: string): Chat | null {
         SELECT
           id,
           title,
+          context_compiler_id,
+          context_compiler_version,
+          context_compiler_config,
           archived_at,
           created_at,
           updated_at
@@ -236,12 +285,17 @@ export function updateChat(chatId: string, input: UpdateChatInput): Chat {
     throw new AppError(404, "Chat not found.");
   }
 
+  const context = input.context ?? chat.context;
+
   database
     .prepare(
       `
         UPDATE chats
         SET
           title = ?,
+          context_compiler_id = ?,
+          context_compiler_version = ?,
+          context_compiler_config = ?,
           updated_at = strftime(
             '%Y-%m-%dT%H:%M:%fZ',
             'now'
@@ -249,7 +303,13 @@ export function updateChat(chatId: string, input: UpdateChatInput): Chat {
         WHERE id = ?
       `,
     )
-    .run(input.title.trim(), chatId);
+    .run(
+      input.title.trim(),
+      context.compiler.id,
+      context.compiler.version,
+      JSON.stringify(context.config),
+      chatId,
+    );
 
   const updatedChat = getChatById(chatId);
 

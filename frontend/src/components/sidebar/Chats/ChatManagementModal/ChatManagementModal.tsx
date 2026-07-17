@@ -8,24 +8,34 @@ import {
 import {
   Archive,
   ArchiveRestore,
+  BrainCircuit,
   CalendarDays,
-  MessageSquareText,
+  RotateCcw,
   Save,
   Trash2,
   X,
 } from "lucide-react";
 import { createPortal } from "react-dom";
-import type { Chat } from "../../../../domains/chat/chat.types";
+import type {
+  Chat,
+  UpdateChatInput,
+} from "../../../../domains/chat/chat.types";
+import type {
+  ContextCompilerConfig,
+  ContextCompilerDefinition,
+  ContextCompilerReference,
+} from "../../../../domains/cognition/contextCompiler.types";
 import styles from "./ChatManagementModal.module.css";
 
 type ChatManagementModalProps = {
   chat: Chat;
+  contextCompilers: ContextCompilerDefinition[];
   saving: boolean;
   archiving: boolean;
   restoring: boolean;
   deleting: boolean;
   onClose: () => void;
-  onSave: (chatId: string, title: string) => Promise<void>;
+  onSave: (chatId: string, input: UpdateChatInput) => Promise<void>;
   onArchive: (chatId: string) => Promise<void>;
   onRestore: (chatId: string) => Promise<void>;
   onDelete: (chatId: string) => Promise<void>;
@@ -41,8 +51,40 @@ function formatDate(value: string): string {
   return date.toLocaleString();
 }
 
+function createCompilerKey(reference: ContextCompilerReference): string {
+  return `${reference.id}:v${reference.version}`;
+}
+
+function parseCompilerKey(value: string): ContextCompilerReference {
+  const separatorIndex = value.lastIndexOf(":v");
+
+  if (separatorIndex < 0) {
+    throw new Error("Invalid Context Compiler selection.");
+  }
+
+  const id = value.slice(0, separatorIndex);
+  const version = Number(value.slice(separatorIndex + 2));
+
+  if (!id || !Number.isInteger(version) || version <= 0) {
+    throw new Error("Invalid Context Compiler selection.");
+  }
+
+  return {
+    id,
+    version,
+  };
+}
+
+function configsEqual(
+  left: ContextCompilerConfig,
+  right: ContextCompilerConfig,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function ChatManagementModal({
   chat,
+  contextCompilers,
   saving,
   archiving,
   restoring,
@@ -54,11 +96,52 @@ export function ChatManagementModal({
   onDelete,
 }: ChatManagementModalProps) {
   const [title, setTitle] = useState(chat.title);
+
+  const [compilerReference, setCompilerReference] = useState(
+    chat.context.compiler,
+  );
+
+  const [compilerConfig, setCompilerConfig] = useState<ContextCompilerConfig>(
+    chat.context.config,
+  );
+
   const [confirmingArchive, setConfirmingArchive] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const archived = chat.archivedAt !== null;
   const busy = saving || archiving || restoring || deleting;
+
+  const selectedCompiler = useMemo(() => {
+    const selectedKey = createCompilerKey(compilerReference);
+
+    return (
+      contextCompilers.find(
+        (definition) =>
+          createCompilerKey(definition.descriptor) === selectedKey,
+      ) ?? null
+    );
+  }, [compilerReference, contextCompilers]);
+
+  const contextChanged = useMemo(() => {
+    return (
+      createCompilerKey(compilerReference) !==
+        createCompilerKey(chat.context.compiler) ||
+      !configsEqual(compilerConfig, chat.context.config)
+    );
+  }, [
+    chat.context.compiler,
+    chat.context.config,
+    compilerConfig,
+    compilerReference,
+  ]);
+
+  const usingCompilerDefaults = useMemo(() => {
+    if (!selectedCompiler) {
+      return true;
+    }
+
+    return configsEqual(compilerConfig, selectedCompiler.defaultConfig);
+  }, [compilerConfig, selectedCompiler]);
 
   const canSave = useMemo(() => {
     const normalizedTitle = title.trim();
@@ -66,10 +149,10 @@ export function ChatManagementModal({
     return (
       normalizedTitle.length > 0 &&
       normalizedTitle.length <= 120 &&
-      normalizedTitle !== chat.title &&
+      (normalizedTitle !== chat.title || contextChanged) &&
       !busy
     );
-  }, [busy, chat.title, title]);
+  }, [busy, chat.title, contextChanged, title]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -97,13 +180,66 @@ export function ChatManagementModal({
       return;
     }
 
-    await onSave(chat.id, title.trim());
+    await onSave(chat.id, {
+      title: title.trim(),
+      context: {
+        compiler: compilerReference,
+        config: compilerConfig,
+      },
+    });
   }
 
   function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
     if (event.target === event.currentTarget && !busy) {
       onClose();
     }
+  }
+
+  function clearConfirmations() {
+    setConfirmingArchive(false);
+    setConfirmingDelete(false);
+  }
+
+  function handleCompilerChange(value: string) {
+    const nextReference = parseCompilerKey(value);
+
+    const nextDefinition = contextCompilers.find(
+      (definition) =>
+        createCompilerKey(definition.descriptor) ===
+        createCompilerKey(nextReference),
+    );
+
+    if (!nextDefinition) {
+      return;
+    }
+
+    setCompilerReference(nextReference);
+    setCompilerConfig({
+      ...nextDefinition.defaultConfig,
+    });
+
+    clearConfirmations();
+  }
+
+  function handleResetCompiler() {
+    if (!selectedCompiler) {
+      return;
+    }
+
+    setCompilerConfig({
+      ...selectedCompiler.defaultConfig,
+    });
+
+    clearConfirmations();
+  }
+
+  function updateConfigValue(key: string, value: unknown) {
+    setCompilerConfig((current) => ({
+      ...current,
+      [key]: value,
+    }));
+
+    clearConfirmations();
   }
 
   async function handleArchive() {
@@ -142,10 +278,6 @@ export function ChatManagementModal({
       >
         <header className={styles.header}>
           <div className={styles.heading}>
-            <span className={styles.headingIcon}>
-              <MessageSquareText size={20} strokeWidth={2.1} />
-            </span>
-
             <div>
               <div className={styles.eyebrow}>
                 {archived ? "Archived chat" : "Chat management"}
@@ -158,7 +290,7 @@ export function ChatManagementModal({
               <p className={styles.subtitle}>
                 {archived
                   ? "Restore this conversation or permanently remove it."
-                  : "Rename or archive this conversation."}
+                  : "Rename this conversation or tune its active context compiler."}
               </p>
             </div>
           </div>
@@ -184,8 +316,7 @@ export function ChatManagementModal({
               value={title}
               onChange={(event) => {
                 setTitle(event.target.value);
-                setConfirmingArchive(false);
-                setConfirmingDelete(false);
+                clearConfirmations();
               }}
               maxLength={120}
               disabled={busy}
@@ -194,6 +325,147 @@ export function ChatManagementModal({
 
             <span className={styles.characterCount}>{title.length}/120</span>
           </label>
+
+          {!archived ? (
+            <section className={styles.compilerSection}>
+              <div className={styles.compilerHeading}>
+                <BrainCircuit size={18} strokeWidth={2.1} />
+
+                <div>
+                  <h3>Context Compiler</h3>
+                  <p>Choose how this Chat selects and budgets model context.</p>
+                </div>
+              </div>
+
+              <div className={styles.compilerSelectRow}>
+                <label className={styles.field}>
+                  <span className={styles.label}>Compiler</span>
+
+                  <select
+                    className={styles.select}
+                    value={createCompilerKey(compilerReference)}
+                    onChange={(event) =>
+                      handleCompilerChange(event.target.value)
+                    }
+                    disabled={busy || contextCompilers.length === 0}
+                  >
+                    {contextCompilers.map((definition) => {
+                      const key = createCompilerKey(definition.descriptor);
+
+                      return (
+                        <option key={key} value={key}>
+                          {definition.descriptor.name} v
+                          {definition.descriptor.version}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+
+                <button
+                  className={styles.resetCompilerButton}
+                  type="button"
+                  onClick={handleResetCompiler}
+                  disabled={busy || !selectedCompiler || usingCompilerDefaults}
+                >
+                  <RotateCcw size={14} strokeWidth={2.2} />
+                  <span>Reset to defaults</span>
+                </button>
+              </div>
+
+              {selectedCompiler ? (
+                <div className={styles.compilerFields}>
+                  {selectedCompiler.configFields.map((field) => {
+                    const value = compilerConfig[field.key];
+
+                    if (field.type === "integer") {
+                      return (
+                        <label className={styles.field} key={field.key}>
+                          <span className={styles.label}>{field.label}</span>
+
+                          <input
+                            className={styles.numberInput}
+                            type="number"
+                            min={field.minimum}
+                            max={field.maximum}
+                            step={1}
+                            value={
+                              typeof value === "number" ? value : field.minimum
+                            }
+                            onChange={(event) =>
+                              updateConfigValue(
+                                field.key,
+                                Number(event.target.value),
+                              )
+                            }
+                            disabled={busy}
+                          />
+
+                          <span className={styles.fieldDescription}>
+                            {field.description}
+                          </span>
+                        </label>
+                      );
+                    }
+
+                    if (field.type === "boolean") {
+                      return (
+                        <label className={styles.toggleField} key={field.key}>
+                          <input
+                            type="checkbox"
+                            checked={value === true}
+                            onChange={(event) =>
+                              updateConfigValue(field.key, event.target.checked)
+                            }
+                            disabled={busy}
+                          />
+
+                          <span>
+                            <strong>{field.label}</strong>
+                            <small>{field.description}</small>
+                          </span>
+                        </label>
+                      );
+                    }
+
+                    return (
+                      <label className={styles.field} key={field.key}>
+                        <span className={styles.label}>{field.label}</span>
+
+                        <select
+                          className={styles.select}
+                          value={
+                            typeof value === "string"
+                              ? value
+                              : field.options[0]?.value
+                          }
+                          onChange={(event) =>
+                            updateConfigValue(field.key, event.target.value)
+                          }
+                          disabled={busy}
+                        >
+                          {field.options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <span className={styles.fieldDescription}>
+                          {field.description}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className={styles.compilerError}>
+                  This Chat references a compiler that is not currently
+                  registered.
+                </p>
+              )}
+            </section>
+          ) : null}
 
           <div className={styles.detailsGrid}>
             <div className={styles.detailCard}>

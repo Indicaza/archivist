@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import { contextCompilerRegistry } from "../../../core/cognition/conscious/context/ContextCompilerRegistry.js";
 import { AppError } from "../../../errors/app-error.js";
 import {
   createChat,
@@ -78,6 +79,22 @@ export const patchChat: RequestHandler = (request, response) => {
 
   if (!body.success) {
     throw new AppError(400, "Invalid Chat data.", body.error.flatten());
+  }
+
+  if (body.data.context) {
+    try {
+      contextCompilerRegistry.parseConfig(
+        body.data.context.compiler,
+        body.data.context.config,
+      );
+    } catch (error) {
+      throw new AppError(
+        400,
+        error instanceof Error
+          ? error.message
+          : "Invalid Context Compiler configuration.",
+      );
+    }
   }
 
   response.json({

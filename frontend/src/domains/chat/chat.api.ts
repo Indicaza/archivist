@@ -6,6 +6,7 @@ import type {
   CreateChatInput,
   CreateMessageInput,
   DeleteChatResult,
+  UpdateChatInput,
 } from "./chat.types";
 
 const API_BASE_URL = "http://127.0.0.1:3333/api";
@@ -111,12 +112,13 @@ export async function addChat(input: CreateChatInput = {}): Promise<Chat> {
   return response.chat;
 }
 
-export async function editChat(chatId: string, title: string): Promise<Chat> {
+export async function editChat(
+  chatId: string,
+  input: UpdateChatInput,
+): Promise<Chat> {
   const response = await request<ChatResponse>(`/chats/${chatId}`, {
     method: "PATCH",
-    body: JSON.stringify({
-      title,
-    }),
+    body: JSON.stringify(input),
   });
 
   return response.chat;
