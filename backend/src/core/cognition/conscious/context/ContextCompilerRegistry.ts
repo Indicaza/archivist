@@ -3,6 +3,8 @@ import type {
   ContextCompilerConfig,
   ContextCompilerReference,
 } from "./ContextCompilerTypes.js";
+import { autoBalancedCompilerV1Definition } from "./compilers/AutoBalancedCompilerV1.js";
+import { autoBalancedCompilerV2Definition } from "./compilers/AutoBalancedCompilerV2.js";
 import { contiguousHistoryCompilerV1Definition } from "./compilers/ContiguousHistoryCompilerV1.js";
 import { keywordRecencyCompilerV1Definition } from "./compilers/KeywordRecencyCompilerV1.js";
 import { recentHistoryCompilerV1Definition } from "./compilers/RecentHistoryCompilerV1.js";
@@ -136,6 +138,10 @@ contextCompilerRegistry.register(contiguousHistoryCompilerV1Definition);
 contextCompilerRegistry.register(turnPairsCompilerV1Definition);
 
 contextCompilerRegistry.register(keywordRecencyCompilerV1Definition);
+
+contextCompilerRegistry.register(autoBalancedCompilerV1Definition);
+
+contextCompilerRegistry.register(autoBalancedCompilerV2Definition);
 
 export const defaultContextCompilerReference = {
   id: "recent-history",
