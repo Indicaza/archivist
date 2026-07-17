@@ -1,6 +1,17 @@
+import type {
+  ContextCompilerConfig,
+  ContextCompilerReference,
+} from "../cognition/contextCompiler.types";
+
+export type ChatContextSettings = {
+  compiler: ContextCompilerReference;
+  config: ContextCompilerConfig;
+};
+
 export type Chat = {
   id: string;
   title: string;
+  context: ChatContextSettings;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -22,6 +33,11 @@ export type ChatMessage = {
 
 export type CreateChatInput = {
   title?: string;
+};
+
+export type UpdateChatInput = {
+  title: string;
+  context: ChatContextSettings;
 };
 
 export type CreateMessageInput = {

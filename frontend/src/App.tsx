@@ -14,7 +14,9 @@ import {
   restoreChat,
   updateSelectedChat,
 } from "./domains/chat/chat.api";
-import type { Chat } from "./domains/chat/chat.types";
+import type { Chat, UpdateChatInput } from "./domains/chat/chat.types";
+import { fetchContextCompilers } from "./domains/cognition/contextCompiler.api";
+import type { ContextCompilerDefinition } from "./domains/cognition/contextCompiler.types";
 import {
   addLibrary,
   archiveLibrary,
@@ -52,6 +54,10 @@ export function App() {
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [archivedChats, setArchivedChats] = useState<Chat[]>([]);
+
+  const [contextCompilers, setContextCompilers] = useState<
+    ContextCompilerDefinition[]
+  >([]);
 
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
 
@@ -120,12 +126,14 @@ export function App() {
           loadedChats,
           loadedArchivedChats,
           appState,
+          loadedContextCompilers,
         ] = await Promise.all([
           fetchLibraries(),
           fetchArchivedLibraries(),
           fetchChats(),
           fetchArchivedChats(),
           fetchAppState(),
+          fetchContextCompilers(),
         ]);
 
         setLibraries(loadedLibraries);
@@ -133,6 +141,8 @@ export function App() {
 
         setChats(loadedChats);
         setArchivedChats(loadedArchivedChats);
+
+        setContextCompilers(loadedContextCompilers);
 
         setSelectedLibraryId(appState.selectedLibraryId);
 
@@ -349,11 +359,11 @@ export function App() {
     }
   }
 
-  async function handleSaveChat(chatId: string, title: string) {
+  async function handleSaveChat(chatId: string, input: UpdateChatInput) {
     setSavingChat(true);
 
     try {
-      const updatedChat = await editChat(chatId, title);
+      const updatedChat = await editChat(chatId, input);
 
       if (updatedChat.archivedAt) {
         setArchivedChats((current) =>
@@ -370,7 +380,7 @@ export function App() {
       window.alert(
         error instanceof Error
           ? error.message
-          : "Archivist could not rename the chat.",
+          : "Archivist could not update the chat.",
       );
     } finally {
       setSavingChat(false);
@@ -523,6 +533,7 @@ export function App() {
       {managedChat ? (
         <ChatManagementModal
           chat={managedChat}
+          contextCompilers={contextCompilers}
           saving={savingChat}
           archiving={archivingChat}
           restoring={restoringManagedChat}
