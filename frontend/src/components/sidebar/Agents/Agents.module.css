@@ -1,0 +1,120 @@
+.groupHeader,
+.subHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--app-text);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 260ms ease,
+    transform 420ms cubic-bezier(0.18, 1.18, 0.32, 1),
+    color 260ms ease;
+}
+
+.subHeader {
+  padding-top: 6px;
+  color: var(--artifact-system-text);
+}
+
+.groupHeader:hover,
+.subHeader:hover {
+  background: rgba(255, 255, 255, 0.035);
+  transform: translateX(3px) scale(1.012);
+}
+
+.caret {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  opacity: 0.9;
+  transform-origin: center;
+  transition:
+    transform 260ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 220ms ease;
+}
+
+.caretOpen {
+  transform: rotate(90deg);
+}
+
+.caretClosed {
+  transform: rotate(0deg);
+}
+
+.groupContent,
+.subContent {
+  overflow: hidden;
+  transition:
+    max-height 280ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 240ms ease;
+}
+
+.open {
+  max-height: 1600px;
+  opacity: 1;
+}
+
+.closed {
+  max-height: 0;
+  opacity: 0;
+}
+
+.groupInner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 6px 10px;
+}
+
+.actionsAreaTop {
+  padding: 4px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 4px 12px;
+  list-style: none;
+}
+
+.emptyText {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--app-muted-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.manageButton {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-round);
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 150ms var(--ease-springy);
+}
+
+.manageButton:hover {
+  color: var(--app-text);
+  border-color: var(--sidebar-card-hover-border);
+  background: var(--sidebar-card-hover-bg);
+  transform: scale(1.06);
+}
+
+.manageButton:active {
+  transform: scale(0.94);
+}

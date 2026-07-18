@@ -260,7 +260,121 @@ const migrations: Migration[] = [
         BEGIN
           DELETE FROM message_search
           WHERE message_id = old.id;
-        END;
+         END;
+      `);
+    },
+  },
+  {
+    version: 8,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE agents (
+          id TEXT PRIMARY KEY,
+
+          name TEXT NOT NULL CHECK (
+            length(trim(name)) > 0
+          ),
+
+          description TEXT,
+
+          identity_config TEXT NOT NULL
+            DEFAULT '{}',
+
+          profession_config TEXT NOT NULL
+            DEFAULT '{}',
+
+          doctrine TEXT,
+
+          output_contract TEXT NOT NULL
+            DEFAULT '{}',
+
+          system_instructions TEXT,
+
+          generation_config TEXT NOT NULL
+            DEFAULT '{}',
+
+          context_compiler_id TEXT NOT NULL
+            DEFAULT 'recent-history',
+
+          context_compiler_version INTEGER NOT NULL
+            DEFAULT 1
+            CHECK (context_compiler_version > 0),
+
+          context_compiler_config TEXT NOT NULL
+            DEFAULT '{"totalTokens":32000,"responseTokenReserve":4000}',
+
+          is_built_in INTEGER NOT NULL
+            DEFAULT 0
+            CHECK (is_built_in IN (0, 1)),
+
+          archived_at TEXT,
+
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          )
+        );
+
+        CREATE INDEX agents_archived_at_index
+          ON agents(archived_at);
+
+        CREATE INDEX agents_updated_at_index
+          ON agents(updated_at);
+
+        INSERT INTO agents (
+          id,
+          name,
+          description,
+          identity_config,
+          profession_config,
+          doctrine,
+          output_contract,
+          system_instructions,
+          generation_config,
+          context_compiler_id,
+          context_compiler_version,
+          context_compiler_config,
+          is_built_in
+        )
+        VALUES (
+          '00000000-0000-4000-8000-000000000001',
+
+          'Archivist Default',
+
+          'The built-in general-purpose Archivist Agent.',
+
+          '{"personality":"Thoughtful, practical, observant, and calm.","temperament":"Patient and direct.","voice":"Clear, useful, and conversational.","backstory":null}',
+
+          '{"jobTitle":"Local-first AI workspace assistant","mission":"Help the user understand information, maintain durable context, and perform useful computer work safely.","expertise":[],"responsibilities":["Answer the current request clearly.","Use supplied context without inventing missing information.","Preserve the distinction between current intent and retrieved evidence."],"successCriteria":["The response is accurate, useful, and grounded in available context.","The user''s current request remains the highest-priority instruction."],"limitations":["Do not claim to have inspected files, tools, or context that were not provided."]}',
+
+          NULL,
+
+          '{"responseStyle":"Clear, practical, and concise unless more depth is requested.","verbosity":"balanced","formattingRules":[],"codeOutputPreferences":[],"citationRequirements":null,"followUpBehavior":"Do not add unnecessary follow-up offers or questions after answering."}',
+
+          'You are Archivist, a thoughtful local-first AI assistant. Give clear and useful answers. Do not claim to have inspected files or context that was not supplied. Prefer concise answers unless the user asks for depth.',
+
+          '{"provider":"openai","model":"gpt-5-mini","temperature":null,"maxOutputTokens":4000,"topP":null,"frequencyPenalty":null,"presencePenalty":null}',
+
+          'recent-history',
+          1,
+          '{"totalTokens":32000,"responseTokenReserve":4000}',
+          1
+        );
+
+        ALTER TABLE chats
+        ADD COLUMN agent_id TEXT
+          REFERENCES agents(id)
+          ON DELETE RESTRICT;
+
+        UPDATE chats
+        SET agent_id = '00000000-0000-4000-8000-000000000001'
+        WHERE agent_id IS NULL;
+
+        CREATE INDEX chats_agent_id_index
+          ON chats(agent_id);
       `);
     },
   },

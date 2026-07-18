@@ -1,13 +1,24 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, UserRoundCog, Wrench } from "lucide-react";
+import { ChevronLeft, ChevronRight, Wrench } from "lucide-react";
+import type { Agent } from "../../domains/agent/agent.types";
 import type { Chat } from "../../domains/chat/chat.types";
 import type { LibraryListItem } from "../../domains/library/library.types";
+import { Agents } from "./Agents/Agents";
 import { Chats } from "./Chats/Chats";
 import { Libraries } from "./Libraries/Libraries";
 import styles from "./Sidebar.module.css";
 
 type SidebarProps = {
   collapsed?: boolean;
+
+  agents: Agent[];
+  archivedAgents: Agent[];
+  activeAgentId: string | null;
+  loadingAgents: boolean;
+  addingAgent: boolean;
+  onAddAgent: () => void;
+  onManageAgent: (agentId: string) => void;
+  onManageArchivedAgent: (agentId: string) => void;
 
   libraries: LibraryListItem[];
   archivedLibraries: LibraryListItem[];
@@ -38,6 +49,15 @@ const SIDEBAR_COLLAPSED_WIDTH = 0;
 export function Sidebar({
   collapsed = false,
 
+  agents,
+  archivedAgents,
+  activeAgentId,
+  loadingAgents,
+  addingAgent,
+  onAddAgent,
+  onManageAgent,
+  onManageArchivedAgent,
+
   libraries,
   archivedLibraries,
   selectedLibraryId,
@@ -60,7 +80,6 @@ export function Sidebar({
 
   onToggle,
 }: SidebarProps) {
-  const [profilesOpen, setProfilesOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
 
   useEffect(() => {
@@ -132,36 +151,16 @@ export function Sidebar({
               onManageArchivedChat={onManageArchivedChat}
             />
 
-            <div
-              className={styles.groupHeader}
-              onClick={() => setProfilesOpen((value) => !value)}
-              role="button"
-              tabIndex={0}
-            >
-              <ChevronRight
-                size={16}
-                strokeWidth={2.25}
-                className={`${styles.caret} ${
-                  profilesOpen ? styles.caretOpen : styles.caretClosed
-                }`}
-              />
-
-              <UserRoundCog size={16} strokeWidth={2.1} />
-              <span>Profiles</span>
-            </div>
-
-            <div
-              className={`${styles.groupContent} ${
-                profilesOpen ? styles.open : styles.closed
-              }`}
-            >
-              <div className={styles.groupInner}>
-                <div className={styles.empty}>
-                  AI profiles will live here: Archivist, Continuity Keeper,
-                  Worldbuilder.
-                </div>
-              </div>
-            </div>
+            <Agents
+              agents={agents}
+              archivedAgents={archivedAgents}
+              activeAgentId={activeAgentId}
+              loading={loadingAgents}
+              adding={addingAgent}
+              onAddAgent={onAddAgent}
+              onManageAgent={onManageAgent}
+              onManageArchivedAgent={onManageArchivedAgent}
+            />
 
             <div
               className={styles.groupHeader}

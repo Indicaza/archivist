@@ -1,19 +1,7 @@
-export type ContextCompilerReference = {
-  id: string;
-  version: number;
-};
-
-export type ContextCompilerConfig = Record<string, unknown>;
-
-export type ChatContextSettings = {
-  compiler: ContextCompilerReference;
-  config: ContextCompilerConfig;
-};
-
 export type Chat = {
   id: string;
   title: string;
-  context: ChatContextSettings;
+  agentId: string;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -35,11 +23,12 @@ export type ChatMessage = {
 
 export type CreateChatInput = {
   title?: string;
+  agentId?: string;
 };
 
 export type UpdateChatInput = {
-  title: string;
-  context?: ChatContextSettings;
+  title?: string;
+  agentId?: string;
 };
 
 export type CreateMessageInput = {

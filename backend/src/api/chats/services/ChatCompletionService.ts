@@ -1,4 +1,8 @@
-import { openAIProvider } from "../../../core/ai/providers/OpenAIProvider.js";
+import { getAgentById, requireActiveAgent } from "../../agents/models/Agent.js";
+import { buildAgentInstructions } from "../../agents/services/AgentInstructionBuilder.js";
+import { aiProviderRegistry } from "../../../core/ai/AIProviderRegistry.js";
+import { modelCatalog } from "../../../core/ai/ModelCatalog.js";
+import { modelRegistry } from "../../../core/ai/ModelRegistry.js";
 import { contextCompilerRegistry } from "../../../core/cognition/conscious/context/ContextCompilerRegistry.js";
 import type {
   ContextCompilerConfig,
@@ -17,6 +21,7 @@ type CompleteChatTurnResult = {
   assistantMessage: ChatMessage;
   provider: string;
   model: string;
+  agentId: string;
   contextManifest: ContextManifest;
   contextWarnings: string[];
 };
@@ -32,6 +37,7 @@ function toContextSourceMessage(message: ChatMessage): ContextSourceMessage {
 
 function logCompiledContext(
   chatId: string,
+  agentId: string,
   config: ContextCompilerConfig,
   manifest: ContextManifest,
   warnings: string[],
@@ -42,6 +48,7 @@ function logCompiledContext(
 
   console.debug("[ContextCompiler]", {
     chatId,
+    agentId,
     config,
     manifest,
     warnings,
@@ -58,6 +65,31 @@ export async function completeChatTurn(
     throw new Error(`Chat ${chatId} could not be loaded.`);
   }
 
+  const agent = getAgentById(chat.agentId) ?? requireActiveAgent(chat.agentId);
+
+  if (agent.archivedAt) {
+    throw new Error(`Agent ${agent.id} is archived and cannot respond.`);
+  }
+
+  await modelCatalog.initialize();
+
+  if (!modelRegistry.has(agent.generation.provider, agent.generation.model)) {
+    try {
+      await modelCatalog.refreshModels({
+        force: true,
+      });
+    } catch {
+      // Validation below returns the clearer error.
+    }
+  }
+
+  modelRegistry.getDefinition(
+    agent.generation.provider,
+    agent.generation.model,
+  );
+
+  const provider = aiProviderRegistry.require(agent.generation.provider);
+
   const userMessage = createMessage(chatId, {
     role: "user",
     content,
@@ -67,32 +99,39 @@ export async function completeChatTurn(
   const storedMessages = getMessagesByChatId(chatId);
 
   const definition = contextCompilerRegistry.getDefinition(
-    chat.context.compiler,
+    agent.context.compiler,
   );
 
   const validatedConfig = contextCompilerRegistry.parseConfig(
-    chat.context.compiler,
-    chat.context.config,
+    agent.context.compiler,
+    agent.context.config,
   );
 
   const compiledContext = definition.compiler.compile({
     chatId,
     currentMessageId: userMessage.id,
+
     messages: storedMessages
       .filter((message) => message.status === "complete")
       .map(toContextSourceMessage),
+
     config: validatedConfig,
   });
 
   logCompiledContext(
     chatId,
+    agent.id,
     validatedConfig,
     compiledContext.manifest,
     compiledContext.warnings,
   );
 
-  const result = await openAIProvider.generateText({
+  const result = await provider.generateText({
+    instructions: buildAgentInstructions(agent),
+
     messages: compiledContext.providerMessages,
+
+    generation: agent.generation,
   });
 
   const assistantMessage = createMessage(chatId, {
@@ -106,6 +145,7 @@ export async function completeChatTurn(
     assistantMessage,
     provider: result.provider,
     model: result.model,
+    agentId: agent.id,
     contextManifest: compiledContext.manifest,
     contextWarnings: compiledContext.warnings,
   };

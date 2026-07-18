@@ -1,24 +1,22 @@
 import { openAIProvider } from "../core/ai/providers/OpenAIProvider.js";
 
-async function main() {
-  const result = await openAIProvider.generateText({
-    messages: [
-      {
-        role: "user",
-        content: "Reply with exactly: Archivist online.",
-      },
-    ],
-  });
-
-  console.log({
-    provider: result.provider,
-    model: result.model,
-    text: result.text,
-  });
-}
-
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-
-  process.exitCode = 1;
+const result = await openAIProvider.generateText({
+  messages: [
+    {
+      role: "user",
+      content:
+        "Reply with a short confirmation that Archivist OpenAI is working.",
+    },
+  ],
+  generation: {
+    provider: "openai",
+    model: "gpt-5-mini",
+    temperature: null,
+    maxOutputTokens: 200,
+    topP: null,
+    frequencyPenalty: null,
+    presencePenalty: null,
+  },
 });
+
+console.log(result);

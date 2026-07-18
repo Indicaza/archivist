@@ -1,9 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatWindow } from "./components/chat/ChatWindow";
+import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
 import { ChatManagementModal } from "./components/sidebar/Chats/ChatManagementModal/ChatManagementModal";
 import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Topbar } from "./components/topbar/Topbar";
+import {
+  addAgent,
+  archiveAgent,
+  duplicateAgent,
+  editAgent,
+  fetchAgents,
+  fetchArchivedAgents,
+  removeAgent,
+  restoreAgent,
+} from "./domains/agent/agent.api";
+import type { Agent, UpdateAgentInput } from "./domains/agent/agent.types";
+import { fetchAIModels } from "./domains/ai/ai.api";
+import type { ModelDefinition } from "./domains/ai/ai.types";
 import {
   addChat,
   archiveChat,
@@ -33,7 +47,29 @@ import "./App.css";
 export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
+
+  const [managedAgentId, setManagedAgentId] = useState<string | null>(null);
+
+  const [loadingAgents, setLoadingAgents] = useState(true);
+
+  const [addingAgent, setAddingAgent] = useState(false);
+
+  const [savingAgent, setSavingAgent] = useState(false);
+
+  const [duplicatingAgent, setDuplicatingAgent] = useState(false);
+
+  const [archivingAgent, setArchivingAgent] = useState(false);
+
+  const [restoringAgent, setRestoringAgent] = useState(false);
+
+  const [deletingAgent, setDeletingAgent] = useState(false);
+
+  const [aiModels, setAIModels] = useState<ModelDefinition[]>([]);
+
   const [libraries, setLibraries] = useState<Library[]>([]);
+
   const [archivedLibraries, setArchivedLibraries] = useState<Library[]>([]);
 
   const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(
@@ -64,8 +100,11 @@ export function App() {
   const [managedChatId, setManagedChatId] = useState<string | null>(null);
 
   const [loadingChats, setLoadingChats] = useState(true);
+
   const [addingChat, setAddingChat] = useState(false);
+
   const [savingChat, setSavingChat] = useState(false);
+
   const [archivingChat, setArchivingChat] = useState(false);
 
   const [deletingChat, setDeletingChat] = useState(false);
@@ -101,6 +140,16 @@ export function App() {
     return chats.find((chat) => chat.id === selectedChatId) ?? null;
   }, [chats, selectedChatId]);
 
+  const activeAgentId = selectedChat?.agentId ?? null;
+
+  const managedAgent = useMemo(() => {
+    return (
+      agents.find((agent) => agent.id === managedAgentId) ??
+      archivedAgents.find((agent) => agent.id === managedAgentId) ??
+      null
+    );
+  }, [agents, archivedAgents, managedAgentId]);
+
   const managedLibrary = useMemo(() => {
     return (
       libraries.find((library) => library.id === managedLibraryId) ??
@@ -127,6 +176,9 @@ export function App() {
           loadedArchivedChats,
           appState,
           loadedContextCompilers,
+          loadedAgents,
+          loadedArchivedAgents,
+          loadedAIModels,
         ] = await Promise.all([
           fetchLibraries(),
           fetchArchivedLibraries(),
@@ -134,6 +186,9 @@ export function App() {
           fetchArchivedChats(),
           fetchAppState(),
           fetchContextCompilers(),
+          fetchAgents(),
+          fetchArchivedAgents(),
+          fetchAIModels(),
         ]);
 
         setLibraries(loadedLibraries);
@@ -143,6 +198,10 @@ export function App() {
         setArchivedChats(loadedArchivedChats);
 
         setContextCompilers(loadedContextCompilers);
+
+        setAgents(loadedAgents);
+        setArchivedAgents(loadedArchivedAgents);
+        setAIModels(loadedAIModels);
 
         setSelectedLibraryId(appState.selectedLibraryId);
 
@@ -164,6 +223,7 @@ export function App() {
       } finally {
         setLoadingLibraries(false);
         setLoadingChats(false);
+        setLoadingAgents(false);
       }
     }
 
@@ -318,6 +378,193 @@ export function App() {
     }
   }
 
+  async function handleAddAgent() {
+    if (addingAgent) {
+      return;
+    }
+
+    setAddingAgent(true);
+
+    try {
+      const agent = await addAgent({
+        name: "New Agent",
+      });
+
+      setAgents((current) => [agent, ...current]);
+
+      setManagedAgentId(agent.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not create the Agent.",
+      );
+    } finally {
+      setAddingAgent(false);
+    }
+  }
+
+  async function handleSaveAgent(agentId: string, input: UpdateAgentInput) {
+    setSavingAgent(true);
+
+    try {
+      const updatedAgent = await editAgent(agentId, input);
+
+      if (updatedAgent.archivedAt) {
+        setArchivedAgents((current) =>
+          current.map((agent) => (agent.id === agentId ? updatedAgent : agent)),
+        );
+      } else {
+        setAgents((current) =>
+          current.map((agent) => (agent.id === agentId ? updatedAgent : agent)),
+        );
+      }
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not update the Agent.",
+      );
+    } finally {
+      setSavingAgent(false);
+    }
+  }
+
+  async function handleDuplicateAgent(agentId: string) {
+    if (duplicatingAgent) {
+      return;
+    }
+
+    setDuplicatingAgent(true);
+
+    try {
+      const duplicatedAgent = await duplicateAgent(agentId);
+
+      setAgents((current) => [duplicatedAgent, ...current]);
+
+      setManagedAgentId(duplicatedAgent.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not duplicate the Agent.",
+      );
+    } finally {
+      setDuplicatingAgent(false);
+    }
+  }
+
+  async function handleArchiveAgent(agentId: string) {
+    if (archivingAgent) {
+      return;
+    }
+
+    setArchivingAgent(true);
+
+    try {
+      const archivedAgent = await archiveAgent(agentId);
+
+      setAgents((current) => current.filter((agent) => agent.id !== agentId));
+
+      setArchivedAgents((current) => [archivedAgent, ...current]);
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not archive the Agent.",
+      );
+    } finally {
+      setArchivingAgent(false);
+    }
+  }
+
+  async function handleRestoreAgent(agentId: string) {
+    if (restoringAgent) {
+      return;
+    }
+
+    setRestoringAgent(true);
+
+    try {
+      const restoredAgent = await restoreAgent(agentId);
+
+      setArchivedAgents((current) =>
+        current.filter((agent) => agent.id !== agentId),
+      );
+
+      setAgents((current) => [restoredAgent, ...current]);
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not restore the Agent.",
+      );
+    } finally {
+      setRestoringAgent(false);
+    }
+  }
+
+  async function handleDeleteAgent(agentId: string) {
+    if (deletingAgent) {
+      return;
+    }
+
+    setDeletingAgent(true);
+
+    try {
+      await removeAgent(agentId);
+
+      const defaultAgentId =
+        agents.find((agent) => agent.isBuiltIn)?.id ?? null;
+
+      setAgents((current) => current.filter((agent) => agent.id !== agentId));
+
+      setArchivedAgents((current) =>
+        current.filter((agent) => agent.id !== agentId),
+      );
+
+      if (defaultAgentId) {
+        setChats((current) =>
+          current.map((chat) =>
+            chat.agentId === agentId
+              ? {
+                  ...chat,
+                  agentId: defaultAgentId,
+                }
+              : chat,
+          ),
+        );
+
+        setArchivedChats((current) =>
+          current.map((chat) =>
+            chat.agentId === agentId
+              ? {
+                  ...chat,
+                  agentId: defaultAgentId,
+                }
+              : chat,
+          ),
+        );
+      }
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not delete the Agent.",
+      );
+    } finally {
+      setDeletingAgent(false);
+    }
+  }
+
   async function handleAddChat() {
     if (addingChat) {
       return;
@@ -329,6 +576,7 @@ export function App() {
       const chat = await addChat();
 
       setChats((current) => [chat, ...current]);
+
       setSelectedChatId(chat.id);
     } catch (error) {
       window.alert(
@@ -444,6 +692,8 @@ export function App() {
     try {
       const result = await removeChat(chatId);
 
+      setChats((current) => current.filter((chat) => chat.id !== chatId));
+
       setArchivedChats((current) =>
         current.filter((chat) => chat.id !== chatId),
       );
@@ -484,6 +734,14 @@ export function App() {
     <>
       <Sidebar
         collapsed={sidebarCollapsed}
+        agents={agents}
+        archivedAgents={archivedAgents}
+        activeAgentId={activeAgentId}
+        loadingAgents={loadingAgents}
+        addingAgent={addingAgent}
+        onAddAgent={handleAddAgent}
+        onManageAgent={setManagedAgentId}
+        onManageArchivedAgent={setManagedAgentId}
         libraries={libraryListItems}
         archivedLibraries={archivedLibraryListItems}
         selectedLibraryId={selectedLibraryId}
@@ -517,6 +775,25 @@ export function App() {
         </div>
       </main>
 
+      {managedAgent ? (
+        <AgentManagementModal
+          agent={managedAgent}
+          models={aiModels}
+          contextCompilers={contextCompilers}
+          saving={savingAgent}
+          duplicating={duplicatingAgent}
+          archiving={archivingAgent}
+          restoring={restoringAgent}
+          deleting={deletingAgent}
+          onClose={() => setManagedAgentId(null)}
+          onSave={handleSaveAgent}
+          onDuplicate={handleDuplicateAgent}
+          onArchive={handleArchiveAgent}
+          onRestore={handleRestoreAgent}
+          onDelete={handleDeleteAgent}
+        />
+      ) : null}
+
       {managedLibrary ? (
         <LibraryManagementModal
           library={managedLibrary}
@@ -533,7 +810,7 @@ export function App() {
       {managedChat ? (
         <ChatManagementModal
           chat={managedChat}
-          contextCompilers={contextCompilers}
+          agents={agents}
           saving={savingChat}
           archiving={archivingChat}
           restoring={restoringManagedChat}
