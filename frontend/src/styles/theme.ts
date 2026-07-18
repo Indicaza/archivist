@@ -2,7 +2,7 @@
 
 export const theme = {
   layout: {
-    topbarHeight: "75px",
+    topbarHeight: "42px",
     sidebarWidth: "300px",
     sidebarPanelWidth: "300px",
     inspectorWidth: "320px",

@@ -44,6 +44,7 @@ type CompleteChatTurnResponse = {
   assistantMessage: ChatMessage;
   provider: string;
   model: string;
+  agentId: string;
 };
 
 type SelectedChatResponse = {
@@ -193,6 +194,7 @@ export async function respondToChat(
     assistantMessage: response.assistantMessage,
     provider: response.provider,
     model: response.model,
+    agentId: response.agentId,
   };
 }
 

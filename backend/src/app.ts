@@ -1,5 +1,7 @@
 import cors from "cors";
 import express from "express";
+import { agentRouter } from "./api/agents/routes/AgentRoutes.js";
+import { aiModelRouter } from "./api/ai/routes/AIModelRoutes.js";
 import { appStateRouter } from "./api/appState/routes/AppStateRoutes.js";
 import { chatRouter } from "./api/chats/routes/ChatRoutes.js";
 import { contextCompilerRouter } from "./api/cognition/contextCompilers/routes/ContextCompilerRoutes.js";
@@ -24,6 +26,8 @@ app.get("/api/health", (_request, response) => {
   });
 });
 
+app.use("/api/agents", agentRouter);
+app.use("/api/ai", aiModelRouter);
 app.use("/api/libraries", libraryRouter);
 app.use("/api/chats", chatRouter);
 app.use("/api/app-state", appStateRouter);

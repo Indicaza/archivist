@@ -1,9 +1,10 @@
+import { ARCHIVIST_DEFAULT_AGENT_ID } from "../../agents/models/AgentDefaults.js";
+import { requireActiveAgent } from "../../agents/models/Agent.js";
 import { database } from "../../../database/database.js";
 import { AppError } from "../../../errors/app-error.js";
 import type {
   ArchiveChatResult,
   Chat,
-  ChatContextSettings,
   ChatMessage,
   CreateChatInput,
   CreateMessageInput,
@@ -14,9 +15,7 @@ import type {
 type ChatRow = {
   id: string;
   title: string;
-  context_compiler_id: string;
-  context_compiler_version: number;
-  context_compiler_config: string;
+  agent_id: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -36,46 +35,11 @@ type AppSettingsRow = {
   selected_chat_id: string | null;
 };
 
-const DEFAULT_CHAT_CONTEXT: ChatContextSettings = {
-  compiler: {
-    id: "recent-history",
-    version: 1,
-  },
-  config: {
-    totalTokens: 32_000,
-    responseTokenReserve: 4_000,
-  },
-};
-
-function parseContextConfig(value: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    return { ...DEFAULT_CHAT_CONTEXT.config };
-  }
-
-  return { ...DEFAULT_CHAT_CONTEXT.config };
-}
-
 function mapChat(row: ChatRow): Chat {
   return {
     id: row.id,
     title: row.title,
-    context: {
-      compiler: {
-        id: row.context_compiler_id,
-        version: row.context_compiler_version,
-      },
-      config: parseContextConfig(row.context_compiler_config),
-    },
+    agentId: row.agent_id ?? ARCHIVIST_DEFAULT_AGENT_ID,
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -161,9 +125,7 @@ export function getAllChats(): Chat[] {
         SELECT
           id,
           title,
-          context_compiler_id,
-          context_compiler_version,
-          context_compiler_config,
+          agent_id,
           archived_at,
           created_at,
           updated_at
@@ -186,9 +148,7 @@ export function getArchivedChats(): Chat[] {
         SELECT
           id,
           title,
-          context_compiler_id,
-          context_compiler_version,
-          context_compiler_config,
+          agent_id,
           archived_at,
           created_at,
           updated_at
@@ -211,9 +171,7 @@ export function getChatById(chatId: string): Chat | null {
         SELECT
           id,
           title,
-          context_compiler_id,
-          context_compiler_version,
-          context_compiler_config,
+          agent_id,
           archived_at,
           created_at,
           updated_at
@@ -248,6 +206,9 @@ function requireActiveChat(chatId: string): Chat {
 export function createChat(input: CreateChatInput): Chat {
   const chatId = crypto.randomUUID();
   const title = deriveChatTitle(input.title);
+  const agentId = input.agentId ?? ARCHIVIST_DEFAULT_AGENT_ID;
+
+  requireActiveAgent(agentId);
 
   const createTransaction = database.transaction(() => {
     database
@@ -257,19 +218,20 @@ export function createChat(input: CreateChatInput): Chat {
             id,
             library_id,
             title,
-            type
+            type,
+            agent_id
           )
-          VALUES (?, NULL, ?, 'standard')
+          VALUES (?, NULL, ?, 'standard', ?)
         `,
       )
-      .run(chatId, title);
+      .run(chatId, title, agentId);
 
     setSelectedChatId(chatId);
 
     const chat = getChatById(chatId);
 
     if (!chat) {
-      throw new Error("The newly created chat could not be loaded.");
+      throw new Error("The newly created Chat could not be loaded.");
     }
 
     return chat;
@@ -285,7 +247,11 @@ export function updateChat(chatId: string, input: UpdateChatInput): Chat {
     throw new AppError(404, "Chat not found.");
   }
 
-  const context = input.context ?? chat.context;
+  const title = input.title === undefined ? chat.title : input.title.trim();
+
+  const agentId = input.agentId ?? chat.agentId;
+
+  requireActiveAgent(agentId);
 
   database
     .prepare(
@@ -293,9 +259,7 @@ export function updateChat(chatId: string, input: UpdateChatInput): Chat {
         UPDATE chats
         SET
           title = ?,
-          context_compiler_id = ?,
-          context_compiler_version = ?,
-          context_compiler_config = ?,
+          agent_id = ?,
           updated_at = strftime(
             '%Y-%m-%dT%H:%M:%fZ',
             'now'
@@ -303,18 +267,12 @@ export function updateChat(chatId: string, input: UpdateChatInput): Chat {
         WHERE id = ?
       `,
     )
-    .run(
-      input.title.trim(),
-      context.compiler.id,
-      context.compiler.version,
-      JSON.stringify(context.config),
-      chatId,
-    );
+    .run(title, agentId, chatId);
 
   const updatedChat = getChatById(chatId);
 
   if (!updatedChat) {
-    throw new Error("The updated chat could not be loaded.");
+    throw new Error("The updated Chat could not be loaded.");
   }
 
   return updatedChat;

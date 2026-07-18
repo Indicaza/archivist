@@ -31,7 +31,8 @@
 }
 
 .topbarTitle {
-  font-size: var(--topbar-title-size);
+  /* font-size: var(--topbar-title-size); */
+  font-size: 1.8rem;
   font-family: "IM Fell English SC", serif;
   font-weight: 600;
   line-height: 1;
@@ -46,8 +47,8 @@
 }
 
 .userAvatar {
-  width: 48px;
-  height: 48px;
+  width: 35px;
+  height: 35px;
   border: 0;
   border-radius: 50%;
   background:
