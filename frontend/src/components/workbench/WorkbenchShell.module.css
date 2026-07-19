@@ -1,0 +1,44 @@
+.shell {
+  --workbench-rail-width: 32px;
+  --workbench-left-panel-width: clamp(310px, 25vw, 430px);
+  --workbench-right-panel-width: clamp(215px, 17vw, 285px);
+  --workbench-left-panel-space: var(--workbench-left-panel-width);
+  --workbench-right-panel-space: var(--workbench-right-panel-width);
+
+  position: fixed;
+  inset: var(--topbar-height) 0 0;
+  display: grid;
+  grid-template-columns:
+    var(--workbench-rail-width)
+    var(--workbench-left-panel-space)
+    minmax(0, 1fr)
+    var(--workbench-right-panel-space)
+    var(--workbench-rail-width);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  background: var(--workspace-bg);
+}
+
+.leftClosed {
+  --workbench-left-panel-space: 0px;
+}
+
+.rightClosed {
+  --workbench-right-panel-space: 0px;
+}
+
+@media (max-width: 1080px) {
+  .shell {
+    --workbench-right-panel-space: 0px;
+  }
+}
+
+@media (max-width: 760px) {
+  .shell {
+    --workbench-left-panel-space: 0px;
+    --workbench-rail-width: 30px;
+  }
+}

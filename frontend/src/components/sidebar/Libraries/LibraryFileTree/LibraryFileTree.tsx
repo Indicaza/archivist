@@ -6,7 +6,6 @@ import {
   FileText,
   Folder,
   FolderOpen,
-  FolderTree,
   RefreshCw,
 } from "lucide-react";
 import {
@@ -23,6 +22,7 @@ import styles from "./LibraryFileTree.module.css";
 
 type LibraryFileTreeProps = {
   library: LibraryListItem;
+  searchQuery?: string;
 };
 
 type DirectoryNode = {
@@ -94,6 +94,24 @@ function getInitialOpenFolders(files: LibraryFile[]): Set<string> {
   return folders;
 }
 
+function getParentFolders(files: LibraryFile[]): Set<string> {
+  const folders = new Set<string>();
+
+  for (const file of files) {
+    const segments = file.relativePath.split("/").filter(Boolean);
+    segments.pop();
+
+    let currentPath = "";
+
+    for (const segment of segments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      folders.add(currentPath);
+    }
+  }
+
+  return folders;
+}
+
 function formatScanTime(value: string | null): string {
   if (!value) {
     return "Unknown time";
@@ -127,10 +145,10 @@ function formatFileSize(sizeBytes: number): string {
 
 function FileIcon({ extension }: { extension: string }) {
   if (extension === ".md" || extension === ".txt") {
-    return <FileText size={14} strokeWidth={1.9} />;
+    return <FileText size={13} strokeWidth={1.9} />;
   }
 
-  return <FileCode2 size={14} strokeWidth={1.9} />;
+  return <FileCode2 size={13} strokeWidth={1.9} />;
 }
 
 function TreeBranch({
@@ -157,14 +175,14 @@ function TreeBranch({
             <button
               className={styles.treeRow}
               style={{
-                paddingLeft: `${8 + depth * 14}px`,
+                paddingLeft: `${5 + depth * 13}px`,
               }}
               type="button"
               onClick={() => onToggleFolder(directory.path)}
               title={directory.path}
             >
               <ChevronRight
-                size={13}
+                size={12}
                 strokeWidth={2.2}
                 className={`${styles.treeCaret} ${
                   open ? styles.treeCaretOpen : ""
@@ -205,7 +223,7 @@ function TreeBranch({
             key={file.id}
             className={`${styles.fileRow} ${statusClassName}`}
             style={{
-              paddingLeft: `${27 + depth * 14}px`,
+              paddingLeft: `${24 + depth * 13}px`,
             }}
             title={`${file.relativePath} • ${file.status} • ${formatFileSize(
               file.sizeBytes,
@@ -218,7 +236,7 @@ function TreeBranch({
             {file.status !== "available" ? (
               <AlertTriangle
                 className={styles.fileWarning}
-                size={12}
+                size={11}
                 strokeWidth={2}
               />
             ) : null}
@@ -229,8 +247,10 @@ function TreeBranch({
   );
 }
 
-export function LibraryFileTree({ library }: LibraryFileTreeProps) {
-  const [open, setOpen] = useState(true);
+export function LibraryFileTree({
+  library,
+  searchQuery = "",
+}: LibraryFileTreeProps) {
   const [catalog, setCatalog] = useState<LibraryFileCatalog | null>(null);
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [issues, setIssues] = useState<LibraryScanIssue[]>([]);
@@ -273,10 +293,29 @@ export function LibraryFileTree({ library }: LibraryFileTreeProps) {
   }, [library.id]);
 
   const files = useMemo(() => catalog?.files ?? [], [catalog?.files]);
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+
+  const matchingFiles = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return files;
+    }
+
+    return files.filter((file) => {
+      return `${file.name} ${file.relativePath} ${file.extension}`
+        .toLowerCase()
+        .includes(normalizedSearchQuery);
+    });
+  }, [files, normalizedSearchQuery]);
 
   const tree = useMemo(() => {
-    return buildFileTree(files);
-  }, [files]);
+    return buildFileTree(matchingFiles);
+  }, [matchingFiles]);
+
+  const searchOpenFolders = useMemo(() => {
+    return normalizedSearchQuery ? getParentFolders(matchingFiles) : null;
+  }, [matchingFiles, normalizedSearchQuery]);
+
+  const visibleOpenFolders = searchOpenFolders ?? openFolders;
 
   const missingFileCount = useMemo(() => {
     return files.filter((file) => file.status === "missing").length;
@@ -287,6 +326,10 @@ export function LibraryFileTree({ library }: LibraryFileTreeProps) {
   }, [files]);
 
   function toggleFolder(folderPath: string) {
+    if (normalizedSearchQuery) {
+      return;
+    }
+
     setOpenFolders((current) => {
       const next = new Set(current);
 
@@ -343,114 +386,106 @@ export function LibraryFileTree({ library }: LibraryFileTreeProps) {
 
   return (
     <section className={styles.section}>
-      <button
-        className={styles.header}
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronRight
-          size={16}
-          strokeWidth={2.25}
-          className={`${styles.headerCaret} ${
-            open ? styles.headerCaretOpen : ""
-          }`}
-        />
-
-        <FolderTree size={16} strokeWidth={2.1} />
-
-        <span className={styles.headerTitle}>Library Files</span>
-
-        {latestScan ? (
+      <div className={styles.catalogToolbar}>
+        <div className={styles.catalogIdentity} title={library.rootPath}>
+          <span className={styles.libraryName}>{library.name}</span>
           <span className={styles.fileCount}>{files.length}</span>
-        ) : null}
-      </button>
+        </div>
 
-      <div
-        className={`${styles.content} ${
-          open ? styles.contentOpen : styles.contentClosed
-        }`}
-      >
-        <div className={styles.inner}>
-          <div className={styles.libraryName}>{library.name}</div>
+        <button
+          className={styles.scanButton}
+          type="button"
+          disabled={loading || scanning}
+          onClick={handleScan}
+          aria-label={latestScan ? "Rescan Library" : "Scan Library"}
+          title={latestScan ? "Rescan Library" : "Scan Library"}
+        >
+          <RefreshCw
+            size={14}
+            strokeWidth={2.1}
+            className={scanning ? styles.spinning : ""}
+          />
+        </button>
+      </div>
 
-          <button
-            className={styles.scanButton}
-            type="button"
-            disabled={loading || scanning}
-            onClick={handleScan}
-          >
-            <RefreshCw
-              size={14}
-              strokeWidth={2.1}
-              className={scanning ? styles.spinning : ""}
-            />
-
-            {scanning
-              ? "Scanning..."
-              : latestScan
-                ? "Rescan Library"
-                : "Scan Library"}
+      {loading ? (
+        <div className={styles.empty}>Loading file catalog...</div>
+      ) : error ? (
+        <div className={styles.error}>
+          <AlertTriangle size={14} strokeWidth={2.1} />
+          <span>{error}</span>
+        </div>
+      ) : !latestScan ? (
+        <div className={styles.empty}>
+          <span>This Library has not been scanned yet.</span>
+          <button type="button" onClick={handleScan} disabled={scanning}>
+            {scanning ? "Scanning..." : "Scan Library"}
           </button>
-
-          {loading ? (
-            <div className={styles.empty}>Loading file catalog...</div>
-          ) : null}
-
-          {!loading && error ? (
-            <div className={styles.error}>
-              <AlertTriangle size={14} strokeWidth={2.1} />
-              <span>{error}</span>
-            </div>
-          ) : null}
-
-          {!loading && !error && latestScan ? (
-            <div className={styles.scanMeta}>
-              <span>
-                {latestScan.status === "complete"
-                  ? "Scan complete"
-                  : latestScan.status}
-              </span>
-
-              <span>{formatScanTime(latestScanTime)}</span>
-
-              {missingFileCount > 0 ? (
-                <span>{missingFileCount} missing</span>
-              ) : null}
-
-              {unreadableFileCount > 0 ? (
-                <span>{unreadableFileCount} unreadable</span>
-              ) : null}
-            </div>
-          ) : null}
-
-          {!loading && !error && !latestScan ? (
-            <div className={styles.empty}>
-              This Library has not been scanned yet.
-            </div>
-          ) : null}
-
-          {!loading && !error && latestScan && files.length === 0 ? (
-            <div className={styles.empty}>No supported files were found.</div>
-          ) : null}
-
-          {!loading && !error && files.length > 0 ? (
-            <div className={styles.treeViewport}>
+        </div>
+      ) : files.length === 0 ? (
+        <div className={styles.empty}>No supported files were found.</div>
+      ) : (
+        <>
+          <div className={styles.treeViewport}>
+            {matchingFiles.length > 0 ? (
               <TreeBranch
                 node={tree}
                 depth={0}
-                openFolders={openFolders}
+                openFolders={visibleOpenFolders}
                 onToggleFolder={toggleFolder}
               />
-            </div>
-          ) : null}
+            ) : (
+              <div className={styles.noMatches}>
+                No file names or paths match “{searchQuery.trim()}”.
+              </div>
+            )}
+          </div>
 
-          {issues.length > 0 ? (
-            <div className={styles.issueSummary}>
-              {issues.length} scan issue{issues.length === 1 ? "" : "s"}
+          {normalizedSearchQuery ? (
+            <div className={styles.searchResults}>
+              <div className={styles.searchResultsHeader}>
+                <span>Catalog Matches</span>
+                <span>{matchingFiles.length}</span>
+              </div>
+
+              <div className={styles.searchResultsList}>
+                {matchingFiles.slice(0, 12).map((file) => (
+                  <div
+                    key={file.id}
+                    className={styles.searchResultRow}
+                    title={file.relativePath}
+                  >
+                    <FileIcon extension={file.extension} />
+                    <span>{file.relativePath}</span>
+                  </div>
+                ))}
+
+                {matchingFiles.length > 12 ? (
+                  <div className={styles.moreResults}>
+                    +{matchingFiles.length - 12} more matches
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : null}
-        </div>
-      </div>
+        </>
+      )}
+
+      {latestScan ? (
+        <footer className={styles.statusBar}>
+          <span>
+            {latestScan.status === "complete" ? "Ready" : latestScan.status}
+          </span>
+          <span>{formatScanTime(latestScanTime)}</span>
+          {missingFileCount > 0 ? (
+            <span>{missingFileCount} missing</span>
+          ) : null}
+          {unreadableFileCount > 0 ? (
+            <span>{unreadableFileCount} unreadable</span>
+          ) : null}
+          {issues.length > 0 ? <span>{issues.length} issues</span> : null}
+        </footer>
+      ) : null}
     </section>
   );
 }

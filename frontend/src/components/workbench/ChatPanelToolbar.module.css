@@ -1,0 +1,111 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  width: 100%;
+}
+
+.selectWrap {
+  display: flex;
+  align-items: center;
+  min-width: 132px;
+  max-width: 260px;
+  height: 28px;
+  gap: 5px;
+  padding: 0 6px;
+  border: 1px solid rgba(214, 198, 170, 0.12);
+  border-radius: 5px;
+  color: var(--app-muted-text);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--app-text);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.iconButton,
+.agentButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.iconButton {
+  width: 28px;
+  flex: 0 0 auto;
+}
+
+.agentButton {
+  min-width: 0;
+  max-width: 220px;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.agentButton span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton:focus-visible:not(:disabled),
+.agentButton:hover:not(:disabled),
+.agentButton:focus-visible:not(:disabled) {
+  border-color: rgba(143, 122, 223, 0.25);
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.045);
+  outline: none;
+}
+
+.iconButton:disabled,
+.agentButton:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: rgba(214, 198, 170, 0.1);
+}
+
+@media (max-width: 760px) {
+  .selectWrap {
+    min-width: 100px;
+    max-width: 170px;
+  }
+
+  .agentButton {
+    max-width: 120px;
+  }
+}
+
+@media (max-width: 520px) {
+  .agentButton span,
+  .divider {
+    display: none;
+  }
+
+  .agentButton {
+    width: 28px;
+    padding: 0;
+  }
+}

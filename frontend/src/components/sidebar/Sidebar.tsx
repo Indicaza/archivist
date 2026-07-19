@@ -1,199 +1,89 @@
-import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Wrench } from "lucide-react";
-import type { Agent } from "../../domains/agent/agent.types";
-import type { Chat } from "../../domains/chat/chat.types";
-import type { LibraryListItem } from "../../domains/library/library.types";
-import { Agents } from "./Agents/Agents";
-import { Chats } from "./Chats/Chats";
-import { Libraries } from "./Libraries/Libraries";
+import type { ReactNode } from "react";
+import { PanelLeftClose, PanelRightClose } from "lucide-react";
 import styles from "./Sidebar.module.css";
 
-type SidebarProps = {
-  collapsed?: boolean;
-
-  agents: Agent[];
-  archivedAgents: Agent[];
-  activeAgentId: string | null;
-  loadingAgents: boolean;
-  addingAgent: boolean;
-  onAddAgent: () => void;
-  onManageAgent: (agentId: string) => void;
-  onManageArchivedAgent: (agentId: string) => void;
-
-  libraries: LibraryListItem[];
-  archivedLibraries: LibraryListItem[];
-  selectedLibraryId: string | null;
-  loadingLibraries: boolean;
-  addingLibrary: boolean;
-  onSelectLibrary: (libraryId: string) => void;
-  onAddLibrary: () => void;
-  onManageLibrary: (libraryId: string) => void;
-  onManageArchivedLibrary: (libraryId: string) => void;
-
-  chats: Chat[];
-  archivedChats: Chat[];
-  selectedChatId: string | null;
-  loadingChats: boolean;
-  addingChat: boolean;
-  onAddChat: () => void;
-  onSelectChat: (chatId: string) => void;
-  onManageChat: (chatId: string) => void;
-  onManageArchivedChat: (chatId: string) => void;
-
-  onToggle: () => void;
+export type SidebarView = {
+  id: string;
+  title: string;
+  icon: ReactNode;
+  content: ReactNode;
 };
 
-const SIDEBAR_PANEL_WIDTH = 300;
-const SIDEBAR_COLLAPSED_WIDTH = 0;
+type SidebarProps = {
+  side: "left" | "right";
+  views: SidebarView[];
+  activeViewId: string;
+  open: boolean;
+  onActivateView: (viewId: string) => void;
+  onClosePanel: () => void;
+};
 
 export function Sidebar({
-  collapsed = false,
-
-  agents,
-  archivedAgents,
-  activeAgentId,
-  loadingAgents,
-  addingAgent,
-  onAddAgent,
-  onManageAgent,
-  onManageArchivedAgent,
-
-  libraries,
-  archivedLibraries,
-  selectedLibraryId,
-  loadingLibraries,
-  addingLibrary,
-  onSelectLibrary,
-  onAddLibrary,
-  onManageLibrary,
-  onManageArchivedLibrary,
-
-  chats,
-  archivedChats,
-  selectedChatId,
-  loadingChats,
-  addingChat,
-  onAddChat,
-  onSelectChat,
-  onManageChat,
-  onManageArchivedChat,
-
-  onToggle,
+  side,
+  views,
+  activeViewId,
+  open,
+  onActivateView,
+  onClosePanel,
 }: SidebarProps) {
-  const [toolsOpen, setToolsOpen] = useState(false);
-
-  useEffect(() => {
-    const root = document.documentElement;
-
-    root.style.setProperty(
-      "--sidebar-width",
-      `${collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_PANEL_WIDTH}px`,
-    );
-
-    root.style.setProperty("--sidebar-panel-width", `${SIDEBAR_PANEL_WIDTH}px`);
-  }, [collapsed]);
+  const activeView =
+    views.find((view) => view.id === activeViewId) ?? views[0] ?? null;
+  const isLeft = side === "left";
 
   return (
-    <>
-      {collapsed ? (
-        <button
-          className={styles.revealBtn}
-          onClick={onToggle}
-          aria-label="Open sidebar"
-          title="Open sidebar"
-          type="button"
-        >
-          <ChevronRight size={20} strokeWidth={2.25} />
-        </button>
-      ) : null}
+    <aside
+      className={`${styles.sidebar} ${styles[side]} ${
+        open ? styles.open : styles.closed
+      }`}
+      aria-label={`${side} activity sidebar`}
+    >
+      <nav className={styles.activityRail} aria-label={`${side} activities`}>
+        <div className={styles.activityGroup}>
+          {views.map((view) => {
+            const active = view.id === activeView?.id;
 
-      <aside
-        className={`${styles.sidebarShell} ${
-          collapsed ? styles.collapsed : ""
-        }`}
-        aria-hidden={collapsed}
-      >
-        <div className={styles.sidebarPanel}>
-          <div className={styles.topRow}>
-            <button
-              className={styles.collapseBtn}
-              onClick={onToggle}
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-              type="button"
-            >
-              <ChevronLeft size={20} strokeWidth={2.25} />
-            </button>
-          </div>
-
-          <div className={styles.scrollArea}>
-            <Libraries
-              libraries={libraries}
-              archivedLibraries={archivedLibraries}
-              selectedLibraryId={selectedLibraryId}
-              loading={loadingLibraries}
-              adding={addingLibrary}
-              onSelectLibrary={onSelectLibrary}
-              onAddLibrary={onAddLibrary}
-              onManageLibrary={onManageLibrary}
-              onManageArchivedLibrary={onManageArchivedLibrary}
-            />
-
-            <Chats
-              chats={chats}
-              archivedChats={archivedChats}
-              selectedChatId={selectedChatId}
-              loading={loadingChats}
-              adding={addingChat}
-              onAddChat={onAddChat}
-              onSelectChat={onSelectChat}
-              onManageChat={onManageChat}
-              onManageArchivedChat={onManageArchivedChat}
-            />
-
-            <Agents
-              agents={agents}
-              archivedAgents={archivedAgents}
-              activeAgentId={activeAgentId}
-              loading={loadingAgents}
-              adding={addingAgent}
-              onAddAgent={onAddAgent}
-              onManageAgent={onManageAgent}
-              onManageArchivedAgent={onManageArchivedAgent}
-            />
-
-            <div
-              className={styles.groupHeader}
-              onClick={() => setToolsOpen((value) => !value)}
-              role="button"
-              tabIndex={0}
-            >
-              <ChevronRight
-                size={16}
-                strokeWidth={2.25}
-                className={`${styles.caret} ${
-                  toolsOpen ? styles.caretOpen : styles.caretClosed
+            return (
+              <button
+                key={view.id}
+                className={`${styles.activityButton} ${
+                  active ? styles.activityButtonActive : ""
                 }`}
-              />
-
-              <Wrench size={16} strokeWidth={2.1} />
-              <span>Tools</span>
-            </div>
-
-            <div
-              className={`${styles.groupContent} ${
-                toolsOpen ? styles.open : styles.closed
-              }`}
-            >
-              <div className={styles.groupInner}>
-                <div className={styles.empty}>
-                  Scanner, proposals, codex export, and routines later.
-                </div>
-              </div>
-            </div>
-          </div>
+                type="button"
+                onClick={() => onActivateView(view.id)}
+                aria-label={view.title}
+                aria-pressed={active && open}
+                title={view.title}
+              >
+                {view.icon}
+              </button>
+            );
+          })}
         </div>
-      </aside>
-    </>
+      </nav>
+
+      {open && activeView ? (
+        <section className={styles.panel} aria-label={activeView.title}>
+          <header className={styles.header}>
+            <span className={styles.title}>{activeView.title}</span>
+
+            <button
+              className={styles.headerButton}
+              type="button"
+              onClick={onClosePanel}
+              aria-label={`Collapse ${activeView.title}`}
+              title={`Collapse ${activeView.title}`}
+            >
+              {isLeft ? (
+                <PanelLeftClose size={17} strokeWidth={2} />
+              ) : (
+                <PanelRightClose size={17} strokeWidth={2} />
+              )}
+            </button>
+          </header>
+
+          <div className={styles.scrollArea}>{activeView.content}</div>
+        </section>
+      ) : null}
+    </aside>
   );
 }

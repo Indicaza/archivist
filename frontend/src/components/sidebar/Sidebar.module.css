@@ -1,204 +1,266 @@
-.sidebarShell {
-  --sidebar-overshoot-buffer: 44px;
-
-  position: fixed;
-  top: var(--topbar-height);
-  left: calc(-1 * var(--sidebar-overshoot-buffer));
-  z-index: var(--z-sidebar);
-  width: calc(var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer));
-  height: calc(100dvh - var(--topbar-height));
-  overflow: hidden;
-  border-top: 1px solid var(--sidebar-border);
-  background: var(--sidebar-bg);
-  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.42);
-  transform: translateX(0);
-  transition:
-    transform 480ms cubic-bezier(0.18, 1.16, 0.32, 1),
-    box-shadow 180ms ease;
+.sidebar {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  color: var(--app-text);
 }
 
-.sidebarShell.collapsed {
-  pointer-events: none;
-  box-shadow: none;
-  transform: translateX(
-    calc(-1 * (var(--sidebar-panel-width) + var(--sidebar-overshoot-buffer)))
-  );
+.left {
+  grid-column: 1 / 3;
+  grid-row: 1 / 3;
+  z-index: 6;
+  flex-direction: row;
 }
 
-.sidebarPanel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: var(--sidebar-panel-width);
-  height: calc(100dvh - var(--topbar-height));
-  overflow: hidden;
+.right {
+  grid-column: 4 / 6;
+  grid-row: 1;
+  z-index: 3;
+  flex-direction: row-reverse;
+}
+
+.activityRail {
+  display: flex;
+  flex: 0 0 var(--workbench-rail-width);
+  width: var(--workbench-rail-width);
+  min-width: var(--workbench-rail-width);
+  height: 100%;
+  padding: 4px 0;
+  border-color: var(--sidebar-border);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 22%),
+    var(--app-bg-deep);
+  box-shadow: var(--shadow-soft);
+}
+
+.left .activityRail {
   border-right: 1px solid var(--sidebar-border);
-  background: var(--sidebar-bg);
 }
 
-.topRow {
+.right .activityRail {
+  border-left: 1px solid var(--sidebar-border);
+}
+
+.activityGroup {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.activityButton {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 29px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
+}
+
+.activityButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+.activityButton::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: var(--r-pill);
+  background: transparent;
+}
+
+.left .activityButton::before {
+  left: -2px;
+}
+
+.right .activityButton::before {
+  right: -2px;
+}
+
+.activityButton:hover,
+.activityButton:focus-visible {
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.045);
+  outline: none;
+}
+
+.activityButtonActive {
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.09);
+}
+
+.activityButtonActive::before {
+  background: var(--app-accent);
+}
+
+.panel {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-color: var(--sidebar-border);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 24%),
+    var(--sidebar-bg);
+  box-shadow: var(--shadow-panel);
+  contain: layout paint style;
+}
+
+.left .panel {
+  width: var(--workbench-left-panel-width);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+.right .panel {
+  width: var(--workbench-right-panel-width);
+  border-left: 1px solid var(--sidebar-border);
+}
+
+.header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  height: 54px;
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(214, 198, 170, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent),
-    var(--sidebar-bg);
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 5px 4px 9px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+  background: rgba(255, 255, 255, 0.014);
 }
 
-.scrollArea {
-  height: calc(100% - 54px);
-  padding: 12px 0 16px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+.title {
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.collapseBtn,
-.revealBtn {
+.headerButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--sidebar-collapse-btn-size);
-  height: var(--sidebar-collapse-btn-size);
-  border: 1px solid var(--sidebar-btn-border);
-  border-radius: var(--r-pill);
-  color: var(--app-text);
-  background: rgba(16, 15, 13, 0.88);
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
   cursor: pointer;
-  font-size: 1.6rem;
-  line-height: 1;
-  transition:
-    transform 220ms var(--ease-springy),
-    background-color 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease;
 }
 
-.collapseBtn:hover {
-  border-color: rgba(143, 122, 223, 0.32);
-  background: var(--sidebar-reveal-hover);
-  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.3);
-  transform: scale(1.06) rotate(3deg);
+.headerButton svg {
+  width: 15px;
+  height: 15px;
 }
 
-.revealBtn {
-  position: fixed;
-  top: calc(var(--topbar-height) + 10px);
-  left: 10px;
-  z-index: var(--z-reveal);
-  background: var(--sidebar-bg);
-  box-shadow: var(--shadow-soft);
-  animation: revealButtonIn 220ms var(--ease-springy) both;
-}
-
-.revealBtn:hover {
-  border-color: rgba(143, 122, 223, 0.32);
-  background: var(--sidebar-reveal-hover);
-  transform: scale(1.08) rotate(-4deg);
-}
-
-.groupHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+.headerButton:hover,
+.headerButton:focus-visible {
   color: var(--app-text);
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
+  background: var(--sidebar-reveal-hover);
+  outline: none;
 }
 
-.groupHeader:hover {
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.caret {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
-  opacity: 0.9;
-  transform-origin: center;
-  transition:
-    transform 220ms var(--ease-standard-inout),
-    opacity 180ms ease;
-}
-
-.caretOpen {
-  transform: rotate(90deg);
-}
-
-.caretClosed {
-  transform: rotate(0deg);
-}
-
-.groupContent {
-  overflow: hidden;
-  transition:
-    max-height 260ms var(--ease-standard-inout),
-    opacity 200ms ease;
-}
-
-.open {
-  max-height: 1000px;
-  opacity: 1;
-}
-
-.closed {
-  max-height: 0;
-  opacity: 0;
-}
-
-.groupInner {
+.scrollArea {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 6px 6px 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
-.empty {
-  padding: 8px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: var(--r-sm);
-  color: var(--app-muted-text);
-  font-size: 13px;
-  opacity: 0.85;
+.left .scrollArea {
+  padding: 0;
+  overflow-y: hidden;
 }
 
-@keyframes revealButtonIn {
-  from {
-    opacity: 0;
-    transform: translateX(-8px) scale(0.96);
+.right .scrollArea {
+  padding: 3px 0 8px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.scrollArea > * {
+  min-height: 0;
+}
+
+.closed .activityButtonActive::before {
+  opacity: 0.7;
+}
+
+@media (max-width: 1080px) {
+  .right {
+    grid-column: 5;
   }
 
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
+  .right .panel {
+    position: absolute;
+    top: 0;
+    right: var(--workbench-rail-width);
+    bottom: 0;
+    width: min(
+      var(--workbench-right-panel-width),
+      calc(100vw - var(--workbench-rail-width) * 2 - 24px)
+    );
+    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.66);
   }
 }
 
-@media (max-width: 900px) {
-  .sidebarShell {
-    --sidebar-overshoot-buffer: 36px;
-
-    top: var(--topbar-height);
-    height: calc(100dvh - var(--topbar-height));
+@media (max-width: 760px) {
+  .left {
+    grid-column: 1;
   }
 
-  .sidebarPanel {
-    width: min(80vw, 320px);
-    height: calc(100dvh - var(--topbar-height));
+  .left .panel {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--workbench-rail-width);
+    width: min(
+      var(--workbench-left-panel-width),
+      calc(100vw - var(--workbench-rail-width) * 2 - 18px)
+    );
+    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.7);
+  }
+}
+
+@media (max-height: 620px) {
+  .panel {
+    grid-template-rows: 30px minmax(0, 1fr);
+  }
+
+  .header {
+    min-height: 30px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .activityButton {
+    height: 27px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebarShell,
-  .groupContent,
-  .caret,
-  .collapseBtn,
-  .revealBtn {
-    animation: none;
+  .activityButton {
     transition: none;
   }
 }

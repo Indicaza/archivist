@@ -1,0 +1,32 @@
+.placeholder {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 100%;
+  gap: 9px;
+  padding: 28px 20px;
+  color: var(--app-muted-text);
+  text-align: center;
+}
+
+.placeholder strong {
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.placeholder span {
+  max-width: 240px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(143, 122, 223, 0.24);
+  border-radius: 12px;
+  color: var(--app-accent);
+  background: rgba(143, 122, 223, 0.08);
+}

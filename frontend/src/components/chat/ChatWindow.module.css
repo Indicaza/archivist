@@ -1,49 +1,66 @@
-/* frontend/src/components/chat/ChatWindow.module.css */
 .chatWindow {
-  min-height: calc(100dvh - var(--topbar-height));
-  display: flex;
-  flex-direction: column;
-  background: transparent;
+  grid-column: 3;
+  grid-row: 1;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 26%),
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.16),
+      transparent 18%,
+      transparent 82%,
+      rgba(0, 0, 0, 0.12)
+    ),
+    var(--workspace-bg);
+  contain: layout paint style;
 }
 
-.chatContent {
+.messagesViewport {
   width: 100%;
-  max-width: var(--content-max-width);
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100dvh - var(--topbar-height));
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .messages {
-  flex: 1;
-  padding: 38px var(--workspace-padding) 26px;
   display: flex;
   flex-direction: column;
-  gap: 30px;
-  overflow: visible;
+  width: min(100%, 1080px);
+  min-height: 100%;
+  margin: 0 auto;
+  gap: clamp(12px, 2vh, 24px);
+  padding: clamp(16px, 2.4vw, 30px) clamp(14px, 3.2vw, 42px) 28px;
 }
 
 .emptyState {
-  flex: 1;
-  min-height: 50dvh;
   display: grid;
   place-items: center;
-  gap: 10px;
+  align-content: center;
+  min-height: 100%;
+  gap: 8px;
+  padding: 18px;
   color: var(--workspace-empty-text);
-  font-size: 15px;
-  opacity: 0.85;
+  font-size: clamp(12px, 1.1vw, 14px);
+  opacity: 0.82;
   text-align: center;
-  padding: 20px;
 }
 
 .message {
-  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  width: 100%;
+  gap: 6px;
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(6px);
   animation: messageIn 180ms var(--ease-standard-inout) forwards;
 }
 
@@ -60,19 +77,22 @@
   padding: 0 4px;
 }
 
-.user .messageMeta {
-  width: min(640px, 78%);
+.user .messageMeta,
+.user .blocks {
+  width: min(680px, 78%);
   align-self: flex-end;
 }
 
 .assistant .messageMeta,
-.system .messageMeta {
-  width: 100%;
+.assistant .blocks,
+.system .messageMeta,
+.system .blocks {
+  width: min(920px, 94%);
 }
 
 .roleLabel {
-  font-size: 10px;
   color: var(--app-muted-text);
+  font-size: 9px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -85,33 +105,25 @@
 .blocks {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.user .blocks {
-  width: min(640px, 78%);
-  align-self: flex-end;
-}
-
-.assistant .blocks,
-.system .blocks {
-  width: 100%;
-}
-
-.markdownBlock {
+.markdownBlock,
+.typing {
   position: relative;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  line-height: 1.6;
-  padding: var(--message-padding);
-  border-radius: var(--message-radius);
+  padding: clamp(10px, 1.3vw, 15px) clamp(12px, 1.7vw, 18px);
+  border: 1px solid var(--artifact-card-border);
+  border-radius: clamp(10px, 1.3vw, var(--message-radius));
   color: var(--message-assistant-text);
   background: var(--artifact-card-bg);
-  border: 1px solid var(--artifact-card-border);
   box-shadow:
     var(--shadow-card),
     inset 0 1px 0 rgba(255, 250, 240, 0.04);
+  font-size: clamp(12px, 1.05vw, 15px);
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .user .markdownBlock {
@@ -120,9 +132,6 @@
     linear-gradient(90deg, transparent, rgba(196, 154, 90, 0.035)),
     var(--message-user-bg);
   border-color: var(--message-user-border);
-  box-shadow:
-    0 14px 30px rgba(0, 0, 0, 0.44),
-    inset 0 1px 0 rgba(255, 250, 240, 0.03);
 }
 
 .assistant .markdownBlock {
@@ -147,136 +156,180 @@
   border-color: rgba(196, 154, 90, 0.16);
 }
 
-.contextPacket {
-  padding: 12px 14px;
-  border-radius: var(--artifact-card-radius);
-  background: var(--artifact-source-bg);
-  border: 1px solid var(--artifact-source-border);
-  color: var(--artifact-system-text);
-  box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.34),
-    inset 0 0 0 1px rgba(255, 250, 240, 0.025);
-}
-
-.contextTitle {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--app-text);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.contextList {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--app-muted-text);
-}
-
 .typing {
   width: fit-content;
-  padding: var(--message-padding);
-  border-radius: var(--message-radius);
-  background: var(--message-assistant-bg);
-  color: var(--message-assistant-text);
-  border: 1px solid var(--message-assistant-border);
-  box-shadow: var(--shadow-card);
   opacity: 0.85;
 }
 
+.composerPanel {
+  grid-column: 3 / 6;
+  grid-row: 2;
+  z-index: 5;
+  display: grid;
+  grid-template-rows: 32px auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--sidebar-border);
+  background: var(--app-bg-deep);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.28);
+  contain: layout paint style;
+}
+
+.composerHeader {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  padding: 0 5px 0 7px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+  background: rgba(255, 255, 255, 0.014);
+}
+
+.composerTab {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 7px;
+  border-bottom: 2px solid var(--app-accent);
+  color: var(--app-text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.composerToolbar {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .composer {
-  position: sticky;
-  bottom: 18px;
-  max-width: var(--content-max-width);
   width: 100%;
-  margin-top: auto;
-  padding: 0 var(--composer-padding-x) 18px;
-  z-index: var(--z-composer);
-  pointer-events: none;
+  min-width: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent),
+    rgba(16, 15, 13, 0.82);
 }
 
 .composerInner {
-  pointer-events: auto;
   display: flex;
-  align-items: flex-end;
-  position: relative;
-  background: var(--composer-bg);
-  border: 1px solid var(--composer-ring);
-  box-shadow:
-    0 22px 54px rgba(0, 0, 0, 0.58),
-    inset 0 1px 0 rgba(255, 250, 240, 0.045);
-  transition:
-    border-color var(--dur-base) var(--ease-standard-inout),
-    border-radius var(--dur-base) var(--ease-standard-inout),
-    box-shadow var(--dur-base) var(--ease-standard-inout);
-  padding: 6px var(--composer-padding-right-reserve) 6px
-    var(--composer-padding-x);
-  border-radius: var(--composer-pill-radius);
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.018);
+  background: rgba(255, 255, 255, 0.012);
 }
 
 .composerInner:focus-within {
-  border-color: var(--composer-ring-focus);
-  box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.64),
-    0 0 0 1px rgba(143, 122, 223, 0.14),
-    inset 0 1px 0 rgba(255, 250, 240, 0.055);
-}
-
-.composerInner.grown {
-  border-radius: var(--composer-grown-radius);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 rgba(143, 122, 223, 0.18);
 }
 
 .composerInput {
-  flex: 1;
-  resize: none;
+  width: 100%;
+  min-height: 92px;
+  max-height: min(310px, 42vh);
+  padding: 12px 14px 8px;
   overflow-y: auto;
-  max-height: var(--composer-max-height);
-  background: transparent;
-  border: none;
-  outline: none;
+  border: 0;
+  outline: 0;
   color: var(--composer-input-text);
+  background: transparent;
   font: inherit;
+  font-size: clamp(12px, 1vw, 14px);
   line-height: 1.5;
-  padding: 8px 0;
+  resize: none;
 }
 
 .composerInput::placeholder {
   color: var(--composer-placeholder);
 }
 
-.composerButton {
-  position: absolute;
-  right: 6px;
-  bottom: 5px;
-  width: var(--composer-send-size);
-  height: var(--composer-send-size);
-  border-radius: 50%;
-  background: linear-gradient(
-    180deg,
-    var(--composer-send-bg),
-    var(--composer-send-bg-hover)
-  );
-  border: none;
-  color: #fff;
-  cursor: pointer;
+.composerFooter {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition:
-    transform var(--dur-fast) var(--ease-standard-inout),
-    opacity var(--dur-fast);
+  gap: 7px;
+  min-height: 35px;
+  padding: 3px 6px 5px 8px;
+  border-top: 1px solid rgba(214, 198, 170, 0.06);
 }
 
-.composerButton:hover:not(:disabled) {
-  transform: scale(1.07);
+.writingTools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.writingTools button {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.writingTools button:hover:not(:disabled),
+.writingTools button:focus-visible:not(:disabled) {
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+}
+
+.writingTools button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.keyboardHint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-width: 69px;
+  height: 29px;
+  padding: 0 9px;
+  border: 1px solid rgba(143, 122, 223, 0.28);
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(143, 122, 223, 0.2);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.composerButton:hover:not(:disabled),
+.composerButton:focus-visible:not(:disabled) {
+  border-color: rgba(143, 122, 223, 0.5);
+  background: rgba(143, 122, 223, 0.3);
+  outline: none;
 }
 
 .composerButton:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.38;
 }
 
 @keyframes messageIn {
@@ -286,11 +339,79 @@
   }
 }
 
+@media (max-width: 760px) {
+  .user .messageMeta,
+  .user .blocks,
+  .assistant .messageMeta,
+  .assistant .blocks,
+  .system .messageMeta,
+  .system .blocks {
+    width: 100%;
+  }
+
+  .messages {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .composerHeader {
+    gap: 3px;
+    padding-right: 3px;
+    padding-left: 4px;
+  }
+
+  .composerTab {
+    padding: 0 5px;
+    font-size: 9px;
+  }
+
+  .composerInput {
+    min-height: 80px;
+  }
+
+  .keyboardHint {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .composerTab span,
+  .composerButton span {
+    display: none;
+  }
+
+  .composerButton {
+    min-width: 29px;
+    width: 29px;
+    padding: 0;
+  }
+}
+
+@media (max-height: 620px) {
+  .composerPanel {
+    grid-template-rows: 29px auto;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.26);
+  }
+
+  .messages {
+    gap: 10px;
+    padding-top: 10px;
+    padding-bottom: 12px;
+  }
+
+  .composerInput {
+    min-height: 58px;
+    max-height: 190px;
+    padding-top: 8px;
+  }
+
+  .composerFooter {
+    min-height: 31px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .message,
-  .composerButton,
-  .composerInner {
+  .message {
     animation: none;
-    transition: none;
   }
 }

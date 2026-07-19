@@ -1,10 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bot,
+  Library as LibraryIcon,
+  MessageSquareText,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { ChatWindow } from "./components/chat/ChatWindow";
 import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
+import { Agents } from "./components/sidebar/Agents/Agents";
 import { ChatManagementModal } from "./components/sidebar/Chats/ChatManagementModal/ChatManagementModal";
+import { Chats } from "./components/sidebar/Chats/Chats";
+import { Libraries } from "./components/sidebar/Libraries/Libraries";
 import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
-import { Sidebar } from "./components/sidebar/Sidebar";
 import { Topbar } from "./components/topbar/Topbar";
+import { ChatPanelToolbar } from "./components/workbench/ChatPanelToolbar";
+import { DockPlaceholder } from "./components/workbench/DockPlaceholder";
+import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
 import {
   addAgent,
   archiveAgent,
@@ -45,8 +57,6 @@ import type { Library, LibraryListItem } from "./domains/library/library.types";
 import "./App.css";
 
 export function App() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   const [agents, setAgents] = useState<Agent[]>([]);
   const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
 
@@ -111,8 +121,6 @@ export function App() {
 
   const [restoringManagedChat, setRestoringManagedChat] = useState(false);
 
-  const appMainRef = useRef<HTMLElement | null>(null);
-
   const libraryListItems = useMemo<LibraryListItem[]>(() => {
     return libraries.map((library) => ({
       ...library,
@@ -141,6 +149,10 @@ export function App() {
   }, [chats, selectedChatId]);
 
   const activeAgentId = selectedChat?.agentId ?? null;
+
+  const activeAgent = useMemo(() => {
+    return agents.find((agent) => agent.id === activeAgentId) ?? null;
+  }, [activeAgentId, agents]);
 
   const managedAgent = useMemo(() => {
     return (
@@ -732,48 +744,115 @@ export function App() {
 
   return (
     <>
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        agents={agents}
-        archivedAgents={archivedAgents}
-        activeAgentId={activeAgentId}
-        loadingAgents={loadingAgents}
-        addingAgent={addingAgent}
-        onAddAgent={handleAddAgent}
-        onManageAgent={setManagedAgentId}
-        onManageArchivedAgent={setManagedAgentId}
-        libraries={libraryListItems}
-        archivedLibraries={archivedLibraryListItems}
-        selectedLibraryId={selectedLibraryId}
-        loadingLibraries={loadingLibraries}
-        addingLibrary={addingLibrary}
-        onSelectLibrary={handleSelectLibrary}
-        onAddLibrary={handleAddLibrary}
-        onManageLibrary={setManagedLibraryId}
-        onManageArchivedLibrary={setManagedLibraryId}
-        chats={chats}
-        archivedChats={archivedChats}
-        selectedChatId={selectedChatId}
-        loadingChats={loadingChats}
-        addingChat={addingChat}
-        onAddChat={handleAddChat}
-        onSelectChat={handleSelectChat}
-        onManageChat={setManagedChatId}
-        onManageArchivedChat={setManagedChatId}
-        onToggle={() => setSidebarCollapsed((value) => !value)}
-      />
-
       <Topbar selectedLibrary={selectedLibrary} />
 
-      <main ref={appMainRef} className="app-main">
-        <div className="app-main-inner">
+      <WorkbenchShell
+        leftViews={[
+          {
+            id: "libraries",
+            title: "Library Explorer",
+            icon: <LibraryIcon size={17} strokeWidth={1.9} />,
+            content: (
+              <div className="left-dock-stack">
+                <Libraries
+                  libraries={libraryListItems}
+                  archivedLibraries={archivedLibraryListItems}
+                  selectedLibraryId={selectedLibraryId}
+                  loading={loadingLibraries}
+                  adding={addingLibrary}
+                  onSelectLibrary={handleSelectLibrary}
+                  onAddLibrary={handleAddLibrary}
+                  onManageLibrary={setManagedLibraryId}
+                  onManageArchivedLibrary={setManagedLibraryId}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "search",
+            title: "Library Search",
+            icon: <Search size={17} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Search size={20} strokeWidth={1.9} />}
+                title="Library Search"
+                description="Project-wide file and content search will live here."
+              />
+            ),
+          },
+          {
+            id: "skills",
+            title: "Skills",
+            icon: <Sparkles size={17} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Sparkles size={20} strokeWidth={1.9} />}
+                title="Skills"
+                description="Reusable tools and guided workflows will live here."
+              />
+            ),
+          },
+        ]}
+        rightViews={[
+          {
+            id: "chats",
+            title: "Chats",
+            icon: <MessageSquareText size={17} strokeWidth={1.9} />,
+            content: (
+              <div className="right-dock-stack">
+                <Chats
+                  chats={chats}
+                  archivedChats={archivedChats}
+                  selectedChatId={selectedChatId}
+                  loading={loadingChats}
+                  adding={addingChat}
+                  onAddChat={handleAddChat}
+                  onSelectChat={handleSelectChat}
+                  onManageChat={setManagedChatId}
+                  onManageArchivedChat={setManagedChatId}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "agents",
+            title: "Agents",
+            icon: <Bot size={17} strokeWidth={1.9} />,
+            content: (
+              <div className="right-dock-stack">
+                <Agents
+                  agents={agents}
+                  archivedAgents={archivedAgents}
+                  activeAgentId={activeAgentId}
+                  loading={loadingAgents}
+                  adding={addingAgent}
+                  onAddAgent={handleAddAgent}
+                  onManageAgent={setManagedAgentId}
+                  onManageArchivedAgent={setManagedAgentId}
+                />
+              </div>
+            ),
+          },
+        ]}
+        workspace={
           <ChatWindow
-            scrollContainerRef={appMainRef}
             selectedChat={selectedChat}
             onChatActivity={handleChatActivity}
+            toolbar={
+              <ChatPanelToolbar
+                chats={chats}
+                selectedChat={selectedChat}
+                activeAgent={activeAgent}
+                addingChat={addingChat}
+                onSelectChat={handleSelectChat}
+                onAddChat={handleAddChat}
+                onManageChat={setManagedChatId}
+                onManageAgent={setManagedAgentId}
+              />
+            }
           />
-        </div>
-      </main>
+        }
+      />
 
       {managedAgent ? (
         <AgentManagementModal
