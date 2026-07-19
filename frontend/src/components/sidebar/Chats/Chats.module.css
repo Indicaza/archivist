@@ -1,210 +1,239 @@
-/* =========================================================
-   SECTION HEADERS
-   ========================================================= */
+.section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
 
-.groupHeader,
-.subHeader {
+.listViewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 3px 3px 5px;
+  scrollbar-gutter: stable;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rowWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  color: var(--app-text);
-  font-weight: 600;
+  gap: 6px;
+  width: 100%;
+  min-height: 27px;
+  padding: 0 24px 0 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  text-align: left;
   cursor: pointer;
-  user-select: none;
-  transition:
-    background-color 260ms ease,
-    transform 420ms cubic-bezier(0.18, 1.18, 0.32, 1),
-    color 260ms ease;
 }
 
-.subHeader {
-  padding-top: 6px;
-  color: var(--artifact-system-text);
-}
-
-.groupHeader:hover,
-.subHeader:hover {
-  background: rgba(255, 255, 255, 0.035);
-  transform: translateX(3px) scale(1.012);
-}
-
-/* =========================================================
-   ACCORDION / CARETS
-   ========================================================= */
-
-.caret {
-  width: 16px;
-  height: 16px;
+.row svg {
   flex: 0 0 auto;
-  opacity: 0.9;
-  transform-origin: center;
-  transition:
-    transform 260ms cubic-bezier(0.2, 0, 0, 1),
-    opacity 220ms ease;
+}
+
+.row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row:hover,
+.row:focus-visible {
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.045);
+  outline: none;
+}
+
+.selected {
+  border-color: rgba(143, 122, 223, 0.24);
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.09);
+}
+
+.manageButton {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rowWrap:hover .manageButton,
+.rowWrap:focus-within .manageButton,
+.rowWrap:has(.selected) .manageButton {
+  opacity: 1;
+}
+
+.manageButton:hover,
+.manageButton:focus-visible {
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.archiveToggle {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 25px;
+  padding: 0 6px;
+  border: 0;
+  border-top: 1px solid rgba(214, 198, 170, 0.08);
+  color: var(--app-muted-text);
+  background: rgba(255, 255, 255, 0.01);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.archiveToggle:hover,
+.archiveToggle:focus-visible {
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.035);
+  outline: none;
+}
+
+.archiveToggle svg:first-child {
+  transition: transform 120ms ease;
 }
 
 .caretOpen {
   transform: rotate(90deg);
 }
 
-.caretClosed {
-  transform: rotate(0deg);
+.count {
+  margin-left: auto;
 }
 
-.groupContent,
-.subContent {
-  overflow: hidden;
-  transition:
-    max-height 280ms cubic-bezier(0.2, 0, 0, 1),
-    opacity 240ms ease;
+.archivedList {
+  flex: 0 0 auto;
+  max-height: 112px;
+  overflow-y: auto;
+  padding: 2px 3px 4px;
+  border-top: 1px solid rgba(214, 198, 170, 0.06);
+  background: rgba(0, 0, 0, 0.055);
 }
 
-.open {
-  max-height: 1000px;
-  opacity: 1;
-}
-
-.closed {
-  max-height: 0;
-  opacity: 0;
-}
-
-/* =========================================================
-   SPACING / LAYOUT
-   ========================================================= */
-
-.indent1 {
-  padding-left: 14px;
-}
-
-.indent2 {
-  padding-left: 28px;
-}
-
-.groupInner {
+.archivedRow {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 6px 6px 10px;
-}
-
-.actionsAreaTop {
-  padding: 4px;
-}
-
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 9px 4px 12px;
-  list-style: none;
-}
-
-/* =========================================================
-   CHAT GLYPH
-   ========================================================= */
-
-.chatGlyph {
-  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  color: var(--app-text);
-  background:
-    radial-gradient(
-      circle at 35% 25%,
-      rgba(255, 255, 255, 0.3),
-      transparent 24%
-    ),
-    linear-gradient(135deg, #334155, #0f766e);
-  box-shadow: var(--shadow-avatar);
-}
-
-.archivedGlyph {
-  opacity: 0.72;
-  filter: saturate(0.55);
-}
-
-/* =========================================================
-   MANAGE ACTION
-   ========================================================= */
-
-.manageButton {
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--r-round);
+  gap: 5px;
+  width: 100%;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
   color: var(--app-muted-text);
-  background: rgba(16, 15, 13, 0.82);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  text-align: left;
   cursor: pointer;
+}
+
+.archivedRow span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archivedRow:hover,
+.archivedRow:focus-visible {
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
+}
+
+.empty,
+.archivedEmpty {
+  padding: 8px;
+  color: var(--app-muted-text);
+  font-size: 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archiveToggle svg:first-child {
+    transition: none;
+  }
+}
+
+/* Shared compact-browser motion */
+.row,
+.archivedRow,
+.manageButton {
+  transform: translateX(0) scale(1);
+  transform-origin: left center;
   transition:
-    transform 180ms var(--ease-springy),
+    transform 190ms var(--ease-springy),
     color 150ms ease,
     background-color 150ms ease,
-    border-color 150ms ease;
+    border-color 150ms ease,
+    opacity 150ms ease;
+}
+
+.row:hover,
+.row:focus-visible {
+  transform: translateX(3px) scale(1.012);
+}
+
+.rowWrap:has(.row:hover) + .rowWrap .row,
+.rowWrap:has(.row:focus-visible) + .rowWrap .row,
+.rowWrap:has(+ .rowWrap .row:hover) .row,
+.rowWrap:has(+ .rowWrap .row:focus-visible) .row {
+  border-color: var(--sidebar-card-neighbor-border);
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.005);
 }
 
 .manageButton:hover,
 .manageButton:focus-visible {
-  color: var(--topbar-title);
-  background: var(--sidebar-reveal-hover);
-  border-color: rgba(143, 122, 223, 0.3);
-  outline: none;
-  transform: scale(1.06);
+  transform: scale(1.08);
 }
 
-.manageButton:active {
-  transform: scale(0.96);
+.archivedRow:hover,
+.archivedRow:focus-visible {
+  transform: translateX(3px) scale(1.008);
 }
 
-/* =========================================================
-   ARCHIVE COUNT
-   ========================================================= */
-
-.archiveCount {
-  min-width: 21px;
-  height: 20px;
-  margin-left: auto;
-  padding: 0 6px;
-  border: 1px solid rgba(214, 198, 170, 0.12);
-  border-radius: var(--r-pill);
-  color: var(--app-muted-text);
-  background: rgba(255, 255, 255, 0.035);
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
+.archivedRow:hover + .archivedRow,
+.archivedRow:has(+ .archivedRow:hover) {
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.003);
 }
-
-/* =========================================================
-   EMPTY STATE
-   ========================================================= */
-
-.empty {
-  padding: 8px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: var(--r-sm);
-  color: var(--app-muted-text);
-  font-size: 13px;
-  opacity: 0.85;
-}
-
-/* =========================================================
-   REDUCED MOTION
-   ========================================================= */
 
 @media (prefers-reduced-motion: reduce) {
-  .groupHeader,
-  .subHeader,
-  .groupContent,
-  .subContent,
-  .caret,
+  .row,
+  .archivedRow,
   .manageButton {
     transition: none;
   }

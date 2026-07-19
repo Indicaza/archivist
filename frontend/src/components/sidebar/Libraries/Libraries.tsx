@@ -1,15 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  BookOpen,
-  ChevronRight,
-  FolderArchive,
-  Library,
-  Pencil,
-  Plus,
-} from "lucide-react";
+import { Archive, Pencil, Plus, Search, X } from "lucide-react";
 import type { LibraryListItem } from "../../../domains/library/library.types";
-import { SidebarButton } from "../SidebarButton/SidebarButton";
-import { SidebarCard } from "../SidebarCard/SidebarCard";
 import { LibraryFileTree } from "./LibraryFileTree/LibraryFileTree";
 import styles from "./Libraries.module.css";
 
@@ -36,48 +27,20 @@ export function Libraries({
   onManageLibrary,
   onManageArchivedLibrary,
 }: LibrariesProps) {
-  const [librariesOpen, setLibrariesOpen] = useState(true);
-  const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
-  const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      setDebouncedSearch(search.trim().toLowerCase());
-    }, 200);
+      setDebouncedSearch(search.trim());
+    }, 180);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
   }, [search]);
-
-  const filteredLibraries = useMemo(() => {
-    if (!debouncedSearch) {
-      return libraries;
-    }
-
-    return libraries.filter((library) => {
-      const haystack =
-        `${library.name} ${library.subtitle} ${library.rootPath}`.toLowerCase();
-
-      return haystack.includes(debouncedSearch);
-    });
-  }, [debouncedSearch, libraries]);
-
-  const filteredArchivedLibraries = useMemo(() => {
-    if (!debouncedSearch) {
-      return archivedLibraries;
-    }
-
-    return archivedLibraries.filter((library) => {
-      const haystack =
-        `${library.name} ${library.subtitle} ${library.rootPath}`.toLowerCase();
-
-      return haystack.includes(debouncedSearch);
-    });
-  }, [archivedLibraries, debouncedSearch]);
 
   const selectedLibrary = useMemo(() => {
     return (
@@ -85,229 +48,174 @@ export function Libraries({
     );
   }, [libraries, selectedLibraryId]);
 
-  function pressLibrary(
-    libraryId: string,
-    action: (libraryId: string) => void,
-  ) {
-    setPressedLibraryId(libraryId);
-    action(libraryId);
+  const filteredArchivedLibraries = useMemo(() => {
+    const query = debouncedSearch.toLowerCase();
 
-    window.setTimeout(() => {
-      setPressedLibraryId((current) =>
-        current === libraryId ? null : current,
-      );
-    }, 280);
+    if (!query) {
+      return archivedLibraries;
+    }
+
+    return archivedLibraries.filter((library) => {
+      return `${library.name} ${library.rootPath} ${library.description ?? ""}`
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [archivedLibraries, debouncedSearch]);
+
+  function closeSearch() {
+    setSearch("");
+    setDebouncedSearch("");
+    setSearchOpen(false);
   }
 
   return (
-    <section>
-      <div
-        className={styles.groupHeader}
-        onClick={() => setLibrariesOpen((value) => !value)}
-        role="button"
-        tabIndex={0}
-      >
-        <ChevronRight
-          size={16}
-          strokeWidth={2.25}
-          className={`${styles.caret} ${
-            librariesOpen ? styles.caretOpen : styles.caretClosed
-          }`}
-        />
-
-        <Library size={16} strokeWidth={2.1} />
-        <span>Libraries</span>
-      </div>
-
-      <div
-        className={`${styles.groupContent} ${
-          librariesOpen ? styles.open : styles.closed
-        }`}
-      >
-        <div className={styles.groupInner}>
-          <div className={styles.actionsAreaTop}>
-            <SidebarButton
-              label={adding ? "Adding Library..." : "Add Library"}
-              icon={<Plus size={16} strokeWidth={2.25} />}
-              onClick={onAddLibrary}
-            />
-          </div>
-
-          <div className={styles.searchWrap}>
-            <input
-              className={styles.searchInput}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              type="text"
-              placeholder="Search libraries..."
-              disabled={loading}
-            />
-          </div>
-
-          <div
-            className={`${styles.subHeader} ${styles.indent1}`}
-            onClick={() => setAllLibrariesOpen((value) => !value)}
-            role="button"
-            tabIndex={0}
+    <section className={styles.libraryExplorer}>
+      <div className={styles.explorerToolbar}>
+        <label className={styles.librarySelectWrap}>
+          <select
+            className={styles.librarySelect}
+            value={selectedLibraryId ?? ""}
+            onChange={(event) => onSelectLibrary(event.target.value)}
+            disabled={loading || libraries.length === 0}
+            aria-label="Active Library"
+            title={selectedLibrary?.rootPath ?? "Choose a Library"}
           >
-            <ChevronRight
-              size={16}
-              strokeWidth={2.25}
-              className={`${styles.caret} ${
-                allLibrariesOpen ? styles.caretOpen : styles.caretClosed
-              }`}
-            />
-
-            <BookOpen size={16} strokeWidth={2.1} />
-            <span>All Libraries</span>
-          </div>
-
-          <div
-            className={`${styles.subContent} ${styles.indent2} ${
-              allLibrariesOpen ? styles.open : styles.closed
-            }`}
-          >
-            {loading ? (
-              <div className={styles.empty}>Loading Libraries...</div>
-            ) : filteredLibraries.length ? (
-              <ul className={styles.list}>
-                {filteredLibraries.map((library) => {
-                  const selected = library.id === selectedLibraryId;
-                  const pressed = library.id === pressedLibraryId;
-
-                  return (
-                    <SidebarCard
-                      key={library.id}
-                      title={library.name}
-                      subtitle={library.subtitle}
-                      leading={
-                        <span className={styles.libraryGlyph} aria-hidden>
-                          {library.name.slice(0, 1)}
-                        </span>
-                      }
-                      trailing={
-                        <span
-                          className={`${styles.statusDot} ${
-                            styles[library.status]
-                          }`}
-                          title={selected ? "Selected" : "Available"}
-                          aria-label={selected ? "Selected" : "Available"}
-                        />
-                      }
-                      selected={selected}
-                      pressed={pressed}
-                      onClick={() => pressLibrary(library.id, onSelectLibrary)}
-                      aria-current={selected ? "page" : undefined}
-                      action={
-                        <button
-                          className={styles.manageButton}
-                          type="button"
-                          onClick={() => onManageLibrary(library.id)}
-                          aria-label={`Manage ${library.name}`}
-                          title="Manage Library"
-                        >
-                          <Pencil size={13} strokeWidth={2.2} />
-                        </button>
-                      }
-                    />
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className={styles.empty}>
-                {debouncedSearch
-                  ? "No active Libraries match your search."
-                  : "No active Libraries yet."}
-              </div>
-            )}
-          </div>
-
-          {selectedLibrary ? (
-            <LibraryFileTree
-              key={selectedLibrary.id}
-              library={selectedLibrary}
-            />
-          ) : null}
-
-          <div
-            className={`${styles.subHeader} ${styles.indent1}`}
-            onClick={() => setArchivedLibrariesOpen((value) => !value)}
-            role="button"
-            tabIndex={0}
-          >
-            <ChevronRight
-              size={16}
-              strokeWidth={2.25}
-              className={`${styles.caret} ${
-                archivedLibrariesOpen ? styles.caretOpen : styles.caretClosed
-              }`}
-            />
-
-            <FolderArchive size={16} strokeWidth={2.1} />
-            <span>Archived Libraries</span>
-
-            {archivedLibraries.length ? (
-              <span className={styles.archiveCount}>
-                {archivedLibraries.length}
-              </span>
+            {!selectedLibrary ? (
+              <option value="">Choose a Library</option>
             ) : null}
-          </div>
 
-          <div
-            className={`${styles.subContent} ${styles.indent2} ${
-              archivedLibrariesOpen ? styles.open : styles.closed
-            }`}
-          >
-            {loading ? (
-              <div className={styles.empty}>Loading archived Libraries...</div>
-            ) : filteredArchivedLibraries.length ? (
-              <ul className={styles.list}>
-                {filteredArchivedLibraries.map((library) => {
-                  const pressed = library.id === pressedLibraryId;
+            {libraries.map((library) => (
+              <option key={library.id} value={library.id}>
+                {library.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
-                  return (
-                    <SidebarCard
-                      key={library.id}
-                      title={library.name}
-                      subtitle={library.subtitle}
-                      leading={
-                        <span
-                          className={`${styles.libraryGlyph} ${styles.archivedGlyph}`}
-                          aria-hidden
-                        >
-                          {library.name.slice(0, 1)}
-                        </span>
-                      }
-                      archived
-                      pressed={pressed}
-                      onClick={() =>
-                        pressLibrary(library.id, onManageArchivedLibrary)
-                      }
-                      action={
-                        <button
-                          className={styles.manageButton}
-                          type="button"
-                          onClick={() => onManageArchivedLibrary(library.id)}
-                          aria-label={`Manage archived Library ${library.name}`}
-                          title="Manage Archived Library"
-                        >
-                          <Pencil size={13} strokeWidth={2.2} />
-                        </button>
-                      }
-                    />
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className={styles.empty}>
-                {debouncedSearch
-                  ? "No archived Libraries match your search."
-                  : "No archived Libraries."}
-              </div>
-            )}
-          </div>
-        </div>
+        <button
+          className={`${styles.toolbarButton} ${
+            searchOpen ? styles.toolbarButtonActive : ""
+          }`}
+          type="button"
+          onClick={() => setSearchOpen((current) => !current)}
+          aria-label="Search Library catalog"
+          title="Search Library catalog"
+        >
+          <Search size={15} strokeWidth={2.1} />
+        </button>
+
+        <button
+          className={styles.toolbarButton}
+          type="button"
+          onClick={onAddLibrary}
+          disabled={adding}
+          aria-label="Add Library"
+          title={adding ? "Adding Library" : "Add Library"}
+        >
+          <Plus size={16} strokeWidth={2.2} />
+        </button>
+
+        <button
+          className={styles.toolbarButton}
+          type="button"
+          onClick={() => selectedLibrary && onManageLibrary(selectedLibrary.id)}
+          disabled={!selectedLibrary}
+          aria-label="Manage active Library"
+          title="Manage active Library"
+        >
+          <Pencil size={14} strokeWidth={2.1} />
+        </button>
+
+        <button
+          className={`${styles.toolbarButton} ${
+            archivedOpen ? styles.toolbarButtonActive : ""
+          }`}
+          type="button"
+          onClick={() => setArchivedOpen((current) => !current)}
+          aria-label="Archived Libraries"
+          title="Archived Libraries"
+        >
+          <Archive size={14} strokeWidth={2.1} />
+
+          {archivedLibraries.length > 0 ? (
+            <span className={styles.toolbarBadge}>
+              {archivedLibraries.length}
+            </span>
+          ) : null}
+        </button>
       </div>
+
+      {searchOpen ? (
+        <div className={styles.searchBar}>
+          <Search size={14} strokeWidth={2} />
+
+          <input
+            className={styles.searchInput}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            type="search"
+            placeholder="Search file names and paths..."
+            autoFocus
+          />
+
+          <button
+            className={styles.searchCloseButton}
+            type="button"
+            onClick={closeSearch}
+            aria-label="Close search"
+            title="Close Search"
+          >
+            <X size={14} strokeWidth={2.1} />
+          </button>
+        </div>
+      ) : null}
+
+      <div className={styles.treeHost}>
+        {loading ? (
+          <div className={styles.emptyState}>Loading Libraries...</div>
+        ) : selectedLibrary ? (
+          <LibraryFileTree
+            key={selectedLibrary.id}
+            library={selectedLibrary}
+            searchQuery={debouncedSearch}
+          />
+        ) : (
+          <div className={styles.emptyState}>
+            <span>No active Library selected.</span>
+            <button type="button" onClick={onAddLibrary} disabled={adding}>
+              {adding ? "Adding Library..." : "Add Library"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {archivedOpen ? (
+        <div className={styles.archivedDrawer}>
+          <div className={styles.drawerHeader}>
+            <span>Archived Libraries</span>
+            <span>{filteredArchivedLibraries.length}</span>
+          </div>
+
+          {filteredArchivedLibraries.length > 0 ? (
+            <div className={styles.archivedList}>
+              {filteredArchivedLibraries.map((library) => (
+                <button
+                  key={library.id}
+                  className={styles.archivedRow}
+                  type="button"
+                  onClick={() => onManageArchivedLibrary(library.id)}
+                  title={library.rootPath}
+                >
+                  <Archive size={13} strokeWidth={2} />
+                  <span>{library.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.drawerEmpty}>No archived Libraries.</div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

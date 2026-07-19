@@ -1,10 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Archive,
+  Library as LibraryIcon,
+  Puzzle,
+  Search,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 import { ChatWindow } from "./components/chat/ChatWindow";
 import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
+import { Agents } from "./components/sidebar/Agents/Agents";
 import { ChatManagementModal } from "./components/sidebar/Chats/ChatManagementModal/ChatManagementModal";
+import { Chats } from "./components/sidebar/Chats/Chats";
+import { Libraries } from "./components/sidebar/Libraries/Libraries";
 import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
-import { Sidebar } from "./components/sidebar/Sidebar";
 import { Topbar } from "./components/topbar/Topbar";
+import {
+  ChatDockHeader,
+  type ChatDockView,
+} from "./components/workbench/ChatDock/ChatDockHeader/ChatDockHeader";
+import { DockPlaceholder } from "./components/workbench/ChatDock/DockPlaceholder/DockPlaceholder";
+import { StatusBar } from "./components/workbench/WorkbenchShell/StatusBar/StatusBar";
+import { WorkbenchShell } from "./components/workbench/WorkbenchShell/WorkbenchShell";
 import {
   addAgent,
   archiveAgent,
@@ -45,8 +62,6 @@ import type { Library, LibraryListItem } from "./domains/library/library.types";
 import "./App.css";
 
 export function App() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   const [agents, setAgents] = useState<Agent[]>([]);
   const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
 
@@ -111,7 +126,7 @@ export function App() {
 
   const [restoringManagedChat, setRestoringManagedChat] = useState(false);
 
-  const appMainRef = useRef<HTMLElement | null>(null);
+  const [chatDockView, setChatDockView] = useState<ChatDockView>(null);
 
   const libraryListItems = useMemo<LibraryListItem[]>(() => {
     return libraries.map((library) => ({
@@ -141,6 +156,31 @@ export function App() {
   }, [chats, selectedChatId]);
 
   const activeAgentId = selectedChat?.agentId ?? null;
+
+  const activeAgent = useMemo(() => {
+    return agents.find((agent) => agent.id === activeAgentId) ?? null;
+  }, [activeAgentId, agents]);
+
+  const chatDockPanelWidth = useMemo(() => {
+    const labels =
+      chatDockView === "chats"
+        ? [...chats, ...archivedChats].map((chat) => chat.title)
+        : chatDockView === "agents"
+          ? [...agents, ...archivedAgents].map((agent) => agent.name)
+          : [];
+
+    const longestLabelLength = labels.reduce(
+      (longest, label) => Math.max(longest, label.trim().length),
+      0,
+    );
+
+    return Math.round(
+      Math.min(
+        188,
+        Math.max(132, 102 + Math.min(longestLabelLength, 22) * 3.9),
+      ),
+    );
+  }, [agents, archivedAgents, archivedChats, chatDockView, chats]);
 
   const managedAgent = useMemo(() => {
     return (
@@ -607,6 +647,36 @@ export function App() {
     }
   }
 
+  async function handleSelectAgent(agentId: string) {
+    const chat = selectedChat;
+
+    if (!chat || chat.agentId === agentId) {
+      return;
+    }
+
+    try {
+      const updatedChat = await editChat(chat.id, {
+        agentId,
+      });
+
+      setChats((current) =>
+        current.map((candidate) =>
+          candidate.id === updatedChat.id ? updatedChat : candidate,
+        ),
+      );
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not assign the Agent.",
+      );
+    }
+  }
+
+  function handleToggleChatDockView(nextView: Exclude<ChatDockView, null>) {
+    setChatDockView((current) => (current === nextView ? null : nextView));
+  }
+
   async function handleSaveChat(chatId: string, input: UpdateChatInput) {
     setSavingChat(true);
 
@@ -732,48 +802,170 @@ export function App() {
 
   return (
     <>
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        agents={agents}
-        archivedAgents={archivedAgents}
-        activeAgentId={activeAgentId}
-        loadingAgents={loadingAgents}
-        addingAgent={addingAgent}
-        onAddAgent={handleAddAgent}
-        onManageAgent={setManagedAgentId}
-        onManageArchivedAgent={setManagedAgentId}
-        libraries={libraryListItems}
-        archivedLibraries={archivedLibraryListItems}
-        selectedLibraryId={selectedLibraryId}
-        loadingLibraries={loadingLibraries}
-        addingLibrary={addingLibrary}
-        onSelectLibrary={handleSelectLibrary}
-        onAddLibrary={handleAddLibrary}
-        onManageLibrary={setManagedLibraryId}
-        onManageArchivedLibrary={setManagedLibraryId}
-        chats={chats}
-        archivedChats={archivedChats}
-        selectedChatId={selectedChatId}
-        loadingChats={loadingChats}
-        addingChat={addingChat}
-        onAddChat={handleAddChat}
-        onSelectChat={handleSelectChat}
-        onManageChat={setManagedChatId}
-        onManageArchivedChat={setManagedChatId}
-        onToggle={() => setSidebarCollapsed((value) => !value)}
-      />
+      <Topbar />
 
-      <Topbar selectedLibrary={selectedLibrary} />
-
-      <main ref={appMainRef} className="app-main">
-        <div className="app-main-inner">
+      <WorkbenchShell
+        leftViews={[
+          {
+            id: "libraries",
+            title: "Library Explorer",
+            icon: <LibraryIcon size={15} strokeWidth={1.9} />,
+            content: (
+              <div className="left-dock-stack">
+                <Libraries
+                  libraries={libraryListItems}
+                  archivedLibraries={archivedLibraryListItems}
+                  selectedLibraryId={selectedLibraryId}
+                  loading={loadingLibraries}
+                  adding={addingLibrary}
+                  onSelectLibrary={handleSelectLibrary}
+                  onAddLibrary={handleAddLibrary}
+                  onManageLibrary={setManagedLibraryId}
+                  onManageArchivedLibrary={setManagedLibraryId}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "archived-libraries",
+            title: "Archived Libraries",
+            icon: <Archive size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Archive size={20} strokeWidth={1.9} />}
+                title="Archived Libraries"
+                description="Archived Library browsing will live here without crowding the active Explorer."
+              />
+            ),
+          },
+          {
+            id: "search",
+            title: "Library Search",
+            icon: <Search size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Search size={20} strokeWidth={1.9} />}
+                title="Library Search"
+                description="Project-wide file and content search will live here."
+              />
+            ),
+          },
+          {
+            id: "plugins",
+            title: "Plugins",
+            icon: <Puzzle size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Puzzle size={20} strokeWidth={1.9} />}
+                title="Plugins"
+                description="Connected providers and workspace extensions will live here."
+              />
+            ),
+          },
+          {
+            id: "tools",
+            title: "Tools",
+            icon: <Wrench size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Wrench size={20} strokeWidth={1.9} />}
+                title="Tools"
+                description="Read-only tools, Skills, and observable task runs will live here."
+              />
+            ),
+          },
+        ]}
+        statusBar={
+          <StatusBar
+            libraryName={selectedLibrary?.name ?? null}
+            chatTitle={selectedChat?.title ?? null}
+            agentName={activeAgent?.name ?? null}
+          />
+        }
+        artifactPanel={
+          <DockPlaceholder
+            icon={<Sparkles size={20} strokeWidth={1.9} />}
+            title="No artifacts yet"
+            description="Attachments, generated files, sources, and tool output will collect here."
+          />
+        }
+        workspace={
           <ChatWindow
-            scrollContainerRef={appMainRef}
             selectedChat={selectedChat}
             onChatActivity={handleChatActivity}
+            toolbar={
+              <ChatDockHeader
+                selectedChat={selectedChat}
+                activeAgent={activeAgent}
+                selectedLibraryName={selectedLibrary?.name ?? null}
+                activeView={chatDockView}
+                onToggleView={handleToggleChatDockView}
+                onManageChat={setManagedChatId}
+              />
+            }
+            controlPanelLabel={
+              chatDockView === "chats"
+                ? "Chats"
+                : chatDockView === "agents"
+                  ? "Agents"
+                  : null
+            }
+            controlPanelWidth={chatDockPanelWidth}
+            controlPanelActionLabel={
+              chatDockView === "chats"
+                ? addingChat
+                  ? "Creating Chat..."
+                  : "New Chat"
+                : chatDockView === "agents"
+                  ? addingAgent
+                    ? "Creating Agent..."
+                    : "New Agent"
+                  : null
+            }
+            controlPanelActionBusy={
+              chatDockView === "chats"
+                ? addingChat
+                : chatDockView === "agents"
+                  ? addingAgent
+                  : false
+            }
+            onControlPanelAction={
+              chatDockView === "chats"
+                ? handleAddChat
+                : chatDockView === "agents"
+                  ? handleAddAgent
+                  : null
+            }
+            controlPanel={
+              chatDockView === "chats" ? (
+                <div className="dock-drawer-stack">
+                  <Chats
+                    chats={chats}
+                    archivedChats={archivedChats}
+                    selectedChatId={selectedChatId}
+                    loading={loadingChats}
+                    onSelectChat={handleSelectChat}
+                    onManageChat={setManagedChatId}
+                    onManageArchivedChat={setManagedChatId}
+                  />
+                </div>
+              ) : chatDockView === "agents" ? (
+                <div className="dock-drawer-stack">
+                  <Agents
+                    agents={agents}
+                    archivedAgents={archivedAgents}
+                    activeAgentId={activeAgentId}
+                    loading={loadingAgents}
+                    onSelectAgent={handleSelectAgent}
+                    onManageAgent={setManagedAgentId}
+                    onManageArchivedAgent={setManagedAgentId}
+                  />
+                </div>
+              ) : null
+            }
           />
-        </div>
-      </main>
+        }
+      />
 
       {managedAgent ? (
         <AgentManagementModal

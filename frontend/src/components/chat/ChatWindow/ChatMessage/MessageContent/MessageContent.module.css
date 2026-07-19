@@ -1,0 +1,100 @@
+.content {
+  display: grid;
+  min-width: 0;
+  gap: 13px;
+}
+
+.textBlock {
+  color: inherit;
+  font-size: clamp(13px, 1.02vw, 15px);
+  line-height: 1.68;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.textBlock:first-child {
+  margin-top: 0;
+}
+
+.textBlock:last-child {
+  margin-bottom: 0;
+}
+
+.codeBlock {
+  min-width: 0;
+  margin: 4px 0;
+  overflow: hidden;
+  border: 1px solid rgba(214, 198, 170, 0.12);
+  border-radius: 9px;
+  background: rgba(8, 8, 7, 0.72);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 31px;
+  gap: 10px;
+  padding: 0 7px 0 10px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.codeLanguage {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.copyCodeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 23px;
+  gap: 5px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--app-muted-text);
+  background: transparent;
+  font: inherit;
+  font-size: 8.5px;
+  cursor: pointer;
+}
+
+.copyCodeButton:hover,
+.copyCodeButton:focus-visible {
+  border-color: rgba(214, 198, 170, 0.1);
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.045);
+  outline: none;
+}
+
+.code {
+  max-width: 100%;
+  margin: 0;
+  padding: 14px 15px 16px;
+  overflow: auto;
+  color: #e7dfd1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: clamp(11px, 0.92vw, 13px);
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.code code {
+  font: inherit;
+}

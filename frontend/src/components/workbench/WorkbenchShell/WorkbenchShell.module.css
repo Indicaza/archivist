@@ -1,0 +1,87 @@
+.shell {
+  --workbench-activity-rail-width: 38px;
+  --workbench-statusbar-height: 22px;
+  --workbench-left-panel-compact: clamp(204px, 14vw, 224px);
+  --workbench-left-panel-nested: clamp(220px, 16vw, 250px);
+  --workbench-left-panel-deep: clamp(242px, 18vw, 282px);
+  --workbench-left-panel-width: var(--workbench-left-panel-compact);
+  --workbench-left-overlay-width: calc(
+    var(--workbench-activity-rail-width) + var(--workbench-left-panel-width)
+  );
+  --workbench-surface-bg: #181713;
+  --workbench-control-surface-bg: #151410;
+  --workbench-chat-safe-left: 0px;
+  --workbench-dock-width: min(calc(100% - 32px), 1120px);
+  --workbench-dock-justify: center;
+  --workbench-dock-margin-left: 0px;
+  --workbench-dock-margin-right: 0px;
+
+  position: fixed;
+  inset: var(--topbar-height) 0 0;
+  display: grid;
+  grid-template-columns: var(--workbench-activity-rail-width) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto var(--workbench-statusbar-height);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  background: var(--workbench-surface-bg);
+}
+
+.shell:has(
+  aside[data-workbench-explorer]
+    button[data-tree-level="nested"][aria-expanded="true"]
+) {
+  --workbench-left-panel-width: var(--workbench-left-panel-nested);
+}
+
+.shell:has(
+  aside[data-workbench-explorer]
+    button[data-tree-level="deep"][aria-expanded="true"]
+) {
+  --workbench-left-panel-width: var(--workbench-left-panel-deep);
+}
+
+.dockAttached {
+  --workbench-dock-width: auto;
+  --workbench-dock-justify: stretch;
+  --workbench-dock-margin-left: var(--workbench-left-overlay-width);
+  --workbench-dock-margin-right: 0px;
+}
+
+.dockCentered {
+  --workbench-dock-width: min(calc(100% - 32px), 1120px);
+  --workbench-dock-justify: center;
+  --workbench-dock-margin-left: 0px;
+  --workbench-dock-margin-right: 0px;
+}
+
+@media (max-width: 1540px) {
+  .leftOpen {
+    --workbench-chat-safe-left: calc(
+      var(--workbench-activity-rail-width) + 124px
+    );
+  }
+}
+
+@media (max-width: 1120px) {
+  .leftOpen {
+    --workbench-chat-safe-left: var(--workbench-left-overlay-width);
+  }
+
+  .shell {
+    --workbench-left-panel-compact: clamp(196px, 23vw, 218px);
+    --workbench-left-panel-nested: clamp(214px, 26vw, 244px);
+    --workbench-left-panel-deep: clamp(232px, 29vw, 270px);
+  }
+}
+
+@media (max-width: 800px) {
+  .shell {
+    --workbench-chat-safe-left: 0px;
+    --workbench-dock-margin-left: 0px;
+    --workbench-dock-margin-right: 0px;
+    --workbench-dock-width: auto;
+    --workbench-dock-justify: stretch;
+  }
+}

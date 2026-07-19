@@ -6,9 +6,11 @@ import {
   getChats,
   patchChat,
   patchSelectedChat,
+  postArchiveChat,
   postChat,
   postChatMessage,
   postChatResponse,
+  postRestoreChat,
   removeChat,
 } from "../controllers/ChatController.js";
 
@@ -27,6 +29,9 @@ chatRouter.get("/archived", getArchivedChatList);
 chatRouter.post("/", postChat);
 
 chatRouter.patch("/selected", patchSelectedChat);
+
+chatRouter.post("/:chatId/archive", postArchiveChat);
+chatRouter.post("/:chatId/restore", postRestoreChat);
 
 /* =========================================================
    INDIVIDUAL CHAT ROUTES

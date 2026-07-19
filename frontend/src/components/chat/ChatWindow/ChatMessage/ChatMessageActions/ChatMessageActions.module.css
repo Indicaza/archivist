@@ -1,0 +1,80 @@
+.actions {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 2px;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 150ms ease,
+    transform 190ms var(--ease-springy);
+}
+
+.actionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 27px;
+  gap: 5px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--app-muted-text);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  transform: scale(1);
+  transition:
+    transform 180ms var(--ease-springy),
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.actionLabel {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-width 180ms ease,
+    opacity 140ms ease;
+  white-space: nowrap;
+}
+
+.actionButton:hover,
+.actionButton:focus-visible {
+  border-color: rgba(214, 198, 170, 0.1);
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.045);
+  outline: none;
+  transform: translateY(-1px) scale(1.035);
+}
+
+.actionButton:hover .actionLabel,
+.actionButton:focus-visible .actionLabel {
+  max-width: 48px;
+  opacity: 1;
+}
+
+.active {
+  border-color: rgba(143, 122, 223, 0.28);
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.13);
+}
+
+@media (hover: none) {
+  .actions {
+    opacity: 0.72;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actions,
+  .actionButton,
+  .actionLabel {
+    transition: none;
+  }
+}

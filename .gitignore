@@ -18,3 +18,7 @@ backend/data/
 .env
 .env.local
 .env.*.local
+# Local development handoff files
+/archivist-workbench-shell-v*.patch
+/*-context.tar.gz
+/chat-presentation-context.txt

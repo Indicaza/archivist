@@ -1,0 +1,107 @@
+.dock {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  bottom: var(--workbench-statusbar-height);
+  left: var(--workbench-activity-rail-width);
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  width: var(--workbench-left-panel-width);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--sidebar-border);
+  color: var(--app-text);
+  background: var(--workbench-surface-bg);
+  box-shadow: 12px 0 34px rgba(0, 0, 0, 0.24);
+  contain: layout paint style;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 34px;
+  gap: 8px;
+  padding: 4px 5px 4px 9px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.closeButton {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.closeButton:hover,
+.closeButton:focus-visible {
+  border-color: var(--sidebar-card-hover-border);
+  color: var(--app-text);
+  background: var(--sidebar-card-hover-bg);
+  outline: none;
+  transform: scale(1.07);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content > * {
+  min-height: 0;
+}
+
+@media (max-width: 800px) {
+  .dock {
+    width: min(var(--workbench-left-panel-width), calc(100vw - 48px));
+    box-shadow: 18px 0 44px rgba(0, 0, 0, 0.62);
+  }
+}
+
+@media (max-height: 620px) {
+  .dock {
+    grid-template-rows: 30px minmax(0, 1fr);
+  }
+
+  .header {
+    min-height: 30px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .closeButton {
+    transition: none;
+  }
+}

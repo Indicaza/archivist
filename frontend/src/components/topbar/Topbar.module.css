@@ -1,4 +1,3 @@
-/* frontend/src/components/topbar/Topbar.module.css */
 .topbar {
   position: fixed;
   top: 0;
@@ -31,7 +30,6 @@
 }
 
 .topbarTitle {
-  /* font-size: var(--topbar-title-size); */
   font-size: 1.8rem;
   font-family: "IM Fell English SC", serif;
   font-weight: 600;

@@ -1,20 +1,36 @@
 import {
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
-  type RefObject,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { SendHorizontal, Sparkles } from "lucide-react";
+import {
+  ArrowDown,
+  Code2,
+  List,
+  Plus,
+  SendHorizontal,
+  TextQuote,
+} from "lucide-react";
 import { fetchMessages, respondToChat } from "../../domains/chat/chat.api";
 import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
+import { ChatEmptyState } from "./ChatWindow/ChatEmptyState/ChatEmptyState";
+import { ChatMessage as ChatMessageView } from "./ChatWindow/ChatMessage/ChatMessage";
 import styles from "./ChatWindow.module.css";
 
 type ChatWindowProps = {
-  scrollContainerRef: RefObject<HTMLElement | null>;
   selectedChat: Chat | null;
+  toolbar: ReactNode;
+  controlPanel: ReactNode | null;
+  controlPanelLabel: string | null;
+  controlPanelWidth?: number;
+  controlPanelActionLabel?: string | null;
+  controlPanelActionBusy?: boolean;
+  onControlPanelAction?: (() => void) | null;
   onChatActivity: (chatId: string) => void;
 };
 
@@ -53,27 +69,29 @@ function createOptimisticUserMessage(
 }
 
 export function ChatWindow({
-  scrollContainerRef,
   selectedChat,
+  toolbar,
+  controlPanel,
+  controlPanelLabel,
+  controlPanelWidth = 176,
+  controlPanelActionLabel = null,
+  controlPanelActionBusy = false,
+  onControlPanelAction = null,
   onChatActivity,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-
   const [input, setInput] = useState("");
-  const [grown, setGrown] = useState(false);
-
   const [loadingMessages, setLoadingMessages] = useState(false);
-
   const [sending, setSending] = useState(false);
-
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const forceScrollRef = useRef(false);
-
   const activeRequestChatIdRef = useRef<string | null>(null);
 
+  const selectedChatId = selectedChat?.id ?? null;
+  const selectedChatTitle = selectedChat?.title ?? null;
   const hasMessages = messages.length > 0;
 
   const canSend = useMemo(() => {
@@ -81,22 +99,27 @@ export function ChatWindow({
       input.trim().length > 0 &&
       !sending &&
       !loadingMessages &&
-      Boolean(selectedChat)
+      Boolean(selectedChatId)
     );
-  }, [input, loadingMessages, selectedChat, sending]);
+  }, [input, loadingMessages, selectedChatId, sending]);
 
-  function resizeTextarea() {
-    const textarea = textareaRef.current;
-
-    if (!textarea) {
-      return;
+  const thinkingMessage = useMemo<ChatMessage | null>(() => {
+    if (!sending || !selectedChatId) {
+      return null;
     }
 
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    const now = new Date().toISOString();
 
-    setGrown(textarea.scrollHeight > 48);
-  }
+    return {
+      id: "assistant-thinking",
+      chatId: selectedChatId,
+      role: "assistant",
+      content: "",
+      status: "streaming",
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, [selectedChatId, sending]);
 
   async function send() {
     const text = input.trim();
@@ -112,7 +135,6 @@ export function ChatWindow({
 
     setSending(true);
     setInput("");
-
     setMessages((current) => [...current, optimisticMessage]);
 
     forceScrollRef.current = true;
@@ -166,15 +188,54 @@ export function ChatWindow({
     }
   }
 
+  function jumpToLatest() {
+    const scrollContainer = messagesContainerRef.current;
+
+    if (!scrollContainer) {
+      return;
+    }
+
+    setPinnedToBottom(true);
+    scrollToBottom(scrollContainer);
+  }
+
+  function insertTemplate(prefix: string, suffix = "", fallback = "") {
+    const textarea = textareaRef.current;
+    const selectionStart = textarea?.selectionStart ?? input.length;
+    const selectionEnd = textarea?.selectionEnd ?? input.length;
+    const selectedText = input.slice(selectionStart, selectionEnd) || fallback;
+    const replacement = `${prefix}${selectedText}${suffix}`;
+    const nextInput = `${input.slice(0, selectionStart)}${replacement}${input.slice(
+      selectionEnd,
+    )}`;
+    const nextCursor = selectionStart + prefix.length + selectedText.length;
+
+    setInput(nextInput);
+
+    window.requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
   useEffect(() => {
     let cancelled = false;
 
     activeRequestChatIdRef.current = null;
 
     async function loadMessages() {
-      if (!selectedChat) {
+      await Promise.resolve();
+
+      if (cancelled) {
+        return;
+      }
+
+      setSending(false);
+
+      if (!selectedChatId) {
         setMessages([]);
         setLoadingMessages(false);
+        setPinnedToBottom(true);
         return;
       }
 
@@ -182,7 +243,7 @@ export function ChatWindow({
       setMessages([]);
 
       try {
-        const loadedMessages = await fetchMessages(selectedChat.id);
+        const loadedMessages = await fetchMessages(selectedChatId);
 
         if (cancelled) {
           return;
@@ -214,154 +275,214 @@ export function ChatWindow({
     return () => {
       cancelled = true;
     };
-  }, [selectedChat, selectedChat?.id]);
+  }, [selectedChatId]);
 
   useEffect(() => {
-    const currentContainer = scrollContainerRef.current;
+    const currentContainer = messagesContainerRef.current;
 
-    if (!currentContainer) {
+    if (currentContainer === null) {
       return;
     }
 
-    const container: HTMLElement = currentContainer;
+    const scrollContainer: HTMLDivElement = currentContainer;
 
-    function handleScroll() {
-      setPinnedToBottom(isNearBottom(container));
-    }
+    const handleScroll = () => {
+      setPinnedToBottom(isNearBottom(scrollContainer));
+    };
 
-    container.addEventListener("scroll", handleScroll, {
+    scrollContainer.addEventListener("scroll", handleScroll, {
       passive: true,
     });
 
     handleScroll();
 
     return () => {
-      container.removeEventListener("scroll", handleScroll);
+      scrollContainer.removeEventListener("scroll", handleScroll);
     };
-  }, [scrollContainerRef]);
+  }, []);
 
   useEffect(() => {
-    resizeTextarea();
-  }, [input]);
+    const scrollContainer = messagesContainerRef.current;
 
-  useEffect(() => {
-    const currentContainer = scrollContainerRef.current;
-
-    if (!currentContainer) {
+    if (!scrollContainer) {
       return;
     }
 
-    const container: HTMLElement = currentContainer;
-
     const animationFrameId = window.requestAnimationFrame(() => {
       if (forceScrollRef.current) {
-        scrollToBottom(container, "smooth");
+        scrollToBottom(scrollContainer, "auto");
         forceScrollRef.current = false;
         return;
       }
 
       if (pinnedToBottom) {
-        scrollToBottom(container, "smooth");
+        scrollToBottom(scrollContainer, "auto");
       }
     });
 
     return () => {
       window.cancelAnimationFrame(animationFrameId);
     };
-  }, [loadingMessages, messages, pinnedToBottom, scrollContainerRef, sending]);
+  }, [loadingMessages, messages, pinnedToBottom, sending]);
 
   return (
-    <section className={styles.chatWindow}>
-      <div className={styles.chatContent}>
-        <div className={styles.messages} aria-live="polite">
-          {!selectedChat ? (
-            <div className={styles.emptyState}>
-              <Sparkles size={24} strokeWidth={2} />
+    <>
+      <section className={styles.chatWindow}>
+        <div
+          ref={messagesContainerRef}
+          className={styles.messagesViewport}
+          aria-live="polite"
+        >
+          <div className={styles.messages}>
+            {!selectedChatId ? (
+              <ChatEmptyState mode="unselected" />
+            ) : loadingMessages ? (
+              <ChatEmptyState mode="loading" chatTitle={selectedChatTitle} />
+            ) : !hasMessages && !sending ? (
+              <ChatEmptyState mode="empty" chatTitle={selectedChatTitle} />
+            ) : (
+              messages.map((message) => (
+                <ChatMessageView key={message.id} message={message} />
+              ))
+            )}
 
-              <span>Select or create a chat to begin.</span>
-            </div>
-          ) : loadingMessages ? (
-            <div className={styles.emptyState}>
-              <Sparkles size={24} strokeWidth={2} />
-
-              <span>Loading {selectedChat.title}...</span>
-            </div>
-          ) : !hasMessages && !sending ? (
-            <div className={styles.emptyState}>
-              <Sparkles size={24} strokeWidth={2} />
-
-              <span>
-                {selectedChat.title} is empty. Send the first message.
-              </span>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <article
-                key={message.id}
-                className={`${styles.message} ${styles[message.role]}`}
-              >
-                <div className={styles.messageMeta}>
-                  <span className={styles.roleLabel}>
-                    {message.role === "assistant"
-                      ? "Archivist"
-                      : message.role === "user"
-                        ? "You"
-                        : "System"}
-                  </span>
-                </div>
-
-                <div className={styles.blocks}>
-                  <div className={styles.markdownBlock}>{message.content}</div>
-                </div>
-              </article>
-            ))
-          )}
-
-          {sending ? (
-            <article className={`${styles.message} ${styles.assistant}`}>
-              <div className={styles.messageMeta}>
-                <span className={styles.roleLabel}>Archivist</span>
-              </div>
-
-              <div className={styles.blocks}>
-                <div className={styles.typing}>Thinking...</div>
-              </div>
-            </article>
-          ) : null}
+            {thinkingMessage ? (
+              <ChatMessageView
+                key={thinkingMessage.id}
+                message={thinkingMessage}
+                thinking
+              />
+            ) : null}
+          </div>
         </div>
 
-        <form className={styles.composer} onSubmit={onSubmit}>
-          <div
-            className={`${styles.composerInner} ${grown ? styles.grown : ""}`}
+        {!pinnedToBottom && hasMessages ? (
+          <button
+            className={styles.jumpToLatest}
+            type="button"
+            onClick={jumpToLatest}
+            aria-label="Jump to latest message"
+            title="Jump to latest message"
           >
-            <textarea
-              ref={textareaRef}
-              className={styles.composerInput}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder={
-                selectedChat
-                  ? `Message ${selectedChat.title}...`
-                  : "Choose or create a chat..."
-              }
-              autoComplete="off"
-              rows={1}
-              disabled={sending || loadingMessages || !selectedChat}
-            />
+            <ArrowDown size={13} strokeWidth={2.2} />
+            <span>Latest</span>
+          </button>
+        ) : null}
+      </section>
 
-            <button
-              className={styles.composerButton}
-              type="submit"
-              disabled={!canSend}
-              aria-label="Send"
-              title="Send"
+      <section className={styles.composerPanel} aria-label="Chat input panel">
+        <header className={styles.composerHeader}>
+          <div className={styles.composerToolbar}>{toolbar}</div>
+        </header>
+
+        <div
+          className={`${styles.composerBody} ${
+            controlPanel ? styles.composerBodyWithPanel : ""
+          }`}
+          style={
+            controlPanel
+              ? ({
+                  "--chat-control-panel-width": `${controlPanelWidth}px`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
+          <form className={styles.composer} onSubmit={onSubmit}>
+            <div className={styles.composerInner}>
+              <textarea
+                ref={textareaRef}
+                className={styles.composerInput}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  selectedChatTitle
+                    ? `Message ${selectedChatTitle}...`
+                    : "Choose or create a chat..."
+                }
+                autoComplete="off"
+                rows={4}
+                disabled={sending || loadingMessages || !selectedChatId}
+              />
+
+              <div className={styles.composerFooter}>
+                <div className={styles.writingTools} aria-label="Writing tools">
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("- ")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert list item"
+                    title="Insert List Item"
+                  >
+                    <List size={14} strokeWidth={2} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("> ")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert quote"
+                    title="Insert Quote"
+                  >
+                    <TextQuote size={14} strokeWidth={2} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("```\n", "\n```", "code")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert code block"
+                    title="Insert Code Block"
+                  >
+                    <Code2 size={14} strokeWidth={2} />
+                  </button>
+                </div>
+
+                <span className={styles.keyboardHint}>
+                  Enter to send · Shift+Enter for newline
+                </span>
+
+                <button
+                  className={styles.composerButton}
+                  type="submit"
+                  disabled={!canSend}
+                  aria-label="Send"
+                  title="Send"
+                >
+                  <SendHorizontal size={16} strokeWidth={2.35} />
+                  <span>Send</span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {controlPanel ? (
+            <aside
+              className={styles.controlPanel}
+              aria-label={controlPanelLabel ?? "Chat controls"}
             >
-              <SendHorizontal size={20} strokeWidth={2.35} />
-            </button>
-          </div>
-        </form>
-      </div>
-    </section>
+              <div className={styles.controlPanelHeader}>
+                <strong>{controlPanelLabel ?? "Chat controls"}</strong>
+
+                {onControlPanelAction && controlPanelActionLabel ? (
+                  <button
+                    className={styles.controlPanelAction}
+                    type="button"
+                    onClick={onControlPanelAction}
+                    disabled={controlPanelActionBusy}
+                    aria-label={controlPanelActionLabel}
+                    title={controlPanelActionLabel}
+                  >
+                    <Plus size={12} strokeWidth={2.2} />
+                  </button>
+                ) : null}
+              </div>
+
+              <div className={styles.controlPanelContent}>{controlPanel}</div>
+            </aside>
+          ) : null}
+        </div>
+      </section>
+    </>
   );
 }
