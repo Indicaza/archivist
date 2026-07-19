@@ -109,7 +109,7 @@
   border: 0;
   border-top: 1px solid rgba(214, 198, 170, 0.08);
   color: var(--app-muted-text);
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.01);
   font: inherit;
   font-size: 9px;
   cursor: pointer;
@@ -140,7 +140,7 @@
   overflow-y: auto;
   padding: 2px 3px 4px;
   border-top: 1px solid rgba(214, 198, 170, 0.06);
-  background: rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.055);
 }
 
 .archivedRow {
@@ -183,6 +183,58 @@
 
 @media (prefers-reduced-motion: reduce) {
   .archiveToggle svg:first-child {
+    transition: none;
+  }
+}
+
+/* Shared compact-browser motion */
+.row,
+.archivedRow,
+.manageButton {
+  transform: translateX(0) scale(1);
+  transform-origin: left center;
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease;
+}
+
+.row:hover,
+.row:focus-visible {
+  transform: translateX(3px) scale(1.012);
+}
+
+.rowWrap:has(.row:hover) + .rowWrap .row,
+.rowWrap:has(.row:focus-visible) + .rowWrap .row,
+.rowWrap:has(+ .rowWrap .row:hover) .row,
+.rowWrap:has(+ .rowWrap .row:focus-visible) .row {
+  border-color: var(--sidebar-card-neighbor-border);
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.005);
+}
+
+.manageButton:hover,
+.manageButton:focus-visible {
+  transform: scale(1.08);
+}
+
+.archivedRow:hover,
+.archivedRow:focus-visible {
+  transform: translateX(3px) scale(1.008);
+}
+
+.archivedRow:hover + .archivedRow,
+.archivedRow:has(+ .archivedRow:hover) {
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.003);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row,
+  .archivedRow,
+  .manageButton {
     transition: none;
   }
 }

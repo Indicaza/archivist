@@ -312,3 +312,52 @@
     transition: none;
   }
 }
+
+/* Shared Explorer motion language */
+.treeRow,
+.fileRow,
+.searchResultRow,
+.scanButton {
+  transform: translateX(0) scale(1);
+  transform-origin: left center;
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.treeRow:hover,
+.treeRow:focus-visible,
+.fileRow:hover,
+.searchResultRow:hover {
+  transform: translateX(3px) scale(1.008);
+}
+
+.treeViewport > div:has(> .treeRow:hover) + div > .treeRow,
+.treeViewport > div:has(> .treeRow:focus-visible) + div > .treeRow,
+.treeViewport > div:has(+ div > .treeRow:hover) > .treeRow,
+.treeViewport > div:has(+ div > .treeRow:focus-visible) > .treeRow {
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.003);
+}
+
+.searchResultRow:hover + .searchResultRow,
+.searchResultRow:has(+ .searchResultRow:hover) {
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.003);
+}
+
+.scanButton:hover:not(:disabled),
+.scanButton:focus-visible:not(:disabled) {
+  transform: scale(1.07) rotate(-8deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .treeRow,
+  .fileRow,
+  .searchResultRow,
+  .scanButton {
+    transition: none;
+  }
+}

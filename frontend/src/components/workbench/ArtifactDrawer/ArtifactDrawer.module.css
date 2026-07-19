@@ -25,7 +25,7 @@
   border-right: 0;
   border-radius: 7px 0 0 7px;
   color: var(--app-muted-text);
-  background: rgba(16, 15, 13, 0.92);
+  background: var(--workbench-surface-bg, #181713);
   box-shadow: -6px 0 18px rgba(0, 0, 0, 0.22);
   cursor: pointer;
 }
@@ -39,7 +39,7 @@
 .toggleButton:focus-visible {
   border-color: rgba(143, 122, 223, 0.32);
   color: var(--app-text);
-  background: rgba(28, 26, 23, 0.97);
+  background: rgba(31, 29, 24, 0.98);
   outline: none;
 }
 
@@ -52,9 +52,7 @@
   overflow: hidden;
   border: 1px solid var(--sidebar-border);
   border-radius: 0 9px 9px 9px;
-  background:
-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 24%),
-    rgba(16, 15, 13, 0.96);
+  background: var(--workbench-surface-bg, #181713);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.52);
   contain: layout paint style;
 }

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Library as LibraryIcon, Search, Sparkles } from "lucide-react";
+import {
+  Archive,
+  Library as LibraryIcon,
+  Puzzle,
+  Search,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 import { ChatWindow } from "./components/chat/ChatWindow";
 import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
 import { Agents } from "./components/sidebar/Agents/Agents";
@@ -9,11 +16,12 @@ import { Libraries } from "./components/sidebar/Libraries/Libraries";
 import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
 import { Topbar } from "./components/topbar/Topbar";
 import {
-  ChatPanelToolbar,
+  ChatDockHeader,
   type ChatDockView,
-} from "./components/workbench/ChatPanelToolbar";
-import { DockPlaceholder } from "./components/workbench/DockPlaceholder";
-import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
+} from "./components/workbench/ChatDock/ChatDockHeader/ChatDockHeader";
+import { DockPlaceholder } from "./components/workbench/ChatDock/DockPlaceholder/DockPlaceholder";
+import { StatusBar } from "./components/workbench/WorkbenchShell/StatusBar/StatusBar";
+import { WorkbenchShell } from "./components/workbench/WorkbenchShell/WorkbenchShell";
 import {
   addAgent,
   archiveAgent,
@@ -168,8 +176,8 @@ export function App() {
 
     return Math.round(
       Math.min(
-        202,
-        Math.max(148, 108 + Math.min(longestLabelLength, 23) * 4.1),
+        188,
+        Math.max(132, 102 + Math.min(longestLabelLength, 22) * 3.9),
       ),
     );
   }, [agents, archivedAgents, archivedChats, chatDockView, chats]);
@@ -819,6 +827,18 @@ export function App() {
             ),
           },
           {
+            id: "archived-libraries",
+            title: "Archived Libraries",
+            icon: <Archive size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Archive size={20} strokeWidth={1.9} />}
+                title="Archived Libraries"
+                description="Archived Library browsing will live here without crowding the active Explorer."
+              />
+            ),
+          },
+          {
             id: "search",
             title: "Library Search",
             icon: <Search size={15} strokeWidth={1.9} />,
@@ -831,18 +851,37 @@ export function App() {
             ),
           },
           {
-            id: "skills",
-            title: "Skills",
-            icon: <Sparkles size={15} strokeWidth={1.9} />,
+            id: "plugins",
+            title: "Plugins",
+            icon: <Puzzle size={15} strokeWidth={1.9} />,
             content: (
               <DockPlaceholder
-                icon={<Sparkles size={20} strokeWidth={1.9} />}
-                title="Skills"
-                description="Reusable tools and guided workflows will live here."
+                icon={<Puzzle size={20} strokeWidth={1.9} />}
+                title="Plugins"
+                description="Connected providers and workspace extensions will live here."
+              />
+            ),
+          },
+          {
+            id: "tools",
+            title: "Tools",
+            icon: <Wrench size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Wrench size={20} strokeWidth={1.9} />}
+                title="Tools"
+                description="Read-only tools, Skills, and observable task runs will live here."
               />
             ),
           },
         ]}
+        statusBar={
+          <StatusBar
+            libraryName={selectedLibrary?.name ?? null}
+            chatTitle={selectedChat?.title ?? null}
+            agentName={activeAgent?.name ?? null}
+          />
+        }
         artifactPanel={
           <DockPlaceholder
             icon={<Sparkles size={20} strokeWidth={1.9} />}
@@ -855,12 +894,13 @@ export function App() {
             selectedChat={selectedChat}
             onChatActivity={handleChatActivity}
             toolbar={
-              <ChatPanelToolbar
+              <ChatDockHeader
                 selectedChat={selectedChat}
                 activeAgent={activeAgent}
                 selectedLibraryName={selectedLibrary?.name ?? null}
                 activeView={chatDockView}
                 onToggleView={handleToggleChatDockView}
+                onManageChat={setManagedChatId}
               />
             }
             controlPanelLabel={

@@ -1,0 +1,209 @@
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  gap: 12px;
+  padding: 0 6px 0 11px;
+}
+
+.identity {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 5px;
+  padding: 6px 4px 6px 0;
+}
+
+.chatTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextMeta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.contextItem {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 230px;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 8.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.contextItem svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.contextLabel {
+  flex: 0 0 auto;
+  font-size: 7.5px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.contextValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.84;
+}
+
+.contextDivider {
+  width: 1px;
+  height: 11px;
+  flex: 0 0 auto;
+  background: rgba(214, 198, 170, 0.11);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 5px 0;
+}
+
+.iconButton,
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 31px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--app-muted-text);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+  transform: translateY(0) scale(1);
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 180ms ease,
+    opacity 150ms ease;
+}
+
+.iconButton {
+  width: 31px;
+  padding: 0;
+}
+
+.tab {
+  min-width: 58px;
+  gap: 5px;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton:focus-visible:not(:disabled),
+.tab:hover,
+.tab:focus-visible {
+  border-color: var(--sidebar-card-hover-border);
+  color: var(--app-text);
+  background: var(--sidebar-card-hover-bg);
+  box-shadow: var(--sidebar-card-hover-shadow);
+  outline: none;
+  transform: translateY(-1px) scale(1.035);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.actions:has(.iconButton:first-child:hover) .iconButton:nth-child(2),
+.actions:has(.iconButton:first-child:focus-visible) .iconButton:nth-child(2),
+.actions:has(.iconButton:nth-child(2):hover) .iconButton:first-child,
+.actions:has(.iconButton:nth-child(2):focus-visible) .iconButton:first-child,
+.actions:has(.iconButton:nth-child(2):hover) .tab:first-of-type,
+.actions:has(.iconButton:nth-child(2):focus-visible) .tab:first-of-type,
+.actions:has(.tab:first-of-type:hover) .iconButton:nth-child(2),
+.actions:has(.tab:first-of-type:focus-visible) .iconButton:nth-child(2),
+.actions:has(.tab:first-of-type:hover) .tab:last-of-type,
+.actions:has(.tab:first-of-type:focus-visible) .tab:last-of-type,
+.actions:has(.tab:last-of-type:hover) .tab:first-of-type,
+.actions:has(.tab:last-of-type:focus-visible) .tab:first-of-type {
+  border-color: var(--sidebar-card-neighbor-border);
+  background: var(--sidebar-card-neighbor-bg);
+  transform: scale(1.015);
+}
+
+.activeTab {
+  border-color: rgba(143, 122, 223, 0.25);
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.11);
+  box-shadow: inset 0 -1px 0 rgba(143, 122, 223, 0.48);
+}
+
+@media (max-width: 760px) {
+  .header {
+    gap: 6px;
+    padding-left: 8px;
+  }
+
+  .chatTitle {
+    font-size: 12px;
+  }
+
+  .contextLabel,
+  .contextDivider {
+    display: none;
+  }
+
+  .contextItem {
+    max-width: 130px;
+  }
+
+  .tab {
+    min-width: 31px;
+    width: 31px;
+    padding: 0;
+  }
+
+  .tab span {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .contextItem:first-child {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconButton,
+  .tab {
+    transition: none;
+  }
+}

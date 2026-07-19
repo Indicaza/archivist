@@ -1,0 +1,3871 @@
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 13c42cb..8dfb4ec 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -744,14 +744,14 @@ export function App() {
+ 
+   return (
+     <>
+-      <Topbar />
++      <Topbar selectedLibrary={selectedLibrary} />
+ 
+       <WorkbenchShell
+         leftViews={[
+           {
+             id: "libraries",
+             title: "Library Explorer",
+-            icon: <LibraryIcon size={20} strokeWidth={1.9} />,
++            icon: <LibraryIcon size={17} strokeWidth={1.9} />,
+             content: (
+               <div className="left-dock-stack">
+                 <Libraries
+@@ -771,7 +771,7 @@ export function App() {
+           {
+             id: "search",
+             title: "Library Search",
+-            icon: <Search size={20} strokeWidth={1.9} />,
++            icon: <Search size={17} strokeWidth={1.9} />,
+             content: (
+               <DockPlaceholder
+                 icon={<Search size={20} strokeWidth={1.9} />}
+@@ -783,7 +783,7 @@ export function App() {
+           {
+             id: "skills",
+             title: "Skills",
+-            icon: <Sparkles size={20} strokeWidth={1.9} />,
++            icon: <Sparkles size={17} strokeWidth={1.9} />,
+             content: (
+               <DockPlaceholder
+                 icon={<Sparkles size={20} strokeWidth={1.9} />}
+@@ -797,7 +797,7 @@ export function App() {
+           {
+             id: "chats",
+             title: "Chats",
+-            icon: <MessageSquareText size={20} strokeWidth={1.9} />,
++            icon: <MessageSquareText size={17} strokeWidth={1.9} />,
+             content: (
+               <div className="right-dock-stack">
+                 <Chats
+@@ -817,7 +817,7 @@ export function App() {
+           {
+             id: "agents",
+             title: "Agents",
+-            icon: <Bot size={20} strokeWidth={1.9} />,
++            icon: <Bot size={17} strokeWidth={1.9} />,
+             content: (
+               <div className="right-dock-stack">
+                 <Agents
+diff --git a/frontend/src/components/chat/ChatWindow.module.css b/frontend/src/components/chat/ChatWindow.module.css
+index 64ce82d..3fa0b27 100644
+--- a/frontend/src/components/chat/ChatWindow.module.css
++++ b/frontend/src/components/chat/ChatWindow.module.css
+@@ -166,15 +166,13 @@
+   grid-row: 2;
+   z-index: 5;
+   display: grid;
+-  grid-template-rows: 40px auto;
++  grid-template-rows: 32px auto;
+   min-width: 0;
+   min-height: 0;
+   overflow: hidden;
+   border-top: 1px solid var(--sidebar-border);
+-  background:
+-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 20%),
+-    var(--sidebar-bg);
+-  box-shadow: 0 -16px 42px rgba(0, 0, 0, 0.34);
++  background: var(--app-bg-deep);
++  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.28);
+   contain: layout paint style;
+ }
+ 
+@@ -182,8 +180,8 @@
+   display: flex;
+   align-items: center;
+   min-width: 0;
+-  gap: 9px;
+-  padding: 0 9px 0 10px;
++  gap: 6px;
++  padding: 0 5px 0 7px;
+   border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+   background: rgba(255, 255, 255, 0.014);
+ }
+@@ -193,13 +191,13 @@
+   align-items: center;
+   align-self: stretch;
+   flex: 0 0 auto;
+-  gap: 7px;
+-  padding: 0 10px;
++  gap: 6px;
++  padding: 0 7px;
+   border-bottom: 2px solid var(--app-accent);
+   color: var(--app-text);
+-  font-size: 11px;
++  font-size: 10px;
+   font-weight: 700;
+-  letter-spacing: 0.08em;
++  letter-spacing: 0.07em;
+   text-transform: uppercase;
+ }
+ 
+@@ -213,56 +211,39 @@
+ 
+ .composer {
+   width: 100%;
+-  padding: 8px clamp(10px, 2vw, 22px) 11px;
++  min-width: 0;
+   background:
+     linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent),
+-    rgba(16, 15, 13, 0.72);
++    rgba(16, 15, 13, 0.82);
+ }
+ 
+ .composerInner {
+-  position: relative;
+   display: flex;
+-  align-items: flex-end;
+-  width: min(100%, 1080px);
+-  margin: 0 auto;
+-  padding: 4px var(--composer-padding-right-reserve) 4px
+-    var(--composer-padding-x);
+-  border: 1px solid var(--composer-ring);
+-  border-radius: var(--composer-pill-radius);
+-  background: var(--composer-bg);
+-  box-shadow:
+-    0 12px 32px rgba(0, 0, 0, 0.42),
+-    inset 0 1px 0 rgba(255, 250, 240, 0.045);
+-  transition:
+-    border-color var(--dur-base) var(--ease-standard-inout),
+-    border-radius var(--dur-base) var(--ease-standard-inout),
+-    box-shadow var(--dur-base) var(--ease-standard-inout);
++  flex-direction: column;
++  width: 100%;
++  min-width: 0;
++  border-top: 1px solid rgba(255, 255, 255, 0.018);
++  background: rgba(255, 255, 255, 0.012);
+ }
+ 
+ .composerInner:focus-within {
+-  border-color: var(--composer-ring-focus);
+-  box-shadow:
+-    0 14px 36px rgba(0, 0, 0, 0.48),
+-    0 0 0 1px rgba(143, 122, 223, 0.14),
+-    inset 0 1px 0 rgba(255, 250, 240, 0.055);
+-}
+-
+-.composerInner.grown {
+-  border-radius: var(--composer-grown-radius);
++  background: rgba(255, 255, 255, 0.02);
++  box-shadow: inset 0 1px 0 rgba(143, 122, 223, 0.18);
+ }
+ 
+ .composerInput {
+-  flex: 1;
+-  max-height: min(240px, 36vh);
+-  padding: 7px 0;
++  width: 100%;
++  min-height: 92px;
++  max-height: min(310px, 42vh);
++  padding: 12px 14px 8px;
+   overflow-y: auto;
+   border: 0;
+   outline: 0;
+   color: var(--composer-input-text);
+   background: transparent;
+   font: inherit;
+-  font-size: clamp(12px, 1.05vw, 14px);
+-  line-height: 1.45;
++  font-size: clamp(12px, 1vw, 14px);
++  line-height: 1.5;
+   resize: none;
+ }
+ 
+@@ -270,36 +251,85 @@
+   color: var(--composer-placeholder);
+ }
+ 
+-.composerButton {
+-  position: absolute;
+-  right: 5px;
+-  bottom: 4px;
++.composerFooter {
+   display: flex;
+   align-items: center;
+-  justify-content: center;
+-  width: 36px;
+-  height: 36px;
++  gap: 7px;
++  min-height: 35px;
++  padding: 3px 6px 5px 8px;
++  border-top: 1px solid rgba(214, 198, 170, 0.06);
++}
++
++.writingTools {
++  display: flex;
++  align-items: center;
++  gap: 2px;
++}
++
++.writingTools button {
++  display: grid;
++  place-items: center;
++  width: 27px;
++  height: 27px;
++  padding: 0;
+   border: 0;
+-  border-radius: 50%;
++  border-radius: 4px;
++  color: var(--app-muted-text);
++  background: transparent;
++  cursor: pointer;
++}
++
++.writingTools button:hover:not(:disabled),
++.writingTools button:focus-visible:not(:disabled) {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.055);
++  outline: none;
++}
++
++.writingTools button:disabled {
++  cursor: default;
++  opacity: 0.38;
++}
++
++.keyboardHint {
++  flex: 1;
++  min-width: 0;
++  overflow: hidden;
++  color: var(--app-muted-text);
++  font-size: 9px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.composerButton {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  flex: 0 0 auto;
++  gap: 6px;
++  min-width: 69px;
++  height: 29px;
++  padding: 0 9px;
++  border: 1px solid rgba(143, 122, 223, 0.28);
++  border-radius: 4px;
+   color: #fff;
+-  background: linear-gradient(
+-    180deg,
+-    var(--composer-send-bg),
+-    var(--composer-send-bg-hover)
+-  );
++  background: rgba(143, 122, 223, 0.2);
++  font: inherit;
++  font-size: 10px;
++  font-weight: 700;
+   cursor: pointer;
+-  transition:
+-    transform var(--dur-fast) var(--ease-standard-inout),
+-    opacity var(--dur-fast);
+ }
+ 
+-.composerButton:hover:not(:disabled) {
+-  transform: scale(1.06);
++.composerButton:hover:not(:disabled),
++.composerButton:focus-visible:not(:disabled) {
++  border-color: rgba(143, 122, 223, 0.5);
++  background: rgba(143, 122, 223, 0.3);
++  outline: none;
+ }
+ 
+ .composerButton:disabled {
+   cursor: not-allowed;
+-  opacity: 0.42;
++  opacity: 0.38;
+ }
+ 
+ @keyframes messageIn {
+@@ -325,32 +355,42 @@
+   }
+ 
+   .composerHeader {
+-    gap: 5px;
+-    padding-right: 5px;
+-    padding-left: 6px;
++    gap: 3px;
++    padding-right: 3px;
++    padding-left: 4px;
+   }
+ 
+   .composerTab {
+-    padding: 0 7px;
+-    font-size: 10px;
++    padding: 0 5px;
++    font-size: 9px;
+   }
+ 
+-  .composer {
+-    padding-right: 7px;
+-    padding-left: 7px;
++  .composerInput {
++    min-height: 80px;
++  }
++
++  .keyboardHint {
++    display: none;
+   }
+ }
+ 
+ @media (max-width: 520px) {
+-  .composerTab span {
++  .composerTab span,
++  .composerButton span {
+     display: none;
+   }
++
++  .composerButton {
++    min-width: 29px;
++    width: 29px;
++    padding: 0;
++  }
+ }
+ 
+ @media (max-height: 620px) {
+   .composerPanel {
+-    grid-template-rows: 36px auto;
+-    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.3);
++    grid-template-rows: 29px auto;
++    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.26);
+   }
+ 
+   .messages {
+@@ -359,17 +399,19 @@
+     padding-bottom: 12px;
+   }
+ 
+-  .composer {
+-    padding-top: 6px;
+-    padding-bottom: 7px;
++  .composerInput {
++    min-height: 58px;
++    max-height: 190px;
++    padding-top: 8px;
++  }
++
++  .composerFooter {
++    min-height: 31px;
+   }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+-  .message,
+-  .composerButton,
+-  .composerInner {
++  .message {
+     animation: none;
+-    transition: none;
+   }
+ }
+diff --git a/frontend/src/components/chat/ChatWindow.tsx b/frontend/src/components/chat/ChatWindow.tsx
+index b78d323..53d14b1 100644
+--- a/frontend/src/components/chat/ChatWindow.tsx
++++ b/frontend/src/components/chat/ChatWindow.tsx
+@@ -7,7 +7,14 @@ import {
+   useRef,
+   useState,
+ } from "react";
+-import { MessageSquareText, SendHorizontal, Sparkles } from "lucide-react";
++import {
++  Code2,
++  List,
++  MessageSquareText,
++  SendHorizontal,
++  Sparkles,
++  TextQuote,
++} from "lucide-react";
+ import { fetchMessages, respondToChat } from "../../domains/chat/chat.api";
+ import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
+ import styles from "./ChatWindow.module.css";
+@@ -59,7 +66,6 @@ export function ChatWindow({
+ }: ChatWindowProps) {
+   const [messages, setMessages] = useState<ChatMessage[]>([]);
+   const [input, setInput] = useState("");
+-  const [grown, setGrown] = useState(false);
+   const [loadingMessages, setLoadingMessages] = useState(false);
+   const [sending, setSending] = useState(false);
+   const [pinnedToBottom, setPinnedToBottom] = useState(true);
+@@ -149,6 +155,25 @@ export function ChatWindow({
+     }
+   }
+ 
++  function insertTemplate(prefix: string, suffix = "", fallback = "") {
++    const textarea = textareaRef.current;
++    const selectionStart = textarea?.selectionStart ?? input.length;
++    const selectionEnd = textarea?.selectionEnd ?? input.length;
++    const selectedText = input.slice(selectionStart, selectionEnd) || fallback;
++    const replacement = `${prefix}${selectedText}${suffix}`;
++    const nextInput = `${input.slice(0, selectionStart)}${replacement}${input.slice(
++      selectionEnd,
++    )}`;
++    const nextCursor = selectionStart + prefix.length + selectedText.length;
++
++    setInput(nextInput);
++
++    window.requestAnimationFrame(() => {
++      textarea?.focus();
++      textarea?.setSelectionRange(nextCursor, nextCursor);
++    });
++  }
++
+   useEffect(() => {
+     let cancelled = false;
+ 
+@@ -231,8 +256,6 @@ export function ChatWindow({
+ 
+     textarea.style.height = "auto";
+     textarea.style.height = `${textarea.scrollHeight}px`;
+-
+-    setGrown(textarea.scrollHeight > 48);
+   }, [input]);
+ 
+   useEffect(() => {
+@@ -328,7 +351,7 @@ export function ChatWindow({
+       <section className={styles.composerPanel} aria-label="Chat input panel">
+         <header className={styles.composerHeader}>
+           <div className={styles.composerTab}>
+-            <MessageSquareText size={14} strokeWidth={2.1} />
++            <MessageSquareText size={13} strokeWidth={2.1} />
+             <span>Chat</span>
+           </div>
+ 
+@@ -336,9 +359,7 @@ export function ChatWindow({
+         </header>
+ 
+         <form className={styles.composer} onSubmit={onSubmit}>
+-          <div
+-            className={`${styles.composerInner} ${grown ? styles.grown : ""}`}
+-          >
++          <div className={styles.composerInner}>
+             <textarea
+               ref={textareaRef}
+               className={styles.composerInput}
+@@ -351,19 +372,58 @@ export function ChatWindow({
+                   : "Choose or create a chat..."
+               }
+               autoComplete="off"
+-              rows={1}
++              rows={4}
+               disabled={sending || loadingMessages || !selectedChatId}
+             />
+ 
+-            <button
+-              className={styles.composerButton}
+-              type="submit"
+-              disabled={!canSend}
+-              aria-label="Send"
+-              title="Send"
+-            >
+-              <SendHorizontal size={18} strokeWidth={2.35} />
+-            </button>
++            <div className={styles.composerFooter}>
++              <div className={styles.writingTools} aria-label="Writing tools">
++                <button
++                  type="button"
++                  onClick={() => insertTemplate("- ")}
++                  disabled={!selectedChatId || sending}
++                  aria-label="Insert list item"
++                  title="Insert List Item"
++                >
++                  <List size={14} strokeWidth={2} />
++                </button>
++
++                <button
++                  type="button"
++                  onClick={() => insertTemplate("> ")}
++                  disabled={!selectedChatId || sending}
++                  aria-label="Insert quote"
++                  title="Insert Quote"
++                >
++                  <TextQuote size={14} strokeWidth={2} />
++                </button>
++
++                <button
++                  type="button"
++                  onClick={() => insertTemplate("```\n", "\n```", "code")}
++                  disabled={!selectedChatId || sending}
++                  aria-label="Insert code block"
++                  title="Insert Code Block"
++                >
++                  <Code2 size={14} strokeWidth={2} />
++                </button>
++              </div>
++
++              <span className={styles.keyboardHint}>
++                Enter to send · Shift+Enter for newline
++              </span>
++
++              <button
++                className={styles.composerButton}
++                type="submit"
++                disabled={!canSend}
++                aria-label="Send"
++                title="Send"
++              >
++                <SendHorizontal size={16} strokeWidth={2.35} />
++                <span>Send</span>
++              </button>
++            </div>
+           </div>
+         </form>
+       </section>
+diff --git a/frontend/src/components/sidebar/Agents/Agents.module.css b/frontend/src/components/sidebar/Agents/Agents.module.css
+index dfe6da9..26f092f 100644
+--- a/frontend/src/components/sidebar/Agents/Agents.module.css
++++ b/frontend/src/components/sidebar/Agents/Agents.module.css
+@@ -1,120 +1,216 @@
+-.groupHeader,
+-.subHeader {
++.section {
++  display: flex;
++  flex: 1;
++  flex-direction: column;
++  min-width: 0;
++  min-height: 0;
++}
++
++.toolbar {
++  flex: 0 0 auto;
++  padding: 4px;
++}
++
++.createButton {
+   display: flex;
+   align-items: center;
+-  gap: 8px;
+-  padding: 8px 12px;
++  justify-content: center;
++  gap: 6px;
++  width: 100%;
++  min-height: 29px;
++  padding: 0 8px;
++  border: 1px solid rgba(143, 122, 223, 0.14);
++  border-radius: 4px;
+   color: var(--app-text);
+-  font-weight: 600;
++  background: rgba(255, 255, 255, 0.045);
++  font: inherit;
++  font-size: 11px;
+   cursor: pointer;
+-  user-select: none;
+-  transition:
+-    background-color 260ms ease,
+-    transform 420ms cubic-bezier(0.18, 1.18, 0.32, 1),
+-    color 260ms ease;
+ }
+ 
+-.subHeader {
+-  padding-top: 6px;
+-  color: var(--artifact-system-text);
++.createButton:hover:not(:disabled),
++.createButton:focus-visible:not(:disabled) {
++  border-color: rgba(143, 122, 223, 0.3);
++  background: rgba(143, 122, 223, 0.1);
++  outline: none;
+ }
+ 
+-.groupHeader:hover,
+-.subHeader:hover {
+-  background: rgba(255, 255, 255, 0.035);
+-  transform: translateX(3px) scale(1.012);
++.createButton:disabled {
++  cursor: default;
++  opacity: 0.45;
+ }
+ 
+-.caret {
+-  width: 16px;
+-  height: 16px;
+-  flex: 0 0 auto;
+-  opacity: 0.9;
+-  transform-origin: center;
+-  transition:
+-    transform 260ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 220ms ease;
++.listViewport {
++  flex: 1;
++  min-height: 0;
++  overflow-y: auto;
++  padding: 2px 4px 6px;
++  scrollbar-gutter: stable;
+ }
+ 
+-.caretOpen {
+-  transform: rotate(90deg);
++.list {
++  display: flex;
++  flex-direction: column;
++  gap: 2px;
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++
++.rowWrap {
++  position: relative;
++  min-width: 0;
+ }
+ 
+-.caretClosed {
+-  transform: rotate(0deg);
++.row {
++  display: flex;
++  align-items: center;
++  gap: 7px;
++  width: 100%;
++  min-height: 31px;
++  padding: 0 28px 0 7px;
++  border: 1px solid transparent;
++  border-radius: 4px;
++  color: var(--app-muted-text);
++  background: transparent;
++  font: inherit;
++  font-size: 11px;
++  text-align: left;
++  cursor: pointer;
+ }
+ 
+-.groupContent,
+-.subContent {
++.row span {
+   overflow: hidden;
+-  transition:
+-    max-height 280ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 240ms ease;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-.open {
+-  max-height: 1600px;
+-  opacity: 1;
++.row:hover,
++.row:focus-visible {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.045);
++  outline: none;
++}
++
++.selected {
++  border-color: rgba(143, 122, 223, 0.24);
++  color: var(--app-text);
++  background: rgba(143, 122, 223, 0.09);
+ }
+ 
+-.closed {
+-  max-height: 0;
++.manageButton {
++  position: absolute;
++  top: 3px;
++  right: 3px;
++  display: grid;
++  place-items: center;
++  width: 24px;
++  height: 24px;
++  padding: 0;
++  border: 0;
++  border-radius: 4px;
++  color: var(--app-muted-text);
++  background: transparent;
+   opacity: 0;
++  cursor: pointer;
+ }
+ 
+-.groupInner {
+-  display: flex;
+-  flex-direction: column;
+-  gap: 8px;
+-  padding: 6px 6px 10px;
++.rowWrap:hover .manageButton,
++.rowWrap:focus-within .manageButton,
++.rowWrap:has(.selected) .manageButton {
++  opacity: 1;
+ }
+ 
+-.actionsAreaTop {
+-  padding: 4px;
++.manageButton:hover,
++.manageButton:focus-visible {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.08);
++  outline: none;
+ }
+ 
+-.list {
++.archiveToggle {
+   display: flex;
+-  flex-direction: column;
+-  gap: 8px;
+-  margin: 0;
+-  padding: 9px 4px 12px;
+-  list-style: none;
++  align-items: center;
++  flex: 0 0 auto;
++  gap: 5px;
++  min-height: 29px;
++  padding: 0 7px;
++  border: 0;
++  border-top: 1px solid rgba(214, 198, 170, 0.08);
++  color: var(--app-muted-text);
++  background: rgba(0, 0, 0, 0.08);
++  font: inherit;
++  font-size: 10px;
++  cursor: pointer;
+ }
+ 
+-.emptyText {
+-  margin: 0;
+-  padding: 12px 14px;
+-  color: var(--app-muted-text);
+-  font-size: 12px;
+-  line-height: 1.45;
++.archiveToggle:hover,
++.archiveToggle:focus-visible {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.035);
++  outline: none;
+ }
+ 
+-.manageButton {
+-  display: grid;
+-  place-items: center;
+-  width: 30px;
+-  height: 30px;
+-  padding: 0;
+-  border: 1px solid transparent;
+-  border-radius: var(--r-round);
++.archiveToggle svg:first-child {
++  transition: transform 120ms ease;
++}
++
++.caretOpen {
++  transform: rotate(90deg);
++}
++
++.count {
++  margin-left: auto;
++}
++
++.archivedList {
++  flex: 0 0 auto;
++  max-height: 150px;
++  overflow-y: auto;
++  padding: 3px 4px 5px;
++  border-top: 1px solid rgba(214, 198, 170, 0.06);
++  background: rgba(0, 0, 0, 0.14);
++}
++
++.archivedRow {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  width: 100%;
++  min-height: 27px;
++  padding: 0 7px;
++  border: 0;
++  border-radius: 3px;
+   color: var(--app-muted-text);
+   background: transparent;
++  font: inherit;
++  font-size: 10px;
++  text-align: left;
+   cursor: pointer;
+-  transition:
+-    color 150ms ease,
+-    border-color 150ms ease,
+-    background-color 150ms ease,
+-    transform 150ms var(--ease-springy);
+ }
+ 
+-.manageButton:hover {
++.archivedRow span {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.archivedRow:hover,
++.archivedRow:focus-visible {
+   color: var(--app-text);
+-  border-color: var(--sidebar-card-hover-border);
+-  background: var(--sidebar-card-hover-bg);
+-  transform: scale(1.06);
++  background: rgba(255, 255, 255, 0.04);
++  outline: none;
++}
++
++.empty,
++.archivedEmpty {
++  padding: 10px;
++  color: var(--app-muted-text);
++  font-size: 10px;
+ }
+ 
+-.manageButton:active {
+-  transform: scale(0.94);
++@media (prefers-reduced-motion: reduce) {
++  .archiveToggle svg:first-child {
++    transition: none;
++  }
+ }
+diff --git a/frontend/src/components/sidebar/Agents/Agents.tsx b/frontend/src/components/sidebar/Agents/Agents.tsx
+index 33d50aa..52224b0 100644
+--- a/frontend/src/components/sidebar/Agents/Agents.tsx
++++ b/frontend/src/components/sidebar/Agents/Agents.tsx
+@@ -8,8 +8,6 @@ import {
+   ShieldCheck,
+ } from "lucide-react";
+ import type { Agent } from "../../../domains/agent/agent.types";
+-import { SidebarButton } from "../SidebarButton/SidebarButton";
+-import { SidebarCard } from "../SidebarCard/SidebarCard";
+ import styles from "./Agents.module.css";
+ 
+ type AgentsProps = {
+@@ -23,12 +21,6 @@ type AgentsProps = {
+   onManageArchivedAgent: (agentId: string) => void;
+ };
+ 
+-function getAgentSubtitle(agent: Agent): string {
+-  return (
+-    agent.profession.jobTitle ?? agent.description ?? "Configurable AI behavior"
+-  );
+-}
+-
+ export function Agents({
+   agents,
+   archivedAgents,
+@@ -39,178 +31,99 @@ export function Agents({
+   onManageAgent,
+   onManageArchivedAgent,
+ }: AgentsProps) {
+-  const [agentsOpen, setAgentsOpen] = useState(true);
+-  const [allAgentsOpen, setAllAgentsOpen] = useState(true);
+-  const [archivedAgentsOpen, setArchivedAgentsOpen] = useState(false);
+-
+-  const [pressedAgentId, setPressedAgentId] = useState<string | null>(null);
+-
+-  function pressAgent(agentId: string, action: (agentId: string) => void) {
+-    setPressedAgentId(agentId);
+-    action(agentId);
+-
+-    window.setTimeout(() => {
+-      setPressedAgentId((current) => (current === agentId ? null : current));
+-    }, 280);
+-  }
++  const [archivedOpen, setArchivedOpen] = useState(false);
+ 
+   return (
+-    <section>
+-      <div
+-        className={styles.groupHeader}
+-        onClick={() => setAgentsOpen((value) => !value)}
+-        role="button"
+-        tabIndex={0}
+-      >
+-        <ChevronRight
+-          size={16}
+-          strokeWidth={2.25}
+-          className={`${styles.caret} ${
+-            agentsOpen ? styles.caretOpen : styles.caretClosed
+-          }`}
+-        />
++    <section className={styles.section}>
++      <div className={styles.toolbar}>
++        <button
++          className={styles.createButton}
++          type="button"
++          onClick={onAddAgent}
++          disabled={adding}
++        >
++          <Plus size={14} strokeWidth={2.2} />
++          <span>{adding ? "Creating..." : "New Agent"}</span>
++        </button>
++      </div>
+ 
+-        <Bot size={16} strokeWidth={2.1} />
+-        <span>Agents</span>
++      <div className={styles.listViewport}>
++        {loading ? (
++          <div className={styles.empty}>Loading Agents...</div>
++        ) : agents.length > 0 ? (
++          <ul className={styles.list}>
++            {agents.map((agent) => {
++              const selected = agent.id === activeAgentId;
++
++              return (
++                <li key={agent.id} className={styles.rowWrap}>
++                  <button
++                    className={`${styles.row} ${selected ? styles.selected : ""}`}
++                    type="button"
++                    onClick={() => onManageAgent(agent.id)}
++                    title={agent.name}
++                  >
++                    {agent.isBuiltIn ? (
++                      <ShieldCheck size={13} strokeWidth={2} />
++                    ) : (
++                      <Bot size={13} strokeWidth={2} />
++                    )}
++                    <span>{agent.name}</span>
++                  </button>
++
++                  <button
++                    className={styles.manageButton}
++                    type="button"
++                    onClick={() => onManageAgent(agent.id)}
++                    aria-label={`Manage ${agent.name}`}
++                    title="Manage Agent"
++                  >
++                    <Pencil size={12} strokeWidth={2.1} />
++                  </button>
++                </li>
++              );
++            })}
++          </ul>
++        ) : (
++          <div className={styles.empty}>No Agents available.</div>
++        )}
+       </div>
+ 
+-      <div
+-        className={`${styles.groupContent} ${
+-          agentsOpen ? styles.open : styles.closed
+-        }`}
++      <button
++        className={styles.archiveToggle}
++        type="button"
++        onClick={() => setArchivedOpen((current) => !current)}
+       >
+-        <div className={styles.groupInner}>
+-          <div className={styles.actionsAreaTop}>
+-            <SidebarButton
+-              label={adding ? "Creating Agent..." : "Create Agent"}
+-              icon={<Plus size={17} />}
+-              onClick={adding ? undefined : onAddAgent}
+-            />
+-          </div>
+-
+-          <div
+-            className={styles.subHeader}
+-            onClick={() => setAllAgentsOpen((value) => !value)}
+-            role="button"
+-            tabIndex={0}
+-          >
+-            <ChevronRight
+-              size={15}
+-              className={`${styles.caret} ${
+-                allAgentsOpen ? styles.caretOpen : styles.caretClosed
+-              }`}
+-            />
+-
+-            <ShieldCheck size={15} />
+-            <span>Available Agents</span>
+-          </div>
+-
+-          <div
+-            className={`${styles.subContent} ${
+-              allAgentsOpen ? styles.open : styles.closed
+-            }`}
+-          >
+-            {loading ? (
+-              <p className={styles.emptyText}>Loading Agents...</p>
+-            ) : agents.length === 0 ? (
+-              <p className={styles.emptyText}>No Agents available.</p>
+-            ) : (
+-              <ul className={styles.list}>
+-                {agents.map((agent) => (
+-                  <li key={agent.id}>
+-                    <SidebarCard
+-                      title={agent.name}
+-                      subtitle={getAgentSubtitle(agent)}
+-                      selected={agent.id === activeAgentId}
+-                      pressed={pressedAgentId === agent.id}
+-                      leading={
+-                        agent.isBuiltIn ? (
+-                          <ShieldCheck size={17} />
+-                        ) : (
+-                          <Bot size={17} />
+-                        )
+-                      }
+-                      action={
+-                        <button
+-                          type="button"
+-                          className={styles.manageButton}
+-                          aria-label={`Manage ${agent.name}`}
+-                          onClick={(event) => {
+-                            event.stopPropagation();
+-
+-                            pressAgent(agent.id, onManageAgent);
+-                          }}
+-                        >
+-                          <Pencil size={15} />
+-                        </button>
+-                      }
+-                      onClick={() => pressAgent(agent.id, onManageAgent)}
+-                    />
+-                  </li>
+-                ))}
+-              </ul>
+-            )}
+-          </div>
+-
+-          <div
+-            className={styles.subHeader}
+-            onClick={() => setArchivedAgentsOpen((value) => !value)}
+-            role="button"
+-            tabIndex={0}
+-          >
+-            <ChevronRight
+-              size={15}
+-              className={`${styles.caret} ${
+-                archivedAgentsOpen ? styles.caretOpen : styles.caretClosed
+-              }`}
+-            />
+-
+-            <Archive size={15} />
+-            <span>Archived Agents</span>
+-          </div>
+-
+-          <div
+-            className={`${styles.subContent} ${
+-              archivedAgentsOpen ? styles.open : styles.closed
+-            }`}
+-          >
+-            {archivedAgents.length === 0 ? (
+-              <p className={styles.emptyText}>No archived Agents.</p>
+-            ) : (
+-              <ul className={styles.list}>
+-                {archivedAgents.map((agent) => (
+-                  <li key={agent.id}>
+-                    <SidebarCard
+-                      title={agent.name}
+-                      subtitle={getAgentSubtitle(agent)}
+-                      archived
+-                      pressed={pressedAgentId === agent.id}
+-                      leading={<Archive size={17} />}
+-                      action={
+-                        <button
+-                          type="button"
+-                          className={styles.manageButton}
+-                          aria-label={`Manage archived ${agent.name}`}
+-                          onClick={(event) => {
+-                            event.stopPropagation();
+-
+-                            pressAgent(agent.id, onManageArchivedAgent);
+-                          }}
+-                        >
+-                          <Pencil size={15} />
+-                        </button>
+-                      }
+-                      onClick={() =>
+-                        pressAgent(agent.id, onManageArchivedAgent)
+-                      }
+-                    />
+-                  </li>
+-                ))}
+-              </ul>
+-            )}
+-          </div>
++        <ChevronRight
++          size={12}
++          strokeWidth={2.2}
++          className={archivedOpen ? styles.caretOpen : ""}
++        />
++        <Archive size={12} strokeWidth={2} />
++        <span>Archived</span>
++        <span className={styles.count}>{archivedAgents.length}</span>
++      </button>
++
++      {archivedOpen ? (
++        <div className={styles.archivedList}>
++          {archivedAgents.length > 0 ? (
++            archivedAgents.map((agent) => (
++              <button
++                key={agent.id}
++                className={styles.archivedRow}
++                type="button"
++                onClick={() => onManageArchivedAgent(agent.id)}
++                title={agent.name}
++              >
++                <Archive size={12} strokeWidth={2} />
++                <span>{agent.name}</span>
++              </button>
++            ))
++          ) : (
++            <div className={styles.archivedEmpty}>No archived Agents.</div>
++          )}
+         </div>
+-      </div>
++      ) : null}
+     </section>
+   );
+ }
+diff --git a/frontend/src/components/sidebar/Chats/Chats.module.css b/frontend/src/components/sidebar/Chats/Chats.module.css
+index 5503f0e..26f092f 100644
+--- a/frontend/src/components/sidebar/Chats/Chats.module.css
++++ b/frontend/src/components/sidebar/Chats/Chats.module.css
+@@ -1,211 +1,216 @@
+-/* =========================================================
+-   SECTION HEADERS
+-   ========================================================= */
+-
+-.groupHeader,
+-.subHeader {
++.section {
+   display: flex;
+-  align-items: center;
+-  gap: 8px;
+-  padding: 8px 12px;
+-  color: var(--app-text);
+-  font-weight: 600;
+-  cursor: pointer;
+-  user-select: none;
+-  transition:
+-    background-color 260ms ease,
+-    transform 420ms cubic-bezier(0.18, 1.18, 0.32, 1),
+-    color 260ms ease;
+-}
+-
+-.subHeader {
+-  padding-top: 6px;
+-  color: var(--artifact-system-text);
+-}
+-
+-.groupHeader:hover,
+-.subHeader:hover {
+-  background: rgba(255, 255, 255, 0.035);
+-  transform: translateX(3px) scale(1.012);
++  flex: 1;
++  flex-direction: column;
++  min-width: 0;
++  min-height: 0;
+ }
+ 
+-/* =========================================================
+-   ACCORDION / CARETS
+-   ========================================================= */
+-
+-.caret {
+-  width: 16px;
+-  height: 16px;
++.toolbar {
+   flex: 0 0 auto;
+-  opacity: 0.9;
+-  transform-origin: center;
+-  transition:
+-    transform 260ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 220ms ease;
+-}
+-
+-.caretOpen {
+-  transform: rotate(90deg);
+-}
+-
+-.caretClosed {
+-  transform: rotate(0deg);
+-}
+-
+-.groupContent,
+-.subContent {
+-  overflow: hidden;
+-  transition:
+-    max-height 280ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 240ms ease;
++  padding: 4px;
+ }
+ 
+-.open {
+-  max-height: 1000px;
+-  opacity: 1;
++.createButton {
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  gap: 6px;
++  width: 100%;
++  min-height: 29px;
++  padding: 0 8px;
++  border: 1px solid rgba(143, 122, 223, 0.14);
++  border-radius: 4px;
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.045);
++  font: inherit;
++  font-size: 11px;
++  cursor: pointer;
+ }
+ 
+-.closed {
+-  max-height: 0;
+-  opacity: 0;
++.createButton:hover:not(:disabled),
++.createButton:focus-visible:not(:disabled) {
++  border-color: rgba(143, 122, 223, 0.3);
++  background: rgba(143, 122, 223, 0.1);
++  outline: none;
+ }
+ 
+-/* =========================================================
+-   SPACING / LAYOUT
+-   ========================================================= */
+-
+-.indent1 {
+-  padding-left: 14px;
++.createButton:disabled {
++  cursor: default;
++  opacity: 0.45;
+ }
+ 
+-.indent2 {
+-  padding-left: 28px;
++.listViewport {
++  flex: 1;
++  min-height: 0;
++  overflow-y: auto;
++  padding: 2px 4px 6px;
++  scrollbar-gutter: stable;
+ }
+ 
+-.groupInner {
++.list {
+   display: flex;
+   flex-direction: column;
+-  gap: 8px;
+-  padding: 6px 6px 10px;
++  gap: 2px;
++  margin: 0;
++  padding: 0;
++  list-style: none;
+ }
+ 
+-.actionsAreaTop {
+-  padding: 4px;
++.rowWrap {
++  position: relative;
++  min-width: 0;
+ }
+ 
+-.list {
++.row {
+   display: flex;
+-  flex-direction: column;
+-  gap: 8px;
+-  margin: 0;
+-  padding: 9px 4px 12px;
+-  list-style: none;
++  align-items: center;
++  gap: 7px;
++  width: 100%;
++  min-height: 31px;
++  padding: 0 28px 0 7px;
++  border: 1px solid transparent;
++  border-radius: 4px;
++  color: var(--app-muted-text);
++  background: transparent;
++  font: inherit;
++  font-size: 11px;
++  text-align: left;
++  cursor: pointer;
+ }
+ 
+-/* =========================================================
+-   CHAT GLYPH
+-   ========================================================= */
++.row span {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
+ 
+-.chatGlyph {
+-  display: inline-flex;
+-  align-items: center;
+-  justify-content: center;
+-  width: 40px;
+-  height: 40px;
+-  border-radius: 50%;
++.row:hover,
++.row:focus-visible {
+   color: var(--app-text);
+-  background:
+-    radial-gradient(
+-      circle at 35% 25%,
+-      rgba(255, 255, 255, 0.3),
+-      transparent 24%
+-    ),
+-    linear-gradient(135deg, #334155, #0f766e);
+-  box-shadow: var(--shadow-avatar);
++  background: rgba(255, 255, 255, 0.045);
++  outline: none;
+ }
+ 
+-.archivedGlyph {
+-  opacity: 0.72;
+-  filter: saturate(0.55);
++.selected {
++  border-color: rgba(143, 122, 223, 0.24);
++  color: var(--app-text);
++  background: rgba(143, 122, 223, 0.09);
+ }
+ 
+-/* =========================================================
+-   MANAGE ACTION
+-   ========================================================= */
+-
+ .manageButton {
++  position: absolute;
++  top: 3px;
++  right: 3px;
+   display: grid;
+   place-items: center;
+-  width: 25px;
+-  height: 25px;
++  width: 24px;
++  height: 24px;
+   padding: 0;
+-  border: 1px solid transparent;
+-  border-radius: var(--r-round);
++  border: 0;
++  border-radius: 4px;
+   color: var(--app-muted-text);
+-  background: rgba(16, 15, 13, 0.82);
++  background: transparent;
++  opacity: 0;
+   cursor: pointer;
+-  transition:
+-    transform 180ms var(--ease-springy),
+-    color 150ms ease,
+-    background-color 150ms ease,
+-    border-color 150ms ease;
++}
++
++.rowWrap:hover .manageButton,
++.rowWrap:focus-within .manageButton,
++.rowWrap:has(.selected) .manageButton {
++  opacity: 1;
+ }
+ 
+ .manageButton:hover,
+ .manageButton:focus-visible {
+-  color: var(--topbar-title);
+-  background: var(--sidebar-reveal-hover);
+-  border-color: rgba(143, 122, 223, 0.3);
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.08);
++  outline: none;
++}
++
++.archiveToggle {
++  display: flex;
++  align-items: center;
++  flex: 0 0 auto;
++  gap: 5px;
++  min-height: 29px;
++  padding: 0 7px;
++  border: 0;
++  border-top: 1px solid rgba(214, 198, 170, 0.08);
++  color: var(--app-muted-text);
++  background: rgba(0, 0, 0, 0.08);
++  font: inherit;
++  font-size: 10px;
++  cursor: pointer;
++}
++
++.archiveToggle:hover,
++.archiveToggle:focus-visible {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.035);
+   outline: none;
+-  transform: scale(1.06);
+ }
+ 
+-.manageButton:active {
+-  transform: scale(0.96);
++.archiveToggle svg:first-child {
++  transition: transform 120ms ease;
+ }
+ 
+-/* =========================================================
+-   ARCHIVE COUNT
+-   ========================================================= */
++.caretOpen {
++  transform: rotate(90deg);
++}
+ 
+-.archiveCount {
+-  min-width: 21px;
+-  height: 20px;
++.count {
+   margin-left: auto;
+-  padding: 0 6px;
+-  border: 1px solid rgba(214, 198, 170, 0.12);
+-  border-radius: var(--r-pill);
+-  color: var(--app-muted-text);
+-  background: rgba(255, 255, 255, 0.035);
+-  font-size: 11px;
+-  line-height: 18px;
+-  text-align: center;
+ }
+ 
+-/* =========================================================
+-   EMPTY STATE
+-   ========================================================= */
++.archivedList {
++  flex: 0 0 auto;
++  max-height: 150px;
++  overflow-y: auto;
++  padding: 3px 4px 5px;
++  border-top: 1px solid rgba(214, 198, 170, 0.06);
++  background: rgba(0, 0, 0, 0.14);
++}
+ 
+-.empty {
+-  padding: 8px;
+-  border: 1px dashed rgba(255, 255, 255, 0.12);
+-  border-radius: var(--r-sm);
++.archivedRow {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  width: 100%;
++  min-height: 27px;
++  padding: 0 7px;
++  border: 0;
++  border-radius: 3px;
+   color: var(--app-muted-text);
+-  font-size: 13px;
+-  opacity: 0.85;
++  background: transparent;
++  font: inherit;
++  font-size: 10px;
++  text-align: left;
++  cursor: pointer;
++}
++
++.archivedRow span {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-/* =========================================================
+-   REDUCED MOTION
+-   ========================================================= */
++.archivedRow:hover,
++.archivedRow:focus-visible {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.04);
++  outline: none;
++}
++
++.empty,
++.archivedEmpty {
++  padding: 10px;
++  color: var(--app-muted-text);
++  font-size: 10px;
++}
+ 
+ @media (prefers-reduced-motion: reduce) {
+-  .groupHeader,
+-  .subHeader,
+-  .groupContent,
+-  .subContent,
+-  .caret,
+-  .manageButton {
++  .archiveToggle svg:first-child {
+     transition: none;
+   }
+ }
+diff --git a/frontend/src/components/sidebar/Chats/Chats.tsx b/frontend/src/components/sidebar/Chats/Chats.tsx
+index b50c2c2..a87bc0e 100644
+--- a/frontend/src/components/sidebar/Chats/Chats.tsx
++++ b/frontend/src/components/sidebar/Chats/Chats.tsx
+@@ -1,15 +1,12 @@
+ import { useState } from "react";
+ import {
++  Archive,
+   ChevronRight,
+-  FolderArchive,
+   MessageSquareText,
+   Pencil,
+   Plus,
+-  Sparkles,
+ } from "lucide-react";
+ import type { Chat } from "../../../domains/chat/chat.types";
+-import { SidebarButton } from "../SidebarButton/SidebarButton";
+-import { SidebarCard } from "../SidebarCard/SidebarCard";
+ import styles from "./Chats.module.css";
+ 
+ type ChatsProps = {
+@@ -24,21 +21,6 @@ type ChatsProps = {
+   onManageArchivedChat: (chatId: string) => void;
+ };
+ 
+-function formatChatSubtitle(updatedAt: string): string {
+-  const updatedDate = new Date(updatedAt);
+-
+-  if (Number.isNaN(updatedDate.getTime())) {
+-    return "Persistent conversation";
+-  }
+-
+-  return `Updated ${updatedDate.toLocaleString([], {
+-    month: "short",
+-    day: "numeric",
+-    hour: "numeric",
+-    minute: "2-digit",
+-  })}`;
+-}
+-
+ export function Chats({
+   chats,
+   archivedChats,
+@@ -50,196 +32,95 @@ export function Chats({
+   onManageChat,
+   onManageArchivedChat,
+ }: ChatsProps) {
+-  const [chatsOpen, setChatsOpen] = useState(true);
+-  const [allChatsOpen, setAllChatsOpen] = useState(true);
+-  const [archivedChatsOpen, setArchivedChatsOpen] = useState(false);
+-
+-  const [pressedChatId, setPressedChatId] = useState<string | null>(null);
+-
+-  function pressChat(chatId: string, action: (chatId: string) => void) {
+-    setPressedChatId(chatId);
+-    action(chatId);
+-
+-    window.setTimeout(() => {
+-      setPressedChatId((current) => (current === chatId ? null : current));
+-    }, 280);
+-  }
++  const [archivedOpen, setArchivedOpen] = useState(false);
+ 
+   return (
+-    <section>
+-      <div
+-        className={styles.groupHeader}
+-        onClick={() => setChatsOpen((value) => !value)}
+-        role="button"
+-        tabIndex={0}
+-      >
+-        <ChevronRight
+-          size={16}
+-          strokeWidth={2.25}
+-          className={`${styles.caret} ${
+-            chatsOpen ? styles.caretOpen : styles.caretClosed
+-          }`}
+-        />
++    <section className={styles.section}>
++      <div className={styles.toolbar}>
++        <button
++          className={styles.createButton}
++          type="button"
++          onClick={onAddChat}
++          disabled={adding}
++        >
++          <Plus size={14} strokeWidth={2.2} />
++          <span>{adding ? "Creating..." : "New Chat"}</span>
++        </button>
++      </div>
+ 
+-        <MessageSquareText size={16} strokeWidth={2.1} />
+-        <span>Chats</span>
++      <div className={styles.listViewport}>
++        {loading ? (
++          <div className={styles.empty}>Loading chats...</div>
++        ) : chats.length > 0 ? (
++          <ul className={styles.list}>
++            {chats.map((chat) => {
++              const selected = chat.id === selectedChatId;
++
++              return (
++                <li key={chat.id} className={styles.rowWrap}>
++                  <button
++                    className={`${styles.row} ${selected ? styles.selected : ""}`}
++                    type="button"
++                    onClick={() => onSelectChat(chat.id)}
++                    title={chat.title}
++                  >
++                    <MessageSquareText size={13} strokeWidth={2} />
++                    <span>{chat.title}</span>
++                  </button>
++
++                  <button
++                    className={styles.manageButton}
++                    type="button"
++                    onClick={() => onManageChat(chat.id)}
++                    aria-label={`Manage ${chat.title}`}
++                    title="Manage Chat"
++                  >
++                    <Pencil size={12} strokeWidth={2.1} />
++                  </button>
++                </li>
++              );
++            })}
++          </ul>
++        ) : (
++          <div className={styles.empty}>No chats yet.</div>
++        )}
+       </div>
+ 
+-      <div
+-        className={`${styles.groupContent} ${
+-          chatsOpen ? styles.open : styles.closed
+-        }`}
++      <button
++        className={styles.archiveToggle}
++        type="button"
++        onClick={() => setArchivedOpen((current) => !current)}
+       >
+-        <div className={styles.groupInner}>
+-          <div className={styles.actionsAreaTop}>
+-            <SidebarButton
+-              label={adding ? "Creating Chat..." : "New Chat"}
+-              icon={<Plus size={16} strokeWidth={2.25} />}
+-              onClick={onAddChat}
+-            />
+-          </div>
+-
+-          <div
+-            className={`${styles.subHeader} ${styles.indent1}`}
+-            onClick={() => setAllChatsOpen((value) => !value)}
+-            role="button"
+-            tabIndex={0}
+-          >
+-            <ChevronRight
+-              size={16}
+-              strokeWidth={2.25}
+-              className={`${styles.caret} ${
+-                allChatsOpen ? styles.caretOpen : styles.caretClosed
+-              }`}
+-            />
+-
+-            <MessageSquareText size={16} strokeWidth={2.1} />
+-            <span>All Chats</span>
+-          </div>
+-
+-          <div
+-            className={`${styles.subContent} ${styles.indent2} ${
+-              allChatsOpen ? styles.open : styles.closed
+-            }`}
+-          >
+-            {loading ? (
+-              <div className={styles.empty}>Loading chats...</div>
+-            ) : chats.length ? (
+-              <ul className={styles.list}>
+-                {chats.map((chat) => {
+-                  const selected = chat.id === selectedChatId;
+-
+-                  const pressed = chat.id === pressedChatId;
+-
+-                  return (
+-                    <SidebarCard
+-                      key={chat.id}
+-                      title={chat.title}
+-                      subtitle={formatChatSubtitle(chat.updatedAt)}
+-                      leading={
+-                        <span className={styles.chatGlyph} aria-hidden>
+-                          <Sparkles size={18} strokeWidth={2.15} />
+-                        </span>
+-                      }
+-                      selected={selected}
+-                      pressed={pressed}
+-                      onClick={() => pressChat(chat.id, onSelectChat)}
+-                      aria-current={selected ? "page" : undefined}
+-                      action={
+-                        <button
+-                          className={styles.manageButton}
+-                          type="button"
+-                          onClick={() => onManageChat(chat.id)}
+-                          aria-label={`Manage ${chat.title}`}
+-                          title="Manage Chat"
+-                        >
+-                          <Pencil size={13} strokeWidth={2.2} />
+-                        </button>
+-                      }
+-                    />
+-                  );
+-                })}
+-              </ul>
+-            ) : (
+-              <div className={styles.empty}>
+-                No chats yet. Create one to begin.
+-              </div>
+-            )}
+-          </div>
+-
+-          <div
+-            className={`${styles.subHeader} ${styles.indent1}`}
+-            onClick={() => setArchivedChatsOpen((value) => !value)}
+-            role="button"
+-            tabIndex={0}
+-          >
+-            <ChevronRight
+-              size={16}
+-              strokeWidth={2.25}
+-              className={`${styles.caret} ${
+-                archivedChatsOpen ? styles.caretOpen : styles.caretClosed
+-              }`}
+-            />
+-
+-            <FolderArchive size={16} strokeWidth={2.1} />
+-            <span>Archived Chats</span>
+-
+-            {archivedChats.length ? (
+-              <span className={styles.archiveCount}>
+-                {archivedChats.length}
+-              </span>
+-            ) : null}
+-          </div>
+-
+-          <div
+-            className={`${styles.subContent} ${styles.indent2} ${
+-              archivedChatsOpen ? styles.open : styles.closed
+-            }`}
+-          >
+-            {loading ? (
+-              <div className={styles.empty}>Loading archived chats...</div>
+-            ) : archivedChats.length ? (
+-              <ul className={styles.list}>
+-                {archivedChats.map((chat) => {
+-                  const pressed = chat.id === pressedChatId;
+-
+-                  return (
+-                    <SidebarCard
+-                      key={chat.id}
+-                      title={chat.title}
+-                      subtitle="Archived conversation"
+-                      leading={
+-                        <span
+-                          className={`${styles.chatGlyph} ${styles.archivedGlyph}`}
+-                          aria-hidden
+-                        >
+-                          <Sparkles size={18} strokeWidth={2.15} />
+-                        </span>
+-                      }
+-                      archived
+-                      pressed={pressed}
+-                      onClick={() => pressChat(chat.id, onManageArchivedChat)}
+-                      action={
+-                        <button
+-                          className={styles.manageButton}
+-                          type="button"
+-                          onClick={() => onManageArchivedChat(chat.id)}
+-                          aria-label={`Manage archived chat ${chat.title}`}
+-                          title="Manage Archived Chat"
+-                        >
+-                          <Pencil size={13} strokeWidth={2.2} />
+-                        </button>
+-                      }
+-                    />
+-                  );
+-                })}
+-              </ul>
+-            ) : (
+-              <div className={styles.empty}>No archived chats.</div>
+-            )}
+-          </div>
++        <ChevronRight
++          size={12}
++          strokeWidth={2.2}
++          className={archivedOpen ? styles.caretOpen : ""}
++        />
++        <Archive size={12} strokeWidth={2} />
++        <span>Archived</span>
++        <span className={styles.count}>{archivedChats.length}</span>
++      </button>
++
++      {archivedOpen ? (
++        <div className={styles.archivedList}>
++          {archivedChats.length > 0 ? (
++            archivedChats.map((chat) => (
++              <button
++                key={chat.id}
++                className={styles.archivedRow}
++                type="button"
++                onClick={() => onManageArchivedChat(chat.id)}
++                title={chat.title}
++              >
++                <Archive size={12} strokeWidth={2} />
++                <span>{chat.title}</span>
++              </button>
++            ))
++          ) : (
++            <div className={styles.archivedEmpty}>No archived chats.</div>
++          )}
+         </div>
+-      </div>
++      ) : null}
+     </section>
+   );
+ }
+diff --git a/frontend/src/components/sidebar/Libraries/Libraries.module.css b/frontend/src/components/sidebar/Libraries/Libraries.module.css
+index 0b8323b..ada4f03 100644
+--- a/frontend/src/components/sidebar/Libraries/Libraries.module.css
++++ b/frontend/src/components/sidebar/Libraries/Libraries.module.css
+@@ -2,297 +2,233 @@
+   display: flex;
+   flex: 1;
+   flex-direction: column;
++  width: 100%;
+   min-width: 0;
+   min-height: 0;
++  overflow: hidden;
+ }
+ 
+-/* =========================================================
+-   SECTION HEADERS
+-   ========================================================= */
+-
+-.groupHeader,
+-.subHeader {
++.explorerToolbar {
+   display: flex;
+   align-items: center;
+-  gap: 8px;
+-  padding: 8px 12px;
+-  color: var(--app-text);
+-  font-weight: 600;
+-  cursor: pointer;
+-  user-select: none;
+-  transition:
+-    background-color 120ms ease,
+-    color 120ms ease;
+-}
+-
+-.subHeader {
+-  padding-top: 6px;
+-  color: var(--artifact-system-text);
+-}
+-
+-.groupHeader:hover,
+-.subHeader:hover {
+-  background: rgba(255, 255, 255, 0.035);
+-}
+-
+-/* =========================================================
+-   ACCORDION / CARETS
+-   ========================================================= */
+-
+-.caret {
+-  width: 16px;
+-  height: 16px;
+   flex: 0 0 auto;
+-  opacity: 0.9;
+-  transform-origin: center;
+-  transition: transform 140ms ease;
+-}
+-
+-.caretOpen {
+-  transform: rotate(90deg);
+-}
+-
+-.caretClosed {
+-  transform: rotate(0deg);
+-}
+-
+-.groupContent,
+-.subContent {
+-  min-height: 0;
+-  overflow: hidden;
++  gap: 3px;
++  min-height: 36px;
++  padding: 4px 5px;
++  border-bottom: 1px solid rgba(214, 198, 170, 0.08);
++  background: rgba(255, 255, 255, 0.012);
+ }
+ 
+-.groupContent.open {
++.librarySelectWrap {
+   display: flex;
+   flex: 1;
+-  min-height: 0;
+-}
+-
+-.subContent.open {
+-  display: block;
+-  max-height: 360px;
++  min-width: 0;
+ }
+ 
+-.closed {
+-  display: none;
++.librarySelect {
++  width: 100%;
++  min-width: 0;
++  height: 27px;
++  padding: 0 7px;
++  border: 1px solid transparent;
++  border-radius: 4px;
++  color: var(--app-text);
++  background: rgba(0, 0, 0, 0.12);
++  font: inherit;
++  font-size: 12px;
++  font-weight: 600;
++  outline: none;
++  cursor: pointer;
+ }
+ 
+-/* =========================================================
+-   SPACING / LAYOUT
+-   ========================================================= */
+-
+-.indent1 {
+-  padding-left: 14px;
++.librarySelect:hover,
++.librarySelect:focus {
++  border-color: rgba(143, 122, 223, 0.24);
++  background: rgba(255, 255, 255, 0.035);
+ }
+ 
+-.indent2 {
+-  padding-left: 28px;
++.toolbarButton,
++.searchCloseButton {
++  position: relative;
++  display: inline-grid;
++  place-items: center;
++  flex: 0 0 auto;
++  width: 27px;
++  height: 27px;
++  padding: 0;
++  border: 0;
++  border-radius: 4px;
++  color: var(--app-muted-text);
++  background: transparent;
++  cursor: pointer;
+ }
+ 
+-.groupInner {
+-  display: flex;
+-  flex: 1;
+-  flex-direction: column;
+-  min-height: 0;
+-  gap: 8px;
+-  padding: 6px 6px 10px;
++.toolbarButton:hover:not(:disabled),
++.toolbarButton:focus-visible:not(:disabled),
++.searchCloseButton:hover,
++.searchCloseButton:focus-visible,
++.toolbarButtonActive {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.055);
++  outline: none;
+ }
+ 
+-.actionsAreaTop {
+-  padding: 4px;
++.toolbarButton:disabled {
++  cursor: default;
++  opacity: 0.38;
+ }
+ 
+-.list {
+-  display: flex;
+-  flex-direction: column;
+-  gap: 8px;
+-  margin: 0;
+-  padding: 9px 4px 12px;
+-  list-style: none;
++.toolbarBadge {
++  position: absolute;
++  top: 1px;
++  right: 1px;
++  min-width: 11px;
++  height: 11px;
++  padding: 0 3px;
++  border-radius: var(--r-pill);
++  color: var(--app-bg-deep);
++  background: var(--app-accent);
++  font-size: 8px;
++  font-weight: 800;
++  line-height: 11px;
++  text-align: center;
+ }
+ 
+-/* =========================================================
+-   SEARCH
+-   ========================================================= */
+-
+-.searchWrap {
++.searchBar {
+   display: flex;
+-  gap: 8px;
+-  padding: 0 6px;
++  align-items: center;
++  flex: 0 0 auto;
++  gap: 6px;
++  min-height: 34px;
++  padding: 4px 6px 4px 9px;
++  border-bottom: 1px solid rgba(214, 198, 170, 0.08);
++  color: var(--app-muted-text);
++  background: rgba(0, 0, 0, 0.16);
+ }
+ 
+ .searchInput {
+   flex: 1;
+-  height: 36px;
+-  padding: 0 10px;
+-  border: 1px solid rgba(255, 255, 255, 0.08);
+-  border-radius: var(--r-sm);
++  min-width: 0;
++  height: 25px;
++  padding: 0;
++  border: 0;
+   color: var(--app-text);
+-  background: var(--app-bg);
+-  font-size: 14px;
+-  transition:
+-    border-color 160ms ease,
+-    box-shadow 160ms ease,
+-    background-color 160ms ease;
++  background: transparent;
++  font: inherit;
++  font-size: 12px;
++  outline: none;
+ }
+ 
+ .searchInput::placeholder {
+   color: var(--app-muted-text);
+ }
+ 
+-.searchInput:focus {
+-  border-color: var(--composer-ring-focus);
+-  background: var(--app-bg-deep);
+-  box-shadow: 0 0 0 2px rgba(143, 122, 223, 0.12);
+-  outline: none;
++.treeHost {
++  display: flex;
++  flex: 1;
++  min-width: 0;
++  min-height: 0;
++  overflow: hidden;
+ }
+ 
+-.searchInput:disabled {
+-  cursor: default;
+-  opacity: 0.55;
++.emptyState {
++  display: grid;
++  place-items: center;
++  align-content: center;
++  flex: 1;
++  gap: 10px;
++  padding: 20px;
++  color: var(--app-muted-text);
++  font-size: 12px;
++  text-align: center;
+ }
+ 
+-/* =========================================================
+-   LIBRARY GLYPH
+-   ========================================================= */
+-
+-.libraryGlyph {
+-  display: inline-flex;
+-  align-items: center;
+-  justify-content: center;
+-  width: 40px;
+-  height: 40px;
+-  border-radius: 50%;
++.emptyState button {
++  min-height: 29px;
++  padding: 0 10px;
++  border: 1px solid rgba(143, 122, 223, 0.24);
++  border-radius: 4px;
+   color: var(--app-text);
+-  font-weight: 700;
+-  background:
+-    radial-gradient(
+-      circle at 35% 25%,
+-      rgba(255, 255, 255, 0.28),
+-      transparent 24%
+-    ),
+-    linear-gradient(135deg, var(--app-accent), #0f766e);
+-  box-shadow: var(--shadow-avatar);
++  background: rgba(143, 122, 223, 0.08);
++  cursor: pointer;
+ }
+ 
+-/* =========================================================
+-   STATUS DOT
+-   ========================================================= */
+-
+-.statusDot {
+-  width: 9px;
+-  height: 9px;
++.archivedDrawer {
++  display: flex;
+   flex: 0 0 auto;
+-  border-radius: 50%;
+-  background: var(--app-muted-text);
+-  transition:
+-    transform 260ms var(--ease-springy),
+-    box-shadow 180ms ease;
+-}
+-
+-.statusDot:hover {
+-  transform: scale(1.18);
+-  box-shadow: 0 0 9px currentColor;
+-}
+-
+-.active {
+-  background: var(--app-success);
++  flex-direction: column;
++  max-height: 165px;
++  min-height: 44px;
++  border-top: 1px solid rgba(214, 198, 170, 0.1);
++  background: rgba(0, 0, 0, 0.18);
+ }
+ 
+-.draft {
+-  background: var(--app-warning);
++.drawerHeader {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  min-height: 28px;
++  padding: 0 9px;
++  color: var(--app-muted-text);
++  font-size: 9px;
++  font-weight: 700;
++  letter-spacing: 0.09em;
++  text-transform: uppercase;
+ }
+ 
+-.offline {
+-  background: var(--app-muted-text);
++.archivedList {
++  overflow-y: auto;
++  padding: 0 4px 5px;
+ }
+ 
+-/* =========================================================
+-   MANAGE ACTION
+-   ========================================================= */
+-
+-.manageButton {
+-  display: grid;
+-  place-items: center;
+-  width: 25px;
+-  height: 25px;
+-  padding: 0;
+-  border: 1px solid transparent;
+-  border-radius: var(--r-round);
++.archivedRow {
++  display: flex;
++  align-items: center;
++  gap: 7px;
++  width: 100%;
++  min-height: 29px;
++  padding: 0 7px;
++  border: 0;
++  border-radius: 4px;
+   color: var(--app-muted-text);
+-  background: rgba(16, 15, 13, 0.82);
++  background: transparent;
++  font: inherit;
++  font-size: 11px;
++  text-align: left;
+   cursor: pointer;
+-  transition:
+-    transform 180ms var(--ease-springy),
+-    color 150ms ease,
+-    background-color 150ms ease,
+-    border-color 150ms ease;
+ }
+ 
+-.manageButton:hover,
+-.manageButton:focus-visible {
+-  color: var(--topbar-title);
+-  background: var(--sidebar-reveal-hover);
+-  border-color: rgba(143, 122, 223, 0.3);
+-  outline: none;
+-  transform: scale(1.06);
++.archivedRow span {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-.manageButton:active {
+-  transform: scale(0.96);
++.archivedRow:hover,
++.archivedRow:focus-visible {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.045);
++  outline: none;
+ }
+ 
+-/* =========================================================
+-   ARCHIVE COUNT
+-   ========================================================= */
+-
+-.archiveCount {
+-  min-width: 21px;
+-  height: 20px;
+-  margin-left: auto;
+-  padding: 0 6px;
+-  border: 1px solid rgba(214, 198, 170, 0.12);
+-  border-radius: var(--r-pill);
++.drawerEmpty {
++  padding: 7px 10px 10px;
+   color: var(--app-muted-text);
+-  background: rgba(255, 255, 255, 0.035);
+   font-size: 11px;
+-  line-height: 18px;
+-  text-align: center;
+ }
+ 
+-/* =========================================================
+-   ARCHIVED LIBRARY CARD
+-   ========================================================= */
+-.archivedGlyph {
+-  opacity: 0.72;
+-  filter: saturate(0.55);
+-}
+-/* =========================================================
+-   EMPTY STATE
+-   ========================================================= */
+-
+-.empty {
+-  padding: 8px;
+-  border: 1px dashed rgba(255, 255, 255, 0.12);
+-  border-radius: var(--r-sm);
+-  color: var(--app-muted-text);
+-  font-size: 13px;
+-  opacity: 0.85;
+-}
++@media (max-height: 620px) {
++  .explorerToolbar {
++    min-height: 32px;
++    padding-top: 2px;
++    padding-bottom: 2px;
++  }
+ 
+-/* =========================================================
+-   REDUCED MOTION
+-   ========================================================= */
++  .searchBar {
++    min-height: 31px;
++  }
+ 
+-@media (prefers-reduced-motion: reduce) {
+-  .groupHeader,
+-  .subHeader,
+-  .groupContent,
+-  .subContent,
+-  .caret,
+-  .searchInput,
+-  .statusDot,
+-  .manageButton {
+-    transition: none;
++  .archivedDrawer {
++    max-height: 120px;
+   }
+ }
+diff --git a/frontend/src/components/sidebar/Libraries/Libraries.tsx b/frontend/src/components/sidebar/Libraries/Libraries.tsx
+index 7abc8d6..b460c36 100644
+--- a/frontend/src/components/sidebar/Libraries/Libraries.tsx
++++ b/frontend/src/components/sidebar/Libraries/Libraries.tsx
+@@ -1,15 +1,6 @@
+ import { useEffect, useMemo, useState } from "react";
+-import {
+-  BookOpen,
+-  ChevronRight,
+-  FolderArchive,
+-  Library,
+-  Pencil,
+-  Plus,
+-} from "lucide-react";
++import { Archive, Pencil, Plus, Search, X } from "lucide-react";
+ import type { LibraryListItem } from "../../../domains/library/library.types";
+-import { SidebarButton } from "../SidebarButton/SidebarButton";
+-import { SidebarCard } from "../SidebarCard/SidebarCard";
+ import { LibraryFileTree } from "./LibraryFileTree/LibraryFileTree";
+ import styles from "./Libraries.module.css";
+ 
+@@ -36,278 +27,195 @@ export function Libraries({
+   onManageLibrary,
+   onManageArchivedLibrary,
+ }: LibrariesProps) {
+-  const [librariesOpen, setLibrariesOpen] = useState(true);
+-  const [allLibrariesOpen, setAllLibrariesOpen] = useState(false);
+-  const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
++  const [searchOpen, setSearchOpen] = useState(false);
+   const [search, setSearch] = useState("");
+   const [debouncedSearch, setDebouncedSearch] = useState("");
+-  const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
++  const [archivedOpen, setArchivedOpen] = useState(false);
+ 
+   useEffect(() => {
+     const timeoutId = window.setTimeout(() => {
+-      setDebouncedSearch(search.trim().toLowerCase());
+-    }, 200);
++      setDebouncedSearch(search.trim());
++    }, 180);
+ 
+     return () => {
+       window.clearTimeout(timeoutId);
+     };
+   }, [search]);
+ 
+-  const filteredLibraries = useMemo(() => {
+-    if (!debouncedSearch) {
+-      return libraries;
+-    }
+-
+-    return libraries.filter((library) => {
+-      const haystack =
+-        `${library.name} ${library.subtitle} ${library.rootPath}`.toLowerCase();
+-
+-      return haystack.includes(debouncedSearch);
+-    });
+-  }, [debouncedSearch, libraries]);
++  const selectedLibrary = useMemo(() => {
++    return (
++      libraries.find((library) => library.id === selectedLibraryId) ?? null
++    );
++  }, [libraries, selectedLibraryId]);
+ 
+   const filteredArchivedLibraries = useMemo(() => {
+-    if (!debouncedSearch) {
++    const query = debouncedSearch.toLowerCase();
++
++    if (!query) {
+       return archivedLibraries;
+     }
+ 
+     return archivedLibraries.filter((library) => {
+-      const haystack =
+-        `${library.name} ${library.subtitle} ${library.rootPath}`.toLowerCase();
+-
+-      return haystack.includes(debouncedSearch);
++      return `${library.name} ${library.rootPath} ${library.description ?? ""}`
++        .toLowerCase()
++        .includes(query);
+     });
+   }, [archivedLibraries, debouncedSearch]);
+ 
+-  const selectedLibrary = useMemo(() => {
+-    return (
+-      libraries.find((library) => library.id === selectedLibraryId) ?? null
+-    );
+-  }, [libraries, selectedLibraryId]);
+-
+-  function pressLibrary(
+-    libraryId: string,
+-    action: (libraryId: string) => void,
+-  ) {
+-    setPressedLibraryId(libraryId);
+-    action(libraryId);
+-
+-    window.setTimeout(() => {
+-      setPressedLibraryId((current) =>
+-        current === libraryId ? null : current,
+-      );
+-    }, 280);
++  function closeSearch() {
++    setSearch("");
++    setDebouncedSearch("");
++    setSearchOpen(false);
+   }
+ 
+   return (
+     <section className={styles.libraryExplorer}>
+-      <div
+-        className={styles.groupHeader}
+-        onClick={() => setLibrariesOpen((value) => !value)}
+-        role="button"
+-        tabIndex={0}
+-      >
+-        <ChevronRight
+-          size={16}
+-          strokeWidth={2.25}
+-          className={`${styles.caret} ${
+-            librariesOpen ? styles.caretOpen : styles.caretClosed
+-          }`}
+-        />
+-
+-        <Library size={16} strokeWidth={2.1} />
+-        <span>Libraries</span>
+-      </div>
+-
+-      <div
+-        className={`${styles.groupContent} ${
+-          librariesOpen ? styles.open : styles.closed
+-        }`}
+-      >
+-        <div className={styles.groupInner}>
+-          <div className={styles.actionsAreaTop}>
+-            <SidebarButton
+-              label={adding ? "Adding Library..." : "Add Library"}
+-              icon={<Plus size={16} strokeWidth={2.25} />}
+-              onClick={onAddLibrary}
+-            />
+-          </div>
+-
+-          <div className={styles.searchWrap}>
+-            <input
+-              className={styles.searchInput}
+-              value={search}
+-              onChange={(event) => setSearch(event.target.value)}
+-              type="text"
+-              placeholder="Search libraries..."
+-              disabled={loading}
+-            />
+-          </div>
+-
+-          <div
+-            className={`${styles.subHeader} ${styles.indent1}`}
+-            onClick={() => setAllLibrariesOpen((value) => !value)}
+-            role="button"
+-            tabIndex={0}
++      <div className={styles.explorerToolbar}>
++        <label className={styles.librarySelectWrap}>
++          <select
++            className={styles.librarySelect}
++            value={selectedLibraryId ?? ""}
++            onChange={(event) => onSelectLibrary(event.target.value)}
++            disabled={loading || libraries.length === 0}
++            aria-label="Active Library"
++            title={selectedLibrary?.rootPath ?? "Choose a Library"}
+           >
+-            <ChevronRight
+-              size={16}
+-              strokeWidth={2.25}
+-              className={`${styles.caret} ${
+-                allLibrariesOpen ? styles.caretOpen : styles.caretClosed
+-              }`}
+-            />
+-
+-            <BookOpen size={16} strokeWidth={2.1} />
+-            <span>All Libraries</span>
+-          </div>
+-
+-          <div
+-            className={`${styles.subContent} ${styles.indent2} ${
+-              allLibrariesOpen ? styles.open : styles.closed
+-            }`}
+-          >
+-            {loading ? (
+-              <div className={styles.empty}>Loading Libraries...</div>
+-            ) : filteredLibraries.length ? (
+-              <ul className={styles.list}>
+-                {filteredLibraries.map((library) => {
+-                  const selected = library.id === selectedLibraryId;
+-                  const pressed = library.id === pressedLibraryId;
+-
+-                  return (
+-                    <SidebarCard
+-                      key={library.id}
+-                      title={library.name}
+-                      subtitle={library.subtitle}
+-                      leading={
+-                        <span className={styles.libraryGlyph} aria-hidden>
+-                          {library.name.slice(0, 1)}
+-                        </span>
+-                      }
+-                      trailing={
+-                        <span
+-                          className={`${styles.statusDot} ${
+-                            styles[library.status]
+-                          }`}
+-                          title={selected ? "Selected" : "Available"}
+-                          aria-label={selected ? "Selected" : "Available"}
+-                        />
+-                      }
+-                      selected={selected}
+-                      pressed={pressed}
+-                      onClick={() => pressLibrary(library.id, onSelectLibrary)}
+-                      aria-current={selected ? "page" : undefined}
+-                      action={
+-                        <button
+-                          className={styles.manageButton}
+-                          type="button"
+-                          onClick={() => onManageLibrary(library.id)}
+-                          aria-label={`Manage ${library.name}`}
+-                          title="Manage Library"
+-                        >
+-                          <Pencil size={13} strokeWidth={2.2} />
+-                        </button>
+-                      }
+-                    />
+-                  );
+-                })}
+-              </ul>
+-            ) : (
+-              <div className={styles.empty}>
+-                {debouncedSearch
+-                  ? "No active Libraries match your search."
+-                  : "No active Libraries yet."}
+-              </div>
+-            )}
+-          </div>
++            {!selectedLibrary ? (
++              <option value="">Choose a Library</option>
++            ) : null}
+ 
+-          {selectedLibrary ? (
+-            <LibraryFileTree
+-              key={selectedLibrary.id}
+-              library={selectedLibrary}
+-            />
++            {libraries.map((library) => (
++              <option key={library.id} value={library.id}>
++                {library.name}
++              </option>
++            ))}
++          </select>
++        </label>
++
++        <button
++          className={`${styles.toolbarButton} ${
++            searchOpen ? styles.toolbarButtonActive : ""
++          }`}
++          type="button"
++          onClick={() => setSearchOpen((current) => !current)}
++          aria-label="Search Library catalog"
++          title="Search Library catalog"
++        >
++          <Search size={15} strokeWidth={2.1} />
++        </button>
++
++        <button
++          className={styles.toolbarButton}
++          type="button"
++          onClick={onAddLibrary}
++          disabled={adding}
++          aria-label="Add Library"
++          title={adding ? "Adding Library" : "Add Library"}
++        >
++          <Plus size={16} strokeWidth={2.2} />
++        </button>
++
++        <button
++          className={styles.toolbarButton}
++          type="button"
++          onClick={() => selectedLibrary && onManageLibrary(selectedLibrary.id)}
++          disabled={!selectedLibrary}
++          aria-label="Manage active Library"
++          title="Manage active Library"
++        >
++          <Pencil size={14} strokeWidth={2.1} />
++        </button>
++
++        <button
++          className={`${styles.toolbarButton} ${
++            archivedOpen ? styles.toolbarButtonActive : ""
++          }`}
++          type="button"
++          onClick={() => setArchivedOpen((current) => !current)}
++          aria-label="Archived Libraries"
++          title="Archived Libraries"
++        >
++          <Archive size={14} strokeWidth={2.1} />
++
++          {archivedLibraries.length > 0 ? (
++            <span className={styles.toolbarBadge}>
++              {archivedLibraries.length}
++            </span>
+           ) : null}
++        </button>
++      </div>
+ 
+-          <div
+-            className={`${styles.subHeader} ${styles.indent1}`}
+-            onClick={() => setArchivedLibrariesOpen((value) => !value)}
+-            role="button"
+-            tabIndex={0}
++      {searchOpen ? (
++        <div className={styles.searchBar}>
++          <Search size={14} strokeWidth={2} />
++
++          <input
++            className={styles.searchInput}
++            value={search}
++            onChange={(event) => setSearch(event.target.value)}
++            type="search"
++            placeholder="Search file names and paths..."
++            autoFocus
++          />
++
++          <button
++            className={styles.searchCloseButton}
++            type="button"
++            onClick={closeSearch}
++            aria-label="Close search"
++            title="Close Search"
+           >
+-            <ChevronRight
+-              size={16}
+-              strokeWidth={2.25}
+-              className={`${styles.caret} ${
+-                archivedLibrariesOpen ? styles.caretOpen : styles.caretClosed
+-              }`}
+-            />
++            <X size={14} strokeWidth={2.1} />
++          </button>
++        </div>
++      ) : null}
++
++      <div className={styles.treeHost}>
++        {loading ? (
++          <div className={styles.emptyState}>Loading Libraries...</div>
++        ) : selectedLibrary ? (
++          <LibraryFileTree
++            key={selectedLibrary.id}
++            library={selectedLibrary}
++            searchQuery={debouncedSearch}
++          />
++        ) : (
++          <div className={styles.emptyState}>
++            <span>No active Library selected.</span>
++            <button type="button" onClick={onAddLibrary} disabled={adding}>
++              {adding ? "Adding Library..." : "Add Library"}
++            </button>
++          </div>
++        )}
++      </div>
+ 
+-            <FolderArchive size={16} strokeWidth={2.1} />
++      {archivedOpen ? (
++        <div className={styles.archivedDrawer}>
++          <div className={styles.drawerHeader}>
+             <span>Archived Libraries</span>
+-
+-            {archivedLibraries.length ? (
+-              <span className={styles.archiveCount}>
+-                {archivedLibraries.length}
+-              </span>
+-            ) : null}
++            <span>{filteredArchivedLibraries.length}</span>
+           </div>
+ 
+-          <div
+-            className={`${styles.subContent} ${styles.indent2} ${
+-              archivedLibrariesOpen ? styles.open : styles.closed
+-            }`}
+-          >
+-            {loading ? (
+-              <div className={styles.empty}>Loading archived Libraries...</div>
+-            ) : filteredArchivedLibraries.length ? (
+-              <ul className={styles.list}>
+-                {filteredArchivedLibraries.map((library) => {
+-                  const pressed = library.id === pressedLibraryId;
+-
+-                  return (
+-                    <SidebarCard
+-                      key={library.id}
+-                      title={library.name}
+-                      subtitle={library.subtitle}
+-                      leading={
+-                        <span
+-                          className={`${styles.libraryGlyph} ${styles.archivedGlyph}`}
+-                          aria-hidden
+-                        >
+-                          {library.name.slice(0, 1)}
+-                        </span>
+-                      }
+-                      archived
+-                      pressed={pressed}
+-                      onClick={() =>
+-                        pressLibrary(library.id, onManageArchivedLibrary)
+-                      }
+-                      action={
+-                        <button
+-                          className={styles.manageButton}
+-                          type="button"
+-                          onClick={() => onManageArchivedLibrary(library.id)}
+-                          aria-label={`Manage archived Library ${library.name}`}
+-                          title="Manage Archived Library"
+-                        >
+-                          <Pencil size={13} strokeWidth={2.2} />
+-                        </button>
+-                      }
+-                    />
+-                  );
+-                })}
+-              </ul>
+-            ) : (
+-              <div className={styles.empty}>
+-                {debouncedSearch
+-                  ? "No archived Libraries match your search."
+-                  : "No archived Libraries."}
+-              </div>
+-            )}
+-          </div>
++          {filteredArchivedLibraries.length > 0 ? (
++            <div className={styles.archivedList}>
++              {filteredArchivedLibraries.map((library) => (
++                <button
++                  key={library.id}
++                  className={styles.archivedRow}
++                  type="button"
++                  onClick={() => onManageArchivedLibrary(library.id)}
++                  title={library.rootPath}
++                >
++                  <Archive size={13} strokeWidth={2} />
++                  <span>{library.name}</span>
++                </button>
++              ))}
++            </div>
++          ) : (
++            <div className={styles.drawerEmpty}>No archived Libraries.</div>
++          )}
+         </div>
+-      </div>
++      ) : null}
+     </section>
+   );
+ }
+diff --git a/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css b/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css
+index 2080d14..1c1b5ed 100644
+--- a/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css
++++ b/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css
+@@ -2,173 +2,105 @@
+   display: flex;
+   flex: 1;
+   flex-direction: column;
++  width: 100%;
+   min-width: 0;
+-  min-height: 180px;
++  min-height: 0;
++  overflow: hidden;
+ }
+ 
+-.header {
++.catalogToolbar {
+   display: flex;
+   align-items: center;
+-  gap: 8px;
+-  width: 100%;
+-  padding: 7px 12px 7px 14px;
+-  border: 0;
+-  color: var(--artifact-system-text);
+-  background: transparent;
+-  font: inherit;
+-  font-weight: 600;
+-  text-align: left;
+-  cursor: pointer;
+-  transition: background-color 120ms ease;
+-}
+-
+-.header:hover,
+-.header:focus-visible {
+-  background: rgba(255, 255, 255, 0.035);
+-  outline: none;
+-}
+-
+-.headerCaret {
+   flex: 0 0 auto;
+-  transform: rotate(0deg);
+-  transition: transform 240ms cubic-bezier(0.2, 0, 0, 1);
++  min-height: 30px;
++  padding: 2px 5px 2px 9px;
++  border-bottom: 1px solid rgba(214, 198, 170, 0.07);
++  background: rgba(255, 255, 255, 0.008);
+ }
+ 
+-.headerCaretOpen {
+-  transform: rotate(90deg);
++.catalogIdentity {
++  display: flex;
++  align-items: center;
++  flex: 1;
++  min-width: 0;
++  gap: 7px;
+ }
+ 
+-.headerTitle {
+-  min-width: 0;
++.libraryName {
+   overflow: hidden;
++  color: var(--app-muted-text);
++  font-size: 10px;
++  font-weight: 650;
++  letter-spacing: 0.04em;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+ 
+ .fileCount {
+-  min-width: 22px;
+-  height: 20px;
+-  margin-left: auto;
+-  padding: 0 6px;
+-  border: 1px solid rgba(214, 198, 170, 0.12);
++  flex: 0 0 auto;
++  min-width: 18px;
++  height: 17px;
++  padding: 0 5px;
+   border-radius: var(--r-pill);
+   color: var(--app-muted-text);
+-  background: rgba(255, 255, 255, 0.035);
+-  font-size: 11px;
+-  line-height: 18px;
++  background: rgba(255, 255, 255, 0.04);
++  font-size: 9px;
++  line-height: 17px;
+   text-align: center;
+ }
+ 
+-.content {
+-  min-height: 0;
+-  overflow: hidden;
+-}
+-
+-.contentOpen {
+-  display: flex;
+-  flex: 1;
+-  min-height: 0;
+-}
+-
+-.contentClosed {
+-  display: none;
+-}
+-
+-.inner {
+-  display: flex;
+-  flex: 1;
+-  flex-direction: column;
+-  min-height: 0;
+-  gap: 8px;
+-  padding: 4px 10px 10px 28px;
+-}
+-
+-.libraryName {
+-  overflow: hidden;
+-  color: var(--app-muted-text);
+-  font-size: 11px;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+ .scanButton {
+-  display: inline-flex;
+-  align-items: center;
+-  justify-content: center;
+-  gap: 7px;
+-  width: 100%;
+-  min-height: 32px;
+-  padding: 6px 10px;
+-  border: 1px solid rgba(143, 122, 223, 0.22);
+-  border-radius: var(--r-sm);
+-  color: var(--app-text);
+-  background: rgba(143, 122, 223, 0.08);
+-  font: inherit;
+-  font-size: 12px;
+-  font-weight: 600;
++  display: grid;
++  place-items: center;
++  flex: 0 0 auto;
++  width: 25px;
++  height: 25px;
++  padding: 0;
++  border: 0;
++  border-radius: 4px;
++  color: var(--app-muted-text);
++  background: transparent;
+   cursor: pointer;
+-  transition:
+-    background-color 160ms ease,
+-    border-color 160ms ease,
+-    transform 180ms var(--ease-springy);
+ }
+ 
+ .scanButton:hover:not(:disabled),
+ .scanButton:focus-visible:not(:disabled) {
+-  border-color: rgba(143, 122, 223, 0.46);
+-  background: rgba(143, 122, 223, 0.15);
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.05);
+   outline: none;
+-  transform: translateY(-1px);
+-}
+-
+-.scanButton:active:not(:disabled) {
+-  transform: scale(0.985);
+ }
+ 
+ .scanButton:disabled {
+   cursor: default;
+-  opacity: 0.58;
+-}
+-
+-.scanMeta {
+-  display: flex;
+-  flex-wrap: wrap;
+-  gap: 4px 8px;
+-  color: var(--app-muted-text);
+-  font-size: 10px;
+-}
+-
+-.scanMeta span:not(:last-child)::after {
+-  content: "•";
+-  margin-left: 8px;
+-  opacity: 0.5;
++  opacity: 0.45;
+ }
+ 
+ .treeViewport {
+   flex: 1;
+-  min-height: 180px;
++  min-width: 0;
++  min-height: 0;
+   overflow: auto;
+-  padding: 4px 2px;
+-  border: 1px solid rgba(255, 255, 255, 0.07);
+-  border-radius: var(--r-sm);
+-  background: rgba(0, 0, 0, 0.12);
++  padding: 3px 4px 8px;
++  background: rgba(0, 0, 0, 0.06);
++  overscroll-behavior: contain;
++  scrollbar-gutter: stable;
+ }
+ 
+ .treeRow {
+   display: flex;
+   align-items: center;
+-  gap: 6px;
++  gap: 5px;
+   width: 100%;
+-  min-height: 25px;
+-  padding-top: 3px;
+-  padding-right: 7px;
+-  padding-bottom: 3px;
++  min-height: 23px;
++  padding-top: 2px;
++  padding-right: 5px;
++  padding-bottom: 2px;
+   border: 0;
+-  border-radius: 5px;
++  border-radius: 3px;
+   color: var(--app-text);
+   background: transparent;
+   font: inherit;
+-  font-size: 12px;
++  font-size: 11px;
+   text-align: left;
+   cursor: pointer;
+ }
+@@ -182,7 +114,7 @@
+ .treeCaret {
+   flex: 0 0 auto;
+   transform: rotate(0deg);
+-  transition: transform 180ms ease;
++  transition: transform 120ms ease;
+ }
+ 
+ .treeCaretOpen {
+@@ -193,17 +125,18 @@
+   display: flex;
+   align-items: center;
+   gap: 6px;
+-  min-height: 24px;
+-  padding-top: 3px;
+-  padding-right: 7px;
+-  padding-bottom: 3px;
++  min-height: 22px;
++  padding-top: 2px;
++  padding-right: 5px;
++  padding-bottom: 2px;
++  border-radius: 3px;
+   color: var(--app-muted-text);
+-  font-size: 11px;
++  font-size: 10.5px;
+ }
+ 
+ .fileRow:hover {
+   color: var(--app-text);
+-  background: rgba(255, 255, 255, 0.025);
++  background: rgba(255, 255, 255, 0.035);
+ }
+ 
+ .treeName {
+@@ -228,28 +161,124 @@
+ }
+ 
+ .empty {
+-  padding: 8px;
+-  border: 1px dashed rgba(255, 255, 255, 0.12);
+-  border-radius: var(--r-sm);
++  display: grid;
++  place-items: center;
++  align-content: center;
++  flex: 1;
++  gap: 10px;
++  padding: 18px;
+   color: var(--app-muted-text);
+-  font-size: 12px;
++  font-size: 11px;
++  text-align: center;
++}
++
++.empty button {
++  min-height: 29px;
++  padding: 0 10px;
++  border: 1px solid rgba(143, 122, 223, 0.24);
++  border-radius: 4px;
++  color: var(--app-text);
++  background: rgba(143, 122, 223, 0.08);
++  cursor: pointer;
+ }
+ 
+ .error {
+   display: flex;
+   align-items: flex-start;
+   gap: 7px;
++  margin: 8px;
+   padding: 8px;
+   border: 1px solid rgba(220, 90, 90, 0.22);
+-  border-radius: var(--r-sm);
++  border-radius: 4px;
+   color: #e9a3a3;
+   background: rgba(120, 30, 30, 0.12);
+-  font-size: 12px;
++  font-size: 11px;
+ }
+ 
+-.issueSummary {
+-  color: var(--app-warning);
++.noMatches {
++  display: grid;
++  place-items: center;
++  min-height: 120px;
++  padding: 16px;
++  color: var(--app-muted-text);
+   font-size: 11px;
++  text-align: center;
++}
++
++.searchResults {
++  display: flex;
++  flex: 0 0 auto;
++  flex-direction: column;
++  max-height: min(190px, 28vh);
++  border-top: 1px solid rgba(214, 198, 170, 0.1);
++  background: rgba(0, 0, 0, 0.18);
++}
++
++.searchResultsHeader {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  min-height: 27px;
++  padding: 0 8px;
++  color: var(--app-muted-text);
++  font-size: 9px;
++  font-weight: 700;
++  letter-spacing: 0.09em;
++  text-transform: uppercase;
++}
++
++.searchResultsList {
++  overflow-y: auto;
++  padding: 0 4px 5px;
++}
++
++.searchResultRow {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  min-height: 25px;
++  padding: 0 6px;
++  border-radius: 3px;
++  color: var(--app-muted-text);
++  font-size: 10px;
++}
++
++.searchResultRow:hover {
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.035);
++}
++
++.searchResultRow span {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.moreResults {
++  padding: 5px 7px;
++  color: var(--app-muted-text);
++  font-size: 9px;
++}
++
++.statusBar {
++  display: flex;
++  align-items: center;
++  flex: 0 0 auto;
++  gap: 5px;
++  min-height: 23px;
++  padding: 0 7px;
++  overflow: hidden;
++  border-top: 1px solid rgba(214, 198, 170, 0.08);
++  color: var(--app-muted-text);
++  background: rgba(255, 255, 255, 0.012);
++  font-size: 9px;
++  white-space: nowrap;
++}
++
++.statusBar span:not(:last-child)::after {
++  content: "•";
++  margin-left: 5px;
++  opacity: 0.45;
+ }
+ 
+ .spinning {
+@@ -262,11 +291,21 @@
+   }
+ }
+ 
++@media (max-height: 620px) {
++  .catalogToolbar {
++    min-height: 27px;
++  }
++
++  .statusBar {
++    min-height: 21px;
++  }
++
++  .searchResults {
++    max-height: 120px;
++  }
++}
++
+ @media (prefers-reduced-motion: reduce) {
+-  .header,
+-  .headerCaret,
+-  .content,
+-  .scanButton,
+   .treeCaret,
+   .spinning {
+     animation: none;
+diff --git a/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.tsx b/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.tsx
+index 1cadd54..61d5390 100644
+--- a/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.tsx
++++ b/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.tsx
+@@ -6,7 +6,6 @@ import {
+   FileText,
+   Folder,
+   FolderOpen,
+-  FolderTree,
+   RefreshCw,
+ } from "lucide-react";
+ import {
+@@ -23,6 +22,7 @@ import styles from "./LibraryFileTree.module.css";
+ 
+ type LibraryFileTreeProps = {
+   library: LibraryListItem;
++  searchQuery?: string;
+ };
+ 
+ type DirectoryNode = {
+@@ -94,6 +94,24 @@ function getInitialOpenFolders(files: LibraryFile[]): Set<string> {
+   return folders;
+ }
+ 
++function getParentFolders(files: LibraryFile[]): Set<string> {
++  const folders = new Set<string>();
++
++  for (const file of files) {
++    const segments = file.relativePath.split("/").filter(Boolean);
++    segments.pop();
++
++    let currentPath = "";
++
++    for (const segment of segments) {
++      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
++      folders.add(currentPath);
++    }
++  }
++
++  return folders;
++}
++
+ function formatScanTime(value: string | null): string {
+   if (!value) {
+     return "Unknown time";
+@@ -127,10 +145,10 @@ function formatFileSize(sizeBytes: number): string {
+ 
+ function FileIcon({ extension }: { extension: string }) {
+   if (extension === ".md" || extension === ".txt") {
+-    return <FileText size={14} strokeWidth={1.9} />;
++    return <FileText size={13} strokeWidth={1.9} />;
+   }
+ 
+-  return <FileCode2 size={14} strokeWidth={1.9} />;
++  return <FileCode2 size={13} strokeWidth={1.9} />;
+ }
+ 
+ function TreeBranch({
+@@ -157,14 +175,14 @@ function TreeBranch({
+             <button
+               className={styles.treeRow}
+               style={{
+-                paddingLeft: `${8 + depth * 14}px`,
++                paddingLeft: `${5 + depth * 13}px`,
+               }}
+               type="button"
+               onClick={() => onToggleFolder(directory.path)}
+               title={directory.path}
+             >
+               <ChevronRight
+-                size={13}
++                size={12}
+                 strokeWidth={2.2}
+                 className={`${styles.treeCaret} ${
+                   open ? styles.treeCaretOpen : ""
+@@ -205,7 +223,7 @@ function TreeBranch({
+             key={file.id}
+             className={`${styles.fileRow} ${statusClassName}`}
+             style={{
+-              paddingLeft: `${27 + depth * 14}px`,
++              paddingLeft: `${24 + depth * 13}px`,
+             }}
+             title={`${file.relativePath} • ${file.status} • ${formatFileSize(
+               file.sizeBytes,
+@@ -218,7 +236,7 @@ function TreeBranch({
+             {file.status !== "available" ? (
+               <AlertTriangle
+                 className={styles.fileWarning}
+-                size={12}
++                size={11}
+                 strokeWidth={2}
+               />
+             ) : null}
+@@ -229,8 +247,10 @@ function TreeBranch({
+   );
+ }
+ 
+-export function LibraryFileTree({ library }: LibraryFileTreeProps) {
+-  const [open, setOpen] = useState(true);
++export function LibraryFileTree({
++  library,
++  searchQuery = "",
++}: LibraryFileTreeProps) {
+   const [catalog, setCatalog] = useState<LibraryFileCatalog | null>(null);
+   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
+   const [issues, setIssues] = useState<LibraryScanIssue[]>([]);
+@@ -273,10 +293,29 @@ export function LibraryFileTree({ library }: LibraryFileTreeProps) {
+   }, [library.id]);
+ 
+   const files = useMemo(() => catalog?.files ?? [], [catalog?.files]);
++  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
++
++  const matchingFiles = useMemo(() => {
++    if (!normalizedSearchQuery) {
++      return files;
++    }
++
++    return files.filter((file) => {
++      return `${file.name} ${file.relativePath} ${file.extension}`
++        .toLowerCase()
++        .includes(normalizedSearchQuery);
++    });
++  }, [files, normalizedSearchQuery]);
+ 
+   const tree = useMemo(() => {
+-    return buildFileTree(files);
+-  }, [files]);
++    return buildFileTree(matchingFiles);
++  }, [matchingFiles]);
++
++  const searchOpenFolders = useMemo(() => {
++    return normalizedSearchQuery ? getParentFolders(matchingFiles) : null;
++  }, [matchingFiles, normalizedSearchQuery]);
++
++  const visibleOpenFolders = searchOpenFolders ?? openFolders;
+ 
+   const missingFileCount = useMemo(() => {
+     return files.filter((file) => file.status === "missing").length;
+@@ -287,6 +326,10 @@ export function LibraryFileTree({ library }: LibraryFileTreeProps) {
+   }, [files]);
+ 
+   function toggleFolder(folderPath: string) {
++    if (normalizedSearchQuery) {
++      return;
++    }
++
+     setOpenFolders((current) => {
+       const next = new Set(current);
+ 
+@@ -343,114 +386,106 @@ export function LibraryFileTree({ library }: LibraryFileTreeProps) {
+ 
+   return (
+     <section className={styles.section}>
+-      <button
+-        className={styles.header}
+-        type="button"
+-        onClick={() => setOpen((value) => !value)}
+-      >
+-        <ChevronRight
+-          size={16}
+-          strokeWidth={2.25}
+-          className={`${styles.headerCaret} ${
+-            open ? styles.headerCaretOpen : ""
+-          }`}
+-        />
+-
+-        <FolderTree size={16} strokeWidth={2.1} />
+-
+-        <span className={styles.headerTitle}>Library Files</span>
+-
+-        {latestScan ? (
++      <div className={styles.catalogToolbar}>
++        <div className={styles.catalogIdentity} title={library.rootPath}>
++          <span className={styles.libraryName}>{library.name}</span>
+           <span className={styles.fileCount}>{files.length}</span>
+-        ) : null}
+-      </button>
+-
+-      <div
+-        className={`${styles.content} ${
+-          open ? styles.contentOpen : styles.contentClosed
+-        }`}
+-      >
+-        <div className={styles.inner}>
+-          <div className={styles.libraryName}>{library.name}</div>
+-
+-          <button
+-            className={styles.scanButton}
+-            type="button"
+-            disabled={loading || scanning}
+-            onClick={handleScan}
+-          >
+-            <RefreshCw
+-              size={14}
+-              strokeWidth={2.1}
+-              className={scanning ? styles.spinning : ""}
+-            />
+-
+-            {scanning
+-              ? "Scanning..."
+-              : latestScan
+-                ? "Rescan Library"
+-                : "Scan Library"}
+-          </button>
+-
+-          {loading ? (
+-            <div className={styles.empty}>Loading file catalog...</div>
+-          ) : null}
+-
+-          {!loading && error ? (
+-            <div className={styles.error}>
+-              <AlertTriangle size={14} strokeWidth={2.1} />
+-              <span>{error}</span>
+-            </div>
+-          ) : null}
+-
+-          {!loading && !error && latestScan ? (
+-            <div className={styles.scanMeta}>
+-              <span>
+-                {latestScan.status === "complete"
+-                  ? "Scan complete"
+-                  : latestScan.status}
+-              </span>
+-
+-              <span>{formatScanTime(latestScanTime)}</span>
+-
+-              {missingFileCount > 0 ? (
+-                <span>{missingFileCount} missing</span>
+-              ) : null}
+-
+-              {unreadableFileCount > 0 ? (
+-                <span>{unreadableFileCount} unreadable</span>
+-              ) : null}
+-            </div>
+-          ) : null}
+-
+-          {!loading && !error && !latestScan ? (
+-            <div className={styles.empty}>
+-              This Library has not been scanned yet.
+-            </div>
+-          ) : null}
++        </div>
+ 
+-          {!loading && !error && latestScan && files.length === 0 ? (
+-            <div className={styles.empty}>No supported files were found.</div>
+-          ) : null}
++        <button
++          className={styles.scanButton}
++          type="button"
++          disabled={loading || scanning}
++          onClick={handleScan}
++          aria-label={latestScan ? "Rescan Library" : "Scan Library"}
++          title={latestScan ? "Rescan Library" : "Scan Library"}
++        >
++          <RefreshCw
++            size={14}
++            strokeWidth={2.1}
++            className={scanning ? styles.spinning : ""}
++          />
++        </button>
++      </div>
+ 
+-          {!loading && !error && files.length > 0 ? (
+-            <div className={styles.treeViewport}>
++      {loading ? (
++        <div className={styles.empty}>Loading file catalog...</div>
++      ) : error ? (
++        <div className={styles.error}>
++          <AlertTriangle size={14} strokeWidth={2.1} />
++          <span>{error}</span>
++        </div>
++      ) : !latestScan ? (
++        <div className={styles.empty}>
++          <span>This Library has not been scanned yet.</span>
++          <button type="button" onClick={handleScan} disabled={scanning}>
++            {scanning ? "Scanning..." : "Scan Library"}
++          </button>
++        </div>
++      ) : files.length === 0 ? (
++        <div className={styles.empty}>No supported files were found.</div>
++      ) : (
++        <>
++          <div className={styles.treeViewport}>
++            {matchingFiles.length > 0 ? (
+               <TreeBranch
+                 node={tree}
+                 depth={0}
+-                openFolders={openFolders}
++                openFolders={visibleOpenFolders}
+                 onToggleFolder={toggleFolder}
+               />
+-            </div>
+-          ) : null}
++            ) : (
++              <div className={styles.noMatches}>
++                No file names or paths match “{searchQuery.trim()}”.
++              </div>
++            )}
++          </div>
+ 
+-          {issues.length > 0 ? (
+-            <div className={styles.issueSummary}>
+-              {issues.length} scan issue{issues.length === 1 ? "" : "s"}
++          {normalizedSearchQuery ? (
++            <div className={styles.searchResults}>
++              <div className={styles.searchResultsHeader}>
++                <span>Catalog Matches</span>
++                <span>{matchingFiles.length}</span>
++              </div>
++
++              <div className={styles.searchResultsList}>
++                {matchingFiles.slice(0, 12).map((file) => (
++                  <div
++                    key={file.id}
++                    className={styles.searchResultRow}
++                    title={file.relativePath}
++                  >
++                    <FileIcon extension={file.extension} />
++                    <span>{file.relativePath}</span>
++                  </div>
++                ))}
++
++                {matchingFiles.length > 12 ? (
++                  <div className={styles.moreResults}>
++                    +{matchingFiles.length - 12} more matches
++                  </div>
++                ) : null}
++              </div>
+             </div>
+           ) : null}
+-        </div>
+-      </div>
++        </>
++      )}
++
++      {latestScan ? (
++        <footer className={styles.statusBar}>
++          <span>
++            {latestScan.status === "complete" ? "Ready" : latestScan.status}
++          </span>
++          <span>{formatScanTime(latestScanTime)}</span>
++          {missingFileCount > 0 ? (
++            <span>{missingFileCount} missing</span>
++          ) : null}
++          {unreadableFileCount > 0 ? (
++            <span>{unreadableFileCount} unreadable</span>
++          ) : null}
++          {issues.length > 0 ? <span>{issues.length} issues</span> : null}
++        </footer>
++      ) : null}
+     </section>
+   );
+ }
+diff --git a/frontend/src/components/sidebar/Sidebar.module.css b/frontend/src/components/sidebar/Sidebar.module.css
+index bee6bff..6c8c1f1 100644
+--- a/frontend/src/components/sidebar/Sidebar.module.css
++++ b/frontend/src/components/sidebar/Sidebar.module.css
+@@ -27,7 +27,7 @@
+   width: var(--workbench-rail-width);
+   min-width: var(--workbench-rail-width);
+   height: 100%;
+-  padding: 6px 0;
++  padding: 4px 0;
+   border-color: var(--sidebar-border);
+   background:
+     linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 22%),
+@@ -48,48 +48,51 @@
+   flex: 1;
+   flex-direction: column;
+   align-items: center;
+-  gap: 4px;
++  gap: 2px;
+ }
+ 
+ .activityButton {
+   position: relative;
+   display: grid;
+   place-items: center;
+-  width: 36px;
+-  height: 36px;
++  width: 27px;
++  height: 29px;
+   padding: 0;
+-  border: 1px solid transparent;
+-  border-radius: 8px;
++  border: 0;
++  border-radius: 4px;
+   color: var(--app-muted-text);
+   background: transparent;
+   cursor: pointer;
+   transition:
+-    color 120ms ease,
+-    background-color 120ms ease,
+-    border-color 120ms ease;
++    color 100ms ease,
++    background-color 100ms ease;
++}
++
++.activityButton svg {
++  width: 16px;
++  height: 16px;
+ }
+ 
+ .activityButton::before {
+   content: "";
+   position: absolute;
+-  top: 7px;
+-  bottom: 7px;
++  top: 5px;
++  bottom: 5px;
+   width: 2px;
+   border-radius: var(--r-pill);
+   background: transparent;
+ }
+ 
+ .left .activityButton::before {
+-  left: -4px;
++  left: -2px;
+ }
+ 
+ .right .activityButton::before {
+-  right: -4px;
++  right: -2px;
+ }
+ 
+ .activityButton:hover,
+ .activityButton:focus-visible {
+-  border-color: rgba(143, 122, 223, 0.2);
+   color: var(--app-text);
+   background: rgba(255, 255, 255, 0.045);
+   outline: none;
+@@ -106,8 +109,7 @@
+ 
+ .panel {
+   display: grid;
+-  grid-template-rows: 42px minmax(0, 1fr);
+-  width: var(--workbench-dock-panel-width);
++  grid-template-rows: 34px minmax(0, 1fr);
+   min-width: 0;
+   min-height: 0;
+   overflow: hidden;
+@@ -120,10 +122,12 @@
+ }
+ 
+ .left .panel {
++  width: var(--workbench-left-panel-width);
+   border-right: 1px solid var(--sidebar-border);
+ }
+ 
+ .right .panel {
++  width: var(--workbench-right-panel-width);
+   border-left: 1px solid var(--sidebar-border);
+ }
+ 
+@@ -132,8 +136,8 @@
+   align-items: center;
+   justify-content: space-between;
+   min-width: 0;
+-  min-height: 42px;
+-  padding: 7px 8px 7px 12px;
++  min-height: 34px;
++  padding: 4px 5px 4px 9px;
+   border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+   background: rgba(255, 255, 255, 0.014);
+ }
+@@ -141,9 +145,9 @@
+ .title {
+   overflow: hidden;
+   color: var(--app-muted-text);
+-  font-size: 10px;
++  font-size: 9px;
+   font-weight: 700;
+-  letter-spacing: 0.12em;
++  letter-spacing: 0.11em;
+   text-overflow: ellipsis;
+   text-transform: uppercase;
+   white-space: nowrap;
+@@ -153,23 +157,23 @@
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+-  width: 29px;
+-  height: 29px;
++  width: 25px;
++  height: 25px;
+   padding: 0;
+-  border: 1px solid transparent;
+-  border-radius: var(--r-sm);
++  border: 0;
++  border-radius: 4px;
+   color: var(--app-muted-text);
+   background: transparent;
+   cursor: pointer;
+-  transition:
+-    color 120ms ease,
+-    background-color 120ms ease,
+-    border-color 120ms ease;
++}
++
++.headerButton svg {
++  width: 15px;
++  height: 15px;
+ }
+ 
+ .headerButton:hover,
+ .headerButton:focus-visible {
+-  border-color: rgba(143, 122, 223, 0.24);
+   color: var(--app-text);
+   background: var(--sidebar-reveal-hover);
+   outline: none;
+@@ -180,10 +184,18 @@
+   flex-direction: column;
+   min-width: 0;
+   min-height: 0;
+-  padding: 6px 0 12px;
+   overflow-x: hidden;
+-  overflow-y: auto;
+   overscroll-behavior: contain;
++}
++
++.left .scrollArea {
++  padding: 0;
++  overflow-y: hidden;
++}
++
++.right .scrollArea {
++  padding: 3px 0 8px;
++  overflow-y: auto;
+   scrollbar-gutter: stable;
+ }
+ 
+@@ -206,7 +218,7 @@
+     right: var(--workbench-rail-width);
+     bottom: 0;
+     width: min(
+-      var(--workbench-dock-panel-width),
++      var(--workbench-right-panel-width),
+       calc(100vw - var(--workbench-rail-width) * 2 - 24px)
+     );
+     box-shadow: 0 20px 52px rgba(0, 0, 0, 0.66);
+@@ -224,8 +236,8 @@
+     bottom: 0;
+     left: var(--workbench-rail-width);
+     width: min(
+-      var(--workbench-dock-panel-width),
+-      calc(100vw - var(--workbench-rail-width) * 2 - 24px)
++      var(--workbench-left-panel-width),
++      calc(100vw - var(--workbench-rail-width) * 2 - 18px)
+     );
+     box-shadow: 0 20px 52px rgba(0, 0, 0, 0.7);
+   }
+@@ -233,29 +245,22 @@
+ 
+ @media (max-height: 620px) {
+   .panel {
+-    grid-template-rows: 36px minmax(0, 1fr);
++    grid-template-rows: 30px minmax(0, 1fr);
+   }
+ 
+   .header {
+-    min-height: 36px;
+-    padding-top: 4px;
+-    padding-bottom: 4px;
+-  }
+-
+-  .activityRail {
+-    padding-top: 4px;
+-    padding-bottom: 4px;
++    min-height: 30px;
++    padding-top: 2px;
++    padding-bottom: 2px;
+   }
+ 
+   .activityButton {
+-    width: 33px;
+-    height: 33px;
++    height: 27px;
+   }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+-  .activityButton,
+-  .headerButton {
++  .activityButton {
+     transition: none;
+   }
+ }
+diff --git a/frontend/src/components/topbar/Topbar.module.css b/frontend/src/components/topbar/Topbar.module.css
+index 9853ca0..ce27683 100644
+--- a/frontend/src/components/topbar/Topbar.module.css
++++ b/frontend/src/components/topbar/Topbar.module.css
+@@ -1,4 +1,3 @@
+-/* frontend/src/components/topbar/Topbar.module.css */
+ .topbar {
+   position: fixed;
+   top: 0;
+@@ -25,14 +24,12 @@
+ 
+ .topbarLeft {
+   display: flex;
+-  align-items: baseline;
++  align-items: center;
+   gap: 12px;
+   height: 100%;
+-  min-width: 0;
+ }
+ 
+ .topbarTitle {
+-  /* font-size: var(--topbar-title-size); */
+   font-size: 1.8rem;
+   font-family: "IM Fell English SC", serif;
+   font-weight: 600;
+@@ -42,17 +39,6 @@
+   white-space: nowrap;
+ }
+ 
+-.workspaceLabel {
+-  overflow: hidden;
+-  color: var(--app-muted-text);
+-  font-size: 10px;
+-  font-weight: 650;
+-  letter-spacing: 0.12em;
+-  text-overflow: ellipsis;
+-  text-transform: uppercase;
+-  white-space: nowrap;
+-}
+-
+ .topbarRight {
+   display: flex;
+   align-items: center;
+@@ -80,22 +66,3 @@
+ .userAvatar:hover {
+   transform: scale(1.1);
+ }
+-
+-@media (max-width: 620px) {
+-  .topbarContainer {
+-    padding: 0 16px;
+-  }
+-
+-  .topbarTitle {
+-    font-size: 1.5rem;
+-  }
+-
+-  .workspaceLabel {
+-    display: none;
+-  }
+-
+-  .userAvatar {
+-    width: 30px;
+-    height: 30px;
+-  }
+-}
+diff --git a/frontend/src/components/topbar/Topbar.tsx b/frontend/src/components/topbar/Topbar.tsx
+index ae7885f..20ef068 100644
+--- a/frontend/src/components/topbar/Topbar.tsx
++++ b/frontend/src/components/topbar/Topbar.tsx
+@@ -1,18 +1,27 @@
++import type { LibraryListItem } from "../../domains/library/library.types";
++import { ActiveLibraryBadge } from "./ActiveLibraryBadge/ActiveLibraryBadge";
+ import styles from "./Topbar.module.css";
+ 
+-export function Topbar() {
++type TopbarProps = {
++  selectedLibrary: LibraryListItem | null;
++};
++
++export function Topbar({ selectedLibrary }: TopbarProps) {
+   return (
+-    <header className={styles.topbar}>
+-      <div className={styles.topbarContainer}>
+-        <div className={styles.topbarLeft}>
+-          <h1 className={styles.topbarTitle}>Archivist</h1>
+-          <span className={styles.workspaceLabel}>Local AI Workbench</span>
+-        </div>
++    <>
++      <header className={styles.topbar}>
++        <div className={styles.topbarContainer}>
++          <div className={styles.topbarLeft}>
++            <h1 className={styles.topbarTitle}>Archivist</h1>
++          </div>
+ 
+-        <div className={styles.topbarRight}>
+-          <button className={styles.userAvatar} aria-label="User profile" />
++          <div className={styles.topbarRight}>
++            <button className={styles.userAvatar} aria-label="User profile" />
++          </div>
+         </div>
+-      </div>
+-    </header>
++      </header>
++
++      <ActiveLibraryBadge selectedLibrary={selectedLibrary} />
++    </>
+   );
+ }
+diff --git a/frontend/src/components/workbench/WorkbenchShell.module.css b/frontend/src/components/workbench/WorkbenchShell.module.css
+index aa3b35f..b8f3462 100644
+--- a/frontend/src/components/workbench/WorkbenchShell.module.css
++++ b/frontend/src/components/workbench/WorkbenchShell.module.css
+@@ -1,8 +1,9 @@
+ .shell {
+-  --workbench-rail-width: 44px;
+-  --workbench-dock-panel-width: clamp(280px, 23vw, 380px);
+-  --workbench-left-panel-space: var(--workbench-dock-panel-width);
+-  --workbench-right-panel-space: var(--workbench-dock-panel-width);
++  --workbench-rail-width: 32px;
++  --workbench-left-panel-width: clamp(310px, 25vw, 430px);
++  --workbench-right-panel-width: clamp(215px, 17vw, 285px);
++  --workbench-left-panel-space: var(--workbench-left-panel-width);
++  --workbench-right-panel-space: var(--workbench-right-panel-width);
+ 
+   position: fixed;
+   inset: var(--topbar-height) 0 0;
+@@ -38,6 +39,6 @@
+ @media (max-width: 760px) {
+   .shell {
+     --workbench-left-panel-space: 0px;
+-    --workbench-rail-width: 40px;
++    --workbench-rail-width: 30px;
+   }
+ }

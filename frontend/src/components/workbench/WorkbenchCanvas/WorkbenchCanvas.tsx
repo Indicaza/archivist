@@ -1,7 +1,7 @@
 import { Bot, FolderOpen, MessageSquareText, Sparkles } from "lucide-react";
-import type { Agent } from "../../domains/agent/agent.types";
-import type { Chat } from "../../domains/chat/chat.types";
-import type { LibraryListItem } from "../../domains/library/library.types";
+import type { Agent } from "../../../domains/agent/agent.types";
+import type { Chat } from "../../../domains/chat/chat.types";
+import type { LibraryListItem } from "../../../domains/library/library.types";
 import styles from "./WorkbenchCanvas.module.css";
 
 type WorkbenchCanvasProps = {

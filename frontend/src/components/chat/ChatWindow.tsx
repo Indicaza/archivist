@@ -11,7 +11,6 @@ import {
 import {
   Code2,
   List,
-  MessageSquareText,
   Plus,
   SendHorizontal,
   Sparkles,
@@ -353,11 +352,6 @@ export function ChatWindow({
 
       <section className={styles.composerPanel} aria-label="Chat input panel">
         <header className={styles.composerHeader}>
-          <div className={styles.composerTab}>
-            <MessageSquareText size={13} strokeWidth={2.1} />
-            <span>Chat</span>
-          </div>
-
           <div className={styles.composerToolbar}>{toolbar}</div>
         </header>
 

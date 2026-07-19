@@ -232,3 +232,51 @@
     max-height: 120px;
   }
 }
+
+/* Shared compact-navigation motion */
+.toolbarButton,
+.searchCloseButton,
+.archivedRow {
+  transform: translateX(0) scale(1);
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.toolbarButton:hover:not(:disabled),
+.toolbarButton:focus-visible:not(:disabled),
+.searchCloseButton:hover,
+.searchCloseButton:focus-visible {
+  transform: scale(1.07);
+}
+
+.toolbarButton:hover + .toolbarButton,
+.toolbarButton:focus-visible + .toolbarButton,
+.toolbarButton:has(+ .toolbarButton:hover),
+.toolbarButton:has(+ .toolbarButton:focus-visible) {
+  background: var(--sidebar-card-neighbor-bg);
+  transform: scale(1.025);
+}
+
+.archivedRow:hover,
+.archivedRow:focus-visible {
+  transform: translateX(3px) scale(1.01);
+}
+
+.archivedRow:hover + .archivedRow,
+.archivedRow:focus-visible + .archivedRow,
+.archivedRow:has(+ .archivedRow:hover),
+.archivedRow:has(+ .archivedRow:focus-visible) {
+  background: var(--sidebar-card-neighbor-bg);
+  transform: translateX(1px) scale(1.004);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolbarButton,
+  .searchCloseButton,
+  .archivedRow {
+    transition: none;
+  }
+}

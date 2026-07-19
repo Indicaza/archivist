@@ -1,0 +1,73 @@
+.statusBar {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: var(--workbench-statusbar-height);
+  min-width: 0;
+  gap: 12px;
+  padding: 0 8px;
+  border-top: 1px solid rgba(214, 198, 170, 0.1);
+  color: var(--app-muted-text);
+  background: rgba(10, 9, 8, 0.98);
+  font-size: 8.5px;
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.14);
+}
+
+.group,
+.contextGroup,
+.group > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.group {
+  flex: 0 0 auto;
+  gap: 9px;
+}
+
+.group > span {
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.contextGroup {
+  justify-content: flex-end;
+  flex: 1;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.contextGroup > span {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.readyDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-success);
+  box-shadow: 0 0 8px rgba(127, 168, 120, 0.45);
+}
+
+.localStatus {
+  opacity: 0.82;
+}
+
+@media (max-width: 820px) {
+  .contextGroup > span:nth-last-child(-n + 2) {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .contextGroup > span:not(:first-child) {
+    display: none;
+  }
+}

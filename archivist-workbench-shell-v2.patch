@@ -1,0 +1,2004 @@
+diff --git a/frontend/src/App.css b/frontend/src/App.css
+index 07ed592..a61989d 100644
+--- a/frontend/src/App.css
++++ b/frontend/src/App.css
+@@ -1,12 +1,16 @@
+ .left-dock-stack,
+ .right-dock-stack {
+   display: flex;
++  flex: 1;
+   flex-direction: column;
++  width: 100%;
+   min-width: 0;
++  min-height: 0;
+ }
+ 
+-.right-dock-stack {
+-  gap: 2px;
++.left-dock-stack > *,
++.right-dock-stack > * {
++  min-height: 0;
+ }
+ 
+ @media (max-width: 760px) {
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 21465ad..13c42cb 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -1,4 +1,11 @@
+ import { useEffect, useMemo, useState } from "react";
++import {
++  Bot,
++  Library as LibraryIcon,
++  MessageSquareText,
++  Search,
++  Sparkles,
++} from "lucide-react";
+ import { ChatWindow } from "./components/chat/ChatWindow";
+ import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
+ import { Agents } from "./components/sidebar/Agents/Agents";
+@@ -8,7 +15,7 @@ import { Libraries } from "./components/sidebar/Libraries/Libraries";
+ import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
+ import { Topbar } from "./components/topbar/Topbar";
+ import { ChatPanelToolbar } from "./components/workbench/ChatPanelToolbar";
+-import { WorkbenchCanvas } from "./components/workbench/WorkbenchCanvas";
++import { DockPlaceholder } from "./components/workbench/DockPlaceholder";
+ import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
+ import {
+   addAgent,
+@@ -740,70 +747,109 @@ export function App() {
+       <Topbar />
+ 
+       <WorkbenchShell
+-        leftPanel={
+-          <div className="left-dock-stack">
+-            <Libraries
+-              libraries={libraryListItems}
+-              archivedLibraries={archivedLibraryListItems}
+-              selectedLibraryId={selectedLibraryId}
+-              loading={loadingLibraries}
+-              adding={addingLibrary}
+-              onSelectLibrary={handleSelectLibrary}
+-              onAddLibrary={handleAddLibrary}
+-              onManageLibrary={setManagedLibraryId}
+-              onManageArchivedLibrary={setManagedLibraryId}
+-            />
+-          </div>
+-        }
+-        rightPanel={
+-          <div className="right-dock-stack">
+-            <Chats
+-              chats={chats}
+-              archivedChats={archivedChats}
+-              selectedChatId={selectedChatId}
+-              loading={loadingChats}
+-              adding={addingChat}
+-              onAddChat={handleAddChat}
+-              onSelectChat={handleSelectChat}
+-              onManageChat={setManagedChatId}
+-              onManageArchivedChat={setManagedChatId}
+-            />
+-
+-            <Agents
+-              agents={agents}
+-              archivedAgents={archivedAgents}
+-              activeAgentId={activeAgentId}
+-              loading={loadingAgents}
+-              adding={addingAgent}
+-              onAddAgent={handleAddAgent}
+-              onManageAgent={setManagedAgentId}
+-              onManageArchivedAgent={setManagedAgentId}
+-            />
+-          </div>
+-        }
+-        center={
+-          <WorkbenchCanvas
+-            selectedLibrary={selectedLibrary}
+-            selectedChat={selectedChat}
+-            activeAgent={activeAgent}
+-          />
+-        }
+-        bottomToolbar={
+-          <ChatPanelToolbar
+-            chats={chats}
+-            selectedChat={selectedChat}
+-            activeAgent={activeAgent}
+-            addingChat={addingChat}
+-            onSelectChat={handleSelectChat}
+-            onAddChat={handleAddChat}
+-            onManageChat={setManagedChatId}
+-            onManageAgent={setManagedAgentId}
+-          />
+-        }
+-        bottomContent={
++        leftViews={[
++          {
++            id: "libraries",
++            title: "Library Explorer",
++            icon: <LibraryIcon size={20} strokeWidth={1.9} />,
++            content: (
++              <div className="left-dock-stack">
++                <Libraries
++                  libraries={libraryListItems}
++                  archivedLibraries={archivedLibraryListItems}
++                  selectedLibraryId={selectedLibraryId}
++                  loading={loadingLibraries}
++                  adding={addingLibrary}
++                  onSelectLibrary={handleSelectLibrary}
++                  onAddLibrary={handleAddLibrary}
++                  onManageLibrary={setManagedLibraryId}
++                  onManageArchivedLibrary={setManagedLibraryId}
++                />
++              </div>
++            ),
++          },
++          {
++            id: "search",
++            title: "Library Search",
++            icon: <Search size={20} strokeWidth={1.9} />,
++            content: (
++              <DockPlaceholder
++                icon={<Search size={20} strokeWidth={1.9} />}
++                title="Library Search"
++                description="Project-wide file and content search will live here."
++              />
++            ),
++          },
++          {
++            id: "skills",
++            title: "Skills",
++            icon: <Sparkles size={20} strokeWidth={1.9} />,
++            content: (
++              <DockPlaceholder
++                icon={<Sparkles size={20} strokeWidth={1.9} />}
++                title="Skills"
++                description="Reusable tools and guided workflows will live here."
++              />
++            ),
++          },
++        ]}
++        rightViews={[
++          {
++            id: "chats",
++            title: "Chats",
++            icon: <MessageSquareText size={20} strokeWidth={1.9} />,
++            content: (
++              <div className="right-dock-stack">
++                <Chats
++                  chats={chats}
++                  archivedChats={archivedChats}
++                  selectedChatId={selectedChatId}
++                  loading={loadingChats}
++                  adding={addingChat}
++                  onAddChat={handleAddChat}
++                  onSelectChat={handleSelectChat}
++                  onManageChat={setManagedChatId}
++                  onManageArchivedChat={setManagedChatId}
++                />
++              </div>
++            ),
++          },
++          {
++            id: "agents",
++            title: "Agents",
++            icon: <Bot size={20} strokeWidth={1.9} />,
++            content: (
++              <div className="right-dock-stack">
++                <Agents
++                  agents={agents}
++                  archivedAgents={archivedAgents}
++                  activeAgentId={activeAgentId}
++                  loading={loadingAgents}
++                  adding={addingAgent}
++                  onAddAgent={handleAddAgent}
++                  onManageAgent={setManagedAgentId}
++                  onManageArchivedAgent={setManagedAgentId}
++                />
++              </div>
++            ),
++          },
++        ]}
++        workspace={
+           <ChatWindow
+             selectedChat={selectedChat}
+             onChatActivity={handleChatActivity}
++            toolbar={
++              <ChatPanelToolbar
++                chats={chats}
++                selectedChat={selectedChat}
++                activeAgent={activeAgent}
++                addingChat={addingChat}
++                onSelectChat={handleSelectChat}
++                onAddChat={handleAddChat}
++                onManageChat={setManagedChatId}
++                onManageAgent={setManagedAgentId}
++              />
++            }
+           />
+         }
+       />
+diff --git a/frontend/src/components/chat/ChatWindow.module.css b/frontend/src/components/chat/ChatWindow.module.css
+index 006cc42..64ce82d 100644
+--- a/frontend/src/components/chat/ChatWindow.module.css
++++ b/frontend/src/components/chat/ChatWindow.module.css
+@@ -1,14 +1,28 @@
+ .chatWindow {
+-  display: grid;
+-  grid-template-rows: minmax(0, 1fr) auto;
++  grid-column: 3;
++  grid-row: 1;
++  z-index: 1;
+   width: 100%;
+   height: 100%;
+   min-width: 0;
+   min-height: 0;
+-  background: transparent;
++  overflow: hidden;
++  background:
++    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 26%),
++    linear-gradient(
++      90deg,
++      rgba(0, 0, 0, 0.16),
++      transparent 18%,
++      transparent 82%,
++      rgba(0, 0, 0, 0.12)
++    ),
++    var(--workspace-bg);
++  contain: layout paint style;
+ }
+ 
+ .messagesViewport {
++  width: 100%;
++  height: 100%;
+   min-width: 0;
+   min-height: 0;
+   overflow-x: hidden;
+@@ -24,7 +38,7 @@
+   min-height: 100%;
+   margin: 0 auto;
+   gap: clamp(12px, 2vh, 24px);
+-  padding: clamp(14px, 2.2vw, 28px) clamp(14px, 3vw, 38px) 22px;
++  padding: clamp(16px, 2.4vw, 30px) clamp(14px, 3.2vw, 42px) 28px;
+ }
+ 
+ .emptyState {
+@@ -147,10 +161,59 @@
+   opacity: 0.85;
+ }
+ 
++.composerPanel {
++  grid-column: 3 / 6;
++  grid-row: 2;
++  z-index: 5;
++  display: grid;
++  grid-template-rows: 40px auto;
++  min-width: 0;
++  min-height: 0;
++  overflow: hidden;
++  border-top: 1px solid var(--sidebar-border);
++  background:
++    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 20%),
++    var(--sidebar-bg);
++  box-shadow: 0 -16px 42px rgba(0, 0, 0, 0.34);
++  contain: layout paint style;
++}
++
++.composerHeader {
++  display: flex;
++  align-items: center;
++  min-width: 0;
++  gap: 9px;
++  padding: 0 9px 0 10px;
++  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
++  background: rgba(255, 255, 255, 0.014);
++}
++
++.composerTab {
++  display: inline-flex;
++  align-items: center;
++  align-self: stretch;
++  flex: 0 0 auto;
++  gap: 7px;
++  padding: 0 10px;
++  border-bottom: 2px solid var(--app-accent);
++  color: var(--app-text);
++  font-size: 11px;
++  font-weight: 700;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++}
++
++.composerToolbar {
++  display: flex;
++  align-items: center;
++  flex: 1;
++  min-width: 0;
++  overflow: hidden;
++}
++
+ .composer {
+   width: 100%;
+-  padding: 9px clamp(10px, 2vw, 22px) 12px;
+-  border-top: 1px solid rgba(214, 198, 170, 0.08);
++  padding: 8px clamp(10px, 2vw, 22px) 11px;
+   background:
+     linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent),
+     rgba(16, 15, 13, 0.72);
+@@ -168,7 +231,7 @@
+   border-radius: var(--composer-pill-radius);
+   background: var(--composer-bg);
+   box-shadow:
+-    0 14px 36px rgba(0, 0, 0, 0.44),
++    0 12px 32px rgba(0, 0, 0, 0.42),
+     inset 0 1px 0 rgba(255, 250, 240, 0.045);
+   transition:
+     border-color var(--dur-base) var(--ease-standard-inout),
+@@ -179,7 +242,7 @@
+ .composerInner:focus-within {
+   border-color: var(--composer-ring-focus);
+   box-shadow:
+-    0 16px 40px rgba(0, 0, 0, 0.5),
++    0 14px 36px rgba(0, 0, 0, 0.48),
+     0 0 0 1px rgba(143, 122, 223, 0.14),
+     inset 0 1px 0 rgba(255, 250, 240, 0.055);
+ }
+@@ -190,7 +253,7 @@
+ 
+ .composerInput {
+   flex: 1;
+-  max-height: min(var(--composer-max-height), 34vh);
++  max-height: min(240px, 36vh);
+   padding: 7px 0;
+   overflow-y: auto;
+   border: 0;
+@@ -246,7 +309,7 @@
+   }
+ }
+ 
+-@media (max-width: 720px) {
++@media (max-width: 760px) {
+   .user .messageMeta,
+   .user .blocks,
+   .assistant .messageMeta,
+@@ -261,13 +324,35 @@
+     padding-left: 10px;
+   }
+ 
++  .composerHeader {
++    gap: 5px;
++    padding-right: 5px;
++    padding-left: 6px;
++  }
++
++  .composerTab {
++    padding: 0 7px;
++    font-size: 10px;
++  }
++
+   .composer {
+     padding-right: 7px;
+     padding-left: 7px;
+   }
+ }
+ 
+-@media (max-height: 540px) {
++@media (max-width: 520px) {
++  .composerTab span {
++    display: none;
++  }
++}
++
++@media (max-height: 620px) {
++  .composerPanel {
++    grid-template-rows: 36px auto;
++    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.3);
++  }
++
+   .messages {
+     gap: 10px;
+     padding-top: 10px;
+diff --git a/frontend/src/components/chat/ChatWindow.tsx b/frontend/src/components/chat/ChatWindow.tsx
+index 70f7c40..b78d323 100644
+--- a/frontend/src/components/chat/ChatWindow.tsx
++++ b/frontend/src/components/chat/ChatWindow.tsx
+@@ -1,18 +1,20 @@
+ import {
+   type FormEvent,
+   type KeyboardEvent,
++  type ReactNode,
+   useEffect,
+   useMemo,
+   useRef,
+   useState,
+ } from "react";
+-import { SendHorizontal, Sparkles } from "lucide-react";
++import { MessageSquareText, SendHorizontal, Sparkles } from "lucide-react";
+ import { fetchMessages, respondToChat } from "../../domains/chat/chat.api";
+ import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
+ import styles from "./ChatWindow.module.css";
+ 
+ type ChatWindowProps = {
+   selectedChat: Chat | null;
++  toolbar: ReactNode;
+   onChatActivity: (chatId: string) => void;
+ };
+ 
+@@ -52,6 +54,7 @@ function createOptimisticUserMessage(
+ 
+ export function ChatWindow({
+   selectedChat,
++  toolbar,
+   onChatActivity,
+ }: ChatWindowProps) {
+   const [messages, setMessages] = useState<ChatMessage[]>([]);
+@@ -241,13 +244,13 @@ export function ChatWindow({
+ 
+     const animationFrameId = window.requestAnimationFrame(() => {
+       if (forceScrollRef.current) {
+-        scrollToBottom(container, "smooth");
++        scrollToBottom(container, "auto");
+         forceScrollRef.current = false;
+         return;
+       }
+ 
+       if (pinnedToBottom) {
+-        scrollToBottom(container, "smooth");
++        scrollToBottom(container, "auto");
+       }
+     });
+ 
+@@ -257,94 +260,113 @@ export function ChatWindow({
+   }, [loadingMessages, messages, pinnedToBottom, sending]);
+ 
+   return (
+-    <section className={styles.chatWindow}>
+-      <div
+-        ref={messagesContainerRef}
+-        className={styles.messagesViewport}
+-        aria-live="polite"
+-      >
+-        <div className={styles.messages}>
+-          {!selectedChatId ? (
+-            <div className={styles.emptyState}>
+-              <Sparkles size={22} strokeWidth={2} />
+-              <span>Select or create a chat to begin.</span>
+-            </div>
+-          ) : loadingMessages ? (
+-            <div className={styles.emptyState}>
+-              <Sparkles size={22} strokeWidth={2} />
+-              <span>Loading {selectedChatTitle}...</span>
+-            </div>
+-          ) : !hasMessages && !sending ? (
+-            <div className={styles.emptyState}>
+-              <Sparkles size={22} strokeWidth={2} />
+-              <span>{selectedChatTitle} is empty. Send the first message.</span>
+-            </div>
+-          ) : (
+-            messages.map((message) => (
+-              <article
+-                key={message.id}
+-                className={`${styles.message} ${styles[message.role]}`}
+-              >
++    <>
++      <section className={styles.chatWindow}>
++        <div
++          ref={messagesContainerRef}
++          className={styles.messagesViewport}
++          aria-live="polite"
++        >
++          <div className={styles.messages}>
++            {!selectedChatId ? (
++              <div className={styles.emptyState}>
++                <Sparkles size={22} strokeWidth={2} />
++                <span>Select or create a chat to begin.</span>
++              </div>
++            ) : loadingMessages ? (
++              <div className={styles.emptyState}>
++                <Sparkles size={22} strokeWidth={2} />
++                <span>Loading {selectedChatTitle}...</span>
++              </div>
++            ) : !hasMessages && !sending ? (
++              <div className={styles.emptyState}>
++                <Sparkles size={22} strokeWidth={2} />
++                <span>
++                  {selectedChatTitle} is empty. Send the first message.
++                </span>
++              </div>
++            ) : (
++              messages.map((message) => (
++                <article
++                  key={message.id}
++                  className={`${styles.message} ${styles[message.role]}`}
++                >
++                  <div className={styles.messageMeta}>
++                    <span className={styles.roleLabel}>
++                      {message.role === "assistant"
++                        ? "Archivist"
++                        : message.role === "user"
++                          ? "You"
++                          : "System"}
++                    </span>
++                  </div>
++
++                  <div className={styles.blocks}>
++                    <div className={styles.markdownBlock}>
++                      {message.content}
++                    </div>
++                  </div>
++                </article>
++              ))
++            )}
++
++            {sending ? (
++              <article className={`${styles.message} ${styles.assistant}`}>
+                 <div className={styles.messageMeta}>
+-                  <span className={styles.roleLabel}>
+-                    {message.role === "assistant"
+-                      ? "Archivist"
+-                      : message.role === "user"
+-                        ? "You"
+-                        : "System"}
+-                  </span>
++                  <span className={styles.roleLabel}>Archivist</span>
+                 </div>
+ 
+                 <div className={styles.blocks}>
+-                  <div className={styles.markdownBlock}>{message.content}</div>
++                  <div className={styles.typing}>Thinking...</div>
+                 </div>
+               </article>
+-            ))
+-          )}
++            ) : null}
++          </div>
++        </div>
++      </section>
+ 
+-          {sending ? (
+-            <article className={`${styles.message} ${styles.assistant}`}>
+-              <div className={styles.messageMeta}>
+-                <span className={styles.roleLabel}>Archivist</span>
+-              </div>
++      <section className={styles.composerPanel} aria-label="Chat input panel">
++        <header className={styles.composerHeader}>
++          <div className={styles.composerTab}>
++            <MessageSquareText size={14} strokeWidth={2.1} />
++            <span>Chat</span>
++          </div>
+ 
+-              <div className={styles.blocks}>
+-                <div className={styles.typing}>Thinking...</div>
+-              </div>
+-            </article>
+-          ) : null}
+-        </div>
+-      </div>
+-
+-      <form className={styles.composer} onSubmit={onSubmit}>
+-        <div className={`${styles.composerInner} ${grown ? styles.grown : ""}`}>
+-          <textarea
+-            ref={textareaRef}
+-            className={styles.composerInput}
+-            value={input}
+-            onChange={(event) => setInput(event.target.value)}
+-            onKeyDown={onKeyDown}
+-            placeholder={
+-              selectedChatTitle
+-                ? `Message ${selectedChatTitle}...`
+-                : "Choose or create a chat..."
+-            }
+-            autoComplete="off"
+-            rows={1}
+-            disabled={sending || loadingMessages || !selectedChatId}
+-          />
+-
+-          <button
+-            className={styles.composerButton}
+-            type="submit"
+-            disabled={!canSend}
+-            aria-label="Send"
+-            title="Send"
++          <div className={styles.composerToolbar}>{toolbar}</div>
++        </header>
++
++        <form className={styles.composer} onSubmit={onSubmit}>
++          <div
++            className={`${styles.composerInner} ${grown ? styles.grown : ""}`}
+           >
+-            <SendHorizontal size={18} strokeWidth={2.35} />
+-          </button>
+-        </div>
+-      </form>
+-    </section>
++            <textarea
++              ref={textareaRef}
++              className={styles.composerInput}
++              value={input}
++              onChange={(event) => setInput(event.target.value)}
++              onKeyDown={onKeyDown}
++              placeholder={
++                selectedChatTitle
++                  ? `Message ${selectedChatTitle}...`
++                  : "Choose or create a chat..."
++              }
++              autoComplete="off"
++              rows={1}
++              disabled={sending || loadingMessages || !selectedChatId}
++            />
++
++            <button
++              className={styles.composerButton}
++              type="submit"
++              disabled={!canSend}
++              aria-label="Send"
++              title="Send"
++            >
++              <SendHorizontal size={18} strokeWidth={2.35} />
++            </button>
++          </div>
++        </form>
++      </section>
++    </>
+   );
+ }
+diff --git a/frontend/src/components/sidebar/Libraries/Libraries.module.css b/frontend/src/components/sidebar/Libraries/Libraries.module.css
+index f8a6dc7..0b8323b 100644
+--- a/frontend/src/components/sidebar/Libraries/Libraries.module.css
++++ b/frontend/src/components/sidebar/Libraries/Libraries.module.css
+@@ -1,3 +1,11 @@
++.libraryExplorer {
++  display: flex;
++  flex: 1;
++  flex-direction: column;
++  min-width: 0;
++  min-height: 0;
++}
++
+ /* =========================================================
+    SECTION HEADERS
+    ========================================================= */
+@@ -13,9 +21,8 @@
+   cursor: pointer;
+   user-select: none;
+   transition:
+-    background-color 260ms ease,
+-    transform 420ms cubic-bezier(0.18, 1.18, 0.32, 1),
+-    color 260ms ease;
++    background-color 120ms ease,
++    color 120ms ease;
+ }
+ 
+ .subHeader {
+@@ -26,7 +33,6 @@
+ .groupHeader:hover,
+ .subHeader:hover {
+   background: rgba(255, 255, 255, 0.035);
+-  transform: translateX(3px) scale(1.012);
+ }
+ 
+ /* =========================================================
+@@ -39,9 +45,7 @@
+   flex: 0 0 auto;
+   opacity: 0.9;
+   transform-origin: center;
+-  transition:
+-    transform 260ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 220ms ease;
++  transition: transform 140ms ease;
+ }
+ 
+ .caretOpen {
+@@ -54,20 +58,23 @@
+ 
+ .groupContent,
+ .subContent {
++  min-height: 0;
+   overflow: hidden;
+-  transition:
+-    max-height 280ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 240ms ease;
+ }
+ 
+-.open {
+-  max-height: 1000px;
+-  opacity: 1;
++.groupContent.open {
++  display: flex;
++  flex: 1;
++  min-height: 0;
++}
++
++.subContent.open {
++  display: block;
++  max-height: 360px;
+ }
+ 
+ .closed {
+-  max-height: 0;
+-  opacity: 0;
++  display: none;
+ }
+ 
+ /* =========================================================
+@@ -84,7 +91,9 @@
+ 
+ .groupInner {
+   display: flex;
++  flex: 1;
+   flex-direction: column;
++  min-height: 0;
+   gap: 8px;
+   padding: 6px 6px 10px;
+ }
+diff --git a/frontend/src/components/sidebar/Libraries/Libraries.tsx b/frontend/src/components/sidebar/Libraries/Libraries.tsx
+index e5abfd9..7abc8d6 100644
+--- a/frontend/src/components/sidebar/Libraries/Libraries.tsx
++++ b/frontend/src/components/sidebar/Libraries/Libraries.tsx
+@@ -37,7 +37,7 @@ export function Libraries({
+   onManageArchivedLibrary,
+ }: LibrariesProps) {
+   const [librariesOpen, setLibrariesOpen] = useState(true);
+-  const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
++  const [allLibrariesOpen, setAllLibrariesOpen] = useState(false);
+   const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
+   const [search, setSearch] = useState("");
+   const [debouncedSearch, setDebouncedSearch] = useState("");
+@@ -100,7 +100,7 @@ export function Libraries({
+   }
+ 
+   return (
+-    <section>
++    <section className={styles.libraryExplorer}>
+       <div
+         className={styles.groupHeader}
+         onClick={() => setLibrariesOpen((value) => !value)}
+diff --git a/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css b/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css
+index 6b8abc2..2080d14 100644
+--- a/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css
++++ b/frontend/src/components/sidebar/Libraries/LibraryFileTree/LibraryFileTree.module.css
+@@ -1,5 +1,9 @@
+ .section {
++  display: flex;
++  flex: 1;
++  flex-direction: column;
+   min-width: 0;
++  min-height: 180px;
+ }
+ 
+ .header {
+@@ -15,16 +19,13 @@
+   font-weight: 600;
+   text-align: left;
+   cursor: pointer;
+-  transition:
+-    background-color 260ms ease,
+-    transform 420ms cubic-bezier(0.18, 1.18, 0.32, 1);
++  transition: background-color 120ms ease;
+ }
+ 
+ .header:hover,
+ .header:focus-visible {
+   background: rgba(255, 255, 255, 0.035);
+   outline: none;
+-  transform: translateX(3px) scale(1.012);
+ }
+ 
+ .headerCaret {
+@@ -59,25 +60,25 @@
+ }
+ 
+ .content {
++  min-height: 0;
+   overflow: hidden;
+-  transition:
+-    max-height 280ms cubic-bezier(0.2, 0, 0, 1),
+-    opacity 220ms ease;
+ }
+ 
+ .contentOpen {
+-  max-height: 470px;
+-  opacity: 1;
++  display: flex;
++  flex: 1;
++  min-height: 0;
+ }
+ 
+ .contentClosed {
+-  max-height: 0;
+-  opacity: 0;
++  display: none;
+ }
+ 
+ .inner {
+   display: flex;
++  flex: 1;
+   flex-direction: column;
++  min-height: 0;
+   gap: 8px;
+   padding: 4px 10px 10px 28px;
+ }
+@@ -144,7 +145,8 @@
+ }
+ 
+ .treeViewport {
+-  max-height: 285px;
++  flex: 1;
++  min-height: 180px;
+   overflow: auto;
+   padding: 4px 2px;
+   border: 1px solid rgba(255, 255, 255, 0.07);
+diff --git a/frontend/src/components/sidebar/Sidebar.module.css b/frontend/src/components/sidebar/Sidebar.module.css
+index 52890bc..bee6bff 100644
+--- a/frontend/src/components/sidebar/Sidebar.module.css
++++ b/frontend/src/components/sidebar/Sidebar.module.css
+@@ -1,36 +1,122 @@
+ .sidebar {
+-  position: absolute;
+-  top: 0;
+-  bottom: var(--workbench-bottom-space);
+-  z-index: var(--z-sidebar);
+-  width: var(--dock-width);
++  position: relative;
++  display: flex;
+   min-width: 0;
+-  pointer-events: none;
++  min-height: 0;
++  overflow: visible;
++  color: var(--app-text);
+ }
+ 
+ .left {
+-  left: 0;
++  grid-column: 1 / 3;
++  grid-row: 1 / 3;
++  z-index: 6;
++  flex-direction: row;
+ }
+ 
+ .right {
+-  right: 0;
++  grid-column: 4 / 6;
++  grid-row: 1;
++  z-index: 3;
++  flex-direction: row-reverse;
+ }
+ 
+-.collapsed {
+-  width: 0;
++.activityRail {
++  display: flex;
++  flex: 0 0 var(--workbench-rail-width);
++  width: var(--workbench-rail-width);
++  min-width: var(--workbench-rail-width);
++  height: 100%;
++  padding: 6px 0;
++  border-color: var(--sidebar-border);
++  background:
++    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 22%),
++    var(--app-bg-deep);
++  box-shadow: var(--shadow-soft);
+ }
+ 
+-.panel {
++.left .activityRail {
++  border-right: 1px solid var(--sidebar-border);
++}
++
++.right .activityRail {
++  border-left: 1px solid var(--sidebar-border);
++}
++
++.activityGroup {
++  display: flex;
++  flex: 1;
++  flex-direction: column;
++  align-items: center;
++  gap: 4px;
++}
++
++.activityButton {
+   position: relative;
+-  width: 100%;
+-  height: 100%;
++  display: grid;
++  place-items: center;
++  width: 36px;
++  height: 36px;
++  padding: 0;
++  border: 1px solid transparent;
++  border-radius: 8px;
++  color: var(--app-muted-text);
++  background: transparent;
++  cursor: pointer;
++  transition:
++    color 120ms ease,
++    background-color 120ms ease,
++    border-color 120ms ease;
++}
++
++.activityButton::before {
++  content: "";
++  position: absolute;
++  top: 7px;
++  bottom: 7px;
++  width: 2px;
++  border-radius: var(--r-pill);
++  background: transparent;
++}
++
++.left .activityButton::before {
++  left: -4px;
++}
++
++.right .activityButton::before {
++  right: -4px;
++}
++
++.activityButton:hover,
++.activityButton:focus-visible {
++  border-color: rgba(143, 122, 223, 0.2);
++  color: var(--app-text);
++  background: rgba(255, 255, 255, 0.045);
++  outline: none;
++}
++
++.activityButtonActive {
++  color: var(--app-text);
++  background: rgba(143, 122, 223, 0.09);
++}
++
++.activityButtonActive::before {
++  background: var(--app-accent);
++}
++
++.panel {
++  display: grid;
++  grid-template-rows: 42px minmax(0, 1fr);
++  width: var(--workbench-dock-panel-width);
++  min-width: 0;
++  min-height: 0;
+   overflow: hidden;
+   border-color: var(--sidebar-border);
+   background:
+     linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 24%),
+     var(--sidebar-bg);
+   box-shadow: var(--shadow-panel);
+-  pointer-events: auto;
++  contain: layout paint style;
+ }
+ 
+ .left .panel {
+@@ -45,8 +131,9 @@
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
++  min-width: 0;
+   min-height: 42px;
+-  padding: 7px 9px 7px 12px;
++  padding: 7px 8px 7px 12px;
+   border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+   background: rgba(255, 255, 255, 0.014);
+ }
+@@ -62,13 +149,12 @@
+   white-space: nowrap;
+ }
+ 
+-.headerButton,
+-.revealButton {
++.headerButton {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+-  width: 30px;
+-  height: 30px;
++  width: 29px;
++  height: 29px;
+   padding: 0;
+   border: 1px solid transparent;
+   border-radius: var(--r-sm);
+@@ -76,116 +162,100 @@
+   background: transparent;
+   cursor: pointer;
+   transition:
+-    color 150ms ease,
+-    background-color 150ms ease,
+-    border-color 150ms ease,
+-    transform 180ms var(--ease-springy);
++    color 120ms ease,
++    background-color 120ms ease,
++    border-color 120ms ease;
+ }
+ 
+ .headerButton:hover,
+-.headerButton:focus-visible,
+-.revealButton:hover,
+-.revealButton:focus-visible {
+-  border-color: rgba(143, 122, 223, 0.28);
++.headerButton:focus-visible {
++  border-color: rgba(143, 122, 223, 0.24);
+   color: var(--app-text);
+   background: var(--sidebar-reveal-hover);
+   outline: none;
+-  transform: scale(1.04);
+ }
+ 
+ .scrollArea {
+-  height: calc(100% - 42px);
+-  padding: 8px 0 18px;
++  display: flex;
++  flex-direction: column;
++  min-width: 0;
++  min-height: 0;
++  padding: 6px 0 12px;
+   overflow-x: hidden;
+   overflow-y: auto;
+   overscroll-behavior: contain;
+   scrollbar-gutter: stable;
+ }
+ 
+-.resizeHandle {
+-  position: absolute;
+-  z-index: 4;
+-  top: 0;
+-  bottom: 0;
+-  width: 7px;
+-  cursor: col-resize;
+-  touch-action: none;
+-}
+-
+-.left .resizeHandle {
+-  right: -4px;
++.scrollArea > * {
++  min-height: 0;
+ }
+ 
+-.right .resizeHandle {
+-  left: -4px;
++.closed .activityButtonActive::before {
++  opacity: 0.7;
+ }
+ 
+-.resizeHandle::after {
+-  content: "";
+-  position: absolute;
+-  top: 0;
+-  bottom: 0;
+-  left: 3px;
+-  width: 1px;
+-  background: transparent;
+-  transition:
+-    width 120ms ease,
+-    background-color 120ms ease;
+-}
+-
+-.resizeHandle:hover::after,
+-.resizeHandle:active::after {
+-  width: 2px;
+-  background: var(--app-accent);
+-}
+-
+-.revealButton {
+-  position: absolute;
+-  top: 9px;
+-  z-index: var(--z-reveal);
+-  border-color: var(--sidebar-btn-border);
+-  background: rgba(16, 15, 13, 0.94);
+-  box-shadow: var(--shadow-soft);
+-  pointer-events: auto;
+-}
+-
+-.left .revealButton {
+-  left: 9px;
+-}
++@media (max-width: 1080px) {
++  .right {
++    grid-column: 5;
++  }
+ 
+-.right .revealButton {
+-  right: 9px;
++  .right .panel {
++    position: absolute;
++    top: 0;
++    right: var(--workbench-rail-width);
++    bottom: 0;
++    width: min(
++      var(--workbench-dock-panel-width),
++      calc(100vw - var(--workbench-rail-width) * 2 - 24px)
++    );
++    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.66);
++  }
+ }
+ 
+-@media (max-width: 1180px) {
+-  .sidebar:not(.collapsed) {
+-    width: min(var(--dock-width), 76vw);
++@media (max-width: 760px) {
++  .left {
++    grid-column: 1;
+   }
+ 
+-  .panel {
+-    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.62);
++  .left .panel {
++    position: absolute;
++    top: 0;
++    bottom: 0;
++    left: var(--workbench-rail-width);
++    width: min(
++      var(--workbench-dock-panel-width),
++      calc(100vw - var(--workbench-rail-width) * 2 - 24px)
++    );
++    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.7);
+   }
+ }
+ 
+-@media (max-width: 640px) {
+-  .sidebar:not(.collapsed) {
+-    width: min(var(--dock-width), 88vw);
++@media (max-height: 620px) {
++  .panel {
++    grid-template-rows: 36px minmax(0, 1fr);
+   }
+ 
+   .header {
+-    min-height: 38px;
++    min-height: 36px;
++    padding-top: 4px;
++    padding-bottom: 4px;
++  }
++
++  .activityRail {
++    padding-top: 4px;
++    padding-bottom: 4px;
+   }
+ 
+-  .scrollArea {
+-    height: calc(100% - 38px);
+-    padding-top: 5px;
++  .activityButton {
++    width: 33px;
++    height: 33px;
+   }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+-  .headerButton,
+-  .revealButton,
+-  .resizeHandle::after {
++  .activityButton,
++  .headerButton {
+     transition: none;
+   }
+ }
+diff --git a/frontend/src/components/sidebar/Sidebar.tsx b/frontend/src/components/sidebar/Sidebar.tsx
+index 2ed94b4..cd42859 100644
+--- a/frontend/src/components/sidebar/Sidebar.tsx
++++ b/frontend/src/components/sidebar/Sidebar.tsx
+@@ -1,63 +1,77 @@
+-import type { PointerEvent, ReactNode } from "react";
+-import {
+-  ChevronLeft,
+-  ChevronRight,
+-  PanelLeftClose,
+-  PanelRightClose,
+-} from "lucide-react";
++import type { ReactNode } from "react";
++import { PanelLeftClose, PanelRightClose } from "lucide-react";
+ import styles from "./Sidebar.module.css";
+ 
++export type SidebarView = {
++  id: string;
++  title: string;
++  icon: ReactNode;
++  content: ReactNode;
++};
++
+ type SidebarProps = {
+   side: "left" | "right";
+-  title: string;
+-  collapsed: boolean;
+-  children: ReactNode;
+-  onToggle: () => void;
+-  onResizeStart: (event: PointerEvent<HTMLDivElement>) => void;
++  views: SidebarView[];
++  activeViewId: string;
++  open: boolean;
++  onActivateView: (viewId: string) => void;
++  onClosePanel: () => void;
+ };
+ 
+ export function Sidebar({
+   side,
+-  title,
+-  collapsed,
+-  children,
+-  onToggle,
+-  onResizeStart,
++  views,
++  activeViewId,
++  open,
++  onActivateView,
++  onClosePanel,
+ }: SidebarProps) {
++  const activeView =
++    views.find((view) => view.id === activeViewId) ?? views[0] ?? null;
+   const isLeft = side === "left";
+ 
+   return (
+     <aside
+       className={`${styles.sidebar} ${styles[side]} ${
+-        collapsed ? styles.collapsed : ""
++        open ? styles.open : styles.closed
+       }`}
+-      aria-label={`${title} sidebar`}
++      aria-label={`${side} activity sidebar`}
+     >
+-      {collapsed ? (
+-        <button
+-          className={styles.revealButton}
+-          type="button"
+-          onClick={onToggle}
+-          aria-label={`Open ${title} sidebar`}
+-          title={`Open ${title} sidebar`}
+-        >
+-          {isLeft ? (
+-            <ChevronRight size={18} strokeWidth={2.25} />
+-          ) : (
+-            <ChevronLeft size={18} strokeWidth={2.25} />
+-          )}
+-        </button>
+-      ) : (
+-        <div className={styles.panel}>
++      <nav className={styles.activityRail} aria-label={`${side} activities`}>
++        <div className={styles.activityGroup}>
++          {views.map((view) => {
++            const active = view.id === activeView?.id;
++
++            return (
++              <button
++                key={view.id}
++                className={`${styles.activityButton} ${
++                  active ? styles.activityButtonActive : ""
++                }`}
++                type="button"
++                onClick={() => onActivateView(view.id)}
++                aria-label={view.title}
++                aria-pressed={active && open}
++                title={view.title}
++              >
++                {view.icon}
++              </button>
++            );
++          })}
++        </div>
++      </nav>
++
++      {open && activeView ? (
++        <section className={styles.panel} aria-label={activeView.title}>
+           <header className={styles.header}>
+-            <span className={styles.title}>{title}</span>
++            <span className={styles.title}>{activeView.title}</span>
+ 
+             <button
+               className={styles.headerButton}
+               type="button"
+-              onClick={onToggle}
+-              aria-label={`Collapse ${title} sidebar`}
+-              title={`Collapse ${title} sidebar`}
++              onClick={onClosePanel}
++              aria-label={`Collapse ${activeView.title}`}
++              title={`Collapse ${activeView.title}`}
+             >
+               {isLeft ? (
+                 <PanelLeftClose size={17} strokeWidth={2} />
+@@ -67,17 +81,9 @@ export function Sidebar({
+             </button>
+           </header>
+ 
+-          <div className={styles.scrollArea}>{children}</div>
+-
+-          <div
+-            className={styles.resizeHandle}
+-            role="separator"
+-            aria-orientation="vertical"
+-            aria-label={`Resize ${title} sidebar`}
+-            onPointerDown={onResizeStart}
+-          />
+-        </div>
+-      )}
++          <div className={styles.scrollArea}>{activeView.content}</div>
++        </section>
++      ) : null}
+     </aside>
+   );
+ }
+diff --git a/frontend/src/components/workbench/DockPlaceholder.module.css b/frontend/src/components/workbench/DockPlaceholder.module.css
+new file mode 100644
+index 0000000..2088d02
+--- /dev/null
++++ b/frontend/src/components/workbench/DockPlaceholder.module.css
+@@ -0,0 +1,32 @@
++.placeholder {
++  display: grid;
++  place-items: center;
++  align-content: center;
++  min-height: 100%;
++  gap: 9px;
++  padding: 28px 20px;
++  color: var(--app-muted-text);
++  text-align: center;
++}
++
++.placeholder strong {
++  color: var(--app-text);
++  font-size: 13px;
++}
++
++.placeholder span {
++  max-width: 240px;
++  font-size: 11px;
++  line-height: 1.55;
++}
++
++.icon {
++  display: grid;
++  place-items: center;
++  width: 42px;
++  height: 42px;
++  border: 1px solid rgba(143, 122, 223, 0.24);
++  border-radius: 12px;
++  color: var(--app-accent);
++  background: rgba(143, 122, 223, 0.08);
++}
+diff --git a/frontend/src/components/workbench/DockPlaceholder.tsx b/frontend/src/components/workbench/DockPlaceholder.tsx
+new file mode 100644
+index 0000000..701c6f6
+--- /dev/null
++++ b/frontend/src/components/workbench/DockPlaceholder.tsx
+@@ -0,0 +1,22 @@
++import type { ReactNode } from "react";
++import styles from "./DockPlaceholder.module.css";
++
++type DockPlaceholderProps = {
++  icon: ReactNode;
++  title: string;
++  description: string;
++};
++
++export function DockPlaceholder({
++  icon,
++  title,
++  description,
++}: DockPlaceholderProps) {
++  return (
++    <div className={styles.placeholder}>
++      <div className={styles.icon}>{icon}</div>
++      <strong>{title}</strong>
++      <span>{description}</span>
++    </div>
++  );
++}
+diff --git a/frontend/src/components/workbench/WorkbenchShell.module.css b/frontend/src/components/workbench/WorkbenchShell.module.css
+index 32b7e81..aa3b35f 100644
+--- a/frontend/src/components/workbench/WorkbenchShell.module.css
++++ b/frontend/src/components/workbench/WorkbenchShell.module.css
+@@ -1,190 +1,43 @@
+ .shell {
++  --workbench-rail-width: 44px;
++  --workbench-dock-panel-width: clamp(280px, 23vw, 380px);
++  --workbench-left-panel-space: var(--workbench-dock-panel-width);
++  --workbench-right-panel-space: var(--workbench-dock-panel-width);
++
+   position: fixed;
+   inset: var(--topbar-height) 0 0;
+-  overflow: hidden;
+-  color: var(--app-text);
+-  background: var(--workspace-bg);
+-}
+-
+-.center {
+-  position: absolute;
+-  top: 0;
+-  right: var(--workbench-right-space);
+-  bottom: var(--workbench-bottom-space);
+-  left: var(--workbench-left-space);
+-  min-width: 0;
+-  min-height: 0;
+-  overflow: hidden;
+-  background:
+-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 26%),
+-    linear-gradient(
+-      90deg,
+-      rgba(0, 0, 0, 0.16),
+-      transparent 18%,
+-      transparent 82%,
+-      rgba(0, 0, 0, 0.12)
+-    ),
+-    var(--workspace-bg);
+-  transition:
+-    left 220ms var(--ease-standard-inout),
+-    right 220ms var(--ease-standard-inout),
+-    bottom 220ms var(--ease-standard-inout);
+-}
+-
+-.bottomPanel {
+-  position: absolute;
+-  z-index: calc(var(--z-sidebar) + 2);
+-  right: 0;
+-  bottom: 0;
+-  left: 0;
+   display: grid;
+-  grid-template-rows: 42px minmax(0, 1fr);
+-  height: var(--workbench-bottom-height);
+-  min-height: 43px;
+-  overflow: hidden;
+-  border-top: 1px solid var(--sidebar-border);
+-  background:
+-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 20%),
+-    var(--sidebar-bg);
+-  box-shadow: 0 -18px 44px rgba(0, 0, 0, 0.34);
+-}
+-
+-.bottomCollapsed {
+-  grid-template-rows: 42px 0;
+-}
+-
+-.bottomResizeHandle {
+-  position: absolute;
+-  z-index: 5;
+-  top: -4px;
+-  right: 0;
+-  left: 0;
+-  height: 8px;
+-  cursor: row-resize;
+-  touch-action: none;
+-}
+-
+-.bottomResizeHandle::after {
+-  content: "";
+-  position: absolute;
+-  top: 3px;
+-  right: 0;
+-  left: 0;
+-  height: 1px;
+-  background: transparent;
+-  transition:
+-    height 120ms ease,
+-    background-color 120ms ease;
+-}
+-
+-.bottomResizeHandle:hover::after,
+-.bottomResizeHandle:active::after {
+-  height: 2px;
+-  background: var(--app-accent);
+-}
+-
+-.bottomHeader {
+-  display: flex;
+-  align-items: center;
+-  min-width: 0;
+-  gap: 10px;
+-  padding: 0 8px 0 10px;
+-  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+-  background: rgba(255, 255, 255, 0.014);
+-}
+-
+-.bottomTab {
+-  display: inline-flex;
+-  align-items: center;
+-  align-self: stretch;
+-  gap: 7px;
+-  padding: 0 10px;
+-  border-bottom: 2px solid var(--app-accent);
+-  color: var(--app-text);
+-  font-size: 11px;
+-  font-weight: 700;
+-  letter-spacing: 0.08em;
+-  text-transform: uppercase;
+-}
+-
+-.bottomToolbar {
+-  display: flex;
+-  align-items: center;
+-  flex: 1;
++  grid-template-columns:
++    var(--workbench-rail-width)
++    var(--workbench-left-panel-space)
++    minmax(0, 1fr)
++    var(--workbench-right-panel-space)
++    var(--workbench-rail-width);
++  grid-template-rows: minmax(0, 1fr) auto;
+   min-width: 0;
++  min-height: 0;
+   overflow: hidden;
+-}
+-
+-.bottomActions {
+-  display: flex;
+-  align-items: center;
+-  gap: 3px;
+-  flex: 0 0 auto;
+-}
+-
+-.panelButton {
+-  display: inline-flex;
+-  align-items: center;
+-  justify-content: center;
+-  width: 28px;
+-  height: 28px;
+-  padding: 0;
+-  border: 1px solid transparent;
+-  border-radius: 5px;
+-  color: var(--app-muted-text);
+-  background: transparent;
+-  cursor: pointer;
+-}
+-
+-.panelButton:hover,
+-.panelButton:focus-visible {
+-  border-color: rgba(143, 122, 223, 0.25);
+   color: var(--app-text);
+-  background: rgba(255, 255, 255, 0.045);
+-  outline: none;
++  background: var(--workspace-bg);
+ }
+ 
+-.bottomBody {
+-  min-width: 0;
+-  min-height: 0;
+-  overflow: hidden;
++.leftClosed {
++  --workbench-left-panel-space: 0px;
+ }
+ 
+-.resizing,
+-.resizing * {
+-  cursor: inherit !important;
+-  user-select: none !important;
++.rightClosed {
++  --workbench-right-panel-space: 0px;
+ }
+ 
+-@media (max-width: 1180px) {
+-  .center {
+-    right: 0;
+-    left: 0;
++@media (max-width: 1080px) {
++  .shell {
++    --workbench-right-panel-space: 0px;
+   }
+ }
+ 
+ @media (max-width: 760px) {
+-  .bottomHeader {
+-    gap: 5px;
+-    padding-right: 5px;
+-    padding-left: 6px;
+-  }
+-
+-  .bottomTab {
+-    padding: 0 7px;
+-    font-size: 10px;
+-  }
+-}
+-
+-@media (max-height: 680px) {
+-  .bottomPanel {
+-    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.3);
+-  }
+-}
+-
+-@media (prefers-reduced-motion: reduce) {
+-  .center,
+-  .bottomResizeHandle::after {
+-    transition: none;
++  .shell {
++    --workbench-left-panel-space: 0px;
++    --workbench-rail-width: 40px;
+   }
+ }
+diff --git a/frontend/src/components/workbench/WorkbenchShell.tsx b/frontend/src/components/workbench/WorkbenchShell.tsx
+index 77a5e4a..1ba0ee8 100644
+--- a/frontend/src/components/workbench/WorkbenchShell.tsx
++++ b/frontend/src/components/workbench/WorkbenchShell.tsx
+@@ -1,64 +1,23 @@
+-import {
+-  type CSSProperties,
+-  type PointerEvent,
+-  type ReactNode,
+-  useEffect,
+-  useRef,
+-  useState,
+-} from "react";
+-import {
+-  ChevronDown,
+-  ChevronUp,
+-  Maximize2,
+-  MessageSquareText,
+-  Minimize2,
+-} from "lucide-react";
+-import { Sidebar } from "../sidebar/Sidebar";
++import { type ReactNode, useEffect, useRef, useState } from "react";
++import { Sidebar, type SidebarView } from "../sidebar/Sidebar";
+ import styles from "./WorkbenchShell.module.css";
+ 
++export type WorkbenchDockView = SidebarView;
++
+ type WorkbenchShellProps = {
+-  leftPanel: ReactNode;
+-  rightPanel: ReactNode;
+-  center: ReactNode;
+-  bottomToolbar: ReactNode;
+-  bottomContent: ReactNode;
++  leftViews: WorkbenchDockView[];
++  rightViews: WorkbenchDockView[];
++  workspace: ReactNode;
+ };
+ 
+ type StoredLayout = {
+-  leftWidth: number;
+-  rightWidth: number;
+-  bottomHeight: number;
+-  leftCollapsed: boolean;
+-  rightCollapsed: boolean;
+-  bottomCollapsed: boolean;
++  activeLeftViewId: string;
++  activeRightViewId: string;
++  leftOpen: boolean;
++  rightOpen: boolean;
+ };
+ 
+-type ResizeKind = "left" | "right" | "bottom";
+-
+-const STORAGE_KEY = "archivist.workbench.layout.v1";
+-const DEFAULT_LEFT_WIDTH = 320;
+-const DEFAULT_RIGHT_WIDTH = 320;
+-const DEFAULT_BOTTOM_HEIGHT = 330;
+-const MIN_SIDEBAR_WIDTH = 240;
+-const MAX_SIDEBAR_WIDTH = 560;
+-const MIN_CENTER_WIDTH = 360;
+-const MIN_BOTTOM_HEIGHT = 190;
+-const COLLAPSED_BOTTOM_HEIGHT = 43;
+-const MIN_CENTER_HEIGHT = 96;
+-
+-function getWorkbenchHeight(): number {
+-  const topbarHeight = Number.parseFloat(
+-    getComputedStyle(document.documentElement).getPropertyValue(
+-      "--topbar-height",
+-    ),
+-  );
+-
+-  return window.innerHeight - (Number.isFinite(topbarHeight) ? topbarHeight : 42);
+-}
+-
+-function clamp(value: number, minimum: number, maximum: number): number {
+-  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+-}
++const STORAGE_KEY = "archivist.workbench.layout.v2";
+ 
+ function readStoredLayout(): StoredLayout | null {
+   try {
+@@ -75,277 +34,81 @@ function readStoredLayout(): StoredLayout | null {
+ }
+ 
+ export function WorkbenchShell({
+-  leftPanel,
+-  rightPanel,
+-  center,
+-  bottomToolbar,
+-  bottomContent,
++  leftViews,
++  rightViews,
++  workspace,
+ }: WorkbenchShellProps) {
+   const storedLayout = useRef(readStoredLayout());
+ 
+-  const [leftWidth, setLeftWidth] = useState(
+-    storedLayout.current?.leftWidth ?? DEFAULT_LEFT_WIDTH,
+-  );
+-  const [rightWidth, setRightWidth] = useState(
+-    storedLayout.current?.rightWidth ?? DEFAULT_RIGHT_WIDTH,
++  const [activeLeftViewId, setActiveLeftViewId] = useState(
++    storedLayout.current?.activeLeftViewId ?? leftViews[0]?.id ?? "",
+   );
+-  const [bottomHeight, setBottomHeight] = useState(
+-    storedLayout.current?.bottomHeight ?? DEFAULT_BOTTOM_HEIGHT,
+-  );
+-
+-  const [leftCollapsed, setLeftCollapsed] = useState(
+-    storedLayout.current?.leftCollapsed ?? false,
++  const [activeRightViewId, setActiveRightViewId] = useState(
++    storedLayout.current?.activeRightViewId ?? rightViews[0]?.id ?? "",
+   );
+-  const [rightCollapsed, setRightCollapsed] = useState(
+-    storedLayout.current?.rightCollapsed ?? false,
++  const [leftOpen, setLeftOpen] = useState(
++    storedLayout.current?.leftOpen ?? true,
+   );
+-  const [bottomCollapsed, setBottomCollapsed] = useState(
+-    storedLayout.current?.bottomCollapsed ?? false,
++  const [rightOpen, setRightOpen] = useState(
++    storedLayout.current?.rightOpen ?? true,
+   );
+-  const [bottomMaximized, setBottomMaximized] = useState(false);
+-
+-  const previousBottomHeightRef = useRef(bottomHeight);
+ 
+   useEffect(() => {
+     const nextLayout: StoredLayout = {
+-      leftWidth,
+-      rightWidth,
+-      bottomHeight,
+-      leftCollapsed,
+-      rightCollapsed,
+-      bottomCollapsed,
++      activeLeftViewId,
++      activeRightViewId,
++      leftOpen,
++      rightOpen,
+     };
+ 
+     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextLayout));
+-  }, [
+-    bottomCollapsed,
+-    bottomHeight,
+-    leftCollapsed,
+-    leftWidth,
+-    rightCollapsed,
+-    rightWidth,
+-  ]);
+-
+-  useEffect(() => {
+-    function clampLayoutToViewport() {
+-      const availableHeight = Math.max(
+-        MIN_BOTTOM_HEIGHT,
+-        getWorkbenchHeight() - MIN_CENTER_HEIGHT,
+-      );
+-
+-      setBottomHeight((current) =>
+-        clamp(current, MIN_BOTTOM_HEIGHT, availableHeight),
+-      );
+-
+-      const availableSidebarWidth = Math.max(
+-        MIN_SIDEBAR_WIDTH,
+-        window.innerWidth - MIN_CENTER_WIDTH,
+-      );
+-
+-      setLeftWidth((current) =>
+-        clamp(current, MIN_SIDEBAR_WIDTH, availableSidebarWidth),
+-      );
+-
+-      setRightWidth((current) =>
+-        clamp(current, MIN_SIDEBAR_WIDTH, availableSidebarWidth),
+-      );
+-    }
+-
+-    window.addEventListener("resize", clampLayoutToViewport);
+-
+-    clampLayoutToViewport();
++  }, [activeLeftViewId, activeRightViewId, leftOpen, rightOpen]);
+ 
+-    return () => {
+-      window.removeEventListener("resize", clampLayoutToViewport);
+-    };
+-  }, []);
+-
+-  function beginResize(kind: ResizeKind, event: PointerEvent<HTMLDivElement>) {
+-    event.preventDefault();
+-
+-    const startX = event.clientX;
+-    const startY = event.clientY;
+-    const startingLeftWidth = leftWidth;
+-    const startingRightWidth = rightWidth;
+-    const startingBottomHeight = bottomHeight;
+-
+-    document.body.classList.add(styles.resizing);
+-
+-    function handlePointerMove(pointerEvent: globalThis.PointerEvent) {
+-      if (kind === "left") {
+-        const rightSpace = rightCollapsed ? 0 : rightWidth;
+-        const maximum = Math.min(
+-          MAX_SIDEBAR_WIDTH,
+-          window.innerWidth - rightSpace - MIN_CENTER_WIDTH,
+-        );
+-
+-        setLeftWidth(
+-          clamp(
+-            startingLeftWidth + pointerEvent.clientX - startX,
+-            MIN_SIDEBAR_WIDTH,
+-            maximum,
+-          ),
+-        );
+-        return;
+-      }
+-
+-      if (kind === "right") {
+-        const leftSpace = leftCollapsed ? 0 : leftWidth;
+-        const maximum = Math.min(
+-          MAX_SIDEBAR_WIDTH,
+-          window.innerWidth - leftSpace - MIN_CENTER_WIDTH,
+-        );
+-
+-        setRightWidth(
+-          clamp(
+-            startingRightWidth + startX - pointerEvent.clientX,
+-            MIN_SIDEBAR_WIDTH,
+-            maximum,
+-          ),
+-        );
+-        return;
+-      }
+-
+-      const maximum = getWorkbenchHeight() - MIN_CENTER_HEIGHT;
+-
+-      setBottomCollapsed(false);
+-      setBottomMaximized(false);
+-      setBottomHeight(
+-        clamp(
+-          startingBottomHeight + startY - pointerEvent.clientY,
+-          MIN_BOTTOM_HEIGHT,
+-          maximum,
+-        ),
+-      );
+-    }
+-
+-    function handlePointerUp() {
+-      document.body.classList.remove(styles.resizing);
+-      window.removeEventListener("pointermove", handlePointerMove);
+-      window.removeEventListener("pointerup", handlePointerUp);
++  function activateLeftView(viewId: string) {
++    if (viewId === activeLeftViewId) {
++      setLeftOpen((current) => !current);
++      return;
+     }
+ 
+-    window.addEventListener("pointermove", handlePointerMove);
+-    window.addEventListener("pointerup", handlePointerUp);
++    setActiveLeftViewId(viewId);
++    setLeftOpen(true);
+   }
+ 
+-  function toggleBottomMaximized() {
+-    if (bottomMaximized) {
+-      setBottomHeight(previousBottomHeightRef.current);
+-      setBottomMaximized(false);
+-      setBottomCollapsed(false);
++  function activateRightView(viewId: string) {
++    if (viewId === activeRightViewId) {
++      setRightOpen((current) => !current);
+       return;
+     }
+ 
+-    previousBottomHeightRef.current = bottomHeight;
+-    setBottomHeight(getWorkbenchHeight() - MIN_CENTER_HEIGHT);
+-    setBottomCollapsed(false);
+-    setBottomMaximized(true);
++    setActiveRightViewId(viewId);
++    setRightOpen(true);
+   }
+ 
+-  const visibleLeftWidth = leftCollapsed ? 0 : leftWidth;
+-  const visibleRightWidth = rightCollapsed ? 0 : rightWidth;
+-  const visibleBottomHeight = bottomCollapsed
+-    ? COLLAPSED_BOTTOM_HEIGHT
+-    : bottomHeight;
+-
+-  const shellStyle = {
+-    "--workbench-left-width": `${leftWidth}px`,
+-    "--workbench-right-width": `${rightWidth}px`,
+-    "--workbench-left-space": `${visibleLeftWidth}px`,
+-    "--workbench-right-space": `${visibleRightWidth}px`,
+-    "--workbench-bottom-height": `${visibleBottomHeight}px`,
+-    "--workbench-bottom-space": `${visibleBottomHeight}px`,
+-  } as CSSProperties;
+-
+   return (
+-    <div className={styles.shell} style={shellStyle}>
++    <div
++      className={`${styles.shell} ${
++        leftOpen ? styles.leftOpen : styles.leftClosed
++      } ${rightOpen ? styles.rightOpen : styles.rightClosed}`}
++    >
+       <Sidebar
+         side="left"
+-        title="Library Explorer"
+-        collapsed={leftCollapsed}
+-        onToggle={() => setLeftCollapsed((current) => !current)}
+-        onResizeStart={(event) => beginResize("left", event)}
+-      >
+-        {leftPanel}
+-      </Sidebar>
++        views={leftViews}
++        activeViewId={activeLeftViewId}
++        open={leftOpen}
++        onActivateView={activateLeftView}
++        onClosePanel={() => setLeftOpen(false)}
++      />
+ 
+-      <main className={styles.center}>{center}</main>
++      {workspace}
+ 
+       <Sidebar
+         side="right"
+-        title="Chat Controls"
+-        collapsed={rightCollapsed}
+-        onToggle={() => setRightCollapsed((current) => !current)}
+-        onResizeStart={(event) => beginResize("right", event)}
+-      >
+-        {rightPanel}
+-      </Sidebar>
+-
+-      <section
+-        className={`${styles.bottomPanel} ${
+-          bottomCollapsed ? styles.bottomCollapsed : ""
+-        }`}
+-        aria-label="Chat panel"
+-      >
+-        <div
+-          className={styles.bottomResizeHandle}
+-          role="separator"
+-          aria-orientation="horizontal"
+-          aria-label="Resize chat panel"
+-          onPointerDown={(event) => beginResize("bottom", event)}
+-          onDoubleClick={toggleBottomMaximized}
+-        />
+-
+-        <header className={styles.bottomHeader}>
+-          <div className={styles.bottomTab}>
+-            <MessageSquareText size={14} strokeWidth={2.1} />
+-            <span>Chat</span>
+-          </div>
+-
+-          <div className={styles.bottomToolbar}>{bottomToolbar}</div>
+-
+-          <div className={styles.bottomActions}>
+-            <button
+-              className={styles.panelButton}
+-              type="button"
+-              onClick={toggleBottomMaximized}
+-              aria-label={
+-                bottomMaximized ? "Restore chat panel" : "Maximize chat panel"
+-              }
+-              title={
+-                bottomMaximized ? "Restore chat panel" : "Maximize chat panel"
+-              }
+-            >
+-              {bottomMaximized ? (
+-                <Minimize2 size={14} strokeWidth={2.1} />
+-              ) : (
+-                <Maximize2 size={14} strokeWidth={2.1} />
+-              )}
+-            </button>
+-
+-            <button
+-              className={styles.panelButton}
+-              type="button"
+-              onClick={() => setBottomCollapsed((current) => !current)}
+-              aria-label={
+-                bottomCollapsed ? "Expand chat panel" : "Collapse chat panel"
+-              }
+-              title={
+-                bottomCollapsed ? "Expand chat panel" : "Collapse chat panel"
+-              }
+-            >
+-              {bottomCollapsed ? (
+-                <ChevronUp size={16} strokeWidth={2.2} />
+-              ) : (
+-                <ChevronDown size={16} strokeWidth={2.2} />
+-              )}
+-            </button>
+-          </div>
+-        </header>
+-
+-        <div className={styles.bottomBody}>{bottomContent}</div>
+-      </section>
++        views={rightViews}
++        activeViewId={activeRightViewId}
++        open={rightOpen}
++        onActivateView={activateRightView}
++        onClosePanel={() => setRightOpen(false)}
++      />
+     </div>
+   );
+ }

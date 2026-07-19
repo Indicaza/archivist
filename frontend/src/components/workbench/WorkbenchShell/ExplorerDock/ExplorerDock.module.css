@@ -1,7 +1,9 @@
-.sidebar {
-  grid-column: 1;
-  grid-row: 1 / 3;
-  z-index: 6;
+.dock {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  bottom: var(--workbench-statusbar-height);
+  left: var(--workbench-activity-rail-width);
   display: grid;
   grid-template-rows: 34px minmax(0, 1fr);
   width: var(--workbench-left-panel-width);
@@ -10,10 +12,8 @@
   overflow: hidden;
   border-right: 1px solid var(--sidebar-border);
   color: var(--app-text);
-  background:
-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 24%),
-    var(--sidebar-bg);
-  box-shadow: var(--shadow-panel);
+  background: var(--workbench-surface-bg);
+  box-shadow: 12px 0 34px rgba(0, 0, 0, 0.24);
   contain: layout paint style;
 }
 
@@ -23,10 +23,10 @@
   justify-content: space-between;
   min-width: 0;
   min-height: 34px;
-  gap: 7px;
+  gap: 8px;
   padding: 4px 5px 4px 9px;
   border-bottom: 1px solid rgba(214, 198, 170, 0.09);
-  background: rgba(255, 255, 255, 0.014);
+  background: rgba(255, 255, 255, 0.012);
 }
 
 .title {
@@ -41,89 +41,55 @@
   white-space: nowrap;
 }
 
-.headerActions,
-.viewSwitches {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 2px;
-}
-
-.headerButton {
-  position: relative;
+.closeButton {
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
   width: 25px;
   height: 25px;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 4px;
   color: var(--app-muted-text);
   background: transparent;
   cursor: pointer;
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
-.headerButton svg {
-  width: 14px;
-  height: 14px;
-}
-
-.headerButton:hover,
-.headerButton:focus-visible {
+.closeButton:hover,
+.closeButton:focus-visible {
+  border-color: var(--sidebar-card-hover-border);
   color: var(--app-text);
-  background: var(--sidebar-reveal-hover);
+  background: var(--sidebar-card-hover-bg);
   outline: none;
+  transform: scale(1.07);
 }
 
-.headerButtonActive {
-  color: var(--app-text);
-  background: rgba(143, 122, 223, 0.1);
-}
-
-.headerButtonActive::after {
-  content: "";
-  position: absolute;
-  right: 5px;
-  bottom: 2px;
-  left: 5px;
-  height: 1px;
-  border-radius: var(--r-pill);
-  background: var(--app-accent);
-}
-
-.divider {
-  width: 1px;
-  height: 17px;
-  margin: 0 2px;
-  background: rgba(214, 198, 170, 0.1);
-}
-
-.scrollArea {
+.content {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  overscroll-behavior: contain;
 }
 
-.scrollArea > * {
+.content > * {
   min-height: 0;
 }
 
 @media (max-width: 800px) {
-  .sidebar {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: min(var(--workbench-left-panel-width), calc(100vw - 42px));
-    box-shadow: 14px 0 42px rgba(0, 0, 0, 0.66);
+  .dock {
+    width: min(var(--workbench-left-panel-width), calc(100vw - 48px));
+    box-shadow: 18px 0 44px rgba(0, 0, 0, 0.62);
   }
 }
 
 @media (max-height: 620px) {
-  .sidebar {
+  .dock {
     grid-template-rows: 30px minmax(0, 1fr);
   }
 
@@ -131,5 +97,11 @@
     min-height: 30px;
     padding-top: 2px;
     padding-bottom: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .closeButton {
+    transition: none;
   }
 }

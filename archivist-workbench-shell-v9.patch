@@ -1,0 +1,156 @@
+diff --git a/frontend/src/components/chat/ChatWindow.module.css b/frontend/src/components/chat/ChatWindow.module.css
+index 8a5da92..645f16c 100644
+--- a/frontend/src/components/chat/ChatWindow.module.css
++++ b/frontend/src/components/chat/ChatWindow.module.css
+@@ -169,16 +169,14 @@
+   height: calc(var(--chat-dock-header-height) + var(--chat-dock-body-height));
+   min-width: 0;
+   min-height: 0;
+-  margin: 0 var(--workbench-dock-margin-right, 16px) 10px
+-    var(--workbench-dock-margin-left, 16px);
++  margin: 0 var(--workbench-dock-margin-right, 0px) 0
++    var(--workbench-dock-margin-left, 0px);
+   overflow: hidden;
+-  border: 1px solid rgba(214, 198, 170, 0.12);
+-  border-radius: 9px;
++  border: 1px solid rgba(214, 198, 170, 0.1);
++  border-bottom: 0;
++  border-radius: 0;
+   background: var(--workbench-surface-bg, #181713);
+-  box-shadow:
+-    0 -16px 42px rgba(0, 0, 0, 0.28),
+-    0 14px 34px rgba(0, 0, 0, 0.16),
+-    inset 0 1px 0 rgba(255, 255, 255, 0.022);
++  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+   contain: layout style;
+ }
+ 
+@@ -358,7 +356,7 @@
+   min-height: 0;
+   overflow: hidden;
+   border-left: 1px solid rgba(214, 198, 170, 0.09);
+-  background: rgba(12, 11, 10, 0.96);
++  background: var(--workbench-control-surface-bg, #151410);
+ }
+ 
+ .controlPanelHeader {
+@@ -452,9 +450,9 @@
+ 
+   .composerPanel {
+     width: min(calc(100% - 12px), 1120px);
+-    margin-right: 6px;
+-    margin-bottom: 6px;
+-    margin-left: 6px;
++    margin-right: 0;
++    margin-bottom: 0;
++    margin-left: 0;
+   }
+ 
+   .composerHeader {
+@@ -500,8 +498,8 @@
+   .composerPanel {
+     --chat-dock-header-height: 36px;
+     --chat-dock-body-height: 136px;
+-    margin-bottom: 6px;
+-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.26);
++    margin-bottom: 0;
++    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+   }
+ 
+   .messages {
+diff --git a/frontend/src/components/sidebar/Agents/Agents.module.css b/frontend/src/components/sidebar/Agents/Agents.module.css
+index 2fa4d34..085a0e7 100644
+--- a/frontend/src/components/sidebar/Agents/Agents.module.css
++++ b/frontend/src/components/sidebar/Agents/Agents.module.css
+@@ -109,7 +109,7 @@
+   border: 0;
+   border-top: 1px solid rgba(214, 198, 170, 0.08);
+   color: var(--app-muted-text);
+-  background: rgba(0, 0, 0, 0.08);
++  background: rgba(255, 255, 255, 0.01);
+   font: inherit;
+   font-size: 9px;
+   cursor: pointer;
+@@ -140,7 +140,7 @@
+   overflow-y: auto;
+   padding: 2px 3px 4px;
+   border-top: 1px solid rgba(214, 198, 170, 0.06);
+-  background: rgba(0, 0, 0, 0.14);
++  background: rgba(0, 0, 0, 0.055);
+ }
+ 
+ .archivedRow {
+diff --git a/frontend/src/components/sidebar/Chats/Chats.module.css b/frontend/src/components/sidebar/Chats/Chats.module.css
+index 2fa4d34..085a0e7 100644
+--- a/frontend/src/components/sidebar/Chats/Chats.module.css
++++ b/frontend/src/components/sidebar/Chats/Chats.module.css
+@@ -109,7 +109,7 @@
+   border: 0;
+   border-top: 1px solid rgba(214, 198, 170, 0.08);
+   color: var(--app-muted-text);
+-  background: rgba(0, 0, 0, 0.08);
++  background: rgba(255, 255, 255, 0.01);
+   font: inherit;
+   font-size: 9px;
+   cursor: pointer;
+@@ -140,7 +140,7 @@
+   overflow-y: auto;
+   padding: 2px 3px 4px;
+   border-top: 1px solid rgba(214, 198, 170, 0.06);
+-  background: rgba(0, 0, 0, 0.14);
++  background: rgba(0, 0, 0, 0.055);
+ }
+ 
+ .archivedRow {
+diff --git a/frontend/src/components/workbench/WorkbenchShell/WorkbenchShell.module.css b/frontend/src/components/workbench/WorkbenchShell/WorkbenchShell.module.css
+index 17197e0..8275fd5 100644
+--- a/frontend/src/components/workbench/WorkbenchShell/WorkbenchShell.module.css
++++ b/frontend/src/components/workbench/WorkbenchShell/WorkbenchShell.module.css
+@@ -9,11 +9,12 @@
+     var(--workbench-activity-rail-width) + var(--workbench-left-panel-width)
+   );
+   --workbench-surface-bg: #181713;
++  --workbench-control-surface-bg: #151410;
+   --workbench-chat-safe-left: 0px;
+   --workbench-dock-width: min(calc(100% - 32px), 1120px);
+   --workbench-dock-justify: center;
+-  --workbench-dock-margin-left: 16px;
+-  --workbench-dock-margin-right: 16px;
++  --workbench-dock-margin-left: 0px;
++  --workbench-dock-margin-right: 0px;
+ 
+   position: fixed;
+   inset: var(--topbar-height) 0 0;
+@@ -44,17 +45,15 @@
+ .dockAttached {
+   --workbench-dock-width: auto;
+   --workbench-dock-justify: stretch;
+-  --workbench-dock-margin-left: calc(
+-    var(--workbench-left-overlay-width) + 10px
+-  );
+-  --workbench-dock-margin-right: 12px;
++  --workbench-dock-margin-left: var(--workbench-left-overlay-width);
++  --workbench-dock-margin-right: 0px;
+ }
+ 
+ .dockCentered {
+   --workbench-dock-width: min(calc(100% - 32px), 1120px);
+   --workbench-dock-justify: center;
+-  --workbench-dock-margin-left: 16px;
+-  --workbench-dock-margin-right: 16px;
++  --workbench-dock-margin-left: 0px;
++  --workbench-dock-margin-right: 0px;
+ }
+ 
+ @media (max-width: 1540px) {
+@@ -80,8 +79,8 @@
+ @media (max-width: 800px) {
+   .shell {
+     --workbench-chat-safe-left: 0px;
+-    --workbench-dock-margin-left: 8px;
+-    --workbench-dock-margin-right: 8px;
++    --workbench-dock-margin-left: 0px;
++    --workbench-dock-margin-right: 0px;
+     --workbench-dock-width: auto;
+     --workbench-dock-justify: stretch;
+   }

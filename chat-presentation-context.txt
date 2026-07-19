@@ -1,0 +1,3468 @@
+
+===== FILE: frontend/src/App.tsx =====
+import { useEffect, useMemo, useState } from "react";
+import {
+  Archive,
+  Library as LibraryIcon,
+  Puzzle,
+  Search,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
+import { ChatWindow } from "./components/chat/ChatWindow";
+import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
+import { Agents } from "./components/sidebar/Agents/Agents";
+import { ChatManagementModal } from "./components/sidebar/Chats/ChatManagementModal/ChatManagementModal";
+import { Chats } from "./components/sidebar/Chats/Chats";
+import { Libraries } from "./components/sidebar/Libraries/Libraries";
+import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
+import { Topbar } from "./components/topbar/Topbar";
+import {
+  ChatDockHeader,
+  type ChatDockView,
+} from "./components/workbench/ChatDock/ChatDockHeader/ChatDockHeader";
+import { DockPlaceholder } from "./components/workbench/ChatDock/DockPlaceholder/DockPlaceholder";
+import { StatusBar } from "./components/workbench/WorkbenchShell/StatusBar/StatusBar";
+import { WorkbenchShell } from "./components/workbench/WorkbenchShell/WorkbenchShell";
+import {
+  addAgent,
+  archiveAgent,
+  duplicateAgent,
+  editAgent,
+  fetchAgents,
+  fetchArchivedAgents,
+  removeAgent,
+  restoreAgent,
+} from "./domains/agent/agent.api";
+import type { Agent, UpdateAgentInput } from "./domains/agent/agent.types";
+import { fetchAIModels } from "./domains/ai/ai.api";
+import type { ModelDefinition } from "./domains/ai/ai.types";
+import {
+  addChat,
+  archiveChat,
+  editChat,
+  fetchArchivedChats,
+  fetchChats,
+  removeChat,
+  restoreChat,
+  updateSelectedChat,
+} from "./domains/chat/chat.api";
+import type { Chat, UpdateChatInput } from "./domains/chat/chat.types";
+import { fetchContextCompilers } from "./domains/cognition/contextCompiler.api";
+import type { ContextCompilerDefinition } from "./domains/cognition/contextCompiler.types";
+import {
+  addLibrary,
+  archiveLibrary,
+  editLibrary,
+  fetchAppState,
+  fetchArchivedLibraries,
+  fetchLibraries,
+  restoreLibrary,
+  updateSelectedLibrary,
+} from "./domains/library/library.api";
+import type { Library, LibraryListItem } from "./domains/library/library.types";
+import "./App.css";
+
+export function App() {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [archivedAgents, setArchivedAgents] = useState<Agent[]>([]);
+
+  const [managedAgentId, setManagedAgentId] = useState<string | null>(null);
+
+  const [loadingAgents, setLoadingAgents] = useState(true);
+
+  const [addingAgent, setAddingAgent] = useState(false);
+
+  const [savingAgent, setSavingAgent] = useState(false);
+
+  const [duplicatingAgent, setDuplicatingAgent] = useState(false);
+
+  const [archivingAgent, setArchivingAgent] = useState(false);
+
+  const [restoringAgent, setRestoringAgent] = useState(false);
+
+  const [deletingAgent, setDeletingAgent] = useState(false);
+
+  const [aiModels, setAIModels] = useState<ModelDefinition[]>([]);
+
+  const [libraries, setLibraries] = useState<Library[]>([]);
+
+  const [archivedLibraries, setArchivedLibraries] = useState<Library[]>([]);
+
+  const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(
+    null,
+  );
+
+  const [managedLibraryId, setManagedLibraryId] = useState<string | null>(null);
+
+  const [loadingLibraries, setLoadingLibraries] = useState(true);
+
+  const [addingLibrary, setAddingLibrary] = useState(false);
+
+  const [savingLibrary, setSavingLibrary] = useState(false);
+
+  const [archivingLibrary, setArchivingLibrary] = useState(false);
+
+  const [restoringManagedLibrary, setRestoringManagedLibrary] = useState(false);
+
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [archivedChats, setArchivedChats] = useState<Chat[]>([]);
+
+  const [contextCompilers, setContextCompilers] = useState<
+    ContextCompilerDefinition[]
+  >([]);
+
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+  const [managedChatId, setManagedChatId] = useState<string | null>(null);
+
+  const [loadingChats, setLoadingChats] = useState(true);
+
+  const [addingChat, setAddingChat] = useState(false);
+
+  const [savingChat, setSavingChat] = useState(false);
+
+  const [archivingChat, setArchivingChat] = useState(false);
+
+  const [deletingChat, setDeletingChat] = useState(false);
+
+  const [restoringManagedChat, setRestoringManagedChat] = useState(false);
+
+  const [chatDockView, setChatDockView] = useState<ChatDockView>(null);
+
+  const libraryListItems = useMemo<LibraryListItem[]>(() => {
+    return libraries.map((library) => ({
+      ...library,
+      subtitle: library.description ?? library.rootPath,
+      status: library.id === selectedLibraryId ? "active" : "draft",
+    }));
+  }, [libraries, selectedLibraryId]);
+
+  const archivedLibraryListItems = useMemo<LibraryListItem[]>(() => {
+    return archivedLibraries.map((library) => ({
+      ...library,
+      subtitle: library.description ?? library.rootPath,
+      status: "offline",
+    }));
+  }, [archivedLibraries]);
+
+  const selectedLibrary = useMemo(() => {
+    return (
+      libraryListItems.find((library) => library.id === selectedLibraryId) ??
+      null
+    );
+  }, [libraryListItems, selectedLibraryId]);
+
+  const selectedChat = useMemo(() => {
+    return chats.find((chat) => chat.id === selectedChatId) ?? null;
+  }, [chats, selectedChatId]);
+
+  const activeAgentId = selectedChat?.agentId ?? null;
+
+  const activeAgent = useMemo(() => {
+    return agents.find((agent) => agent.id === activeAgentId) ?? null;
+  }, [activeAgentId, agents]);
+
+  const chatDockPanelWidth = useMemo(() => {
+    const labels =
+      chatDockView === "chats"
+        ? [...chats, ...archivedChats].map((chat) => chat.title)
+        : chatDockView === "agents"
+          ? [...agents, ...archivedAgents].map((agent) => agent.name)
+          : [];
+
+    const longestLabelLength = labels.reduce(
+      (longest, label) => Math.max(longest, label.trim().length),
+      0,
+    );
+
+    return Math.round(
+      Math.min(
+        188,
+        Math.max(132, 102 + Math.min(longestLabelLength, 22) * 3.9),
+      ),
+    );
+  }, [agents, archivedAgents, archivedChats, chatDockView, chats]);
+
+  const managedAgent = useMemo(() => {
+    return (
+      agents.find((agent) => agent.id === managedAgentId) ??
+      archivedAgents.find((agent) => agent.id === managedAgentId) ??
+      null
+    );
+  }, [agents, archivedAgents, managedAgentId]);
+
+  const managedLibrary = useMemo(() => {
+    return (
+      libraries.find((library) => library.id === managedLibraryId) ??
+      archivedLibraries.find((library) => library.id === managedLibraryId) ??
+      null
+    );
+  }, [archivedLibraries, libraries, managedLibraryId]);
+
+  const managedChat = useMemo(() => {
+    return (
+      chats.find((chat) => chat.id === managedChatId) ??
+      archivedChats.find((chat) => chat.id === managedChatId) ??
+      null
+    );
+  }, [archivedChats, chats, managedChatId]);
+
+  useEffect(() => {
+    async function loadArchivistState() {
+      try {
+        const [
+          loadedLibraries,
+          loadedArchivedLibraries,
+          loadedChats,
+          loadedArchivedChats,
+          appState,
+          loadedContextCompilers,
+          loadedAgents,
+          loadedArchivedAgents,
+          loadedAIModels,
+        ] = await Promise.all([
+          fetchLibraries(),
+          fetchArchivedLibraries(),
+          fetchChats(),
+          fetchArchivedChats(),
+          fetchAppState(),
+          fetchContextCompilers(),
+          fetchAgents(),
+          fetchArchivedAgents(),
+          fetchAIModels(),
+        ]);
+
+        setLibraries(loadedLibraries);
+        setArchivedLibraries(loadedArchivedLibraries);
+
+        setChats(loadedChats);
+        setArchivedChats(loadedArchivedChats);
+
+        setContextCompilers(loadedContextCompilers);
+
+        setAgents(loadedAgents);
+        setArchivedAgents(loadedArchivedAgents);
+        setAIModels(loadedAIModels);
+
+        setSelectedLibraryId(appState.selectedLibraryId);
+
+        const selectedChatStillExists = loadedChats.some(
+          (chat) => chat.id === appState.selectedChatId,
+        );
+
+        setSelectedChatId(
+          selectedChatStillExists
+            ? appState.selectedChatId
+            : (loadedChats[0]?.id ?? null),
+        );
+      } catch (error) {
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Archivist could not load its state.",
+        );
+      } finally {
+        setLoadingLibraries(false);
+        setLoadingChats(false);
+        setLoadingAgents(false);
+      }
+    }
+
+    void loadArchivistState();
+  }, []);
+
+  async function handleSelectLibrary(libraryId: string) {
+    if (libraryId === selectedLibraryId) {
+      return;
+    }
+
+    try {
+      const appState = await updateSelectedLibrary(libraryId);
+
+      setSelectedLibraryId(appState.selectedLibraryId);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not select the Library.",
+      );
+    }
+  }
+
+  async function handleAddLibrary() {
+    if (addingLibrary) {
+      return;
+    }
+
+    if (!window.archivist) {
+      window.alert(
+        "The folder picker is only available inside the Electron app.",
+      );
+
+      return;
+    }
+
+    const rootPath = await window.archivist.selectFolder();
+
+    if (!rootPath) {
+      return;
+    }
+
+    setAddingLibrary(true);
+
+    try {
+      const result = await addLibrary(rootPath);
+
+      setLibraries((current) => [...current, result.library]);
+
+      setSelectedLibraryId(result.selectedLibraryId);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not create the Library.",
+      );
+    } finally {
+      setAddingLibrary(false);
+    }
+  }
+
+  async function handleSaveLibrary(
+    libraryId: string,
+    input: {
+      name: string;
+      description: string | null;
+    },
+  ) {
+    setSavingLibrary(true);
+
+    try {
+      const updatedLibrary = await editLibrary(libraryId, input);
+
+      if (updatedLibrary.archivedAt) {
+        setArchivedLibraries((current) =>
+          current.map((library) =>
+            library.id === libraryId ? updatedLibrary : library,
+          ),
+        );
+      } else {
+        setLibraries((current) =>
+          current.map((library) =>
+            library.id === libraryId ? updatedLibrary : library,
+          ),
+        );
+      }
+
+      setManagedLibraryId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not update the Library.",
+      );
+    } finally {
+      setSavingLibrary(false);
+    }
+  }
+
+  async function handleArchiveLibrary(libraryId: string) {
+    setArchivingLibrary(true);
+
+    try {
+      const result = await archiveLibrary(libraryId);
+
+      setLibraries((current) =>
+        current.filter((library) => library.id !== libraryId),
+      );
+
+      setArchivedLibraries((current) => [result.library, ...current]);
+
+      setSelectedLibraryId(result.selectedLibraryId);
+
+      setManagedLibraryId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not archive the Library.",
+      );
+    } finally {
+      setArchivingLibrary(false);
+    }
+  }
+
+  async function handleRestoreManagedLibrary(libraryId: string) {
+    if (restoringManagedLibrary) {
+      return;
+    }
+
+    setRestoringManagedLibrary(true);
+
+    try {
+      const restoredLibrary = await restoreLibrary(libraryId);
+
+      setArchivedLibraries((current) =>
+        current.filter((library) => library.id !== libraryId),
+      );
+
+      setLibraries((current) => [restoredLibrary, ...current]);
+
+      setManagedLibraryId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not restore the Library.",
+      );
+    } finally {
+      setRestoringManagedLibrary(false);
+    }
+  }
+
+  async function handleAddAgent() {
+    if (addingAgent) {
+      return;
+    }
+
+    setAddingAgent(true);
+
+    try {
+      const agent = await addAgent({
+        name: "New Agent",
+      });
+
+      setAgents((current) => [agent, ...current]);
+
+      setManagedAgentId(agent.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not create the Agent.",
+      );
+    } finally {
+      setAddingAgent(false);
+    }
+  }
+
+  async function handleSaveAgent(agentId: string, input: UpdateAgentInput) {
+    setSavingAgent(true);
+
+    try {
+      const updatedAgent = await editAgent(agentId, input);
+
+      if (updatedAgent.archivedAt) {
+        setArchivedAgents((current) =>
+          current.map((agent) => (agent.id === agentId ? updatedAgent : agent)),
+        );
+      } else {
+        setAgents((current) =>
+          current.map((agent) => (agent.id === agentId ? updatedAgent : agent)),
+        );
+      }
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not update the Agent.",
+      );
+    } finally {
+      setSavingAgent(false);
+    }
+  }
+
+  async function handleDuplicateAgent(agentId: string) {
+    if (duplicatingAgent) {
+      return;
+    }
+
+    setDuplicatingAgent(true);
+
+    try {
+      const duplicatedAgent = await duplicateAgent(agentId);
+
+      setAgents((current) => [duplicatedAgent, ...current]);
+
+      setManagedAgentId(duplicatedAgent.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not duplicate the Agent.",
+      );
+    } finally {
+      setDuplicatingAgent(false);
+    }
+  }
+
+  async function handleArchiveAgent(agentId: string) {
+    if (archivingAgent) {
+      return;
+    }
+
+    setArchivingAgent(true);
+
+    try {
+      const archivedAgent = await archiveAgent(agentId);
+
+      setAgents((current) => current.filter((agent) => agent.id !== agentId));
+
+      setArchivedAgents((current) => [archivedAgent, ...current]);
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not archive the Agent.",
+      );
+    } finally {
+      setArchivingAgent(false);
+    }
+  }
+
+  async function handleRestoreAgent(agentId: string) {
+    if (restoringAgent) {
+      return;
+    }
+
+    setRestoringAgent(true);
+
+    try {
+      const restoredAgent = await restoreAgent(agentId);
+
+      setArchivedAgents((current) =>
+        current.filter((agent) => agent.id !== agentId),
+      );
+
+      setAgents((current) => [restoredAgent, ...current]);
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not restore the Agent.",
+      );
+    } finally {
+      setRestoringAgent(false);
+    }
+  }
+
+  async function handleDeleteAgent(agentId: string) {
+    if (deletingAgent) {
+      return;
+    }
+
+    setDeletingAgent(true);
+
+    try {
+      await removeAgent(agentId);
+
+      const defaultAgentId =
+        agents.find((agent) => agent.isBuiltIn)?.id ?? null;
+
+      setAgents((current) => current.filter((agent) => agent.id !== agentId));
+
+      setArchivedAgents((current) =>
+        current.filter((agent) => agent.id !== agentId),
+      );
+
+      if (defaultAgentId) {
+        setChats((current) =>
+          current.map((chat) =>
+            chat.agentId === agentId
+              ? {
+                  ...chat,
+                  agentId: defaultAgentId,
+                }
+              : chat,
+          ),
+        );
+
+        setArchivedChats((current) =>
+          current.map((chat) =>
+            chat.agentId === agentId
+              ? {
+                  ...chat,
+                  agentId: defaultAgentId,
+                }
+              : chat,
+          ),
+        );
+      }
+
+      setManagedAgentId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not delete the Agent.",
+      );
+    } finally {
+      setDeletingAgent(false);
+    }
+  }
+
+  async function handleAddChat() {
+    if (addingChat) {
+      return;
+    }
+
+    setAddingChat(true);
+
+    try {
+      const chat = await addChat();
+
+      setChats((current) => [chat, ...current]);
+
+      setSelectedChatId(chat.id);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not create the chat.",
+      );
+    } finally {
+      setAddingChat(false);
+    }
+  }
+
+  async function handleSelectChat(chatId: string) {
+    if (chatId === selectedChatId) {
+      return;
+    }
+
+    try {
+      const nextSelectedChatId = await updateSelectedChat(chatId);
+
+      setSelectedChatId(nextSelectedChatId);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not select the chat.",
+      );
+    }
+  }
+
+  async function handleSelectAgent(agentId: string) {
+    const chat = selectedChat;
+
+    if (!chat || chat.agentId === agentId) {
+      return;
+    }
+
+    try {
+      const updatedChat = await editChat(chat.id, {
+        agentId,
+      });
+
+      setChats((current) =>
+        current.map((candidate) =>
+          candidate.id === updatedChat.id ? updatedChat : candidate,
+        ),
+      );
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not assign the Agent.",
+      );
+    }
+  }
+
+  function handleToggleChatDockView(nextView: Exclude<ChatDockView, null>) {
+    setChatDockView((current) => (current === nextView ? null : nextView));
+  }
+
+  async function handleSaveChat(chatId: string, input: UpdateChatInput) {
+    setSavingChat(true);
+
+    try {
+      const updatedChat = await editChat(chatId, input);
+
+      if (updatedChat.archivedAt) {
+        setArchivedChats((current) =>
+          current.map((chat) => (chat.id === chatId ? updatedChat : chat)),
+        );
+      } else {
+        setChats((current) =>
+          current.map((chat) => (chat.id === chatId ? updatedChat : chat)),
+        );
+      }
+
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not update the chat.",
+      );
+    } finally {
+      setSavingChat(false);
+    }
+  }
+
+  async function handleArchiveChat(chatId: string) {
+    setArchivingChat(true);
+
+    try {
+      const result = await archiveChat(chatId);
+
+      setChats((current) => current.filter((chat) => chat.id !== chatId));
+
+      setArchivedChats((current) => [result.chat, ...current]);
+
+      setSelectedChatId(result.selectedChatId);
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not archive the chat.",
+      );
+    } finally {
+      setArchivingChat(false);
+    }
+  }
+
+  async function handleRestoreManagedChat(chatId: string) {
+    if (restoringManagedChat) {
+      return;
+    }
+
+    setRestoringManagedChat(true);
+
+    try {
+      const restoredChat = await restoreChat(chatId);
+
+      setArchivedChats((current) =>
+        current.filter((chat) => chat.id !== chatId),
+      );
+
+      setChats((current) => [restoredChat, ...current]);
+
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not restore the chat.",
+      );
+    } finally {
+      setRestoringManagedChat(false);
+    }
+  }
+
+  async function handleDeleteChat(chatId: string) {
+    setDeletingChat(true);
+
+    try {
+      const result = await removeChat(chatId);
+
+      setChats((current) => current.filter((chat) => chat.id !== chatId));
+
+      setArchivedChats((current) =>
+        current.filter((chat) => chat.id !== chatId),
+      );
+
+      setSelectedChatId(result.selectedChatId);
+      setManagedChatId(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not permanently delete the chat.",
+      );
+    } finally {
+      setDeletingChat(false);
+    }
+  }
+
+  function handleChatActivity(chatId: string) {
+    const now = new Date().toISOString();
+
+    setChats((current) => {
+      const activeChat = current.find((chat) => chat.id === chatId);
+
+      if (!activeChat) {
+        return current;
+      }
+
+      const updatedChat = {
+        ...activeChat,
+        updatedAt: now,
+      };
+
+      return [updatedChat, ...current.filter((chat) => chat.id !== chatId)];
+    });
+  }
+
+  return (
+    <>
+      <Topbar />
+
+      <WorkbenchShell
+        leftViews={[
+          {
+            id: "libraries",
+            title: "Library Explorer",
+            icon: <LibraryIcon size={15} strokeWidth={1.9} />,
+            content: (
+              <div className="left-dock-stack">
+                <Libraries
+                  libraries={libraryListItems}
+                  archivedLibraries={archivedLibraryListItems}
+                  selectedLibraryId={selectedLibraryId}
+                  loading={loadingLibraries}
+                  adding={addingLibrary}
+                  onSelectLibrary={handleSelectLibrary}
+                  onAddLibrary={handleAddLibrary}
+                  onManageLibrary={setManagedLibraryId}
+                  onManageArchivedLibrary={setManagedLibraryId}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "archived-libraries",
+            title: "Archived Libraries",
+            icon: <Archive size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Archive size={20} strokeWidth={1.9} />}
+                title="Archived Libraries"
+                description="Archived Library browsing will live here without crowding the active Explorer."
+              />
+            ),
+          },
+          {
+            id: "search",
+            title: "Library Search",
+            icon: <Search size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Search size={20} strokeWidth={1.9} />}
+                title="Library Search"
+                description="Project-wide file and content search will live here."
+              />
+            ),
+          },
+          {
+            id: "plugins",
+            title: "Plugins",
+            icon: <Puzzle size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Puzzle size={20} strokeWidth={1.9} />}
+                title="Plugins"
+                description="Connected providers and workspace extensions will live here."
+              />
+            ),
+          },
+          {
+            id: "tools",
+            title: "Tools",
+            icon: <Wrench size={15} strokeWidth={1.9} />,
+            content: (
+              <DockPlaceholder
+                icon={<Wrench size={20} strokeWidth={1.9} />}
+                title="Tools"
+                description="Read-only tools, Skills, and observable task runs will live here."
+              />
+            ),
+          },
+        ]}
+        statusBar={
+          <StatusBar
+            libraryName={selectedLibrary?.name ?? null}
+            chatTitle={selectedChat?.title ?? null}
+            agentName={activeAgent?.name ?? null}
+          />
+        }
+        artifactPanel={
+          <DockPlaceholder
+            icon={<Sparkles size={20} strokeWidth={1.9} />}
+            title="No artifacts yet"
+            description="Attachments, generated files, sources, and tool output will collect here."
+          />
+        }
+        workspace={
+          <ChatWindow
+            selectedChat={selectedChat}
+            onChatActivity={handleChatActivity}
+            toolbar={
+              <ChatDockHeader
+                selectedChat={selectedChat}
+                activeAgent={activeAgent}
+                selectedLibraryName={selectedLibrary?.name ?? null}
+                activeView={chatDockView}
+                onToggleView={handleToggleChatDockView}
+                onManageChat={setManagedChatId}
+              />
+            }
+            controlPanelLabel={
+              chatDockView === "chats"
+                ? "Chats"
+                : chatDockView === "agents"
+                  ? "Agents"
+                  : null
+            }
+            controlPanelWidth={chatDockPanelWidth}
+            controlPanelActionLabel={
+              chatDockView === "chats"
+                ? addingChat
+                  ? "Creating Chat..."
+                  : "New Chat"
+                : chatDockView === "agents"
+                  ? addingAgent
+                    ? "Creating Agent..."
+                    : "New Agent"
+                  : null
+            }
+            controlPanelActionBusy={
+              chatDockView === "chats"
+                ? addingChat
+                : chatDockView === "agents"
+                  ? addingAgent
+                  : false
+            }
+            onControlPanelAction={
+              chatDockView === "chats"
+                ? handleAddChat
+                : chatDockView === "agents"
+                  ? handleAddAgent
+                  : null
+            }
+            controlPanel={
+              chatDockView === "chats" ? (
+                <div className="dock-drawer-stack">
+                  <Chats
+                    chats={chats}
+                    archivedChats={archivedChats}
+                    selectedChatId={selectedChatId}
+                    loading={loadingChats}
+                    onSelectChat={handleSelectChat}
+                    onManageChat={setManagedChatId}
+                    onManageArchivedChat={setManagedChatId}
+                  />
+                </div>
+              ) : chatDockView === "agents" ? (
+                <div className="dock-drawer-stack">
+                  <Agents
+                    agents={agents}
+                    archivedAgents={archivedAgents}
+                    activeAgentId={activeAgentId}
+                    loading={loadingAgents}
+                    onSelectAgent={handleSelectAgent}
+                    onManageAgent={setManagedAgentId}
+                    onManageArchivedAgent={setManagedAgentId}
+                  />
+                </div>
+              ) : null
+            }
+          />
+        }
+      />
+
+      {managedAgent ? (
+        <AgentManagementModal
+          agent={managedAgent}
+          models={aiModels}
+          contextCompilers={contextCompilers}
+          saving={savingAgent}
+          duplicating={duplicatingAgent}
+          archiving={archivingAgent}
+          restoring={restoringAgent}
+          deleting={deletingAgent}
+          onClose={() => setManagedAgentId(null)}
+          onSave={handleSaveAgent}
+          onDuplicate={handleDuplicateAgent}
+          onArchive={handleArchiveAgent}
+          onRestore={handleRestoreAgent}
+          onDelete={handleDeleteAgent}
+        />
+      ) : null}
+
+      {managedLibrary ? (
+        <LibraryManagementModal
+          library={managedLibrary}
+          saving={savingLibrary}
+          archiving={archivingLibrary}
+          restoring={restoringManagedLibrary}
+          onClose={() => setManagedLibraryId(null)}
+          onSave={handleSaveLibrary}
+          onArchive={handleArchiveLibrary}
+          onRestore={handleRestoreManagedLibrary}
+        />
+      ) : null}
+
+      {managedChat ? (
+        <ChatManagementModal
+          chat={managedChat}
+          agents={agents}
+          saving={savingChat}
+          archiving={archivingChat}
+          restoring={restoringManagedChat}
+          deleting={deletingChat}
+          onClose={() => setManagedChatId(null)}
+          onSave={handleSaveChat}
+          onArchive={handleArchiveChat}
+          onRestore={handleRestoreManagedChat}
+          onDelete={handleDeleteChat}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export default App;
+
+===== FILE: frontend/src/index.css =====
+@import "./styles/modal.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  margin: 0;
+}
+
+html {
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: var(--app-text);
+  background: var(--app-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+
+#root {
+  min-height: 100dvh;
+  background: var(--app-bg);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+===== FILE: frontend/src/styles/theme.ts =====
+// frontend/src/styles/theme.ts
+
+export const theme = {
+  layout: {
+    topbarHeight: "42px",
+    sidebarWidth: "300px",
+    sidebarPanelWidth: "300px",
+    inspectorWidth: "320px",
+    contentMaxWidth: "920px",
+    viewportMobile: "900px",
+
+    zIndex: {
+      sidebar: 10,
+      topbar: 30,
+      revealBtn: 20,
+      inspector: 20,
+      modal: 50,
+      toast: 60,
+      composer: 12,
+    },
+
+    radii: {
+      sm: "8px",
+      md: "12px",
+      lg: "14px",
+      xl: "18px",
+      pill: "100px",
+      round: "999px",
+    },
+
+    shadows: {
+      soft: "0 10px 26px rgba(0, 0, 0, 0.46)",
+      panel: "0 18px 46px rgba(0, 0, 0, 0.44)",
+      card: "0 16px 34px rgba(0, 0, 0, 0.48)",
+      cardLift: "0 22px 52px rgba(0, 0, 0, 0.58)",
+      insetThin: "inset 0 0 0 1px rgba(255, 255, 255, 0.035)",
+      avatar: "0 8px 20px rgba(0, 0, 0, 0.48)",
+      modal: "0 18px 44px rgba(0, 0, 0, 0.52)",
+      glow: "0 0 24px rgba(143, 122, 223, 0.14)",
+    },
+  },
+
+  motion: {
+    durations: {
+      fast: "0.2s",
+      base: "0.25s",
+      slow: "0.35s",
+    },
+
+    easings: {
+      standard: "ease",
+      standardInOut: "cubic-bezier(0.4, 0, 0.2, 1)",
+      bouncy: "cubic-bezier(0.22, 1.18, 0.36, 1)",
+      springy: "cubic-bezier(0.25, 1.08, 0.5, 1)",
+    },
+
+    anim: {
+      popStartY: "10px",
+      popOvershootY: "-2px",
+      popStartScale: "0.99",
+      popOvershootScale: "1.006",
+    },
+
+    modal: {
+      backdropDuration: "160ms",
+      enterDuration: "320ms",
+      startY: "20px",
+      overshootY: "-3px",
+      startScale: "0.88",
+      overshootScale: "1.025",
+    },
+  },
+
+  colors: {
+    app: {
+      bg: "#11100e",
+      bgDeep: "#090908",
+      text: "#eee8dc",
+      mutedText: "#a79d8e",
+      border: "rgba(214, 198, 170, 0.16)",
+      accent: "#8f7adf",
+      accentSoft: "rgba(143, 122, 223, 0.13)",
+      success: "#7fa878",
+      warning: "#c49a5a",
+      danger: "#c85f5f",
+    },
+
+    topbar: {
+      bg: "#12110f",
+      border: "rgba(214, 198, 170, 0.14)",
+      title: "#f6efe4",
+      subtitle: "#a79d8e",
+    },
+
+    sidebar: {
+      bg: "#100f0d",
+      border: "rgba(214, 198, 170, 0.12)",
+      hover: "rgba(246, 239, 228, 0.045)",
+      active: "rgba(143, 122, 223, 0.12)",
+      title: "#a79d8e",
+      dotOnline: "#7fa878",
+      revealHover: "rgba(143, 122, 223, 0.14)",
+      btnBorder: "rgba(214, 198, 170, 0.22)",
+    },
+
+    workspace: {
+      bg: "#151410",
+      bgDeep: "#0d0c0a",
+      panelBg: "rgba(34, 31, 26, 0.82)",
+      panelBorder: "rgba(214, 198, 170, 0.16)",
+      emptyText: "#a79d8e",
+    },
+
+    artifactStream: {
+      systemBg: "rgba(35, 32, 27, 0.78)",
+      systemText: "#d0c5b4",
+      cardBg: "rgba(34, 31, 26, 0.86)",
+      cardBgLifted: "rgba(42, 38, 31, 0.9)",
+      cardBorder: "rgba(214, 198, 170, 0.14)",
+      cardShadow: "0 16px 34px rgba(0, 0, 0, 0.48)",
+      sourceBg: "rgba(18, 17, 15, 0.74)",
+      sourceBorder: "rgba(196, 154, 90, 0.24)",
+    },
+
+    messages: {
+      userBg: "rgba(24, 23, 20, 0.82)",
+      userText: "#eee8dc",
+      userBorder: "rgba(214, 198, 170, 0.16)",
+      assistantBg: "rgba(38, 35, 29, 0.9)",
+      assistantText: "#f3eadb",
+      assistantBorder: "rgba(214, 198, 170, 0.18)",
+      systemBg: "rgba(35, 32, 27, 0.7)",
+      systemText: "#d0c5b4",
+    },
+
+    composer: {
+      bg: "rgba(29, 27, 23, 0.96)",
+      ring: "rgba(214, 198, 170, 0.18)",
+      ringFocus: "rgba(143, 122, 223, 0.45)",
+      inputText: "#eee8dc",
+      placeholder: "#918779",
+      sendBg: "#6f5bb8",
+      sendBgHover: "#8f7adf",
+    },
+
+    inspector: {
+      bg: "#100f0d",
+      border: "rgba(214, 198, 170, 0.12)",
+      title: "#f6efe4",
+      text: "#d0c5b4",
+      mutedText: "#a79d8e",
+      chipBg: "rgba(246, 239, 228, 0.045)",
+      chipBorder: "rgba(214, 198, 170, 0.16)",
+    },
+
+    modal: {
+      overlay: "rgba(5, 5, 4, 0.72)",
+      bg: "rgba(24, 22, 18, 0.98)",
+      surface: "rgba(34, 31, 26, 0.9)",
+      surfaceHover: "rgba(42, 38, 31, 0.94)",
+      text: "#f3eadb",
+      mutedText: "#a79d8e",
+      border: "rgba(214, 198, 170, 0.16)",
+      inputBg: "rgba(13, 12, 10, 0.72)",
+      dangerSoft: "rgba(200, 95, 95, 0.12)",
+      dangerBorder: "rgba(200, 95, 95, 0.3)",
+    },
+  },
+
+  topbar: {
+    paddingX: "42px",
+    titleSize: "28px",
+    subtitleSize: "13px",
+  },
+
+  sidebar: {
+    itemHeight: "40px",
+    itemGap: "10px",
+    itemRadius: "8px",
+    collapseBtnSize: "42px",
+    revealBtnSize: "42px",
+  },
+
+  sidebarCard: {
+    minHeight: "58px",
+    gap: "10px",
+
+    paddingX: "8px",
+    paddingY: "8px",
+    actionReserve: "38px",
+    radius: "10px",
+
+    actionTop: "7px",
+    actionRight: "7px",
+
+    enterDuration: "180ms",
+    motionDuration: "260ms",
+    colorDuration: "180ms",
+    shadowDuration: "220ms",
+    pressDuration: "80ms",
+
+    motionEasing: "cubic-bezier(0.18, 1.12, 0.32, 1)",
+
+    hoverX: "4px",
+    hoverScale: "1.018",
+
+    neighborX: "2px",
+    neighborScale: "1.01",
+
+    pressScale: "0.99",
+
+    leadingHoverScale: "1.09",
+    leadingHoverRotate: "-2deg",
+    contentHoverX: "1px",
+
+    hoverBg: "rgba(255, 255, 255, 0.045)",
+    hoverBorder: "rgba(214, 198, 170, 0.14)",
+    hoverShadow: "0 8px 18px rgba(0, 0, 0, 0.22)",
+
+    neighborBg: "rgba(255, 255, 255, 0.024)",
+    neighborBorder: "rgba(214, 198, 170, 0.075)",
+
+    selectedBg:
+      "linear-gradient(90deg, rgba(143, 122, 223, 0.11), transparent 64%), rgba(255, 255, 255, 0.035)",
+
+    selectedBorder: "rgba(143, 122, 223, 0.23)",
+
+    selectedShadow:
+      "0 8px 20px rgba(0, 0, 0, 0.24), inset 0 0 0 1px rgba(143, 122, 223, 0.07)",
+
+    archivedOpacity: "0.72",
+
+    shimmerWidth: "22%",
+    shimmerOpacity: "0.82",
+    shimmerDuration: "270ms",
+    shimmerSkew: "-24deg",
+
+    shimmerAccent: "rgba(143, 122, 223, 0.38)",
+    shimmerHighlight: "rgba(235, 245, 255, 0.68)",
+    shimmerWarm: "rgba(196, 154, 90, 0.3)",
+  },
+
+  workspace: {
+    gap: "10px",
+    padding: "16px",
+  },
+
+  artifactStream: {
+    gap: "12px",
+    padding: "16px",
+    cardPadding: "14px 18px",
+    cardRadius: "16px",
+  },
+
+  messages: {
+    maxWidth: "760px",
+    relativeMax: "92%",
+    radius: "16px",
+    padding: "14px 18px",
+    tailSize: "0px",
+    tailWidth: "0px",
+  },
+
+  composer: {
+    maxHeight: "240px",
+    paddingX: "16px",
+    paddingRightReserve: "56px",
+    pillRadius: "100px",
+    grownRadius: "16px",
+    sendSize: "42px",
+    sendFontSize: "1.1rem",
+  },
+
+  inspector: {
+    padding: "16px",
+    sectionGap: "14px",
+    chipRadius: "999px",
+  },
+} as const;
+
+export function applyTheme(t: typeof theme = theme): void {
+  const root = document.documentElement;
+
+  set("--topbar-height", t.layout.topbarHeight);
+  set("--sidebar-width", t.layout.sidebarWidth);
+  set("--sidebar-panel-width", t.layout.sidebarPanelWidth);
+  set("--inspector-width", t.layout.inspectorWidth);
+  set("--content-max-width", t.layout.contentMaxWidth);
+  set("--viewport-mobile", t.layout.viewportMobile);
+
+  set("--z-sidebar", t.layout.zIndex.sidebar);
+  set("--z-topbar", t.layout.zIndex.topbar);
+  set("--z-reveal", t.layout.zIndex.revealBtn);
+  set("--z-inspector", t.layout.zIndex.inspector);
+  set("--z-modal", t.layout.zIndex.modal);
+  set("--z-toast", t.layout.zIndex.toast);
+  set("--z-composer", t.layout.zIndex.composer);
+
+  set("--r-sm", t.layout.radii.sm);
+  set("--r-md", t.layout.radii.md);
+  set("--r-lg", t.layout.radii.lg);
+  set("--r-xl", t.layout.radii.xl);
+  set("--r-pill", t.layout.radii.pill);
+  set("--r-round", t.layout.radii.round);
+
+  set("--shadow-soft", t.layout.shadows.soft);
+  set("--shadow-panel", t.layout.shadows.panel);
+  set("--shadow-card", t.layout.shadows.card);
+  set("--shadow-card-lift", t.layout.shadows.cardLift);
+  set("--shadow-inset-thin", t.layout.shadows.insetThin);
+  set("--shadow-avatar", t.layout.shadows.avatar);
+  set("--shadow-modal", t.layout.shadows.modal);
+  set("--shadow-glow", t.layout.shadows.glow);
+
+  set("--dur-fast", t.motion.durations.fast);
+  set("--dur-base", t.motion.durations.base);
+  set("--dur-slow", t.motion.durations.slow);
+
+  set("--ease-standard", t.motion.easings.standard);
+  set("--ease-standard-inout", t.motion.easings.standardInOut);
+  set("--ease-bouncy", t.motion.easings.bouncy);
+  set("--ease-springy", t.motion.easings.springy);
+
+  set("--anim-pop-start-y", t.motion.anim.popStartY);
+  set("--anim-pop-overshoot-y", t.motion.anim.popOvershootY);
+  set("--anim-pop-start-scale", t.motion.anim.popStartScale);
+  set("--anim-pop-overshoot-scale", t.motion.anim.popOvershootScale);
+
+  set("--modal-backdrop-duration", t.motion.modal.backdropDuration);
+  set("--modal-enter-duration", t.motion.modal.enterDuration);
+  set("--modal-start-y", t.motion.modal.startY);
+  set("--modal-overshoot-y", t.motion.modal.overshootY);
+  set("--modal-start-scale", t.motion.modal.startScale);
+  set("--modal-overshoot-scale", t.motion.modal.overshootScale);
+
+  setGroup("--app", t.colors.app);
+  setGroup("--topbar", t.colors.topbar);
+  setGroup("--sidebar", t.colors.sidebar);
+  setGroup("--workspace", t.colors.workspace);
+  setGroup("--artifact", t.colors.artifactStream);
+  setGroup("--message", t.colors.messages);
+  setGroup("--composer", t.colors.composer);
+  setGroup("--inspector", t.colors.inspector);
+  setGroup("--modal", t.colors.modal);
+
+  setGroup("--topbar", {
+    paddingX: t.topbar.paddingX,
+    titleSize: t.topbar.titleSize,
+    subtitleSize: t.topbar.subtitleSize,
+  });
+
+  setGroup("--sidebar", {
+    itemHeight: t.sidebar.itemHeight,
+    itemGap: t.sidebar.itemGap,
+    itemRadius: t.sidebar.itemRadius,
+    collapseBtnSize: t.sidebar.collapseBtnSize,
+    revealBtnSize: t.sidebar.revealBtnSize,
+  });
+
+  setGroup("--sidebar-card", {
+    minHeight: t.sidebarCard.minHeight,
+    gap: t.sidebarCard.gap,
+
+    paddingX: t.sidebarCard.paddingX,
+    paddingY: t.sidebarCard.paddingY,
+    actionReserve: t.sidebarCard.actionReserve,
+    radius: t.sidebarCard.radius,
+
+    actionTop: t.sidebarCard.actionTop,
+    actionRight: t.sidebarCard.actionRight,
+
+    enterDuration: t.sidebarCard.enterDuration,
+    motionDuration: t.sidebarCard.motionDuration,
+    colorDuration: t.sidebarCard.colorDuration,
+    shadowDuration: t.sidebarCard.shadowDuration,
+    pressDuration: t.sidebarCard.pressDuration,
+
+    motionEasing: t.sidebarCard.motionEasing,
+
+    hoverX: t.sidebarCard.hoverX,
+    hoverScale: t.sidebarCard.hoverScale,
+
+    neighborX: t.sidebarCard.neighborX,
+    neighborScale: t.sidebarCard.neighborScale,
+
+    pressScale: t.sidebarCard.pressScale,
+
+    leadingHoverScale: t.sidebarCard.leadingHoverScale,
+    leadingHoverRotate: t.sidebarCard.leadingHoverRotate,
+    contentHoverX: t.sidebarCard.contentHoverX,
+
+    hoverBg: t.sidebarCard.hoverBg,
+    hoverBorder: t.sidebarCard.hoverBorder,
+    hoverShadow: t.sidebarCard.hoverShadow,
+
+    neighborBg: t.sidebarCard.neighborBg,
+    neighborBorder: t.sidebarCard.neighborBorder,
+
+    selectedBg: t.sidebarCard.selectedBg,
+    selectedBorder: t.sidebarCard.selectedBorder,
+    selectedShadow: t.sidebarCard.selectedShadow,
+
+    archivedOpacity: t.sidebarCard.archivedOpacity,
+
+    shimmerWidth: t.sidebarCard.shimmerWidth,
+    shimmerOpacity: t.sidebarCard.shimmerOpacity,
+    shimmerDuration: t.sidebarCard.shimmerDuration,
+    shimmerSkew: t.sidebarCard.shimmerSkew,
+
+    shimmerAccent: t.sidebarCard.shimmerAccent,
+    shimmerHighlight: t.sidebarCard.shimmerHighlight,
+    shimmerWarm: t.sidebarCard.shimmerWarm,
+  });
+
+  setGroup("--workspace", {
+    gap: t.workspace.gap,
+    padding: t.workspace.padding,
+  });
+
+  setGroup("--artifact", {
+    gap: t.artifactStream.gap,
+    padding: t.artifactStream.padding,
+    cardPadding: t.artifactStream.cardPadding,
+    cardRadius: t.artifactStream.cardRadius,
+  });
+
+  setGroup("--message", {
+    maxWidth: t.messages.maxWidth,
+    relativeMax: t.messages.relativeMax,
+    radius: t.messages.radius,
+    padding: t.messages.padding,
+    tailSize: t.messages.tailSize,
+    tailWidth: t.messages.tailWidth,
+  });
+
+  setGroup("--composer", {
+    maxHeight: t.composer.maxHeight,
+    paddingX: t.composer.paddingX,
+    paddingRightReserve: t.composer.paddingRightReserve,
+    pillRadius: t.composer.pillRadius,
+    grownRadius: t.composer.grownRadius,
+    sendSize: t.composer.sendSize,
+    sendFontSize: t.composer.sendFontSize,
+  });
+
+  setGroup("--inspector", {
+    padding: t.inspector.padding,
+    sectionGap: t.inspector.sectionGap,
+    chipRadius: t.inspector.chipRadius,
+  });
+
+  function set(name: string, value: string | number): void {
+    root.style.setProperty(name, String(value));
+  }
+
+  function setGroup(
+    prefix: string,
+    obj: Record<string, string | number>,
+  ): void {
+    Object.entries(obj).forEach(([key, value]) => {
+      const kebabCaseKey = key.replace(
+        /[A-Z]/g,
+        (character) => `-${character.toLowerCase()}`,
+      );
+
+      root.style.setProperty(`${prefix}-${kebabCaseKey}`, String(value));
+    });
+  }
+}
+
+===== FILE: frontend/src/components/chat/ChatWindow.module.css =====
+.chatWindow {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--workbench-surface-bg, #181713);
+  contain: layout paint style;
+}
+
+.messagesViewport {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-left: var(--workbench-chat-safe-left, 0px);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1080px);
+  min-height: 100%;
+  margin: 0 auto;
+  gap: clamp(12px, 2vh, 24px);
+  padding: clamp(16px, 2.4vw, 30px) clamp(14px, 3.2vw, 42px) 28px;
+}
+
+.emptyState {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 100%;
+  gap: 8px;
+  padding: 18px;
+  color: var(--workspace-empty-text);
+  font-size: clamp(12px, 1.1vw, 14px);
+  opacity: 0.82;
+  text-align: center;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: messageIn 180ms var(--ease-standard-inout) forwards;
+}
+
+.user {
+  align-items: flex-end;
+}
+
+.assistant,
+.system {
+  align-items: stretch;
+}
+
+.messageMeta {
+  padding: 0 4px;
+}
+
+.user .messageMeta,
+.user .blocks {
+  width: min(680px, 78%);
+  align-self: flex-end;
+}
+
+.assistant .messageMeta,
+.assistant .blocks,
+.system .messageMeta,
+.system .blocks {
+  width: min(920px, 94%);
+}
+
+.roleLabel {
+  color: var(--app-muted-text);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.user .roleLabel {
+  display: block;
+  text-align: right;
+}
+
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.markdownBlock,
+.typing {
+  position: relative;
+  padding: clamp(10px, 1.3vw, 15px) clamp(12px, 1.7vw, 18px);
+  border: 1px solid var(--artifact-card-border);
+  border-radius: clamp(10px, 1.3vw, var(--message-radius));
+  color: var(--message-assistant-text);
+  background: var(--artifact-card-bg);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 rgba(255, 250, 240, 0.04);
+  font-size: clamp(12px, 1.05vw, 15px);
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.user .markdownBlock {
+  color: var(--message-user-text);
+  background:
+    linear-gradient(90deg, transparent, rgba(196, 154, 90, 0.035)),
+    var(--message-user-bg);
+  border-color: var(--message-user-border);
+}
+
+.assistant .markdownBlock {
+  color: var(--message-assistant-text);
+  background:
+    linear-gradient(
+      90deg,
+      rgba(143, 122, 223, 0.2) 0,
+      rgba(143, 122, 223, 0.09) 4px,
+      transparent 4px
+    ),
+    var(--message-assistant-bg);
+  border-color: var(--message-assistant-border);
+  box-shadow:
+    var(--shadow-card-lift),
+    inset 0 1px 0 rgba(255, 250, 240, 0.045);
+}
+
+.system .markdownBlock {
+  color: var(--message-system-text);
+  background: var(--message-system-bg);
+  border-color: rgba(196, 154, 90, 0.16);
+}
+
+.typing {
+  width: fit-content;
+  opacity: 0.85;
+}
+
+.composerPanel {
+  --chat-dock-header-height: 42px;
+  --chat-dock-body-height: 172px;
+
+  grid-column: 1 / -1;
+  grid-row: 2;
+  z-index: 5;
+  display: grid;
+  grid-template-rows:
+    var(--chat-dock-header-height)
+    var(--chat-dock-body-height);
+  justify-self: var(--workbench-dock-justify, center);
+  width: var(--workbench-dock-width, min(calc(100% - 32px), 1120px));
+  height: calc(var(--chat-dock-header-height) + var(--chat-dock-body-height));
+  min-width: 0;
+  min-height: 0;
+  margin: 0 var(--workbench-dock-margin-right, 0px) 0
+    var(--workbench-dock-margin-left, 0px);
+  overflow: hidden;
+  border: 1px solid rgba(214, 198, 170, 0.1);
+  border-bottom: 0;
+  border-radius: 0;
+  background: var(--workbench-surface-bg, #181713);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  contain: layout style;
+}
+
+.composerHeader {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 7px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.composerToolbar {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.composerBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  height: var(--chat-dock-body-height);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.composerBodyWithPanel {
+  grid-template-columns:
+    minmax(0, 1fr)
+    min(var(--chat-control-panel-width, 176px), 31vw);
+}
+
+.composer {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--workbench-surface-bg, #181713);
+}
+
+.composerInner {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 36px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--workbench-surface-bg, #181713);
+}
+
+.composerInner:focus-within {
+  background: rgba(255, 255, 255, 0.018);
+  box-shadow: inset 0 1px 0 rgba(143, 122, 223, 0.18);
+}
+
+.composerInput {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 15px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0;
+  outline: 0;
+  color: var(--composer-input-text);
+  background: transparent;
+  font: inherit;
+  font-size: clamp(12px, 1vw, 14px);
+  line-height: 1.5;
+  resize: none;
+  scrollbar-gutter: stable;
+}
+
+.composerInput::placeholder {
+  color: var(--composer-placeholder);
+}
+
+.composerFooter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  min-height: 36px;
+  padding: 3px 7px 4px 9px;
+  border-top: 1px solid rgba(214, 198, 170, 0.065);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.writingTools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.writingTools button {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.writingTools button:hover:not(:disabled),
+.writingTools button:focus-visible:not(:disabled) {
+  border-color: rgba(214, 198, 170, 0.08);
+  color: var(--app-text);
+  background: rgba(255, 255, 255, 0.05);
+  outline: none;
+}
+
+.writingTools button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.keyboardHint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-width: 68px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(143, 122, 223, 0.28);
+  border-radius: 5px;
+  color: #fff;
+  background: rgba(143, 122, 223, 0.18);
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.composerButton:hover:not(:disabled),
+.composerButton:focus-visible:not(:disabled) {
+  border-color: rgba(143, 122, 223, 0.5);
+  background: rgba(143, 122, 223, 0.3);
+  outline: none;
+}
+
+.composerButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.controlPanel {
+  display: grid;
+  grid-template-rows: 25px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid rgba(214, 198, 170, 0.09);
+  background: var(--workbench-control-surface-bg, #151410);
+}
+
+.controlPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 5px;
+  padding: 0 4px 0 7px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.07);
+  color: var(--app-muted-text);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.controlPanelHeader strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.controlPanelAction {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--app-muted-text);
+  background: transparent;
+  cursor: pointer;
+}
+
+.controlPanelAction:hover:not(:disabled),
+.controlPanelAction:focus-visible:not(:disabled) {
+  border-color: rgba(143, 122, 223, 0.22);
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.1);
+  outline: none;
+}
+
+.controlPanelAction:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.controlPanelContent {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.controlPanelContent > * {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+@keyframes messageIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 760px) {
+  .user .messageMeta,
+  .user .blocks,
+  .assistant .messageMeta,
+  .assistant .blocks,
+  .system .messageMeta,
+  .system .blocks {
+    width: 100%;
+  }
+
+  .messages {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .composerPanel {
+    width: min(calc(100% - 12px), 1120px);
+    margin-right: 0;
+    margin-bottom: 0;
+    margin-left: 0;
+  }
+
+  .composerHeader {
+    gap: 4px;
+    padding-right: 4px;
+    padding-left: 4px;
+  }
+
+  .composerBodyWithPanel {
+    grid-template-columns:
+      minmax(0, 1fr)
+      min(var(--chat-control-panel-width, 176px), 38vw);
+  }
+
+  .keyboardHint {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .composerPanel {
+    --chat-dock-body-height: 156px;
+  }
+
+  .composerBodyWithPanel {
+    grid-template-columns:
+      minmax(0, 1fr)
+      min(var(--chat-control-panel-width, 176px), 46vw);
+  }
+
+  .composerButton span {
+    display: none;
+  }
+
+  .composerButton {
+    min-width: 29px;
+    width: 29px;
+    padding: 0;
+  }
+}
+
+@media (max-height: 620px) {
+  .composerPanel {
+    --chat-dock-header-height: 36px;
+    --chat-dock-body-height: 136px;
+    margin-bottom: 0;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  }
+
+  .messages {
+    gap: 10px;
+    padding-top: 10px;
+    padding-bottom: 12px;
+  }
+
+  .composerInner {
+    grid-template-rows: minmax(0, 1fr) 32px;
+  }
+
+  .composerFooter {
+    height: 32px;
+    min-height: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message {
+    animation: none;
+  }
+}
+
+===== FILE: frontend/src/components/chat/ChatWindow.tsx =====
+import {
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Code2,
+  List,
+  Plus,
+  SendHorizontal,
+  Sparkles,
+  TextQuote,
+} from "lucide-react";
+import { fetchMessages, respondToChat } from "../../domains/chat/chat.api";
+import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
+import styles from "./ChatWindow.module.css";
+
+type ChatWindowProps = {
+  selectedChat: Chat | null;
+  toolbar: ReactNode;
+  controlPanel: ReactNode | null;
+  controlPanelLabel: string | null;
+  controlPanelWidth?: number;
+  controlPanelActionLabel?: string | null;
+  controlPanelActionBusy?: boolean;
+  onControlPanelAction?: (() => void) | null;
+  onChatActivity: (chatId: string) => void;
+};
+
+function isNearBottom(container: HTMLElement, threshold = 120): boolean {
+  const distanceFromBottom =
+    container.scrollHeight - container.scrollTop - container.clientHeight;
+
+  return distanceFromBottom <= threshold;
+}
+
+function scrollToBottom(
+  container: HTMLElement,
+  behavior: ScrollBehavior = "smooth",
+): void {
+  container.scrollTo({
+    top: container.scrollHeight,
+    behavior,
+  });
+}
+
+function createOptimisticUserMessage(
+  chatId: string,
+  content: string,
+): ChatMessage {
+  const now = new Date().toISOString();
+
+  return {
+    id: `optimistic-${crypto.randomUUID()}`,
+    chatId,
+    role: "user",
+    content,
+    status: "streaming",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function ChatWindow({
+  selectedChat,
+  toolbar,
+  controlPanel,
+  controlPanelLabel,
+  controlPanelWidth = 176,
+  controlPanelActionLabel = null,
+  controlPanelActionBusy = false,
+  onControlPanelAction = null,
+  onChatActivity,
+}: ChatWindowProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const forceScrollRef = useRef(false);
+  const activeRequestChatIdRef = useRef<string | null>(null);
+
+  const selectedChatId = selectedChat?.id ?? null;
+  const selectedChatTitle = selectedChat?.title ?? null;
+  const hasMessages = messages.length > 0;
+
+  const canSend = useMemo(() => {
+    return (
+      input.trim().length > 0 &&
+      !sending &&
+      !loadingMessages &&
+      Boolean(selectedChatId)
+    );
+  }, [input, loadingMessages, selectedChatId, sending]);
+
+  async function send() {
+    const text = input.trim();
+    const chat = selectedChat;
+
+    if (!text || sending || !chat) {
+      return;
+    }
+
+    const optimisticMessage = createOptimisticUserMessage(chat.id, text);
+
+    activeRequestChatIdRef.current = chat.id;
+
+    setSending(true);
+    setInput("");
+    setMessages((current) => [...current, optimisticMessage]);
+
+    forceScrollRef.current = true;
+    setPinnedToBottom(true);
+
+    try {
+      const result = await respondToChat(chat.id, text);
+
+      if (activeRequestChatIdRef.current !== chat.id) {
+        return;
+      }
+
+      setMessages((current) => [
+        ...current.filter((message) => message.id !== optimisticMessage.id),
+        result.userMessage,
+        result.assistantMessage,
+      ]);
+
+      onChatActivity(chat.id);
+    } catch (error) {
+      if (activeRequestChatIdRef.current === chat.id) {
+        setMessages((current) =>
+          current.filter((message) => message.id !== optimisticMessage.id),
+        );
+
+        setInput(text);
+
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Archivist could not complete the response.",
+        );
+      }
+    } finally {
+      if (activeRequestChatIdRef.current === chat.id) {
+        activeRequestChatIdRef.current = null;
+        setSending(false);
+      }
+    }
+  }
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void send();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void send();
+    }
+  }
+
+  function insertTemplate(prefix: string, suffix = "", fallback = "") {
+    const textarea = textareaRef.current;
+    const selectionStart = textarea?.selectionStart ?? input.length;
+    const selectionEnd = textarea?.selectionEnd ?? input.length;
+    const selectedText = input.slice(selectionStart, selectionEnd) || fallback;
+    const replacement = `${prefix}${selectedText}${suffix}`;
+    const nextInput = `${input.slice(0, selectionStart)}${replacement}${input.slice(
+      selectionEnd,
+    )}`;
+    const nextCursor = selectionStart + prefix.length + selectedText.length;
+
+    setInput(nextInput);
+
+    window.requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    activeRequestChatIdRef.current = null;
+    setSending(false);
+
+    async function loadMessages() {
+      if (!selectedChatId) {
+        setMessages([]);
+        setLoadingMessages(false);
+        return;
+      }
+
+      setLoadingMessages(true);
+      setMessages([]);
+
+      try {
+        const loadedMessages = await fetchMessages(selectedChatId);
+
+        if (cancelled) {
+          return;
+        }
+
+        setMessages(loadedMessages);
+
+        forceScrollRef.current = true;
+        setPinnedToBottom(true);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Archivist could not load the conversation.",
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingMessages(false);
+        }
+      }
+    }
+
+    void loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChatId]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    function handleScroll() {
+      setPinnedToBottom(isNearBottom(container));
+    }
+
+    container.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
+
+    handleScroll();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if (forceScrollRef.current) {
+        scrollToBottom(container, "auto");
+        forceScrollRef.current = false;
+        return;
+      }
+
+      if (pinnedToBottom) {
+        scrollToBottom(container, "auto");
+      }
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [loadingMessages, messages, pinnedToBottom, sending]);
+
+  return (
+    <>
+      <section className={styles.chatWindow}>
+        <div
+          ref={messagesContainerRef}
+          className={styles.messagesViewport}
+          aria-live="polite"
+        >
+          <div className={styles.messages}>
+            {!selectedChatId ? (
+              <div className={styles.emptyState}>
+                <Sparkles size={22} strokeWidth={2} />
+                <span>Select or create a chat to begin.</span>
+              </div>
+            ) : loadingMessages ? (
+              <div className={styles.emptyState}>
+                <Sparkles size={22} strokeWidth={2} />
+                <span>Loading {selectedChatTitle}...</span>
+              </div>
+            ) : !hasMessages && !sending ? (
+              <div className={styles.emptyState}>
+                <Sparkles size={22} strokeWidth={2} />
+                <span>
+                  {selectedChatTitle} is empty. Send the first message.
+                </span>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <article
+                  key={message.id}
+                  className={`${styles.message} ${styles[message.role]}`}
+                >
+                  <div className={styles.messageMeta}>
+                    <span className={styles.roleLabel}>
+                      {message.role === "assistant"
+                        ? "Archivist"
+                        : message.role === "user"
+                          ? "You"
+                          : "System"}
+                    </span>
+                  </div>
+
+                  <div className={styles.blocks}>
+                    <div className={styles.markdownBlock}>
+                      {message.content}
+                    </div>
+                  </div>
+                </article>
+              ))
+            )}
+
+            {sending ? (
+              <article className={`${styles.message} ${styles.assistant}`}>
+                <div className={styles.messageMeta}>
+                  <span className={styles.roleLabel}>Archivist</span>
+                </div>
+
+                <div className={styles.blocks}>
+                  <div className={styles.typing}>Thinking...</div>
+                </div>
+              </article>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.composerPanel} aria-label="Chat input panel">
+        <header className={styles.composerHeader}>
+          <div className={styles.composerToolbar}>{toolbar}</div>
+        </header>
+
+        <div
+          className={`${styles.composerBody} ${
+            controlPanel ? styles.composerBodyWithPanel : ""
+          }`}
+          style={
+            controlPanel
+              ? ({
+                  "--chat-control-panel-width": `${controlPanelWidth}px`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
+          <form className={styles.composer} onSubmit={onSubmit}>
+            <div className={styles.composerInner}>
+              <textarea
+                ref={textareaRef}
+                className={styles.composerInput}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  selectedChatTitle
+                    ? `Message ${selectedChatTitle}...`
+                    : "Choose or create a chat..."
+                }
+                autoComplete="off"
+                rows={4}
+                disabled={sending || loadingMessages || !selectedChatId}
+              />
+
+              <div className={styles.composerFooter}>
+                <div className={styles.writingTools} aria-label="Writing tools">
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("- ")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert list item"
+                    title="Insert List Item"
+                  >
+                    <List size={14} strokeWidth={2} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("> ")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert quote"
+                    title="Insert Quote"
+                  >
+                    <TextQuote size={14} strokeWidth={2} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("```\n", "\n```", "code")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert code block"
+                    title="Insert Code Block"
+                  >
+                    <Code2 size={14} strokeWidth={2} />
+                  </button>
+                </div>
+
+                <span className={styles.keyboardHint}>
+                  Enter to send · Shift+Enter for newline
+                </span>
+
+                <button
+                  className={styles.composerButton}
+                  type="submit"
+                  disabled={!canSend}
+                  aria-label="Send"
+                  title="Send"
+                >
+                  <SendHorizontal size={16} strokeWidth={2.35} />
+                  <span>Send</span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {controlPanel ? (
+            <aside
+              className={styles.controlPanel}
+              aria-label={controlPanelLabel ?? "Chat controls"}
+            >
+              <div className={styles.controlPanelHeader}>
+                <strong>{controlPanelLabel ?? "Chat controls"}</strong>
+
+                {onControlPanelAction && controlPanelActionLabel ? (
+                  <button
+                    className={styles.controlPanelAction}
+                    type="button"
+                    onClick={onControlPanelAction}
+                    disabled={controlPanelActionBusy}
+                    aria-label={controlPanelActionLabel}
+                    title={controlPanelActionLabel}
+                  >
+                    <Plus size={12} strokeWidth={2.2} />
+                  </button>
+                ) : null}
+              </div>
+
+              <div className={styles.controlPanelContent}>{controlPanel}</div>
+            </aside>
+          ) : null}
+        </div>
+      </section>
+    </>
+  );
+}
+
+===== FILE: frontend/src/components/workbench/ChatDock/ChatDockHeader/ChatDockHeader.module.css =====
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  gap: 12px;
+  padding: 0 6px 0 11px;
+}
+
+.identity {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 5px;
+  padding: 6px 4px 6px 0;
+}
+
+.chatTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextMeta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.contextItem {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 230px;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 8.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.contextItem svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.contextLabel {
+  flex: 0 0 auto;
+  font-size: 7.5px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.contextValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.84;
+}
+
+.contextDivider {
+  width: 1px;
+  height: 11px;
+  flex: 0 0 auto;
+  background: rgba(214, 198, 170, 0.11);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 5px 0;
+}
+
+.iconButton,
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 31px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--app-muted-text);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+  transform: translateY(0) scale(1);
+  transition:
+    transform 190ms var(--ease-springy),
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 180ms ease,
+    opacity 150ms ease;
+}
+
+.iconButton {
+  width: 31px;
+  padding: 0;
+}
+
+.tab {
+  min-width: 58px;
+  gap: 5px;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton:focus-visible:not(:disabled),
+.tab:hover,
+.tab:focus-visible {
+  border-color: var(--sidebar-card-hover-border);
+  color: var(--app-text);
+  background: var(--sidebar-card-hover-bg);
+  box-shadow: var(--sidebar-card-hover-shadow);
+  outline: none;
+  transform: translateY(-1px) scale(1.035);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.actions:has(.iconButton:first-child:hover) .iconButton:nth-child(2),
+.actions:has(.iconButton:first-child:focus-visible) .iconButton:nth-child(2),
+.actions:has(.iconButton:nth-child(2):hover) .iconButton:first-child,
+.actions:has(.iconButton:nth-child(2):focus-visible) .iconButton:first-child,
+.actions:has(.iconButton:nth-child(2):hover) .tab:first-of-type,
+.actions:has(.iconButton:nth-child(2):focus-visible) .tab:first-of-type,
+.actions:has(.tab:first-of-type:hover) .iconButton:nth-child(2),
+.actions:has(.tab:first-of-type:focus-visible) .iconButton:nth-child(2),
+.actions:has(.tab:first-of-type:hover) .tab:last-of-type,
+.actions:has(.tab:first-of-type:focus-visible) .tab:last-of-type,
+.actions:has(.tab:last-of-type:hover) .tab:first-of-type,
+.actions:has(.tab:last-of-type:focus-visible) .tab:first-of-type {
+  border-color: var(--sidebar-card-neighbor-border);
+  background: var(--sidebar-card-neighbor-bg);
+  transform: scale(1.015);
+}
+
+.activeTab {
+  border-color: rgba(143, 122, 223, 0.25);
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.11);
+  box-shadow: inset 0 -1px 0 rgba(143, 122, 223, 0.48);
+}
+
+@media (max-width: 760px) {
+  .header {
+    gap: 6px;
+    padding-left: 8px;
+  }
+
+  .chatTitle {
+    font-size: 12px;
+  }
+
+  .contextLabel,
+  .contextDivider {
+    display: none;
+  }
+
+  .contextItem {
+    max-width: 130px;
+  }
+
+  .tab {
+    min-width: 31px;
+    width: 31px;
+    padding: 0;
+  }
+
+  .tab span {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .contextItem:first-child {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconButton,
+  .tab {
+    transition: none;
+  }
+}
+
+===== FILE: frontend/src/components/workbench/ChatDock/ChatDockHeader/ChatDockHeader.tsx =====
+import {
+  Bot,
+  FolderOpen,
+  Maximize2,
+  MessageSquareText,
+  Minimize2,
+  Pencil,
+} from "lucide-react";
+import type { Agent } from "../../../../domains/agent/agent.types";
+import type { Chat } from "../../../../domains/chat/chat.types";
+import { useWorkbenchLayout } from "../../WorkbenchShell/WorkbenchLayoutContext";
+import styles from "./ChatDockHeader.module.css";
+
+export type ChatDockView = "chats" | "agents" | null;
+
+type ChatDockHeaderProps = {
+  selectedChat: Chat | null;
+  activeAgent: Agent | null;
+  selectedLibraryName: string | null;
+  activeView: ChatDockView;
+  onToggleView: (view: Exclude<ChatDockView, null>) => void;
+  onManageChat: (chatId: string) => void;
+};
+
+export function ChatDockHeader({
+  selectedChat,
+  activeAgent,
+  selectedLibraryName,
+  activeView,
+  onToggleView,
+  onManageChat,
+}: ChatDockHeaderProps) {
+  const { dockMode, effectiveDockMode, leftOpen, toggleDockMode } =
+    useWorkbenchLayout();
+
+  const dockModeTitle =
+    dockMode === "attached" && leftOpen
+      ? "Center Chat Dock"
+      : "Attach Chat Dock to Explorer";
+
+  return (
+    <div className={styles.header}>
+      <div className={styles.identity} aria-label="Active Chat context">
+        <strong
+          className={styles.chatTitle}
+          title={selectedChat?.title ?? "No active Chat"}
+        >
+          {selectedChat?.title ?? "Select a Chat"}
+        </strong>
+
+        <div className={styles.contextMeta}>
+          <span
+            className={styles.contextItem}
+            title={selectedLibraryName ?? "Standalone workspace"}
+          >
+            <FolderOpen size={11} strokeWidth={2} />
+
+            <span className={styles.contextLabel}>Library</span>
+
+            <span className={styles.contextValue}>
+              {selectedLibraryName ?? "Standalone"}
+            </span>
+          </span>
+
+          <span className={styles.contextDivider} aria-hidden />
+
+          <span
+            className={styles.contextItem}
+            title={activeAgent?.name ?? "No active Agent"}
+          >
+            <Bot size={11} strokeWidth={2} />
+
+            <span className={styles.contextLabel}>Agent</span>
+
+            <span className={styles.contextValue}>
+              {activeAgent?.name ?? "None"}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <nav className={styles.actions} aria-label="Chat dock controls">
+        <button
+          className={styles.iconButton}
+          type="button"
+          onClick={() => selectedChat && onManageChat(selectedChat.id)}
+          disabled={!selectedChat}
+          aria-label="Manage active Chat"
+          title="Manage Chat"
+        >
+          <Pencil size={13} strokeWidth={2.1} />
+        </button>
+
+        <button
+          className={styles.iconButton}
+          type="button"
+          onClick={toggleDockMode}
+          aria-label={dockModeTitle}
+          title={dockModeTitle}
+        >
+          {effectiveDockMode === "attached" ? (
+            <Minimize2 size={13} strokeWidth={2.1} />
+          ) : (
+            <Maximize2 size={13} strokeWidth={2.1} />
+          )}
+        </button>
+
+        <button
+          className={`${styles.tab} ${
+            activeView === "chats" ? styles.activeTab : ""
+          }`}
+          type="button"
+          onClick={() => onToggleView("chats")}
+          aria-expanded={activeView === "chats"}
+          title="Browse Chats"
+        >
+          <MessageSquareText size={13} strokeWidth={2.1} />
+          <span>Chats</span>
+        </button>
+
+        <button
+          className={`${styles.tab} ${
+            activeView === "agents" ? styles.activeTab : ""
+          }`}
+          type="button"
+          onClick={() => onToggleView("agents")}
+          aria-expanded={activeView === "agents"}
+          title="Browse Agents"
+        >
+          <Bot size={13} strokeWidth={2.1} />
+          <span>Agents</span>
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/workbench/ChatDock/DockPlaceholder/DockPlaceholder.module.css =====
+.placeholder {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 100%;
+  gap: 9px;
+  padding: 28px 20px;
+  color: var(--app-muted-text);
+  text-align: center;
+}
+
+.placeholder strong {
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.placeholder span {
+  max-width: 240px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(143, 122, 223, 0.24);
+  border-radius: 12px;
+  color: var(--app-accent);
+  background: rgba(143, 122, 223, 0.08);
+}
+
+===== FILE: frontend/src/components/workbench/ChatDock/DockPlaceholder/DockPlaceholder.tsx =====
+import type { ReactNode } from "react";
+import styles from "./DockPlaceholder.module.css";
+
+type DockPlaceholderProps = {
+  icon: ReactNode;
+  title: string;
+  description: string;
+};
+
+export function DockPlaceholder({
+  icon,
+  title,
+  description,
+}: DockPlaceholderProps) {
+  return (
+    <div className={styles.placeholder}>
+      <div className={styles.icon}>{icon}</div>
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </div>
+  );
+}
+
+===== FILE: frontend/src/components/workbench/WorkbenchCanvas/WorkbenchCanvas.module.css =====
+.canvas {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.08);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.breadcrumbs strong {
+  overflow: hidden;
+  color: var(--app-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.separator {
+  opacity: 0.45;
+}
+
+.statuses {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 190px;
+  height: 24px;
+  gap: 5px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 198, 170, 0.1);
+  border-radius: var(--r-pill);
+  color: var(--app-muted-text);
+  background: rgba(0, 0, 0, 0.12);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(18px, 4vw, 52px);
+}
+
+.emptyState {
+  display: grid;
+  justify-items: center;
+  width: min(580px, 100%);
+  gap: 16px;
+  padding: clamp(22px, 5vw, 46px);
+  border: 1px solid rgba(214, 198, 170, 0.1);
+  border-radius: clamp(14px, 2vw, 22px);
+  background:
+    radial-gradient(
+      circle at 50% 0,
+      rgba(143, 122, 223, 0.08),
+      transparent 44%
+    ),
+    rgba(255, 255, 255, 0.018);
+  box-shadow:
+    0 24px 62px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 250, 240, 0.025);
+  text-align: center;
+}
+
+.iconWrap {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid rgba(143, 122, 223, 0.22);
+  border-radius: 16px;
+  color: var(--app-accent);
+  background: rgba(143, 122, 223, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+
+.copy {
+  display: grid;
+  gap: 8px;
+}
+
+.copy h2 {
+  margin: 0;
+  color: var(--topbar-title);
+  font-size: clamp(20px, 2.2vw, 30px);
+  font-weight: 650;
+}
+
+.copy p {
+  max-width: 480px;
+  margin: 0;
+  color: var(--app-muted-text);
+  font-size: clamp(12px, 1.1vw, 14px);
+  line-height: 1.6;
+}
+
+.path {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--app-muted-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  opacity: 0.7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .statuses .statusChip:last-child {
+    display: none;
+  }
+
+  .stage {
+    padding: 14px;
+  }
+
+  .emptyState {
+    padding: 22px 16px;
+  }
+}
+
+@media (max-height: 620px) {
+  .stage {
+    align-items: start;
+    padding-top: 16px;
+  }
+
+  .emptyState {
+    gap: 10px;
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+
+  .iconWrap {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+===== FILE: frontend/src/components/workbench/WorkbenchCanvas/WorkbenchCanvas.tsx =====
+import { Bot, FolderOpen, MessageSquareText, Sparkles } from "lucide-react";
+import type { Agent } from "../../../domains/agent/agent.types";
+import type { Chat } from "../../../domains/chat/chat.types";
+import type { LibraryListItem } from "../../../domains/library/library.types";
+import styles from "./WorkbenchCanvas.module.css";
+
+type WorkbenchCanvasProps = {
+  selectedLibrary: LibraryListItem | null;
+  selectedChat: Chat | null;
+  activeAgent: Agent | null;
+};
+
+export function WorkbenchCanvas({
+  selectedLibrary,
+  selectedChat,
+  activeAgent,
+}: WorkbenchCanvasProps) {
+  return (
+    <section className={styles.canvas}>
+      <header className={styles.header}>
+        <div className={styles.breadcrumbs}>
+          <span>Archivist</span>
+          <span className={styles.separator}>/</span>
+          <strong>{selectedLibrary?.name ?? "No Library"}</strong>
+        </div>
+
+        <div className={styles.statuses}>
+          <span className={styles.statusChip}>
+            <MessageSquareText size={12} strokeWidth={2} />
+            {selectedChat?.title ?? "No Chat"}
+          </span>
+
+          <span className={styles.statusChip}>
+            <Bot size={12} strokeWidth={2} />
+            {activeAgent?.name ?? "No Agent"}
+          </span>
+        </div>
+      </header>
+
+      <div className={styles.stage}>
+        <div className={styles.emptyState}>
+          <span className={styles.iconWrap}>
+            {selectedLibrary ? (
+              <FolderOpen size={28} strokeWidth={1.75} />
+            ) : (
+              <Sparkles size={28} strokeWidth={1.75} />
+            )}
+          </span>
+
+          <div className={styles.copy}>
+            <h2>{selectedLibrary ? selectedLibrary.name : "Workbench"}</h2>
+            <p>
+              {selectedLibrary
+                ? "Select a file from the Library Explorer. File previews, diffs, search results, and tools will open here."
+                : "Choose or create a Library to begin building your workspace."}
+            </p>
+          </div>
+
+          {selectedLibrary ? (
+            <div className={styles.path}>{selectedLibrary.rootPath}</div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+===== FILE: frontend/src/domains/chat/chat.api.ts =====
+import type {
+  ArchiveChatResult,
+  Chat,
+  ChatMessage,
+  CompleteChatTurnResult,
+  CreateChatInput,
+  CreateMessageInput,
+  DeleteChatResult,
+  UpdateChatInput,
+} from "./chat.types";
+
+const API_BASE_URL = "http://127.0.0.1:3333/api";
+
+type ErrorResponse = {
+  ok: false;
+  error?: {
+    message?: string;
+  };
+};
+
+type ChatsResponse = {
+  ok: true;
+  chats: Chat[];
+};
+
+type ChatResponse = {
+  ok: true;
+  chat: Chat;
+};
+
+type MessagesResponse = {
+  ok: true;
+  messages: ChatMessage[];
+};
+
+type MessageResponse = {
+  ok: true;
+  message: ChatMessage;
+};
+
+type CompleteChatTurnResponse = {
+  ok: true;
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  provider: string;
+  model: string;
+  agentId: string;
+};
+
+type SelectedChatResponse = {
+  ok: true;
+  selectedChatId: string | null;
+};
+
+type ArchiveChatResponse = {
+  ok: true;
+  chat: Chat;
+  selectedChatId: string | null;
+};
+
+type DeleteChatResponse = {
+  ok: true;
+  selectedChatId: string | null;
+};
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const body = (await response
+      .json()
+      .catch(() => null)) as ErrorResponse | null;
+
+    throw new Error(
+      body?.error?.message ??
+        `Archivist API request failed with status ${response.status}.`,
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function fetchChats(): Promise<Chat[]> {
+  const response = await request<ChatsResponse>("/chats");
+
+  return response.chats;
+}
+
+export async function fetchArchivedChats(): Promise<Chat[]> {
+  const response = await request<ChatsResponse>("/chats/archived");
+
+  return response.chats;
+}
+
+export async function fetchChat(chatId: string): Promise<Chat> {
+  const response = await request<ChatResponse>(`/chats/${chatId}`);
+
+  return response.chat;
+}
+
+export async function addChat(input: CreateChatInput = {}): Promise<Chat> {
+  const response = await request<ChatResponse>("/chats", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.chat;
+}
+
+export async function editChat(
+  chatId: string,
+  input: UpdateChatInput,
+): Promise<Chat> {
+  const response = await request<ChatResponse>(`/chats/${chatId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+
+  return response.chat;
+}
+
+export async function archiveChat(chatId: string): Promise<ArchiveChatResult> {
+  const response = await request<ArchiveChatResponse>(
+    `/chats/${chatId}/archive`,
+    {
+      method: "POST",
+    },
+  );
+
+  return {
+    chat: response.chat,
+    selectedChatId: response.selectedChatId,
+  };
+}
+
+export async function restoreChat(chatId: string): Promise<Chat> {
+  const response = await request<ChatResponse>(`/chats/${chatId}/restore`, {
+    method: "POST",
+  });
+
+  return response.chat;
+}
+
+export async function removeChat(chatId: string): Promise<DeleteChatResult> {
+  const response = await request<DeleteChatResponse>(`/chats/${chatId}`, {
+    method: "DELETE",
+  });
+
+  return {
+    selectedChatId: response.selectedChatId,
+  };
+}
+
+export async function fetchMessages(chatId: string): Promise<ChatMessage[]> {
+  const response = await request<MessagesResponse>(`/chats/${chatId}/messages`);
+
+  return response.messages;
+}
+
+export async function addMessage(
+  chatId: string,
+  input: CreateMessageInput,
+): Promise<ChatMessage> {
+  const response = await request<MessageResponse>(`/chats/${chatId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.message;
+}
+
+export async function respondToChat(
+  chatId: string,
+  content: string,
+): Promise<CompleteChatTurnResult> {
+  const response = await request<CompleteChatTurnResponse>(
+    `/chats/${chatId}/respond`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+      }),
+    },
+  );
+
+  return {
+    userMessage: response.userMessage,
+    assistantMessage: response.assistantMessage,
+    provider: response.provider,
+    model: response.model,
+    agentId: response.agentId,
+  };
+}
+
+export async function updateSelectedChat(
+  chatId: string | null,
+): Promise<string | null> {
+  const response = await request<SelectedChatResponse>("/chats/selected", {
+    method: "PATCH",
+    body: JSON.stringify({
+      chatId,
+    }),
+  });
+
+  return response.selectedChatId;
+}
+
+===== FILE: frontend/src/domains/chat/chat.types.ts =====
+export type Chat = {
+  id: string;
+  title: string;
+  agentId: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MessageRole = "user" | "assistant" | "system";
+
+export type MessageStatus = "streaming" | "complete" | "cancelled" | "failed";
+
+export type ChatMessage = {
+  id: string;
+  chatId: string;
+  role: MessageRole;
+  content: string;
+  status: MessageStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateChatInput = {
+  title?: string;
+  agentId?: string;
+};
+
+export type UpdateChatInput = {
+  title?: string;
+  agentId?: string;
+};
+
+export type CreateMessageInput = {
+  role: MessageRole;
+  content: string;
+  status?: MessageStatus;
+};
+
+export type CompleteChatTurnResult = {
+  userMessage: ChatMessage;
+  assistantMessage: ChatMessage;
+  provider: string;
+  model: string;
+  agentId: string;
+};
+
+export type ArchiveChatResult = {
+  chat: Chat;
+  selectedChatId: string | null;
+};
+
+export type DeleteChatResult = {
+  selectedChatId: string | null;
+};

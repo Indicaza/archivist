@@ -1,0 +1,684 @@
+diff --git a/frontend/src/components/chat/ChatWindow.module.css b/frontend/src/components/chat/ChatWindow.module.css
+index 934f15a..2c01d00 100644
+--- a/frontend/src/components/chat/ChatWindow.module.css
++++ b/frontend/src/components/chat/ChatWindow.module.css
+@@ -162,33 +162,44 @@
+ }
+ 
+ .composerPanel {
++  --chat-dock-header-height: 40px;
++  --chat-dock-body-height: 172px;
++
+   grid-column: 2;
+   grid-row: 2;
+   z-index: 5;
+   display: grid;
+-  grid-template-rows: 32px auto;
++  grid-template-rows: var(--chat-dock-header-height)
++    var(--chat-dock-body-height);
+   justify-self: center;
+-  width: min(calc(100% - 24px), 1080px);
++  width: min(calc(100% - 32px), 1120px);
++  height: calc(
++    var(--chat-dock-header-height) + var(--chat-dock-body-height)
++  );
+   min-width: 0;
+   min-height: 0;
+-  margin: 0 12px 10px;
+-  overflow: visible;
+-  border: 1px solid var(--sidebar-border);
+-  border-radius: 8px;
+-  background: var(--app-bg-deep);
+-  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.28);
++  margin: 0 16px 12px;
++  overflow: hidden;
++  border: 1px solid rgba(214, 198, 170, 0.12);
++  border-radius: 10px;
++  background: rgba(12, 11, 10, 0.96);
++  box-shadow:
++    0 -18px 46px rgba(0, 0, 0, 0.3),
++    0 18px 40px rgba(0, 0, 0, 0.18),
++    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+   contain: layout style;
+ }
+ 
+ .composerHeader {
+   display: flex;
+-  align-items: center;
++  align-items: stretch;
+   min-width: 0;
+-  gap: 6px;
+-  padding: 0 5px 0 7px;
++  gap: 8px;
++  padding: 0 7px;
+   border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+-  border-radius: 8px 8px 0 0;
+-  background: rgba(255, 255, 255, 0.014);
++  background:
++    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
++    rgba(255, 255, 255, 0.01);
+ }
+ 
+ .composerTab {
+@@ -200,69 +211,69 @@
+   padding: 0 7px;
+   border-bottom: 2px solid var(--app-accent);
+   color: var(--app-text);
+-  font-size: 10px;
+-  font-weight: 700;
+-  letter-spacing: 0.07em;
++  font-size: 9px;
++  font-weight: 750;
++  letter-spacing: 0.08em;
+   text-transform: uppercase;
+ }
+ 
+ .composerToolbar {
+   display: flex;
+-  align-items: center;
++  align-items: stretch;
+   flex: 1;
+   min-width: 0;
+-  overflow: visible;
++  overflow: hidden;
+ }
+ 
+-
+ .composerBody {
+   display: grid;
+   grid-template-columns: minmax(0, 1fr);
++  width: 100%;
++  height: var(--chat-dock-body-height);
+   min-width: 0;
+   min-height: 0;
+   overflow: hidden;
+-  border-radius: 0 0 8px 8px;
+ }
+ 
+ .composerBodyWithPanel {
+-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+-}
+-
+-.composerBody:not(.composerBodyWithPanel) .composer {
+-  border-radius: 0 0 8px 8px;
++  grid-template-columns: minmax(0, 1fr) clamp(230px, 25vw, 276px);
+ }
+ 
+ .composer {
+   display: flex;
+   width: 100%;
++  height: 100%;
+   min-width: 0;
+   min-height: 0;
+   overflow: hidden;
+-  border-radius: 0 0 0 8px;
+   background:
+     linear-gradient(180deg, rgba(0, 0, 0, 0.08), transparent),
+     rgba(16, 15, 13, 0.82);
+ }
+ 
+ .composerInner {
+-  display: flex;
+-  flex-direction: column;
++  display: grid;
++  grid-template-rows: minmax(0, 1fr) 36px;
+   width: 100%;
++  height: 100%;
+   min-width: 0;
+-  border-top: 1px solid rgba(255, 255, 255, 0.018);
+-  background: rgba(255, 255, 255, 0.012);
++  min-height: 0;
++  background: rgba(255, 255, 255, 0.01);
+ }
+ 
+ .composerInner:focus-within {
+-  background: rgba(255, 255, 255, 0.02);
++  background: rgba(255, 255, 255, 0.018);
+   box-shadow: inset 0 1px 0 rgba(143, 122, 223, 0.18);
+ }
+ 
+ .composerInput {
++  display: block;
+   width: 100%;
+-  min-height: 112px;
+-  max-height: min(310px, 42vh);
+-  padding: 12px 14px 8px;
++  height: 100%;
++  min-width: 0;
++  min-height: 0;
++  padding: 14px 15px 10px;
++  overflow-x: hidden;
+   overflow-y: auto;
+   border: 0;
+   outline: 0;
+@@ -272,6 +283,7 @@
+   font-size: clamp(12px, 1vw, 14px);
+   line-height: 1.5;
+   resize: none;
++  scrollbar-gutter: stable;
+ }
+ 
+ .composerInput::placeholder {
+@@ -282,9 +294,11 @@
+   display: flex;
+   align-items: center;
+   gap: 7px;
+-  min-height: 35px;
+-  padding: 3px 6px 5px 8px;
+-  border-top: 1px solid rgba(214, 198, 170, 0.06);
++  height: 36px;
++  min-height: 36px;
++  padding: 3px 7px 4px 9px;
++  border-top: 1px solid rgba(214, 198, 170, 0.065);
++  background: rgba(0, 0, 0, 0.08);
+ }
+ 
+ .writingTools {
+@@ -299,8 +313,8 @@
+   width: 27px;
+   height: 27px;
+   padding: 0;
+-  border: 0;
+-  border-radius: 4px;
++  border: 1px solid transparent;
++  border-radius: 5px;
+   color: var(--app-muted-text);
+   background: transparent;
+   cursor: pointer;
+@@ -308,8 +322,9 @@
+ 
+ .writingTools button:hover:not(:disabled),
+ .writingTools button:focus-visible:not(:disabled) {
++  border-color: rgba(214, 198, 170, 0.08);
+   color: var(--app-text);
+-  background: rgba(255, 255, 255, 0.055);
++  background: rgba(255, 255, 255, 0.05);
+   outline: none;
+ }
+ 
+@@ -323,7 +338,7 @@
+   min-width: 0;
+   overflow: hidden;
+   color: var(--app-muted-text);
+-  font-size: 9px;
++  font-size: 8.5px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+@@ -334,15 +349,15 @@
+   justify-content: center;
+   flex: 0 0 auto;
+   gap: 6px;
+-  min-width: 69px;
+-  height: 29px;
++  min-width: 68px;
++  height: 28px;
+   padding: 0 9px;
+   border: 1px solid rgba(143, 122, 223, 0.28);
+-  border-radius: 4px;
++  border-radius: 5px;
+   color: #fff;
+-  background: rgba(143, 122, 223, 0.2);
++  background: rgba(143, 122, 223, 0.18);
+   font: inherit;
+-  font-size: 10px;
++  font-size: 9.5px;
+   font-weight: 700;
+   cursor: pointer;
+ }
+@@ -359,20 +374,62 @@
+   opacity: 0.38;
+ }
+ 
+-
+ .controlPanel {
+-  display: flex;
++  display: grid;
++  grid-template-rows: 27px minmax(0, 1fr);
++  width: 100%;
++  height: 100%;
+   min-width: 0;
+-  min-height: 148px;
+-  max-height: min(330px, 42vh);
++  min-height: 0;
+   overflow: hidden;
+   border-left: 1px solid rgba(214, 198, 170, 0.09);
+   background:
+-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 24%),
+-    rgba(12, 11, 10, 0.78);
++    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 28%),
++    rgba(10, 9, 8, 0.88);
++}
++
++.controlPanelHeader {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  min-width: 0;
++  gap: 8px;
++  padding: 0 8px;
++  border-bottom: 1px solid rgba(214, 198, 170, 0.07);
++  color: var(--app-muted-text);
++  background: rgba(255, 255, 255, 0.012);
+ }
+ 
+-.controlPanel > * {
++.controlPanelHeader strong {
++  min-width: 0;
++  overflow: hidden;
++  color: var(--app-text);
++  font-size: 9px;
++  font-weight: 700;
++  letter-spacing: 0.06em;
++  text-overflow: ellipsis;
++  text-transform: uppercase;
++  white-space: nowrap;
++}
++
++.controlPanelHeader span {
++  flex: 0 0 auto;
++  font-size: 8px;
++  opacity: 0.64;
++}
++
++.controlPanelContent {
++  display: flex;
++  width: 100%;
++  height: 100%;
++  min-width: 0;
++  min-height: 0;
++  overflow: hidden;
++}
++
++.controlPanelContent > * {
++  width: 100%;
++  height: 100%;
+   min-width: 0;
+   min-height: 0;
+ }
+@@ -399,40 +456,45 @@
+     padding-left: 10px;
+   }
+ 
++  .composerPanel {
++    width: min(calc(100% - 12px), 1120px);
++    margin-right: 6px;
++    margin-bottom: 6px;
++    margin-left: 6px;
++  }
++
+   .composerHeader {
+-    gap: 3px;
+-    padding-right: 3px;
++    gap: 4px;
++    padding-right: 4px;
+     padding-left: 4px;
+   }
+ 
+   .composerTab {
+     padding: 0 5px;
+-    font-size: 9px;
++    font-size: 8.5px;
+   }
+ 
+-  .composerInput {
+-    min-height: 80px;
++  .composerBodyWithPanel {
++    grid-template-columns: minmax(0, 1fr) minmax(208px, 43vw);
+   }
+ 
+   .keyboardHint {
+     display: none;
+   }
++}
+ 
+-  .composerBodyWithPanel {
+-    grid-template-columns: minmax(0, 1fr);
+-    grid-template-rows: auto minmax(140px, 190px);
++@media (max-width: 560px) {
++  .composerPanel {
++    --chat-dock-body-height: 156px;
+   }
+ 
+-  .controlPanel {
+-    max-height: 190px;
+-    border-top: 1px solid rgba(214, 198, 170, 0.09);
+-    border-left: 0;
++  .composerBodyWithPanel {
++    grid-template-columns: minmax(0, 1fr) minmax(190px, 48vw);
+   }
+-}
+ 
+-@media (max-width: 520px) {
+   .composerTab span,
+-  .composerButton span {
++  .composerButton span,
++  .controlPanelHeader span {
+     display: none;
+   }
+ 
+@@ -445,7 +507,9 @@
+ 
+ @media (max-height: 620px) {
+   .composerPanel {
+-    grid-template-rows: 29px auto;
++    --chat-dock-header-height: 36px;
++    --chat-dock-body-height: 136px;
++    margin-bottom: 6px;
+     box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.26);
+   }
+ 
+@@ -455,14 +519,13 @@
+     padding-bottom: 12px;
+   }
+ 
+-  .composerInput {
+-    min-height: 58px;
+-    max-height: 190px;
+-    padding-top: 8px;
++  .composerInner {
++    grid-template-rows: minmax(0, 1fr) 32px;
+   }
+ 
+   .composerFooter {
+-    min-height: 31px;
++    height: 32px;
++    min-height: 32px;
+   }
+ }
+ 
+@@ -471,12 +534,3 @@
+     animation: none;
+   }
+ }
+-
+-@media (max-width: 800px) {
+-  .composerPanel {
+-    width: min(calc(100% - 12px), 1080px);
+-    margin-right: 6px;
+-    margin-bottom: 6px;
+-    margin-left: 6px;
+-  }
+-}
+diff --git a/frontend/src/components/chat/ChatWindow.tsx b/frontend/src/components/chat/ChatWindow.tsx
+index b99c8ef..aca73a4 100644
+--- a/frontend/src/components/chat/ChatWindow.tsx
++++ b/frontend/src/components/chat/ChatWindow.tsx
+@@ -251,17 +251,6 @@ export function ChatWindow({
+     };
+   }, []);
+ 
+-  useEffect(() => {
+-    const textarea = textareaRef.current;
+-
+-    if (!textarea) {
+-      return;
+-    }
+-
+-    textarea.style.height = "auto";
+-    textarea.style.height = `${textarea.scrollHeight}px`;
+-  }, [input]);
+-
+   useEffect(() => {
+     const container = messagesContainerRef.current;
+ 
+@@ -441,7 +430,12 @@ export function ChatWindow({
+               className={styles.controlPanel}
+               aria-label={controlPanelLabel ?? "Chat controls"}
+             >
+-              {controlPanel}
++              <div className={styles.controlPanelHeader}>
++                <strong>{controlPanelLabel ?? "Chat controls"}</strong>
++                <span>Scroll to browse</span>
++              </div>
++
++              <div className={styles.controlPanelContent}>{controlPanel}</div>
+             </aside>
+           ) : null}
+         </div>
+diff --git a/frontend/src/components/workbench/ChatPanelToolbar.module.css b/frontend/src/components/workbench/ChatPanelToolbar.module.css
+index 8c78787..d24b667 100644
+--- a/frontend/src/components/workbench/ChatPanelToolbar.module.css
++++ b/frontend/src/components/workbench/ChatPanelToolbar.module.css
+@@ -4,106 +4,128 @@
+   justify-content: space-between;
+   width: 100%;
+   min-width: 0;
+-  gap: 8px;
++  height: 100%;
++  gap: 10px;
+ }
+ 
+-.contextSummary,
+-.panelTabs {
++.activeContext {
+   display: flex;
+-  align-items: stretch;
++  align-items: center;
++  flex: 1;
+   min-width: 0;
++  gap: 8px;
++  padding: 0 8px 0 2px;
+ }
+ 
+-.contextSummary {
+-  flex: 1;
++.contextGlyph {
++  display: grid;
++  place-items: center;
++  width: 25px;
++  height: 25px;
++  flex: 0 0 auto;
++  border: 1px solid rgba(143, 122, 223, 0.2);
++  border-radius: 6px;
++  color: var(--app-text);
++  background: rgba(143, 122, 223, 0.08);
++}
++
++.contextCopy {
++  display: grid;
++  min-width: 0;
++  gap: 1px;
++}
++
++.contextCopy strong {
++  min-width: 0;
+   overflow: hidden;
++  color: var(--app-text);
++  font-size: 11px;
++  font-weight: 650;
++  line-height: 1.15;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-.contextItem {
++.contextMeta {
+   display: flex;
+   align-items: center;
+   min-width: 0;
+-  max-width: 240px;
+   gap: 5px;
+-  padding: 0 9px;
+-  border-right: 1px solid rgba(214, 198, 170, 0.08);
+   color: var(--app-muted-text);
+-  font-size: 10px;
++  font-size: 8.5px;
++  line-height: 1.15;
+ }
+ 
+-.contextItem svg {
+-  flex: 0 0 auto;
++.contextMeta > span {
++  display: inline-flex;
++  align-items: center;
++  min-width: 0;
++  gap: 3px;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
+ }
+ 
+-.contextLabel {
++.contextMeta > span:last-child {
++  max-width: 170px;
++}
++
++.contextMeta svg {
+   flex: 0 0 auto;
+-  color: var(--app-muted-text);
+-  font-size: 8px;
+-  font-weight: 700;
+-  letter-spacing: 0.08em;
+-  text-transform: uppercase;
+-  opacity: 0.72;
++  opacity: 0.82;
+ }
+ 
+-.contextItem strong {
+-  min-width: 0;
+-  overflow: hidden;
+-  color: var(--app-text);
+-  font-weight: 600;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
++.contextMeta i {
++  flex: 0 0 auto;
++  font-style: normal;
++  opacity: 0.45;
+ }
+ 
+ .panelTabs {
++  display: flex;
++  align-items: center;
++  align-self: stretch;
+   flex: 0 0 auto;
++  gap: 3px;
++  padding: 4px 0;
+ }
+ 
+ .panelTab {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+-  align-self: stretch;
+   gap: 5px;
+-  min-width: 66px;
+-  padding: 0 9px;
+-  border: 0;
+-  border-left: 1px solid rgba(214, 198, 170, 0.07);
+-  border-bottom: 2px solid transparent;
++  min-width: 62px;
++  height: 28px;
++  padding: 0 8px;
++  border: 1px solid transparent;
++  border-radius: 5px;
+   color: var(--app-muted-text);
+   background: transparent;
+   font: inherit;
+-  font-size: 10px;
++  font-size: 9.5px;
+   font-weight: 650;
+   cursor: pointer;
+ }
+ 
+ .panelTab:hover,
+ .panelTab:focus-visible {
++  border-color: rgba(214, 198, 170, 0.09);
+   color: var(--app-text);
+-  background: rgba(255, 255, 255, 0.045);
++  background: rgba(255, 255, 255, 0.04);
+   outline: none;
+ }
+ 
+ .panelTabActive {
+-  border-bottom-color: var(--app-accent);
++  border-color: rgba(143, 122, 223, 0.25);
+   color: var(--app-text);
+-  background: rgba(143, 122, 223, 0.08);
+-}
+-
+-@media (max-width: 880px) {
+-  .contextItem {
+-    max-width: 170px;
+-    padding-right: 6px;
+-    padding-left: 6px;
+-  }
+-
+-  .contextLabel {
+-    display: none;
+-  }
++  background: rgba(143, 122, 223, 0.11);
++  box-shadow: inset 0 -1px 0 rgba(143, 122, 223, 0.48);
+ }
+ 
+-@media (max-width: 620px) {
+-  .contextItem:nth-child(3) {
++@media (max-width: 680px) {
++  .contextMeta > span:last-child,
++  .contextMeta i {
+     display: none;
+   }
+ 
+diff --git a/frontend/src/components/workbench/ChatPanelToolbar.tsx b/frontend/src/components/workbench/ChatPanelToolbar.tsx
+index 75fa542..4113df0 100644
+--- a/frontend/src/components/workbench/ChatPanelToolbar.tsx
++++ b/frontend/src/components/workbench/ChatPanelToolbar.tsx
+@@ -22,36 +22,33 @@ export function ChatPanelToolbar({
+ }: ChatPanelToolbarProps) {
+   return (
+     <div className={styles.toolbar}>
+-      <div className={styles.contextSummary} aria-label="Active chat context">
+-        <div
+-          className={styles.contextItem}
+-          title={selectedChat?.title ?? "No active Chat"}
+-        >
+-          <MessageSquareText size={13} strokeWidth={2.1} />
+-          <span className={styles.contextLabel}>Chat</span>
+-          <strong>{selectedChat?.title ?? "None"}</strong>
++      <div className={styles.activeContext} aria-label="Active chat context">
++        <div className={styles.contextGlyph} aria-hidden>
++          <MessageSquareText size={14} strokeWidth={2.1} />
+         </div>
+ 
+-        <div
+-          className={styles.contextItem}
+-          title={activeAgent?.name ?? "No active Agent"}
+-        >
+-          <Bot size={13} strokeWidth={2.1} />
+-          <span className={styles.contextLabel}>Agent</span>
+-          <strong>{activeAgent?.name ?? "None"}</strong>
+-        </div>
++        <div className={styles.contextCopy}>
++          <strong title={selectedChat?.title ?? "No active Chat"}>
++            {selectedChat?.title ?? "Select a Chat"}
++          </strong>
+ 
+-        <div
+-          className={styles.contextItem}
+-          title={selectedLibraryName ?? "Standalone workspace"}
+-        >
+-          <FolderOpen size={13} strokeWidth={2.1} />
+-          <span className={styles.contextLabel}>Library</span>
+-          <strong>{selectedLibraryName ?? "Standalone"}</strong>
++          <span className={styles.contextMeta}>
++            <span title={activeAgent?.name ?? "No active Agent"}>
++              <Bot size={10} strokeWidth={2} />
++              {activeAgent?.name ?? "No Agent"}
++            </span>
++
++            <i aria-hidden>·</i>
++
++            <span title={selectedLibraryName ?? "Standalone workspace"}>
++              <FolderOpen size={10} strokeWidth={2} />
++              {selectedLibraryName ?? "Standalone"}
++            </span>
++          </span>
+         </div>
+       </div>
+ 
+-      <nav className={styles.panelTabs} aria-label="Chat dock panels">
++      <nav className={styles.panelTabs} aria-label="Chat dock browsers">
+         <button
+           className={`${styles.panelTab} ${
+             activeView === "chats" ? styles.panelTabActive : ""
