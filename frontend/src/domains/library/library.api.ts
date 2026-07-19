@@ -1,4 +1,12 @@
-import type { AppState, Library } from "./library.types";
+import type {
+  AppState,
+  Library,
+  LibraryFileCatalog,
+  LibraryFile,
+  LibraryScan,
+  LibraryScanIssue,
+  ScanLibraryResult,
+} from "./library.types";
 
 const API_BASE_URL = "http://127.0.0.1:3333/api";
 
@@ -38,6 +46,20 @@ type ArchiveLibraryResponse = {
 type AppStateResponse = {
   ok: true;
   appState: AppState;
+};
+
+type LibraryFilesResponse = {
+  ok: true;
+  files: LibraryFile[];
+  latestScan: LibraryScan | null;
+};
+
+type ScanLibraryResponse = {
+  ok: true;
+  files: LibraryFile[];
+  latestScan: LibraryScan | null;
+  scan: LibraryScan;
+  issues: LibraryScanIssue[];
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -118,6 +140,37 @@ export async function restoreLibrary(libraryId: string): Promise<Library> {
   );
 
   return response.library;
+}
+
+export async function fetchLibraryFiles(
+  libraryId: string,
+): Promise<LibraryFileCatalog> {
+  const response = await request<LibraryFilesResponse>(
+    `/libraries/${libraryId}/files`,
+  );
+
+  return {
+    files: response.files,
+    latestScan: response.latestScan,
+  };
+}
+
+export async function scanLibraryFiles(
+  libraryId: string,
+): Promise<ScanLibraryResult> {
+  const response = await request<ScanLibraryResponse>(
+    `/libraries/${libraryId}/scan`,
+    {
+      method: "POST",
+    },
+  );
+
+  return {
+    files: response.files,
+    latestScan: response.latestScan,
+    scan: response.scan,
+    issues: response.issues,
+  };
 }
 
 export async function fetchAppState(): Promise<AppState> {

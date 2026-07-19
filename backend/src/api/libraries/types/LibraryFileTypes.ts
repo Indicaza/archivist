@@ -1,25 +1,3 @@
-export type Library = {
-  id: string;
-  name: string;
-  description: string | null;
-  rootPath: string;
-  archivedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type LibraryStatus = "active" | "draft" | "offline";
-
-export type LibraryListItem = Library & {
-  subtitle: string;
-  status: LibraryStatus;
-};
-
-export type AppState = {
-  selectedLibraryId: string | null;
-  selectedChatId: string | null;
-};
-
 export type LibraryFileStatus = "available" | "unreadable" | "missing";
 
 export type LibraryScanStatus = "running" | "complete" | "partial" | "failed";
@@ -64,4 +42,13 @@ export type LibraryFileCatalog = {
 export type ScanLibraryResult = LibraryFileCatalog & {
   scan: LibraryScan;
   issues: LibraryScanIssue[];
+};
+
+export type ScannedLibraryFile = {
+  relativePath: string;
+  name: string;
+  extension: string;
+  sizeBytes: number;
+  modifiedAt: string;
+  status: Exclude<LibraryFileStatus, "missing">;
 };
