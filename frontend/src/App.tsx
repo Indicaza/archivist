@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Bot,
-  Library as LibraryIcon,
-  MessageSquareText,
-  Search,
-  Sparkles,
-} from "lucide-react";
+import { Library as LibraryIcon, Search, Sparkles } from "lucide-react";
 import { ChatWindow } from "./components/chat/ChatWindow";
 import { AgentManagementModal } from "./components/sidebar/Agents/AgentManagementModal/AgentManagementModal";
 import { Agents } from "./components/sidebar/Agents/Agents";
@@ -14,7 +8,10 @@ import { Chats } from "./components/sidebar/Chats/Chats";
 import { Libraries } from "./components/sidebar/Libraries/Libraries";
 import { LibraryManagementModal } from "./components/sidebar/Libraries/LibraryManagementModal/LibraryManagementModal";
 import { Topbar } from "./components/topbar/Topbar";
-import { ChatPanelToolbar } from "./components/workbench/ChatPanelToolbar";
+import {
+  ChatPanelToolbar,
+  type ChatDockView,
+} from "./components/workbench/ChatPanelToolbar";
 import { DockPlaceholder } from "./components/workbench/DockPlaceholder";
 import { WorkbenchShell } from "./components/workbench/WorkbenchShell";
 import {
@@ -121,6 +118,8 @@ export function App() {
 
   const [restoringManagedChat, setRestoringManagedChat] = useState(false);
 
+  const [chatDockView, setChatDockView] = useState<ChatDockView>(null);
+
   const libraryListItems = useMemo<LibraryListItem[]>(() => {
     return libraries.map((library) => ({
       ...library,
@@ -153,6 +152,27 @@ export function App() {
   const activeAgent = useMemo(() => {
     return agents.find((agent) => agent.id === activeAgentId) ?? null;
   }, [activeAgentId, agents]);
+
+  const chatDockPanelWidth = useMemo(() => {
+    const labels =
+      chatDockView === "chats"
+        ? [...chats, ...archivedChats].map((chat) => chat.title)
+        : chatDockView === "agents"
+          ? [...agents, ...archivedAgents].map((agent) => agent.name)
+          : [];
+
+    const longestLabelLength = labels.reduce(
+      (longest, label) => Math.max(longest, label.trim().length),
+      0,
+    );
+
+    return Math.round(
+      Math.min(
+        202,
+        Math.max(148, 108 + Math.min(longestLabelLength, 23) * 4.1),
+      ),
+    );
+  }, [agents, archivedAgents, archivedChats, chatDockView, chats]);
 
   const managedAgent = useMemo(() => {
     return (
@@ -619,6 +639,36 @@ export function App() {
     }
   }
 
+  async function handleSelectAgent(agentId: string) {
+    const chat = selectedChat;
+
+    if (!chat || chat.agentId === agentId) {
+      return;
+    }
+
+    try {
+      const updatedChat = await editChat(chat.id, {
+        agentId,
+      });
+
+      setChats((current) =>
+        current.map((candidate) =>
+          candidate.id === updatedChat.id ? updatedChat : candidate,
+        ),
+      );
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Archivist could not assign the Agent.",
+      );
+    }
+  }
+
+  function handleToggleChatDockView(nextView: Exclude<ChatDockView, null>) {
+    setChatDockView((current) => (current === nextView ? null : nextView));
+  }
+
   async function handleSaveChat(chatId: string, input: UpdateChatInput) {
     setSavingChat(true);
 
@@ -744,14 +794,14 @@ export function App() {
 
   return (
     <>
-      <Topbar selectedLibrary={selectedLibrary} />
+      <Topbar />
 
       <WorkbenchShell
         leftViews={[
           {
             id: "libraries",
             title: "Library Explorer",
-            icon: <LibraryIcon size={17} strokeWidth={1.9} />,
+            icon: <LibraryIcon size={15} strokeWidth={1.9} />,
             content: (
               <div className="left-dock-stack">
                 <Libraries
@@ -771,7 +821,7 @@ export function App() {
           {
             id: "search",
             title: "Library Search",
-            icon: <Search size={17} strokeWidth={1.9} />,
+            icon: <Search size={15} strokeWidth={1.9} />,
             content: (
               <DockPlaceholder
                 icon={<Search size={20} strokeWidth={1.9} />}
@@ -783,7 +833,7 @@ export function App() {
           {
             id: "skills",
             title: "Skills",
-            icon: <Sparkles size={17} strokeWidth={1.9} />,
+            icon: <Sparkles size={15} strokeWidth={1.9} />,
             content: (
               <DockPlaceholder
                 icon={<Sparkles size={20} strokeWidth={1.9} />}
@@ -793,62 +843,85 @@ export function App() {
             ),
           },
         ]}
-        rightViews={[
-          {
-            id: "chats",
-            title: "Chats",
-            icon: <MessageSquareText size={17} strokeWidth={1.9} />,
-            content: (
-              <div className="right-dock-stack">
-                <Chats
-                  chats={chats}
-                  archivedChats={archivedChats}
-                  selectedChatId={selectedChatId}
-                  loading={loadingChats}
-                  adding={addingChat}
-                  onAddChat={handleAddChat}
-                  onSelectChat={handleSelectChat}
-                  onManageChat={setManagedChatId}
-                  onManageArchivedChat={setManagedChatId}
-                />
-              </div>
-            ),
-          },
-          {
-            id: "agents",
-            title: "Agents",
-            icon: <Bot size={17} strokeWidth={1.9} />,
-            content: (
-              <div className="right-dock-stack">
-                <Agents
-                  agents={agents}
-                  archivedAgents={archivedAgents}
-                  activeAgentId={activeAgentId}
-                  loading={loadingAgents}
-                  adding={addingAgent}
-                  onAddAgent={handleAddAgent}
-                  onManageAgent={setManagedAgentId}
-                  onManageArchivedAgent={setManagedAgentId}
-                />
-              </div>
-            ),
-          },
-        ]}
+        artifactPanel={
+          <DockPlaceholder
+            icon={<Sparkles size={20} strokeWidth={1.9} />}
+            title="No artifacts yet"
+            description="Attachments, generated files, sources, and tool output will collect here."
+          />
+        }
         workspace={
           <ChatWindow
             selectedChat={selectedChat}
             onChatActivity={handleChatActivity}
             toolbar={
               <ChatPanelToolbar
-                chats={chats}
                 selectedChat={selectedChat}
                 activeAgent={activeAgent}
-                addingChat={addingChat}
-                onSelectChat={handleSelectChat}
-                onAddChat={handleAddChat}
-                onManageChat={setManagedChatId}
-                onManageAgent={setManagedAgentId}
+                selectedLibraryName={selectedLibrary?.name ?? null}
+                activeView={chatDockView}
+                onToggleView={handleToggleChatDockView}
               />
+            }
+            controlPanelLabel={
+              chatDockView === "chats"
+                ? "Chats"
+                : chatDockView === "agents"
+                  ? "Agents"
+                  : null
+            }
+            controlPanelWidth={chatDockPanelWidth}
+            controlPanelActionLabel={
+              chatDockView === "chats"
+                ? addingChat
+                  ? "Creating Chat..."
+                  : "New Chat"
+                : chatDockView === "agents"
+                  ? addingAgent
+                    ? "Creating Agent..."
+                    : "New Agent"
+                  : null
+            }
+            controlPanelActionBusy={
+              chatDockView === "chats"
+                ? addingChat
+                : chatDockView === "agents"
+                  ? addingAgent
+                  : false
+            }
+            onControlPanelAction={
+              chatDockView === "chats"
+                ? handleAddChat
+                : chatDockView === "agents"
+                  ? handleAddAgent
+                  : null
+            }
+            controlPanel={
+              chatDockView === "chats" ? (
+                <div className="dock-drawer-stack">
+                  <Chats
+                    chats={chats}
+                    archivedChats={archivedChats}
+                    selectedChatId={selectedChatId}
+                    loading={loadingChats}
+                    onSelectChat={handleSelectChat}
+                    onManageChat={setManagedChatId}
+                    onManageArchivedChat={setManagedChatId}
+                  />
+                </div>
+              ) : chatDockView === "agents" ? (
+                <div className="dock-drawer-stack">
+                  <Agents
+                    agents={agents}
+                    archivedAgents={archivedAgents}
+                    activeAgentId={activeAgentId}
+                    loading={loadingAgents}
+                    onSelectAgent={handleSelectAgent}
+                    onManageAgent={setManagedAgentId}
+                    onManageArchivedAgent={setManagedAgentId}
+                  />
+                </div>
+              ) : null
             }
           />
         }

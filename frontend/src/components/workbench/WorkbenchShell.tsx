@@ -1,23 +1,23 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { PanelLeftOpen } from "lucide-react";
 import { Sidebar, type SidebarView } from "../sidebar/Sidebar";
+import { ArtifactDrawer } from "./ArtifactDrawer";
 import styles from "./WorkbenchShell.module.css";
 
 export type WorkbenchDockView = SidebarView;
 
 type WorkbenchShellProps = {
   leftViews: WorkbenchDockView[];
-  rightViews: WorkbenchDockView[];
   workspace: ReactNode;
+  artifactPanel: ReactNode;
 };
 
 type StoredLayout = {
   activeLeftViewId: string;
-  activeRightViewId: string;
   leftOpen: boolean;
-  rightOpen: boolean;
 };
 
-const STORAGE_KEY = "archivist.workbench.layout.v2";
+const STORAGE_KEY = "archivist.workbench.layout.v5";
 
 function readStoredLayout(): StoredLayout | null {
   try {
@@ -35,38 +35,29 @@ function readStoredLayout(): StoredLayout | null {
 
 export function WorkbenchShell({
   leftViews,
-  rightViews,
   workspace,
+  artifactPanel,
 }: WorkbenchShellProps) {
   const storedLayout = useRef(readStoredLayout());
 
   const [activeLeftViewId, setActiveLeftViewId] = useState(
     storedLayout.current?.activeLeftViewId ?? leftViews[0]?.id ?? "",
   );
-  const [activeRightViewId, setActiveRightViewId] = useState(
-    storedLayout.current?.activeRightViewId ?? rightViews[0]?.id ?? "",
-  );
   const [leftOpen, setLeftOpen] = useState(
     storedLayout.current?.leftOpen ?? true,
-  );
-  const [rightOpen, setRightOpen] = useState(
-    storedLayout.current?.rightOpen ?? true,
   );
 
   useEffect(() => {
     const nextLayout: StoredLayout = {
       activeLeftViewId,
-      activeRightViewId,
       leftOpen,
-      rightOpen,
     };
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextLayout));
-  }, [activeLeftViewId, activeRightViewId, leftOpen, rightOpen]);
+  }, [activeLeftViewId, leftOpen]);
 
   function activateLeftView(viewId: string) {
-    if (viewId === activeLeftViewId) {
-      setLeftOpen((current) => !current);
+    if (viewId === activeLeftViewId && leftOpen) {
       return;
     }
 
@@ -74,41 +65,34 @@ export function WorkbenchShell({
     setLeftOpen(true);
   }
 
-  function activateRightView(viewId: string) {
-    if (viewId === activeRightViewId) {
-      setRightOpen((current) => !current);
-      return;
-    }
-
-    setActiveRightViewId(viewId);
-    setRightOpen(true);
-  }
-
   return (
     <div
       className={`${styles.shell} ${
         leftOpen ? styles.leftOpen : styles.leftClosed
-      } ${rightOpen ? styles.rightOpen : styles.rightClosed}`}
+      }`}
     >
-      <Sidebar
-        side="left"
-        views={leftViews}
-        activeViewId={activeLeftViewId}
-        open={leftOpen}
-        onActivateView={activateLeftView}
-        onClosePanel={() => setLeftOpen(false)}
-      />
+      {leftOpen ? (
+        <Sidebar
+          views={leftViews}
+          activeViewId={activeLeftViewId}
+          onActivateView={activateLeftView}
+          onClosePanel={() => setLeftOpen(false)}
+        />
+      ) : (
+        <button
+          className={styles.restoreExplorerButton}
+          type="button"
+          onClick={() => setLeftOpen(true)}
+          aria-label="Open Library Explorer"
+          title="Open Library Explorer"
+        >
+          <PanelLeftOpen size={17} strokeWidth={2} />
+        </button>
+      )}
 
       {workspace}
 
-      <Sidebar
-        side="right"
-        views={rightViews}
-        activeViewId={activeRightViewId}
-        open={rightOpen}
-        onActivateView={activateRightView}
-        onClosePanel={() => setRightOpen(false)}
-      />
+      <ArtifactDrawer>{artifactPanel}</ArtifactDrawer>
     </div>
   );
 }

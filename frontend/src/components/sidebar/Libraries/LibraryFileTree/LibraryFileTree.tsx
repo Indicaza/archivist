@@ -179,6 +179,10 @@ function TreeBranch({
               }}
               type="button"
               onClick={() => onToggleFolder(directory.path)}
+              aria-expanded={open}
+              data-tree-level={
+                depth >= 3 ? "deep" : depth >= 1 ? "nested" : "root"
+              }
               title={directory.path}
             >
               <ChevronRight

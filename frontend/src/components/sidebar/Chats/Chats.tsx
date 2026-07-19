@@ -1,11 +1,5 @@
 import { useState } from "react";
-import {
-  Archive,
-  ChevronRight,
-  MessageSquareText,
-  Pencil,
-  Plus,
-} from "lucide-react";
+import { Archive, ChevronRight, MessageSquareText, Pencil } from "lucide-react";
 import type { Chat } from "../../../domains/chat/chat.types";
 import styles from "./Chats.module.css";
 
@@ -14,8 +8,6 @@ type ChatsProps = {
   archivedChats: Chat[];
   selectedChatId: string | null;
   loading: boolean;
-  adding: boolean;
-  onAddChat: () => void;
   onSelectChat: (chatId: string) => void;
   onManageChat: (chatId: string) => void;
   onManageArchivedChat: (chatId: string) => void;
@@ -26,8 +18,6 @@ export function Chats({
   archivedChats,
   selectedChatId,
   loading,
-  adding,
-  onAddChat,
   onSelectChat,
   onManageChat,
   onManageArchivedChat,
@@ -36,18 +26,6 @@ export function Chats({
 
   return (
     <section className={styles.section}>
-      <div className={styles.toolbar}>
-        <button
-          className={styles.createButton}
-          type="button"
-          onClick={onAddChat}
-          disabled={adding}
-        >
-          <Plus size={14} strokeWidth={2.2} />
-          <span>{adding ? "Creating..." : "New Chat"}</span>
-        </button>
-      </div>
-
       <div className={styles.listViewport}>
         {loading ? (
           <div className={styles.empty}>Loading chats...</div>
@@ -64,7 +42,7 @@ export function Chats({
                     onClick={() => onSelectChat(chat.id)}
                     title={chat.title}
                   >
-                    <MessageSquareText size={13} strokeWidth={2} />
+                    <MessageSquareText size={12} strokeWidth={2} />
                     <span>{chat.title}</span>
                   </button>
 
@@ -75,7 +53,7 @@ export function Chats({
                     aria-label={`Manage ${chat.title}`}
                     title="Manage Chat"
                   >
-                    <Pencil size={12} strokeWidth={2.1} />
+                    <Pencil size={11} strokeWidth={2.1} />
                   </button>
                 </li>
               );
@@ -92,11 +70,11 @@ export function Chats({
         onClick={() => setArchivedOpen((current) => !current)}
       >
         <ChevronRight
-          size={12}
+          size={11}
           strokeWidth={2.2}
           className={archivedOpen ? styles.caretOpen : ""}
         />
-        <Archive size={12} strokeWidth={2} />
+        <Archive size={11} strokeWidth={2} />
         <span>Archived</span>
         <span className={styles.count}>{archivedChats.length}</span>
       </button>
@@ -112,7 +90,7 @@ export function Chats({
                 onClick={() => onManageArchivedChat(chat.id)}
                 title={chat.title}
               >
-                <Archive size={12} strokeWidth={2} />
+                <Archive size={11} strokeWidth={2} />
                 <span>{chat.title}</span>
               </button>
             ))

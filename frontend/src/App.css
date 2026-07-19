@@ -1,5 +1,5 @@
 .left-dock-stack,
-.right-dock-stack {
+.dock-drawer-stack {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -9,13 +9,13 @@
 }
 
 .left-dock-stack > *,
-.right-dock-stack > * {
+.dock-drawer-stack > * {
   min-height: 0;
 }
 
 @media (max-width: 760px) {
   .left-dock-stack,
-  .right-dock-stack {
+  .dock-drawer-stack {
     font-size: 0.94rem;
   }
 }

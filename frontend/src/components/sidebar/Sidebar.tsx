@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { PanelLeftClose, PanelRightClose } from "lucide-react";
+import { PanelLeftClose } from "lucide-react";
 import styles from "./Sidebar.module.css";
 
 export type SidebarView = {
@@ -10,80 +10,66 @@ export type SidebarView = {
 };
 
 type SidebarProps = {
-  side: "left" | "right";
   views: SidebarView[];
   activeViewId: string;
-  open: boolean;
   onActivateView: (viewId: string) => void;
   onClosePanel: () => void;
 };
 
 export function Sidebar({
-  side,
   views,
   activeViewId,
-  open,
   onActivateView,
   onClosePanel,
 }: SidebarProps) {
   const activeView =
     views.find((view) => view.id === activeViewId) ?? views[0] ?? null;
-  const isLeft = side === "left";
+
+  if (!activeView) {
+    return null;
+  }
 
   return (
-    <aside
-      className={`${styles.sidebar} ${styles[side]} ${
-        open ? styles.open : styles.closed
-      }`}
-      aria-label={`${side} activity sidebar`}
-    >
-      <nav className={styles.activityRail} aria-label={`${side} activities`}>
-        <div className={styles.activityGroup}>
-          {views.map((view) => {
-            const active = view.id === activeView?.id;
+    <aside className={styles.sidebar} aria-label="Library workspace sidebar">
+      <header className={styles.header}>
+        <span className={styles.title}>{activeView.title}</span>
 
-            return (
-              <button
-                key={view.id}
-                className={`${styles.activityButton} ${
-                  active ? styles.activityButtonActive : ""
-                }`}
-                type="button"
-                onClick={() => onActivateView(view.id)}
-                aria-label={view.title}
-                aria-pressed={active && open}
-                title={view.title}
-              >
-                {view.icon}
-              </button>
-            );
-          })}
+        <div className={styles.headerActions}>
+          <nav className={styles.viewSwitches} aria-label="Explorer views">
+            {views.map((view) => {
+              const active = view.id === activeView.id;
+
+              return (
+                <button
+                  key={view.id}
+                  className={`${styles.headerButton} ${
+                    active ? styles.headerButtonActive : ""
+                  }`}
+                  type="button"
+                  onClick={() => onActivateView(view.id)}
+                  aria-label={view.title}
+                  aria-pressed={active}
+                  title={view.title}
+                >
+                  {view.icon}
+                </button>
+              );
+            })}
+          </nav>
+
+          <button
+            className={styles.headerButton}
+            type="button"
+            onClick={onClosePanel}
+            aria-label={`Collapse ${activeView.title}`}
+            title={`Collapse ${activeView.title}`}
+          >
+            <PanelLeftClose size={15} strokeWidth={2} />
+          </button>
         </div>
-      </nav>
+      </header>
 
-      {open && activeView ? (
-        <section className={styles.panel} aria-label={activeView.title}>
-          <header className={styles.header}>
-            <span className={styles.title}>{activeView.title}</span>
-
-            <button
-              className={styles.headerButton}
-              type="button"
-              onClick={onClosePanel}
-              aria-label={`Collapse ${activeView.title}`}
-              title={`Collapse ${activeView.title}`}
-            >
-              {isLeft ? (
-                <PanelLeftClose size={17} strokeWidth={2} />
-              ) : (
-                <PanelRightClose size={17} strokeWidth={2} />
-              )}
-            </button>
-          </header>
-
-          <div className={styles.scrollArea}>{activeView.content}</div>
-        </section>
-      ) : null}
+      <div className={styles.scrollArea}>{activeView.content}</div>
     </aside>
   );
 }

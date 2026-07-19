@@ -1,0 +1,89 @@
+.drawer {
+  position: absolute;
+  z-index: 8;
+  top: 50%;
+  right: 9px;
+  display: flex;
+  align-items: center;
+  max-height: calc(100% - 170px);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.toggleButton,
+.panel {
+  pointer-events: auto;
+}
+
+.toggleButton {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(214, 198, 170, 0.12);
+  border-right: 0;
+  border-radius: 7px 0 0 7px;
+  color: var(--app-muted-text);
+  background: rgba(16, 15, 13, 0.92);
+  box-shadow: -6px 0 18px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+}
+
+.closed .toggleButton {
+  border-right: 1px solid rgba(214, 198, 170, 0.12);
+  border-radius: 7px;
+}
+
+.toggleButton:hover,
+.toggleButton:focus-visible {
+  border-color: rgba(143, 122, 223, 0.32);
+  color: var(--app-text);
+  background: rgba(28, 26, 23, 0.97);
+  outline: none;
+}
+
+.panel {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  width: clamp(220px, 18vw, 290px);
+  height: min(430px, calc(100vh - var(--topbar-height) - 190px));
+  min-height: 210px;
+  overflow: hidden;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 0 9px 9px 9px;
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 24%),
+    rgba(16, 15, 13, 0.96);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.52);
+  contain: layout paint style;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border-bottom: 1px solid rgba(214, 198, 170, 0.09);
+  color: var(--app-muted-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (max-width: 760px) {
+  .drawer {
+    right: 5px;
+  }
+
+  .panel {
+    width: min(270px, calc(100vw - 48px));
+  }
+}

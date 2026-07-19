@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  Archive,
-  Bot,
-  ChevronRight,
-  Pencil,
-  Plus,
-  ShieldCheck,
-} from "lucide-react";
+import { Archive, Bot, ChevronRight, Pencil, ShieldCheck } from "lucide-react";
 import type { Agent } from "../../../domains/agent/agent.types";
 import styles from "./Agents.module.css";
 
@@ -15,8 +8,7 @@ type AgentsProps = {
   archivedAgents: Agent[];
   activeAgentId: string | null;
   loading: boolean;
-  adding: boolean;
-  onAddAgent: () => void;
+  onSelectAgent: (agentId: string) => void;
   onManageAgent: (agentId: string) => void;
   onManageArchivedAgent: (agentId: string) => void;
 };
@@ -26,8 +18,7 @@ export function Agents({
   archivedAgents,
   activeAgentId,
   loading,
-  adding,
-  onAddAgent,
+  onSelectAgent,
   onManageAgent,
   onManageArchivedAgent,
 }: AgentsProps) {
@@ -35,18 +26,6 @@ export function Agents({
 
   return (
     <section className={styles.section}>
-      <div className={styles.toolbar}>
-        <button
-          className={styles.createButton}
-          type="button"
-          onClick={onAddAgent}
-          disabled={adding}
-        >
-          <Plus size={14} strokeWidth={2.2} />
-          <span>{adding ? "Creating..." : "New Agent"}</span>
-        </button>
-      </div>
-
       <div className={styles.listViewport}>
         {loading ? (
           <div className={styles.empty}>Loading Agents...</div>
@@ -60,13 +39,13 @@ export function Agents({
                   <button
                     className={`${styles.row} ${selected ? styles.selected : ""}`}
                     type="button"
-                    onClick={() => onManageAgent(agent.id)}
-                    title={agent.name}
+                    onClick={() => onSelectAgent(agent.id)}
+                    title={`Use ${agent.name}`}
                   >
                     {agent.isBuiltIn ? (
-                      <ShieldCheck size={13} strokeWidth={2} />
+                      <ShieldCheck size={12} strokeWidth={2} />
                     ) : (
-                      <Bot size={13} strokeWidth={2} />
+                      <Bot size={12} strokeWidth={2} />
                     )}
                     <span>{agent.name}</span>
                   </button>
@@ -78,7 +57,7 @@ export function Agents({
                     aria-label={`Manage ${agent.name}`}
                     title="Manage Agent"
                   >
-                    <Pencil size={12} strokeWidth={2.1} />
+                    <Pencil size={11} strokeWidth={2.1} />
                   </button>
                 </li>
               );
@@ -95,11 +74,11 @@ export function Agents({
         onClick={() => setArchivedOpen((current) => !current)}
       >
         <ChevronRight
-          size={12}
+          size={11}
           strokeWidth={2.2}
           className={archivedOpen ? styles.caretOpen : ""}
         />
-        <Archive size={12} strokeWidth={2} />
+        <Archive size={11} strokeWidth={2} />
         <span>Archived</span>
         <span className={styles.count}>{archivedAgents.length}</span>
       </button>
@@ -115,7 +94,7 @@ export function Agents({
                 onClick={() => onManageArchivedAgent(agent.id)}
                 title={agent.name}
               >
-                <Archive size={12} strokeWidth={2} />
+                <Archive size={11} strokeWidth={2} />
                 <span>{agent.name}</span>
               </button>
             ))

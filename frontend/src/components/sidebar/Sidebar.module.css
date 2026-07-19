@@ -1,134 +1,20 @@
 .sidebar {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  overflow: visible;
-  color: var(--app-text);
-}
-
-.left {
-  grid-column: 1 / 3;
+  grid-column: 1;
   grid-row: 1 / 3;
   z-index: 6;
-  flex-direction: row;
-}
-
-.right {
-  grid-column: 4 / 6;
-  grid-row: 1;
-  z-index: 3;
-  flex-direction: row-reverse;
-}
-
-.activityRail {
-  display: flex;
-  flex: 0 0 var(--workbench-rail-width);
-  width: var(--workbench-rail-width);
-  min-width: var(--workbench-rail-width);
-  height: 100%;
-  padding: 4px 0;
-  border-color: var(--sidebar-border);
-  background:
-    linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 22%),
-    var(--app-bg-deep);
-  box-shadow: var(--shadow-soft);
-}
-
-.left .activityRail {
-  border-right: 1px solid var(--sidebar-border);
-}
-
-.right .activityRail {
-  border-left: 1px solid var(--sidebar-border);
-}
-
-.activityGroup {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.activityButton {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 27px;
-  height: 29px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  color: var(--app-muted-text);
-  background: transparent;
-  cursor: pointer;
-  transition:
-    color 100ms ease,
-    background-color 100ms ease;
-}
-
-.activityButton svg {
-  width: 16px;
-  height: 16px;
-}
-
-.activityButton::before {
-  content: "";
-  position: absolute;
-  top: 5px;
-  bottom: 5px;
-  width: 2px;
-  border-radius: var(--r-pill);
-  background: transparent;
-}
-
-.left .activityButton::before {
-  left: -2px;
-}
-
-.right .activityButton::before {
-  right: -2px;
-}
-
-.activityButton:hover,
-.activityButton:focus-visible {
-  color: var(--app-text);
-  background: rgba(255, 255, 255, 0.045);
-  outline: none;
-}
-
-.activityButtonActive {
-  color: var(--app-text);
-  background: rgba(143, 122, 223, 0.09);
-}
-
-.activityButtonActive::before {
-  background: var(--app-accent);
-}
-
-.panel {
   display: grid;
   grid-template-rows: 34px minmax(0, 1fr);
+  width: var(--workbench-left-panel-width);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-color: var(--sidebar-border);
+  border-right: 1px solid var(--sidebar-border);
+  color: var(--app-text);
   background:
     linear-gradient(180deg, rgba(255, 250, 240, 0.018), transparent 24%),
     var(--sidebar-bg);
   box-shadow: var(--shadow-panel);
   contain: layout paint style;
-}
-
-.left .panel {
-  width: var(--workbench-left-panel-width);
-  border-right: 1px solid var(--sidebar-border);
-}
-
-.right .panel {
-  width: var(--workbench-right-panel-width);
-  border-left: 1px solid var(--sidebar-border);
 }
 
 .header {
@@ -137,12 +23,14 @@
   justify-content: space-between;
   min-width: 0;
   min-height: 34px;
+  gap: 7px;
   padding: 4px 5px 4px 9px;
   border-bottom: 1px solid rgba(214, 198, 170, 0.09);
   background: rgba(255, 255, 255, 0.014);
 }
 
 .title {
+  min-width: 0;
   overflow: hidden;
   color: var(--app-muted-text);
   font-size: 9px;
@@ -153,10 +41,18 @@
   white-space: nowrap;
 }
 
-.headerButton {
-  display: inline-flex;
+.headerActions,
+.viewSwitches {
+  display: flex;
   align-items: center;
-  justify-content: center;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.headerButton {
+  position: relative;
+  display: grid;
+  place-items: center;
   width: 25px;
   height: 25px;
   padding: 0;
@@ -168,8 +64,8 @@
 }
 
 .headerButton svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .headerButton:hover,
@@ -179,72 +75,55 @@
   outline: none;
 }
 
+.headerButtonActive {
+  color: var(--app-text);
+  background: rgba(143, 122, 223, 0.1);
+}
+
+.headerButtonActive::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 2px;
+  left: 5px;
+  height: 1px;
+  border-radius: var(--r-pill);
+  background: var(--app-accent);
+}
+
+.divider {
+  width: 1px;
+  height: 17px;
+  margin: 0 2px;
+  background: rgba(214, 198, 170, 0.1);
+}
+
 .scrollArea {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-x: hidden;
+  overflow: hidden;
   overscroll-behavior: contain;
-}
-
-.left .scrollArea {
-  padding: 0;
-  overflow-y: hidden;
-}
-
-.right .scrollArea {
-  padding: 3px 0 8px;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
 }
 
 .scrollArea > * {
   min-height: 0;
 }
 
-.closed .activityButtonActive::before {
-  opacity: 0.7;
-}
-
-@media (max-width: 1080px) {
-  .right {
-    grid-column: 5;
-  }
-
-  .right .panel {
-    position: absolute;
-    top: 0;
-    right: var(--workbench-rail-width);
-    bottom: 0;
-    width: min(
-      var(--workbench-right-panel-width),
-      calc(100vw - var(--workbench-rail-width) * 2 - 24px)
-    );
-    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.66);
-  }
-}
-
-@media (max-width: 760px) {
-  .left {
-    grid-column: 1;
-  }
-
-  .left .panel {
+@media (max-width: 800px) {
+  .sidebar {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: var(--workbench-rail-width);
-    width: min(
-      var(--workbench-left-panel-width),
-      calc(100vw - var(--workbench-rail-width) * 2 - 18px)
-    );
-    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.7);
+    left: 0;
+    width: min(var(--workbench-left-panel-width), calc(100vw - 42px));
+    box-shadow: 14px 0 42px rgba(0, 0, 0, 0.66);
   }
 }
 
 @media (max-height: 620px) {
-  .panel {
+  .sidebar {
     grid-template-rows: 30px minmax(0, 1fr);
   }
 
@@ -252,15 +131,5 @@
     min-height: 30px;
     padding-top: 2px;
     padding-bottom: 2px;
-  }
-
-  .activityButton {
-    height: 27px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .activityButton {
-    transition: none;
   }
 }

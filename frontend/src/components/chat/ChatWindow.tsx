@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -11,6 +12,7 @@ import {
   Code2,
   List,
   MessageSquareText,
+  Plus,
   SendHorizontal,
   Sparkles,
   TextQuote,
@@ -22,6 +24,12 @@ import styles from "./ChatWindow.module.css";
 type ChatWindowProps = {
   selectedChat: Chat | null;
   toolbar: ReactNode;
+  controlPanel: ReactNode | null;
+  controlPanelLabel: string | null;
+  controlPanelWidth?: number;
+  controlPanelActionLabel?: string | null;
+  controlPanelActionBusy?: boolean;
+  onControlPanelAction?: (() => void) | null;
   onChatActivity: (chatId: string) => void;
 };
 
@@ -62,6 +70,12 @@ function createOptimisticUserMessage(
 export function ChatWindow({
   selectedChat,
   toolbar,
+  controlPanel,
+  controlPanelLabel,
+  controlPanelWidth = 176,
+  controlPanelActionLabel = null,
+  controlPanelActionBusy = false,
+  onControlPanelAction = null,
   onChatActivity,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -248,17 +262,6 @@ export function ChatWindow({
   }, []);
 
   useEffect(() => {
-    const textarea = textareaRef.current;
-
-    if (!textarea) {
-      return;
-    }
-
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [input]);
-
-  useEffect(() => {
     const container = messagesContainerRef.current;
 
     if (!container) {
@@ -358,74 +361,113 @@ export function ChatWindow({
           <div className={styles.composerToolbar}>{toolbar}</div>
         </header>
 
-        <form className={styles.composer} onSubmit={onSubmit}>
-          <div className={styles.composerInner}>
-            <textarea
-              ref={textareaRef}
-              className={styles.composerInput}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder={
-                selectedChatTitle
-                  ? `Message ${selectedChatTitle}...`
-                  : "Choose or create a chat..."
-              }
-              autoComplete="off"
-              rows={4}
-              disabled={sending || loadingMessages || !selectedChatId}
-            />
+        <div
+          className={`${styles.composerBody} ${
+            controlPanel ? styles.composerBodyWithPanel : ""
+          }`}
+          style={
+            controlPanel
+              ? ({
+                  "--chat-control-panel-width": `${controlPanelWidth}px`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
+          <form className={styles.composer} onSubmit={onSubmit}>
+            <div className={styles.composerInner}>
+              <textarea
+                ref={textareaRef}
+                className={styles.composerInput}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={
+                  selectedChatTitle
+                    ? `Message ${selectedChatTitle}...`
+                    : "Choose or create a chat..."
+                }
+                autoComplete="off"
+                rows={4}
+                disabled={sending || loadingMessages || !selectedChatId}
+              />
 
-            <div className={styles.composerFooter}>
-              <div className={styles.writingTools} aria-label="Writing tools">
-                <button
-                  type="button"
-                  onClick={() => insertTemplate("- ")}
-                  disabled={!selectedChatId || sending}
-                  aria-label="Insert list item"
-                  title="Insert List Item"
-                >
-                  <List size={14} strokeWidth={2} />
-                </button>
+              <div className={styles.composerFooter}>
+                <div className={styles.writingTools} aria-label="Writing tools">
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("- ")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert list item"
+                    title="Insert List Item"
+                  >
+                    <List size={14} strokeWidth={2} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("> ")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert quote"
+                    title="Insert Quote"
+                  >
+                    <TextQuote size={14} strokeWidth={2} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => insertTemplate("```\n", "\n```", "code")}
+                    disabled={!selectedChatId || sending}
+                    aria-label="Insert code block"
+                    title="Insert Code Block"
+                  >
+                    <Code2 size={14} strokeWidth={2} />
+                  </button>
+                </div>
+
+                <span className={styles.keyboardHint}>
+                  Enter to send · Shift+Enter for newline
+                </span>
 
                 <button
-                  type="button"
-                  onClick={() => insertTemplate("> ")}
-                  disabled={!selectedChatId || sending}
-                  aria-label="Insert quote"
-                  title="Insert Quote"
+                  className={styles.composerButton}
+                  type="submit"
+                  disabled={!canSend}
+                  aria-label="Send"
+                  title="Send"
                 >
-                  <TextQuote size={14} strokeWidth={2} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => insertTemplate("```\n", "\n```", "code")}
-                  disabled={!selectedChatId || sending}
-                  aria-label="Insert code block"
-                  title="Insert Code Block"
-                >
-                  <Code2 size={14} strokeWidth={2} />
+                  <SendHorizontal size={16} strokeWidth={2.35} />
+                  <span>Send</span>
                 </button>
               </div>
-
-              <span className={styles.keyboardHint}>
-                Enter to send · Shift+Enter for newline
-              </span>
-
-              <button
-                className={styles.composerButton}
-                type="submit"
-                disabled={!canSend}
-                aria-label="Send"
-                title="Send"
-              >
-                <SendHorizontal size={16} strokeWidth={2.35} />
-                <span>Send</span>
-              </button>
             </div>
-          </div>
-        </form>
+          </form>
+
+          {controlPanel ? (
+            <aside
+              className={styles.controlPanel}
+              aria-label={controlPanelLabel ?? "Chat controls"}
+            >
+              <div className={styles.controlPanelHeader}>
+                <strong>{controlPanelLabel ?? "Chat controls"}</strong>
+
+                {onControlPanelAction && controlPanelActionLabel ? (
+                  <button
+                    className={styles.controlPanelAction}
+                    type="button"
+                    onClick={onControlPanelAction}
+                    disabled={controlPanelActionBusy}
+                    aria-label={controlPanelActionLabel}
+                    title={controlPanelActionLabel}
+                  >
+                    <Plus size={12} strokeWidth={2.2} />
+                  </button>
+                ) : null}
+              </div>
+
+              <div className={styles.controlPanelContent}>{controlPanel}</div>
+            </aside>
+          ) : null}
+        </div>
       </section>
     </>
   );
