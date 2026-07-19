@@ -10,6 +10,7 @@ import {
 import type { LibraryListItem } from "../../../domains/library/library.types";
 import { SidebarButton } from "../SidebarButton/SidebarButton";
 import { SidebarCard } from "../SidebarCard/SidebarCard";
+import { LibraryFileTree } from "./LibraryFileTree/LibraryFileTree";
 import styles from "./Libraries.module.css";
 
 type LibrariesProps = {
@@ -38,10 +39,8 @@ export function Libraries({
   const [librariesOpen, setLibrariesOpen] = useState(true);
   const [allLibrariesOpen, setAllLibrariesOpen] = useState(true);
   const [archivedLibrariesOpen, setArchivedLibrariesOpen] = useState(false);
-
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-
   const [pressedLibraryId, setPressedLibraryId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,6 +78,12 @@ export function Libraries({
       return haystack.includes(debouncedSearch);
     });
   }, [archivedLibraries, debouncedSearch]);
+
+  const selectedLibrary = useMemo(() => {
+    return (
+      libraries.find((library) => library.id === selectedLibraryId) ?? null
+    );
+  }, [libraries, selectedLibraryId]);
 
   function pressLibrary(
     libraryId: string,
@@ -168,7 +173,6 @@ export function Libraries({
               <ul className={styles.list}>
                 {filteredLibraries.map((library) => {
                   const selected = library.id === selectedLibraryId;
-
                   const pressed = library.id === pressedLibraryId;
 
                   return (
@@ -217,6 +221,13 @@ export function Libraries({
               </div>
             )}
           </div>
+
+          {selectedLibrary ? (
+            <LibraryFileTree
+              key={selectedLibrary.id}
+              library={selectedLibrary}
+            />
+          ) : null}
 
           <div
             className={`${styles.subHeader} ${styles.indent1}`}

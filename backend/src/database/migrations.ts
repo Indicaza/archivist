@@ -378,6 +378,89 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 9,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE library_scans (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'running' CHECK (
+            status IN ('running', 'complete', 'partial', 'failed')
+          ),
+          started_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          completed_at TEXT,
+          discovered_file_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            discovered_file_count >= 0
+          ),
+          cataloged_file_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            cataloged_file_count >= 0
+          ),
+          ignored_entry_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            ignored_entry_count >= 0
+          ),
+          error_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            error_count >= 0
+          ),
+          error_message TEXT,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX library_scans_library_started_at_index
+          ON library_scans(library_id, started_at DESC);
+
+        CREATE UNIQUE INDEX library_scans_one_running_per_library
+          ON library_scans(library_id)
+          WHERE status = 'running';
+
+        CREATE TABLE library_files (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          relative_path TEXT NOT NULL CHECK (
+            length(trim(relative_path)) > 0
+          ),
+          name TEXT NOT NULL CHECK (
+            length(trim(name)) > 0
+          ),
+          extension TEXT NOT NULL CHECK (
+            length(trim(extension)) > 0
+          ),
+          size_bytes INTEGER NOT NULL CHECK (
+            size_bytes >= 0
+          ),
+          modified_at TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'available' CHECK (
+            status IN ('available', 'unreadable', 'missing')
+          ),
+          last_seen_scan_id TEXT,
+          last_seen_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (last_seen_scan_id)
+            REFERENCES library_scans(id)
+            ON DELETE SET NULL,
+          UNIQUE (library_id, relative_path)
+        );
+
+        CREATE INDEX library_files_library_path_index
+          ON library_files(library_id, relative_path);
+
+        CREATE INDEX library_files_library_status_index
+          ON library_files(library_id, status);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {
