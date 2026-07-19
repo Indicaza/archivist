@@ -9,15 +9,17 @@ import {
   useState,
 } from "react";
 import {
+  ArrowDown,
   Code2,
   List,
   Plus,
   SendHorizontal,
-  Sparkles,
   TextQuote,
 } from "lucide-react";
 import { fetchMessages, respondToChat } from "../../domains/chat/chat.api";
 import type { Chat, ChatMessage } from "../../domains/chat/chat.types";
+import { ChatEmptyState } from "./ChatWindow/ChatEmptyState/ChatEmptyState";
+import { ChatMessage as ChatMessageView } from "./ChatWindow/ChatMessage/ChatMessage";
 import styles from "./ChatWindow.module.css";
 
 type ChatWindowProps = {
@@ -101,6 +103,24 @@ export function ChatWindow({
     );
   }, [input, loadingMessages, selectedChatId, sending]);
 
+  const thinkingMessage = useMemo<ChatMessage | null>(() => {
+    if (!sending || !selectedChatId) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+
+    return {
+      id: "assistant-thinking",
+      chatId: selectedChatId,
+      role: "assistant",
+      content: "",
+      status: "streaming",
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, [selectedChatId, sending]);
+
   async function send() {
     const text = input.trim();
     const chat = selectedChat;
@@ -168,6 +188,17 @@ export function ChatWindow({
     }
   }
 
+  function jumpToLatest() {
+    const scrollContainer = messagesContainerRef.current;
+
+    if (!scrollContainer) {
+      return;
+    }
+
+    setPinnedToBottom(true);
+    scrollToBottom(scrollContainer);
+  }
+
   function insertTemplate(prefix: string, suffix = "", fallback = "") {
     const textarea = textareaRef.current;
     const selectionStart = textarea?.selectionStart ?? input.length;
@@ -191,12 +222,20 @@ export function ChatWindow({
     let cancelled = false;
 
     activeRequestChatIdRef.current = null;
-    setSending(false);
 
     async function loadMessages() {
+      await Promise.resolve();
+
+      if (cancelled) {
+        return;
+      }
+
+      setSending(false);
+
       if (!selectedChatId) {
         setMessages([]);
         setLoadingMessages(false);
+        setPinnedToBottom(true);
         return;
       }
 
@@ -239,43 +278,45 @@ export function ChatWindow({
   }, [selectedChatId]);
 
   useEffect(() => {
-    const container = messagesContainerRef.current;
+    const currentContainer = messagesContainerRef.current;
 
-    if (!container) {
+    if (currentContainer === null) {
       return;
     }
 
-    function handleScroll() {
-      setPinnedToBottom(isNearBottom(container));
-    }
+    const scrollContainer: HTMLDivElement = currentContainer;
 
-    container.addEventListener("scroll", handleScroll, {
+    const handleScroll = () => {
+      setPinnedToBottom(isNearBottom(scrollContainer));
+    };
+
+    scrollContainer.addEventListener("scroll", handleScroll, {
       passive: true,
     });
 
     handleScroll();
 
     return () => {
-      container.removeEventListener("scroll", handleScroll);
+      scrollContainer.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
   useEffect(() => {
-    const container = messagesContainerRef.current;
+    const scrollContainer = messagesContainerRef.current;
 
-    if (!container) {
+    if (!scrollContainer) {
       return;
     }
 
     const animationFrameId = window.requestAnimationFrame(() => {
       if (forceScrollRef.current) {
-        scrollToBottom(container, "auto");
+        scrollToBottom(scrollContainer, "auto");
         forceScrollRef.current = false;
         return;
       }
 
       if (pinnedToBottom) {
-        scrollToBottom(container, "auto");
+        scrollToBottom(scrollContainer, "auto");
       }
     });
 
@@ -294,60 +335,39 @@ export function ChatWindow({
         >
           <div className={styles.messages}>
             {!selectedChatId ? (
-              <div className={styles.emptyState}>
-                <Sparkles size={22} strokeWidth={2} />
-                <span>Select or create a chat to begin.</span>
-              </div>
+              <ChatEmptyState mode="unselected" />
             ) : loadingMessages ? (
-              <div className={styles.emptyState}>
-                <Sparkles size={22} strokeWidth={2} />
-                <span>Loading {selectedChatTitle}...</span>
-              </div>
+              <ChatEmptyState mode="loading" chatTitle={selectedChatTitle} />
             ) : !hasMessages && !sending ? (
-              <div className={styles.emptyState}>
-                <Sparkles size={22} strokeWidth={2} />
-                <span>
-                  {selectedChatTitle} is empty. Send the first message.
-                </span>
-              </div>
+              <ChatEmptyState mode="empty" chatTitle={selectedChatTitle} />
             ) : (
               messages.map((message) => (
-                <article
-                  key={message.id}
-                  className={`${styles.message} ${styles[message.role]}`}
-                >
-                  <div className={styles.messageMeta}>
-                    <span className={styles.roleLabel}>
-                      {message.role === "assistant"
-                        ? "Archivist"
-                        : message.role === "user"
-                          ? "You"
-                          : "System"}
-                    </span>
-                  </div>
-
-                  <div className={styles.blocks}>
-                    <div className={styles.markdownBlock}>
-                      {message.content}
-                    </div>
-                  </div>
-                </article>
+                <ChatMessageView key={message.id} message={message} />
               ))
             )}
 
-            {sending ? (
-              <article className={`${styles.message} ${styles.assistant}`}>
-                <div className={styles.messageMeta}>
-                  <span className={styles.roleLabel}>Archivist</span>
-                </div>
-
-                <div className={styles.blocks}>
-                  <div className={styles.typing}>Thinking...</div>
-                </div>
-              </article>
+            {thinkingMessage ? (
+              <ChatMessageView
+                key={thinkingMessage.id}
+                message={thinkingMessage}
+                thinking
+              />
             ) : null}
           </div>
         </div>
+
+        {!pinnedToBottom && hasMessages ? (
+          <button
+            className={styles.jumpToLatest}
+            type="button"
+            onClick={jumpToLatest}
+            aria-label="Jump to latest message"
+            title="Jump to latest message"
+          >
+            <ArrowDown size={13} strokeWidth={2.2} />
+            <span>Latest</span>
+          </button>
+        ) : null}
       </section>
 
       <section className={styles.composerPanel} aria-label="Chat input panel">
