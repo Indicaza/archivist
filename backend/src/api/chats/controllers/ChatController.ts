@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 import { AppError } from "../../../errors/app-error.js";
 import {
+  archiveChat,
   createChat,
   createMessage,
   deleteChat,
@@ -8,6 +9,7 @@ import {
   getArchivedChats,
   getChatById,
   getMessagesByChatId,
+  restoreChat,
   selectChat,
   updateChat,
 } from "../models/Chat.js";
@@ -83,6 +85,24 @@ export const patchChat: RequestHandler = (request, response) => {
   response.json({
     ok: true,
     chat: updateChat(chatId, body.data),
+  });
+};
+
+export const postArchiveChat: RequestHandler = (request, response) => {
+  const chatId = parseChatId(request.params);
+
+  response.json({
+    ok: true,
+    ...archiveChat(chatId),
+  });
+};
+
+export const postRestoreChat: RequestHandler = (request, response) => {
+  const chatId = parseChatId(request.params);
+
+  response.json({
+    ok: true,
+    chat: restoreChat(chatId),
   });
 };
 
