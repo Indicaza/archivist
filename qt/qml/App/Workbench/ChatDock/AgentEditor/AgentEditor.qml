@@ -9,6 +9,14 @@ Popup {
     required property var theme
     property bool editing: false
     property var editingAgent: ({})
+    property bool confirmingArchive: false
+    property bool confirmingDelete: false
+
+    readonly property bool archived: editing
+        && Boolean(editingAgent && editingAgent.archivedAt)
+    readonly property bool builtIn: editing
+        && Boolean(editingAgent && editingAgent.isBuiltIn)
+    readonly property bool formEnabled: !AgentStore.mutating && !archived
 
     parent: Overlay.overlay
     x: parent ? Math.round((parent.width - width) / 2) : 0
@@ -161,6 +169,11 @@ Popup {
         return trimmed.length > 0 ? trimmed : null
     }
 
+    function resetConfirmations() {
+        confirmingArchive = false
+        confirmingDelete = false
+    }
+
     function resetFields() {
         nameField.text = ""
         descriptionField.text = ""
@@ -188,6 +201,7 @@ Popup {
         AgentStore.clearError()
         editing = false
         editingAgent = ({})
+        resetConfirmations()
         resetFields()
         nameField.text = "New Agent"
         open()
@@ -199,6 +213,7 @@ Popup {
         AgentStore.clearError()
         editing = true
         editingAgent = agent || ({})
+        resetConfirmations()
 
         var identity = editingAgent.identity || ({})
         var profession = editingAgent.profession || ({})
@@ -361,7 +376,11 @@ Popup {
     }
 
     function save() {
-        if (AgentStore.mutating || nameField.text.trim().length === 0) {
+        if (
+            AgentStore.mutating
+            || archived
+            || nameField.text.trim().length === 0
+        ) {
             return
         }
 
@@ -371,6 +390,52 @@ Popup {
         }
 
         AgentStore.createAgent(createPayload())
+    }
+
+    function duplicateCurrent() {
+        if (!editing || AgentStore.mutating) {
+            return
+        }
+
+        resetConfirmations()
+        AgentStore.duplicateAgent(String(editingAgent.id))
+    }
+
+    function archiveCurrent() {
+        if (!editing || archived || builtIn || AgentStore.mutating) {
+            return
+        }
+
+        if (!confirmingArchive) {
+            confirmingArchive = true
+            confirmingDelete = false
+            return
+        }
+
+        AgentStore.archiveAgent(String(editingAgent.id))
+    }
+
+    function restoreCurrent() {
+        if (!editing || !archived || AgentStore.mutating) {
+            return
+        }
+
+        resetConfirmations()
+        AgentStore.restoreAgent(String(editingAgent.id))
+    }
+
+    function deleteCurrent() {
+        if (!editing || !archived || builtIn || AgentStore.mutating) {
+            return
+        }
+
+        if (!confirmingDelete) {
+            confirmingDelete = true
+            confirmingArchive = false
+            return
+        }
+
+        AgentStore.deleteAgent(String(editingAgent.id))
     }
 
     Connections {
@@ -387,6 +452,39 @@ Popup {
                 editorRoot.visible
                 && editorRoot.editing
                 && String(agent.id) === String(editorRoot.editingAgent.id)
+            ) {
+                editorRoot.close()
+            }
+        }
+
+        function onAgentDuplicated(agent) {
+            if (editorRoot.visible && editorRoot.editing) {
+                editorRoot.openForEdit(agent)
+            }
+        }
+
+        function onAgentArchived(agent) {
+            if (
+                editorRoot.visible
+                && String(agent.id) === String(editorRoot.editingAgent.id)
+            ) {
+                editorRoot.close()
+            }
+        }
+
+        function onAgentRestored(agent) {
+            if (
+                editorRoot.visible
+                && String(agent.id) === String(editorRoot.editingAgent.id)
+            ) {
+                editorRoot.close()
+            }
+        }
+
+        function onAgentDeleted(agentId, reassignedChatCount) {
+            if (
+                editorRoot.visible
+                && String(agentId) === String(editorRoot.editingAgent.id)
             ) {
                 editorRoot.close()
             }
@@ -412,18 +510,27 @@ Popup {
             Column {
                 anchors.left: parent.left
                 anchors.leftMargin: 18
+                anchors.right: lifecycleActions.left
+                anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
 
                 Text {
-                    text: editorRoot.editing ? "EDIT AGENT" : "CREATE AGENT"
-                    color: editorRoot.theme.accentBright
+                    text: editorRoot.archived
+                        ? "ARCHIVED AGENT"
+                        : editorRoot.editing
+                            ? "EDIT AGENT"
+                            : "CREATE AGENT"
+                    color: editorRoot.archived
+                        ? editorRoot.theme.warning
+                        : editorRoot.theme.accentBright
                     font.pixelSize: 9
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
 
                 Text {
+                    width: parent.width
                     text: editorRoot.editing
                         ? stringValue(editorRoot.editingAgent.name)
                         : "New Agent"
@@ -431,10 +538,152 @@ Popup {
                     font.family: editorRoot.theme.titleFontFamily
                     font.pixelSize: 21
                     font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+            }
+
+            Row {
+                id: lifecycleActions
+
+                anchors.right: closeButton.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+
+                Button {
+                    width: 72
+                    height: 30
+                    visible: editorRoot.editing && !editorRoot.archived
+                    text: AgentStore.mutating ? "Working…" : "Duplicate"
+                    enabled: !AgentStore.mutating
+                    hoverEnabled: true
+                    onClicked: editorRoot.duplicateCurrent()
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled
+                            ? editorRoot.theme.appText
+                            : editorRoot.theme.mutedText
+                        font.pixelSize: 9
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? editorRoot.theme.hoverBg
+                            : editorRoot.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: editorRoot.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    width: editorRoot.confirmingArchive ? 110 : 72
+                    height: 30
+                    visible: editorRoot.editing
+                        && !editorRoot.archived
+                        && !editorRoot.builtIn
+                    text: AgentStore.mutating
+                        ? "Working…"
+                        : editorRoot.confirmingArchive
+                            ? "Confirm Archive"
+                            : "Archive"
+                    enabled: !AgentStore.mutating
+                    hoverEnabled: true
+                    onClicked: editorRoot.archiveCurrent()
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: editorRoot.confirmingArchive
+                            ? editorRoot.theme.warning
+                            : editorRoot.theme.appText
+                        font.pixelSize: 9
+                        font.weight: editorRoot.confirmingArchive ? Font.DemiBold : Font.Normal
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? editorRoot.theme.hoverBg
+                            : editorRoot.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: editorRoot.confirmingArchive
+                            ? editorRoot.theme.warning
+                            : editorRoot.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    width: 72
+                    height: 30
+                    visible: editorRoot.editing && editorRoot.archived
+                    text: AgentStore.mutating ? "Working…" : "Restore"
+                    enabled: !AgentStore.mutating
+                    hoverEnabled: true
+                    onClicked: editorRoot.restoreCurrent()
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: editorRoot.theme.appText
+                        font.pixelSize: 9
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? editorRoot.theme.hoverBg
+                            : editorRoot.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: editorRoot.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    width: editorRoot.confirmingDelete ? 104 : 66
+                    height: 30
+                    visible: editorRoot.editing
+                        && editorRoot.archived
+                        && !editorRoot.builtIn
+                    text: AgentStore.mutating
+                        ? "Working…"
+                        : editorRoot.confirmingDelete
+                            ? "Confirm Delete"
+                            : "Delete"
+                    enabled: !AgentStore.mutating
+                    hoverEnabled: true
+                    onClicked: editorRoot.deleteCurrent()
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: editorRoot.theme.danger
+                        font.pixelSize: 9
+                        font.weight: editorRoot.confirmingDelete ? Font.DemiBold : Font.Normal
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? "#2b1b1b"
+                            : editorRoot.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: editorRoot.confirmingDelete
+                            ? editorRoot.theme.danger
+                            : editorRoot.theme.quietBorder
+                        radius: 4
+                    }
                 }
             }
 
             Button {
+                id: closeButton
+
                 anchors.right: parent.right
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
@@ -518,42 +767,42 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Name"
                                 maximumLength: 120
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextField {
                                 id: jobTitleField
                                 theme: editorRoot.theme
                                 label: "Professional title"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
                                 id: descriptionField
                                 theme: editorRoot.theme
                                 label: "Description"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
                                 id: personalityField
                                 theme: editorRoot.theme
                                 label: "Personality"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
                                 id: temperamentField
                                 theme: editorRoot.theme
                                 label: "Temperament"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
                                 id: voiceField
                                 theme: editorRoot.theme
                                 label: "Voice"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
@@ -561,7 +810,7 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Backstory"
                                 editorHeight: 88
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
                         }
                     }
@@ -599,7 +848,7 @@ Popup {
                             theme: editorRoot.theme
                             label: "Mission"
                             editorHeight: 82
-                            enabled: !AgentStore.mutating
+                            enabled: editorRoot.formEnabled
                         }
 
                         EditorTextArea {
@@ -607,7 +856,7 @@ Popup {
                             theme: editorRoot.theme
                             label: "Working doctrine"
                             editorHeight: 110
-                            enabled: !AgentStore.mutating
+                            enabled: editorRoot.formEnabled
                         }
 
                         GridLayout {
@@ -621,7 +870,7 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Expertise — one item per line"
                                 editorHeight: 96
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
@@ -629,7 +878,7 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Responsibilities — one item per line"
                                 editorHeight: 96
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
@@ -637,7 +886,7 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Success criteria — one item per line"
                                 editorHeight: 96
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
@@ -645,7 +894,7 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Limitations — one item per line"
                                 editorHeight: 96
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
                         }
                     }
@@ -688,7 +937,7 @@ Popup {
                                 id: responseStyleField
                                 theme: editorRoot.theme
                                 label: "Response style"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             ColumnLayout {
@@ -707,7 +956,7 @@ Popup {
 
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 34
-                                    enabled: !AgentStore.mutating
+                                    enabled: editorRoot.formEnabled
                                     model: ["concise", "balanced", "detailed"]
                                     currentIndex: 1
 
@@ -735,7 +984,7 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Formatting rules — one item per line"
                                 editorHeight: 96
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
@@ -743,21 +992,21 @@ Popup {
                                 theme: editorRoot.theme
                                 label: "Code preferences — one item per line"
                                 editorHeight: 96
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
                                 id: citationField
                                 theme: editorRoot.theme
                                 label: "Citation requirements"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
 
                             EditorTextArea {
                                 id: followUpField
                                 theme: editorRoot.theme
                                 label: "Follow-up behavior"
-                                enabled: !AgentStore.mutating
+                                enabled: editorRoot.formEnabled
                             }
                         }
                     }
@@ -795,14 +1044,16 @@ Popup {
                             theme: editorRoot.theme
                             label: "Explicit instructions applied after the structured profile"
                             editorHeight: 150
-                            enabled: !AgentStore.mutating
+                            enabled: editorRoot.formEnabled
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: editorRoot.editing
-                                ? "Generation model and Context Compiler settings are preserved unchanged in this slice."
-                                : "New Agents use the backend's default generation and Context Compiler settings."
+                            text: editorRoot.archived
+                                ? "Archived Agent profiles are read-only until restored."
+                                : editorRoot.editing
+                                    ? "Generation model and Context Compiler settings are preserved unchanged in this slice."
+                                    : "New Agents use the backend's default generation and Context Compiler settings."
                             color: editorRoot.theme.mutedText
                             font.pixelSize: 9
                             wrapMode: Text.Wrap
@@ -877,12 +1128,13 @@ Popup {
                 Button {
                     width: 94
                     height: 32
+                    visible: !editorRoot.archived
                     text: AgentStore.mutating
                         ? "Saving…"
                         : editorRoot.editing
                             ? "Save Agent"
                             : "Create Agent"
-                    enabled: !AgentStore.mutating
+                    enabled: editorRoot.formEnabled
                         && nameField.text.trim().length > 0
                     hoverEnabled: true
                     onClicked: editorRoot.save()

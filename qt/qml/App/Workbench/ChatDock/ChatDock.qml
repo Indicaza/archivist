@@ -10,6 +10,7 @@ Rectangle {
     required property var theme
     property bool attached: true
     property string activePanel: "none"
+    property bool archivedAgentsOpen: false
 
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name || "Standalone"
@@ -51,7 +52,10 @@ Rectangle {
         composer.forceActiveFocus()
     }
 
-    Component.onCompleted: AgentStore.refresh()
+    Component.onCompleted: {
+        AgentStore.refresh()
+        AgentStore.refreshArchived()
+    }
 
     color: theme.surfaceBg
     border.width: 0
@@ -708,6 +712,107 @@ Rectangle {
                                 }
                             }
 
+                            Button {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 28
+                                text: (root.archivedAgentsOpen ? "▾" : "▸")
+                                    + "  Archived  "
+                                    + String(AgentStore.archivedAgents.length)
+                                enabled: !AgentStore.mutating
+                                hoverEnabled: true
+                                padding: 0
+                                onClicked: {
+                                    root.archivedAgentsOpen = !root.archivedAgentsOpen
+                                    if (root.archivedAgentsOpen) {
+                                        AgentStore.refreshArchived()
+                                    }
+                                }
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.hovered
+                                        ? root.theme.appText
+                                        : root.theme.mutedText
+                                    font.pixelSize: 8
+                                    font.weight: Font.DemiBold
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: 7
+                                }
+
+                                background: Rectangle {
+                                    color: parent.hovered
+                                        ? root.theme.hoverBg
+                                        : root.theme.controlSurfaceBg
+                                    border.width: 1
+                                    border.color: root.theme.quietBorder
+                                    radius: 4
+                                }
+                            }
+
+                            ListView {
+                                id: archivedAgentList
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: root.archivedAgentsOpen ? 116 : 0
+                                visible: root.archivedAgentsOpen
+                                spacing: 2
+                                clip: true
+                                model: AgentStore.archivedAgents
+
+                                delegate: Rectangle {
+                                    id: archivedAgentItem
+
+                                    required property var modelData
+
+                                    width: archivedAgentList.width
+                                    height: 34
+                                    color: archivedAgentHover.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.leftMargin: 9
+                                        anchors.rightMargin: 30
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: String(archivedAgentItem.modelData.name || "Unnamed Agent")
+                                        color: root.theme.mutedText
+                                        font.pixelSize: 9
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 8
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "✎"
+                                        color: root.theme.mutedText
+                                        font.pixelSize: 10
+                                    }
+
+                                    HoverHandler {
+                                        id: archivedAgentHover
+                                    }
+
+                                    TapHandler {
+                                        enabled: !AgentStore.mutating
+                                        onTapped: agentEditor.openForEdit(archivedAgentItem.modelData)
+                                    }
+                                }
+
+                                footer: Text {
+                                    width: archivedAgentList.width
+                                    height: AgentStore.loadingArchived ? 28 : 0
+                                    visible: AgentStore.loadingArchived
+                                    text: "Loading archived Agents…"
+                                    color: root.theme.mutedText
+                                    font.pixelSize: 8
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+
                             Text {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
@@ -721,6 +826,16 @@ Rectangle {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    Connections {
+        target: AgentStore
+
+        function onAgentDeleted(agentId, reassignedChatCount) {
+            if (reassignedChatCount > 0) {
+                ChatStore.refresh()
             }
         }
     }

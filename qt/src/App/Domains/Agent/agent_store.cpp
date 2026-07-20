@@ -60,6 +60,20 @@ QString encodedPathSegment(const QString &value)
 {
     return QString::fromUtf8(QUrl::toPercentEncoding(value));
 }
+
+QVariantList withoutAgent(const QVariantList &agents, const QString &agentId)
+{
+    QVariantList filtered;
+    filtered.reserve(agents.size());
+
+    for (const QVariant &value : agents) {
+        if (value.toMap().value(QStringLiteral("id")).toString() != agentId) {
+            filtered.append(value);
+        }
+    }
+
+    return filtered;
+}
 }
 
 AgentStore::AgentStore(QObject *parent)
@@ -73,9 +87,19 @@ QVariantList AgentStore::agents() const
     return m_agents;
 }
 
+QVariantList AgentStore::archivedAgents() const
+{
+    return m_archivedAgents;
+}
+
 bool AgentStore::loading() const
 {
     return m_loading;
+}
+
+bool AgentStore::loadingArchived() const
+{
+    return m_loadingArchived;
 }
 
 bool AgentStore::mutating() const
@@ -120,6 +144,31 @@ void AgentStore::refresh()
     });
 }
 
+void AgentStore::refreshArchived()
+{
+    if (m_loadingArchived) {
+        return;
+    }
+
+    clearError();
+    setLoadingArchived(true);
+
+    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/agents/archived")));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setLoadingArchived(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        setArchivedAgents(result.object.value(QStringLiteral("agents")).toArray().toVariantList());
+    });
+}
+
 void AgentStore::createAgent(const QVariantMap &input)
 {
     if (m_mutating) {
@@ -145,7 +194,7 @@ void AgentStore::createAgent(const QVariantMap &input)
         }
 
         const QVariantMap agent = result.object.value(QStringLiteral("agent")).toObject().toVariantMap();
-        upsertAgent(agent);
+        upsertActiveAgent(agent);
         emit agentCreated(agent);
     });
 }
@@ -177,8 +226,134 @@ void AgentStore::updateAgent(const QString &agentId, const QVariantMap &input)
         }
 
         const QVariantMap agent = result.object.value(QStringLiteral("agent")).toObject().toVariantMap();
-        upsertAgent(agent);
+
+        if (agent.value(QStringLiteral("archivedAt")).toString().isEmpty()) {
+            upsertActiveAgent(agent);
+        } else {
+            upsertArchivedAgent(agent);
+        }
+
         emit agentUpdated(agent);
+    });
+}
+
+void AgentStore::duplicateAgent(const QString &agentId)
+{
+    if (m_mutating || agentId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/agents/%1/duplicate").arg(encodedPathSegment(agentId));
+    QNetworkReply *reply = m_network.post(requestFor(path), QByteArrayLiteral("{}"));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap agent = result.object.value(QStringLiteral("agent")).toObject().toVariantMap();
+        upsertActiveAgent(agent);
+        emit agentDuplicated(agent);
+    });
+}
+
+void AgentStore::archiveAgent(const QString &agentId)
+{
+    if (m_mutating || agentId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/agents/%1/archive").arg(encodedPathSegment(agentId));
+    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, agentId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap agent = result.object.value(QStringLiteral("agent")).toObject().toVariantMap();
+        removeActiveAgent(agentId);
+        upsertArchivedAgent(agent);
+        emit agentArchived(agent);
+    });
+}
+
+void AgentStore::restoreAgent(const QString &agentId)
+{
+    if (m_mutating || agentId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/agents/%1/restore").arg(encodedPathSegment(agentId));
+    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, agentId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap agent = result.object.value(QStringLiteral("agent")).toObject().toVariantMap();
+        removeArchivedAgent(agentId);
+        upsertActiveAgent(agent);
+        emit agentRestored(agent);
+    });
+}
+
+void AgentStore::deleteAgent(const QString &agentId)
+{
+    if (m_mutating || agentId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/agents/%1").arg(encodedPathSegment(agentId));
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("DELETE")
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, agentId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        removeActiveAgent(agentId);
+        removeArchivedAgent(agentId);
+        emit agentDeleted(
+            agentId,
+            result.object.value(QStringLiteral("reassignedChatCount")).toInt()
+        );
     });
 }
 
@@ -200,10 +375,17 @@ QVariantMap AgentStore::agentById(const QString &agentId) const
         }
     }
 
+    for (const QVariant &value : m_archivedAgents) {
+        const QVariantMap agent = value.toMap();
+        if (agent.value(QStringLiteral("id")).toString() == agentId) {
+            return agent;
+        }
+    }
+
     return {};
 }
 
-void AgentStore::upsertAgent(const QVariantMap &agent)
+void AgentStore::upsertActiveAgent(const QVariantMap &agent)
 {
     const QString agentId = agent.value(QStringLiteral("id")).toString();
 
@@ -211,16 +393,7 @@ void AgentStore::upsertAgent(const QVariantMap &agent)
         return;
     }
 
-    QVariantList nextAgents = m_agents;
-
-    for (qsizetype index = 0; index < nextAgents.size(); ++index) {
-        if (nextAgents.at(index).toMap().value(QStringLiteral("id")).toString() == agentId) {
-            nextAgents[index] = agent;
-            setAgents(nextAgents);
-            return;
-        }
-    }
-
+    QVariantList nextAgents = withoutAgent(m_agents, agentId);
     qsizetype insertIndex = 0;
 
     while (
@@ -230,8 +403,36 @@ void AgentStore::upsertAgent(const QVariantMap &agent)
         ++insertIndex;
     }
 
-    nextAgents.insert(insertIndex, agent);
+    if (agent.value(QStringLiteral("isBuiltIn")).toBool()) {
+        nextAgents.prepend(agent);
+    } else {
+        nextAgents.insert(insertIndex, agent);
+    }
+
     setAgents(nextAgents);
+}
+
+void AgentStore::upsertArchivedAgent(const QVariantMap &agent)
+{
+    const QString agentId = agent.value(QStringLiteral("id")).toString();
+
+    if (agentId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextAgents = withoutAgent(m_archivedAgents, agentId);
+    nextAgents.prepend(agent);
+    setArchivedAgents(nextAgents);
+}
+
+void AgentStore::removeActiveAgent(const QString &agentId)
+{
+    setAgents(withoutAgent(m_agents, agentId));
+}
+
+void AgentStore::removeArchivedAgent(const QString &agentId)
+{
+    setArchivedAgents(withoutAgent(m_archivedAgents, agentId));
 }
 
 void AgentStore::setAgents(const QVariantList &agents)
@@ -244,6 +445,16 @@ void AgentStore::setAgents(const QVariantList &agents)
     emit agentsChanged();
 }
 
+void AgentStore::setArchivedAgents(const QVariantList &agents)
+{
+    if (m_archivedAgents == agents) {
+        return;
+    }
+
+    m_archivedAgents = agents;
+    emit archivedAgentsChanged();
+}
+
 void AgentStore::setLoading(bool loading)
 {
     if (m_loading == loading) {
@@ -252,6 +463,16 @@ void AgentStore::setLoading(bool loading)
 
     m_loading = loading;
     emit loadingChanged();
+}
+
+void AgentStore::setLoadingArchived(bool loading)
+{
+    if (m_loadingArchived == loading) {
+        return;
+    }
+
+    m_loadingArchived = loading;
+    emit loadingArchivedChanged();
 }
 
 void AgentStore::setMutating(bool mutating)
