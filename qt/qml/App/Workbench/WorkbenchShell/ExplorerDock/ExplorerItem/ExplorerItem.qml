@@ -24,9 +24,7 @@ Button {
 
     contentItem: Item {
         Text {
-            id: caret
-
-            x: 5 + root.depth * 13
+            x: 7 + root.depth * 13
             width: 10
             height: parent.height
             visible: root.folder
@@ -38,9 +36,7 @@ Button {
         }
 
         Text {
-            id: icon
-
-            x: 17 + root.depth * 13
+            x: 19 + root.depth * 13
             width: 15
             height: parent.height
             text: root.glyph
@@ -51,9 +47,7 @@ Button {
         }
 
         Text {
-            id: label
-
-            x: 36 + root.depth * 13
+            x: 38 + root.depth * 13
             width: Math.max(0, parent.width - x - (root.warning ? 22 : 5))
             height: parent.height
             text: root.title
@@ -76,19 +70,28 @@ Button {
     }
 
     background: Rectangle {
-        radius: 4
+        radius: 0
         color: root.selected
             ? root.theme.activeBg
             : root.hovered
                 ? root.theme.hoverBg
                 : "transparent"
-        border.width: root.selected || root.hovered ? 1 : 0
-        border.color: root.selected ? "#53477e" : root.theme.quietBorder
+        border.width: 0
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 2
+            visible: root.selected
+            color: root.theme.accent
+            opacity: 0.72
+        }
     }
 
-    scale: root.down ? 0.992 : root.hovered ? 1.008 : 1.0
+    scale: root.down ? 0.995 : 1.0
 
     Behavior on scale {
-        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
     }
 }

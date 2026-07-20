@@ -25,9 +25,17 @@ Rectangle {
     }
 
     color: theme.surfaceBg
-    border.width: 1
-    border.color: theme.quietBorder
+    border.width: 0
     clip: true
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 1
+        color: root.theme.quietBorder
+        z: 5
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -108,10 +116,9 @@ Rectangle {
                     }
 
                     background: Rectangle {
-                        radius: 5
+                        radius: 4
                         color: parent.hovered ? root.theme.hoverBg : "transparent"
-                        border.width: parent.hovered ? 1 : 0
-                        border.color: root.theme.panelBorder
+                        border.width: 0
                     }
                 }
 
@@ -134,10 +141,9 @@ Rectangle {
                     }
 
                     background: Rectangle {
-                        radius: 5
+                        radius: 4
                         color: parent.hovered ? root.theme.hoverBg : "transparent"
-                        border.width: parent.hovered ? 1 : 0
-                        border.color: root.theme.panelBorder
+                        border.width: 0
                     }
                 }
 
@@ -145,6 +151,8 @@ Rectangle {
                     model: ["chats", "agents"]
 
                     delegate: Button {
+                        id: dockTabButton
+
                         required property string modelData
 
                         Layout.preferredWidth: 58
@@ -165,23 +173,31 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                         }
 
-                        background: Rectangle {
-                            radius: 5
-                            color: root.activePanel === modelData
-                                ? root.theme.activeBg
-                                : parent.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
-                            border.width: root.activePanel === modelData || parent.hovered ? 1 : 0
-                            border.color: root.activePanel === modelData
-                                ? "#554a7b"
-                                : root.theme.panelBorder
+                        background: Item {
+                            Rectangle {
+                                anchors.fill: parent
+                                color: root.activePanel === modelData
+                                    ? "#211f1c"
+                                    : dockTabButton.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
+                            }
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 2
+                                visible: root.activePanel === modelData
+                                color: root.theme.accent
+                                opacity: 0.72
+                            }
                         }
 
-                        scale: down ? 0.98 : hovered ? 1.025 : 1.0
+                        scale: down ? 0.985 : 1.0
 
                         Behavior on scale {
-                            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
                         }
                     }
                 }
@@ -282,10 +298,9 @@ Rectangle {
                                     }
 
                                     background: Rectangle {
-                                        radius: 5
+                                        radius: 4
                                         color: parent.hovered ? root.theme.hoverBg : "transparent"
-                                        border.width: parent.hovered ? 1 : 0
-                                        border.color: root.theme.quietBorder
+                                        border.width: 0
                                     }
                                 }
                             }
@@ -310,7 +325,7 @@ Rectangle {
 
                                 contentItem: Text {
                                     text: parent.text
-                                    color: "#ffffff"
+                                    color: parent.enabled ? root.theme.appText : root.theme.mutedText
                                     font.pixelSize: 9
                                     font.weight: Font.Bold
                                     horizontalAlignment: Text.AlignHCenter
@@ -318,14 +333,13 @@ Rectangle {
                                 }
 
                                 background: Rectangle {
-                                    radius: 5
+                                    radius: 4
                                     color: parent.enabled
                                         ? parent.hovered
-                                            ? "#7f6bc8"
-                                            : "#5f4d9b"
-                                        : "#302b3d"
-                                    border.width: 1
-                                    border.color: parent.enabled ? "#8f7adf" : "#3a3543"
+                                            ? "#332d45"
+                                            : "#292438"
+                                        : "#201d24"
+                                    border.width: 0
                                 }
                             }
                         }
@@ -336,10 +350,11 @@ Rectangle {
             Rectangle {
                 Layout.preferredWidth: root.activePanel === "none"
                     ? 0
-                    : Math.min(210, root.width * 0.28)
+                    : Math.min(220, root.width * 0.28)
                 Layout.fillHeight: true
                 visible: root.activePanel !== "none"
-                color: root.theme.controlSurfaceBg
+                color: root.theme.sidebarBg
+                clip: true
 
                 Rectangle {
                     anchors.left: parent.left
@@ -351,12 +366,15 @@ Rectangle {
 
                 Column {
                     anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 8
+                    anchors.leftMargin: 11
+                    anchors.rightMargin: 8
+                    anchors.topMargin: 10
+                    anchors.bottomMargin: 10
+                    spacing: 6
 
                     Text {
                         text: root.activePanel === "chats" ? "CHATS" : "AGENTS"
-                        color: root.theme.appText
+                        color: root.theme.mutedText
                         font.pixelSize: 9
                         font.weight: Font.Bold
                         font.letterSpacing: 0.7
@@ -376,26 +394,49 @@ Rectangle {
                             ]
 
                         delegate: Rectangle {
+                            id: panelItem
+
                             required property string modelData
+                            required property int index
 
                             width: parent.width
                             height: 30
-                            radius: 5
-                            color: index === 0 ? root.theme.activeBg : "#1a1916"
-                            border.width: 1
-                            border.color: index === 0
-                                ? "#4e446f"
-                                : root.theme.quietBorder
+                            radius: 0
+                            color: panelTap.pressed
+                                ? "#292621"
+                                : panelHover.hovered
+                                    ? root.theme.hoverBg
+                                    : index === 0
+                                        ? "#211f1c"
+                                        : "transparent"
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                width: 2
+                                visible: index === 0
+                                color: root.theme.accent
+                                opacity: 0.65
+                            }
 
                             Text {
                                 anchors.fill: parent
-                                anchors.leftMargin: 8
-                                anchors.rightMargin: 8
-                                text: modelData
+                                anchors.leftMargin: 9
+                                anchors.rightMargin: 6
+                                text: panelItem.modelData
                                 color: root.theme.appText
                                 font.pixelSize: 9
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
+                            }
+
+                            HoverHandler {
+                                id: panelHover
+                            }
+
+                            TapHandler {
+                                id: panelTap
                             }
                         }
                     }

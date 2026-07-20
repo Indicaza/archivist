@@ -6,8 +6,8 @@ Button {
 
     required property var theme
 
-    width: 34
-    height: 34
+    width: 32
+    height: 32
     hoverEnabled: true
     padding: 0
 
@@ -18,22 +18,21 @@ Button {
     contentItem: Text {
         text: "↓"
         color: parent.hovered ? root.theme.appText : root.theme.mutedText
-        font.pixelSize: 16
+        font.pixelSize: 15
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }
 
     background: Rectangle {
-        radius: 8
-        color: parent.hovered ? "#29261f" : "#201e1a"
-        border.width: 1
-        border.color: parent.hovered ? "#5b4d8c" : root.theme.panelBorder
+        radius: 4
+        color: parent.hovered ? "#292621" : "#201e1a"
+        border.width: 0
     }
 
-    scale: down ? 0.96 : hovered ? 1.05 : 1.0
+    scale: down ? 0.97 : 1.0
 
     Behavior on scale {
-        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
     }
 }

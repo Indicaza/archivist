@@ -2,6 +2,9 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <qqml.h>
+
+#include "App/Domains/Library/library_store.h"
 
 int main(int argc, char *argv[])
 {
@@ -13,6 +16,9 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationDomain("archivist.local");
 
     QQuickStyle::setStyle("Basic");
+
+    LibraryStore libraryStore;
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LibraryStore", &libraryStore);
 
     QQmlApplicationEngine engine;
 

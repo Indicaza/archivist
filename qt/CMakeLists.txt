@@ -6,13 +6,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Network Quick QuickControls2)
 
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(archivist-qt
     src/main.cpp
+    src/App/Domains/Library/library_store.cpp
+    src/App/Domains/Library/library_store.h
 )
 
 qt_add_qml_module(archivist-qt
@@ -37,6 +39,7 @@ qt_add_qml_module(archivist-qt
 
 target_link_libraries(archivist-qt
     PRIVATE
+        Qt6::Network
         Qt6::Quick
         Qt6::QuickControls2
 )

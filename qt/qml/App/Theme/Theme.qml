@@ -23,14 +23,11 @@ QtObject {
     readonly property color panelBorder: "#302d27"
     readonly property color quietBorder: "#24211d"
     readonly property color hoverBg: "#23211d"
-    readonly property color activeBg: "#241f36"
+    readonly property color activeBg: "#211f25"
 
-    readonly property color userBg: "#181714"
-    readonly property color userBorder: "#39352e"
-    readonly property color userAccent: "#c49a5a"
-    readonly property color assistantBg: "#26231d"
-    readonly property color assistantBorder: "#403b31"
-    readonly property color systemBg: "#23201b"
+    readonly property color userBg: "#171613"
+    readonly property color assistantBg: "#211f1b"
+    readonly property color systemBg: "#1b1a17"
     readonly property color composerBg: "#1d1b17"
     readonly property color composerPlaceholder: "#918779"
 
@@ -53,7 +50,7 @@ QtObject {
     readonly property int assistantMessageWidth: 920
     readonly property int userMessageWidth: 680
     readonly property int messageHorizontalInset: 24
-    readonly property int messageVerticalGap: 12
+    readonly property int messageVerticalGap: 14
 
     readonly property int radiusSmall: 6
     readonly property int radiusMedium: 10

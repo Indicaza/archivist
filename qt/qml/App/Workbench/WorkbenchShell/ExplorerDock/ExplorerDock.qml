@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Archivist.Services 1.0
 import "ExplorerItem"
 
 Rectangle {
@@ -13,11 +14,11 @@ Rectangle {
 
     property string selectedNodeId: ""
     property string filterText: ""
-    property var expandedNodeIds: ({
-        "backend": true,
-        "frontend": true,
-        "qt": true
-    })
+    property var expandedNodeIds: ({})
+    property var treeNodes: []
+    property var childrenByParent: ({})
+    property var filterMatchCache: ({})
+    property string selectedNodePath: ""
 
     readonly property var viewTitles: [
         "Library Explorer",
@@ -27,49 +28,141 @@ Rectangle {
         "Tools"
     ]
 
-    readonly property var treeNodes: [
-        { id: "backend", parentId: "", title: "backend", glyph: "□", folder: true },
-        { id: "backend-data", parentId: "backend", title: "data", glyph: "□", folder: true },
-        { id: "backend-src", parentId: "backend", title: "src", glyph: "□", folder: true },
-        { id: "backend-package", parentId: "backend", title: "package.json", glyph: "{}", folder: false },
-        { id: "backend-tsconfig", parentId: "backend", title: "tsconfig.json", glyph: "{}", folder: false },
-        { id: "backend-data-cache", parentId: "backend-data", title: "ai-model-cache.json", glyph: "{}", folder: false },
-        { id: "backend-api", parentId: "backend-src", title: "api", glyph: "□", folder: true },
-        { id: "backend-core", parentId: "backend-src", title: "core", glyph: "□", folder: true },
-        { id: "backend-database", parentId: "backend-src", title: "database", glyph: "□", folder: true },
-        { id: "backend-app", parentId: "backend-src", title: "app.ts", glyph: "{}", folder: false },
-        { id: "backend-chats", parentId: "backend-api", title: "chats", glyph: "□", folder: true },
-        { id: "backend-libraries", parentId: "backend-api", title: "libraries", glyph: "□", folder: true },
-        { id: "backend-agents", parentId: "backend-api", title: "agents", glyph: "□", folder: true },
-        { id: "frontend", parentId: "", title: "frontend", glyph: "□", folder: true },
-        { id: "frontend-electron", parentId: "frontend", title: "electron", glyph: "□", folder: true },
-        { id: "frontend-src", parentId: "frontend", title: "src", glyph: "□", folder: true },
-        { id: "frontend-package", parentId: "frontend", title: "package.json", glyph: "{}", folder: false },
-        { id: "frontend-vite", parentId: "frontend", title: "vite.config.ts", glyph: "{}", folder: false },
-        { id: "frontend-main-cjs", parentId: "frontend-electron", title: "main.cjs", glyph: "{}", folder: false },
-        { id: "frontend-preload-cjs", parentId: "frontend-electron", title: "preload.cjs", glyph: "{}", folder: false },
-        { id: "frontend-components", parentId: "frontend-src", title: "components", glyph: "□", folder: true },
-        { id: "frontend-domains", parentId: "frontend-src", title: "domains", glyph: "□", folder: true },
-        { id: "frontend-styles", parentId: "frontend-src", title: "styles", glyph: "□", folder: true },
-        { id: "frontend-app", parentId: "frontend-src", title: "App.tsx", glyph: "{}", folder: false },
-        { id: "frontend-workbench", parentId: "frontend-components", title: "workbench", glyph: "□", folder: true },
-        { id: "frontend-chat", parentId: "frontend-components", title: "chat", glyph: "□", folder: true },
-        { id: "qt", parentId: "", title: "qt", glyph: "□", folder: true },
-        { id: "qt-qml", parentId: "qt", title: "qml", glyph: "□", folder: true },
-        { id: "qt-src", parentId: "qt", title: "src", glyph: "□", folder: true },
-        { id: "qt-cmake", parentId: "qt", title: "CMakeLists.txt", glyph: "▤", folder: false },
-        { id: "qt-app", parentId: "qt-qml", title: "App", glyph: "□", folder: true },
-        { id: "qt-app-qml", parentId: "qt-qml", title: "App.qml", glyph: "◇", folder: false },
-        { id: "qt-main", parentId: "qt-src", title: "main.cpp", glyph: "{}", folder: false },
-        { id: "catalog-test", parentId: "", title: "catalog-test.txt", glyph: "▤", folder: false, muted: true, warning: true },
-        { id: "package-lock", parentId: "", title: "package-lock.json", glyph: "{}", folder: false },
-        { id: "package-root", parentId: "", title: "package.json", glyph: "{}", folder: false },
-        { id: "readme-root", parentId: "", title: "README.md", glyph: "▤", folder: false }
-    ]
-
     color: theme.surfaceBg
     border.width: 0
     clip: true
+
+    function glyphForFile(fileName, extension) {
+        var suffix = String(extension || "").toLowerCase()
+        var name = String(fileName || "").toLowerCase()
+
+        if (suffix === ".qml" || name.endsWith(".qml")) {
+            return "◇"
+        }
+
+        if ([".ts", ".tsx", ".js", ".jsx", ".json", ".cpp", ".h", ".hpp"].indexOf(suffix) >= 0) {
+            return "{}"
+        }
+
+        if ([".md", ".txt", ".log", ".css", ".html"].indexOf(suffix) >= 0) {
+            return "▤"
+        }
+
+        return "·"
+    }
+
+    function rebuildNodesFromFiles() {
+        var nodes = []
+        var directories = ({})
+        var files = LibraryStore.files || []
+
+        for (var fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+            var file = files[fileIndex]
+            var relativePath = String(file.relativePath || file.name || "")
+            var rawParts = relativePath.split("/")
+            var parts = []
+
+            for (var partIndex = 0; partIndex < rawParts.length; partIndex += 1) {
+                if (rawParts[partIndex].length > 0) {
+                    parts.push(rawParts[partIndex])
+                }
+            }
+
+            if (parts.length === 0) {
+                continue
+            }
+
+            var parentId = ""
+            var pathParts = []
+
+            for (var directoryIndex = 0; directoryIndex < parts.length - 1; directoryIndex += 1) {
+                pathParts.push(parts[directoryIndex])
+                var directoryPath = pathParts.join("/")
+                var directoryId = "folder:" + directoryPath
+
+                if (directories[directoryId] !== true) {
+                    directories[directoryId] = true
+                    nodes.push({
+                        id: directoryId,
+                        parentId: parentId,
+                        title: parts[directoryIndex],
+                        glyph: "□",
+                        folder: true,
+                        relativePath: directoryPath,
+                        muted: false,
+                        warning: false
+                    })
+                }
+
+                parentId = directoryId
+            }
+
+            nodes.push({
+                id: "file:" + String(file.id),
+                parentId: parentId,
+                title: String(file.name || parts[parts.length - 1]),
+                glyph: glyphForFile(file.name, file.extension),
+                folder: false,
+                relativePath: relativePath,
+                muted: file.status !== "available",
+                warning: file.status !== "available"
+            })
+        }
+
+        nodes.sort(function(left, right) {
+            if (left.parentId !== right.parentId) {
+                return left.parentId.localeCompare(right.parentId)
+            }
+
+            if (left.folder !== right.folder) {
+                return left.folder ? -1 : 1
+            }
+
+            return left.title.localeCompare(right.title)
+        })
+
+        var groupedChildren = ({})
+        for (var groupedIndex = 0; groupedIndex < nodes.length; groupedIndex += 1) {
+            var groupedNode = nodes[groupedIndex]
+            var groupKey = groupedNode.parentId
+
+            if (!groupedChildren[groupKey]) {
+                groupedChildren[groupKey] = []
+            }
+
+            groupedChildren[groupKey].push(groupedNode)
+        }
+
+        treeNodes = nodes
+        childrenByParent = groupedChildren
+
+        var selectedStillExists = false
+        for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
+            if (nodes[nodeIndex].id === selectedNodeId) {
+                selectedStillExists = true
+                break
+            }
+        }
+
+        if (!selectedStillExists) {
+            selectedNodeId = ""
+            selectedNodePath = ""
+        }
+
+        rebuildTree()
+    }
+
+    function libraryIndexForId(libraryId) {
+        var libraries = LibraryStore.libraries || []
+
+        for (var index = 0; index < libraries.length; index += 1) {
+            if (String(libraries[index].id) === String(libraryId)) {
+                return index
+            }
+        }
+
+        return -1
+    }
 
     function isExpanded(nodeId) {
         return expandedNodeIds[nodeId] === true
@@ -81,29 +174,32 @@ Rectangle {
     }
 
     function subtreeMatches(nodeId, query) {
-        for (var index = 0; index < treeNodes.length; index += 1) {
-            var child = treeNodes[index]
+        var cacheKey = nodeId + "|" + query
 
-            if (child.parentId !== nodeId) {
-                continue
-            }
+        if (filterMatchCache[cacheKey] !== undefined) {
+            return filterMatchCache[cacheKey]
+        }
+
+        var children = childrenByParent[nodeId] || []
+
+        for (var index = 0; index < children.length; index += 1) {
+            var child = children[index]
 
             if (nodeMatches(child, query) || subtreeMatches(child.id, query)) {
+                filterMatchCache[cacheKey] = true
                 return true
             }
         }
 
+        filterMatchCache[cacheKey] = false
         return false
     }
 
     function appendVisibleChildren(parentId, depth, query) {
-        for (var index = 0; index < treeNodes.length; index += 1) {
-            var node = treeNodes[index]
+        var children = childrenByParent[parentId] || []
 
-            if (node.parentId !== parentId) {
-                continue
-            }
-
+        for (var index = 0; index < children.length; index += 1) {
+            var node = children[index]
             var includeNode = query.length === 0
                 || nodeMatches(node, query)
                 || subtreeMatches(node.id, query)
@@ -132,11 +228,19 @@ Rectangle {
 
     function rebuildTree() {
         visibleTree.clear()
+        filterMatchCache = ({})
         appendVisibleChildren("", 0, filterText.trim().toLowerCase())
     }
 
     function activateNode(nodeId, folder) {
         selectedNodeId = nodeId
+
+        for (var index = 0; index < treeNodes.length; index += 1) {
+            if (treeNodes[index].id === nodeId) {
+                selectedNodePath = String(treeNodes[index].relativePath || treeNodes[index].title)
+                break
+            }
+        }
 
         if (folder) {
             expandedNodeIds[nodeId] = !isExpanded(nodeId)
@@ -163,7 +267,25 @@ Rectangle {
         rebuildTree()
     }
 
-    Component.onCompleted: rebuildTree()
+    Component.onCompleted: {
+        rebuildNodesFromFiles()
+        LibraryStore.refresh()
+    }
+
+    Connections {
+        target: LibraryStore
+
+        function onFilesChanged() {
+            root.rebuildNodesFromFiles()
+        }
+
+        function onSelectedLibraryIdChanged() {
+            root.selectedNodeId = ""
+            root.selectedNodePath = ""
+            root.expandedNodeIds = ({})
+            root.rebuildNodesFromFiles()
+        }
+    }
 
     ListModel {
         id: visibleTree
@@ -271,13 +393,117 @@ Rectangle {
                         anchors.rightMargin: 6
                         spacing: 4
 
-                        Text {
+                        ComboBox {
+                            id: librarySelector
+
                             Layout.fillWidth: true
-                            text: "Archivist"
-                            color: root.theme.appText
-                            font.pixelSize: 11
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideRight
+                            Layout.preferredHeight: 25
+                            model: LibraryStore.libraries
+                            textRole: "name"
+                            valueRole: "id"
+                            enabled: !LibraryStore.loadingLibraries && count > 0
+                            hoverEnabled: true
+                            leftPadding: 7
+                            rightPadding: 24
+
+                            Binding {
+                                target: librarySelector
+                                property: "currentIndex"
+                                value: root.libraryIndexForId(LibraryStore.selectedLibraryId)
+                            }
+
+                            onActivated: function(index) {
+                                var library = LibraryStore.libraries[index]
+                                if (library) {
+                                    LibraryStore.selectLibrary(String(library.id))
+                                }
+                            }
+
+                            contentItem: Text {
+                                text: librarySelector.displayText.length > 0
+                                    ? librarySelector.displayText
+                                    : LibraryStore.loadingLibraries
+                                        ? "Loading Libraries…"
+                                        : "No Libraries"
+                                color: root.theme.appText
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+
+                            indicator: Text {
+                                x: parent.width - width - 7
+                                y: (parent.height - height) / 2
+                                text: "⌄"
+                                color: root.theme.mutedText
+                                font.pixelSize: 11
+                            }
+
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? root.theme.hoverBg : "transparent"
+                                border.width: parent.popup.visible ? 1 : 0
+                                border.color: root.theme.panelBorder
+                            }
+
+                            popup: Popup {
+                                y: librarySelector.height + 3
+                                width: librarySelector.width
+                                implicitHeight: Math.min(contentItem.implicitHeight + 8, 260)
+                                padding: 4
+
+                                contentItem: ListView {
+                                    clip: true
+                                    implicitHeight: contentHeight
+                                    model: librarySelector.popup.visible ? librarySelector.delegateModel : null
+                                    currentIndex: librarySelector.highlightedIndex
+                                    ScrollIndicator.vertical: ScrollIndicator {}
+                                }
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: root.theme.controlSurfaceBg
+                                    border.width: 1
+                                    border.color: root.theme.panelBorder
+                                }
+                            }
+
+                            delegate: ItemDelegate {
+                                required property int index
+                                required property var modelData
+
+                                width: librarySelector.width - 8
+                                height: 30
+                                highlighted: librarySelector.highlightedIndex === index
+
+                                contentItem: Column {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 1
+
+                                    Text {
+                                        width: parent.width
+                                        text: String(modelData.name || "Library")
+                                        color: root.theme.appText
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: String(modelData.rootPath || "")
+                                        color: root.theme.mutedText
+                                        font.pixelSize: 7
+                                        elide: Text.ElideMiddle
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    radius: 4
+                                    color: parent.highlighted ? root.theme.hoverBg : "transparent"
+                                }
+                            }
                         }
 
                         Button {
@@ -331,9 +557,13 @@ Rectangle {
                         Button {
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: "+"
+                            text: LibraryStore.loadingLibraries ? "…" : "↻"
+                            enabled: !LibraryStore.loadingLibraries
                             hoverEnabled: true
                             padding: 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Refresh Libraries"
+                            onClicked: LibraryStore.refresh()
 
                             contentItem: Text {
                                 text: parent.text
@@ -407,10 +637,12 @@ Rectangle {
                         spacing: 7
 
                         Text {
-                            text: "Archivist"
+                            Layout.fillWidth: true
+                            text: String(LibraryStore.selectedLibrary.rootPath || "No Library selected")
                             color: root.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: 8
                             font.weight: Font.DemiBold
+                            elide: Text.ElideMiddle
                         }
 
                         Rectangle {
@@ -421,7 +653,7 @@ Rectangle {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: String(root.treeNodes.length)
+                                text: String(LibraryStore.files.length)
                                 color: root.theme.mutedText
                                 font.pixelSize: 8
                             }
@@ -434,10 +666,13 @@ Rectangle {
                         Button {
                             Layout.preferredWidth: 23
                             Layout.preferredHeight: 23
-                            text: "↻"
+                            text: LibraryStore.scanning ? "…" : "↻"
+                            enabled: LibraryStore.selectedLibraryId.length > 0 && !LibraryStore.scanning
                             hoverEnabled: true
                             padding: 0
-                            onClicked: root.rebuildTree()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Rescan Library"
+                            onClicked: LibraryStore.scanSelectedLibrary()
 
                             contentItem: Text {
                                 text: parent.text
@@ -455,14 +690,17 @@ Rectangle {
                     }
                 }
 
-                ListView {
-                    id: libraryList
-
+                Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.leftMargin: 7
-                    Layout.rightMargin: 7
-                    Layout.topMargin: 3
+
+                    ListView {
+                    id: libraryList
+
+                    anchors.fill: parent
+                    anchors.leftMargin: 7
+                    anchors.rightMargin: 7
+                    anchors.topMargin: 3
                     clip: true
                     spacing: 0
                     boundsBehavior: Flickable.StopAtBounds
@@ -497,6 +735,29 @@ Rectangle {
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
                     }
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        width: Math.max(120, parent.width - 28)
+                        visible: visibleTree.count === 0
+                        text: LibraryStore.errorMessage.length > 0
+                            ? LibraryStore.errorMessage + "\n\nRun npm run dev:backend if the local API is offline."
+                            : LibraryStore.loadingLibraries
+                                ? "Loading Libraries…"
+                                : LibraryStore.loadingFiles
+                                    ? "Loading files…"
+                                    : LibraryStore.selectedLibraryId.length === 0
+                                        ? "No Library selected"
+                                        : "No cataloged files yet.\nUse Rescan Library to refresh the catalog."
+                        color: LibraryStore.errorMessage.length > 0
+                            ? root.theme.danger
+                            : root.theme.mutedText
+                        font.pixelSize: 10
+                        lineHeight: 1.35
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                    }
                 }
 
                 Rectangle {
@@ -520,10 +781,20 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: root.selectedNodeId.length > 0
-                                ? "Selected  ·  " + root.selectedNodeId
-                                : "Ready  ·  Native tree prototype"
-                            color: root.theme.mutedText
+                            text: LibraryStore.errorMessage.length > 0
+                                ? LibraryStore.errorMessage
+                                : root.selectedNodePath.length > 0
+                                    ? "Selected  ·  " + root.selectedNodePath
+                                    : LibraryStore.scanning
+                                        ? "Scanning Library…"
+                                        : LibraryStore.loadingFiles
+                                            ? "Loading file catalog…"
+                                            : LibraryStore.latestScan.status
+                                                ? "Catalog  ·  " + String(LibraryStore.latestScan.status)
+                                                : "Ready  ·  API connected"
+                            color: LibraryStore.errorMessage.length > 0
+                                ? root.theme.danger
+                                : root.theme.mutedText
                             font.pixelSize: 8
                             opacity: 0.72
                             elide: Text.ElideRight

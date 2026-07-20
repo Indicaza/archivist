@@ -45,52 +45,41 @@ Item {
             : root.contentZoneX
         width: Math.min(root.contentZoneWidth, root.desiredFrameWidth)
         height: messageColumn.implicitHeight
-        scale: messageHover.hovered ? 1.003 : 1.0
 
         Column {
             id: messageColumn
 
             width: parent.width
-            spacing: 6
+            spacing: 5
 
             Item {
                 width: parent.width
-                height: 27
+                height: 24
 
                 Row {
-                    id: messageHeader
-
                     anchors.left: root.userMessage ? undefined : parent.left
                     anchors.right: root.userMessage ? parent.right : undefined
                     anchors.verticalCenter: parent.verticalCenter
                     layoutDirection: root.userMessage ? Qt.RightToLeft : Qt.LeftToRight
-                    spacing: 8
+                    spacing: 7
 
                     Rectangle {
-                        width: 24
-                        height: 24
-                        radius: 8
+                        width: 20
+                        height: 20
+                        radius: 4
                         color: root.userMessage
-                            ? "#241f18"
+                            ? "#1b1a17"
                             : root.systemMessage
-                                ? "#24201a"
-                                : root.theme.accentSoft
-                        border.width: 1
-                        border.color: root.userMessage
-                            ? "#53432c"
-                            : root.systemMessage
-                                ? "#50442f"
-                                : "#554a7b"
+                                ? "#1d1c19"
+                                : "#22201c"
 
                         Text {
                             anchors.centerIn: parent
                             text: root.userMessage ? "Y" : root.systemMessage ? "!" : "✣"
-                            color: root.userMessage
-                                ? "#d1b17d"
-                                : root.systemMessage
-                                    ? root.theme.warning
-                                    : root.theme.accentBright
-                            font.pixelSize: root.userMessage ? 9 : 11
+                            color: root.systemMessage
+                                ? root.theme.mutedText
+                                : root.theme.appText
+                            font.pixelSize: root.userMessage ? 8 : 10
                             font.weight: Font.Bold
                         }
                     }
@@ -116,7 +105,7 @@ Item {
                             text: root.timestamp
                             color: root.theme.mutedText
                             font.pixelSize: 8
-                            opacity: 0.58
+                            opacity: 0.52
                         }
                     }
                 }
@@ -126,46 +115,16 @@ Item {
                 id: surface
 
                 width: parent.width
-                height: messageText.implicitHeight + 30
-                radius: root.theme.radiusLarge
+                height: messageText.implicitHeight + 24
+                radius: 0
                 color: root.userMessage
                     ? root.theme.userBg
                     : root.systemMessage
                         ? root.theme.systemBg
                         : root.theme.assistantBg
-                border.width: 1
-                border.color: root.userMessage
-                    ? root.theme.userBorder
-                    : root.systemMessage
-                        ? "#4b4030"
-                        : root.theme.assistantBorder
-
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.left: root.userMessage ? undefined : parent.left
-                    anchors.right: root.userMessage ? parent.right : undefined
-                    width: 3
-                    radius: 2
-                    gradient: Gradient {
-                        GradientStop {
-                            position: 0.0
-                            color: root.userMessage
-                                ? "#a6c49a5a"
-                                : root.systemMessage
-                                    ? "#94c49a5a"
-                                    : "#b88f7adf"
-                        }
-                        GradientStop {
-                            position: 1.0
-                            color: root.userMessage
-                                ? "#18c49a5a"
-                                : root.systemMessage
-                                    ? "#20c49a5a"
-                                    : "#288f7adf"
-                        }
-                    }
-                }
+                border.width: 0
+                antialiasing: false
+                clip: true
 
                 Text {
                     id: messageText
@@ -173,26 +132,19 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.leftMargin: 18
-                    anchors.rightMargin: 18
-                    anchors.topMargin: 14
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    anchors.topMargin: 11
                     text: root.content
                     color: root.theme.appText
                     font.family: root.theme.bodyFontFamily
                     font.pixelSize: 13
-                    lineHeight: 1.55
+                    lineHeight: 1.5
                     wrapMode: Text.Wrap
                     textFormat: Text.PlainText
+                    renderType: Text.NativeRendering
                 }
             }
-        }
-
-        HoverHandler {
-            id: messageHover
-        }
-
-        Behavior on scale {
-            NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
         }
     }
 }
