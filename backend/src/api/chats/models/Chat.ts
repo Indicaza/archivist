@@ -6,6 +6,7 @@ import type {
   ArchiveChatResult,
   Chat,
   ChatMessage,
+  ChatMessagePage,
   CreateChatInput,
   CreateMessageInput,
   DeleteChatResult,
@@ -29,6 +30,10 @@ type MessageRow = {
   status: ChatMessage["status"];
   created_at: string;
   updated_at: string;
+};
+
+type MessageCursorRow = {
+  rowid: number;
 };
 
 type AppSettingsRow = {
@@ -419,6 +424,68 @@ export function getMessagesByChatId(chatId: string): ChatMessage[] {
     .all(chatId) as MessageRow[];
 
   return rows.map(mapMessage);
+}
+
+export function getMessagePageByChatId(
+  chatId: string,
+  input: {
+    limit: number;
+    beforeMessageId?: string;
+  },
+): ChatMessagePage {
+  requireActiveChat(chatId);
+
+  let beforeRowId: number | null = null;
+
+  if (input.beforeMessageId) {
+    const cursor = database
+      .prepare(
+        `
+          SELECT rowid
+          FROM messages
+          WHERE id = ?
+            AND chat_id = ?
+        `,
+      )
+      .get(input.beforeMessageId, chatId) as MessageCursorRow | undefined;
+
+    if (!cursor) {
+      throw new AppError(400, "Message cursor not found for this Chat.");
+    }
+
+    beforeRowId = cursor.rowid;
+  }
+
+  const rows = database
+    .prepare(
+      `
+        SELECT
+          id,
+          chat_id,
+          role,
+          content,
+          status,
+          created_at,
+          updated_at
+        FROM messages
+        WHERE chat_id = ?
+          AND (? IS NULL OR rowid < ?)
+        ORDER BY rowid DESC
+        LIMIT ?
+      `,
+    )
+    .all(chatId, beforeRowId, beforeRowId, input.limit + 1) as MessageRow[];
+
+  const hasMore = rows.length > input.limit;
+  const pageRows = rows.slice(0, input.limit).reverse();
+  const messages = pageRows.map(mapMessage);
+
+  return {
+    messages,
+    hasMore,
+    nextBeforeMessageId:
+      hasMore && messages.length > 0 ? messages[0].id : null,
+  };
 }
 
 export function createMessage(

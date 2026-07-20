@@ -21,6 +21,12 @@ export type ChatMessage = {
   updatedAt: string;
 };
 
+export type ChatMessagePage = {
+  messages: ChatMessage[];
+  hasMore: boolean;
+  nextBeforeMessageId: string | null;
+};
+
 export type CreateChatInput = {
   title?: string;
   agentId?: string;

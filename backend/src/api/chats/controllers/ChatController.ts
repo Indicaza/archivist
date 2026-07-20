@@ -8,6 +8,7 @@ import {
   getAllChats,
   getArchivedChats,
   getChatById,
+  getMessagePageByChatId,
   getMessagesByChatId,
   restoreChat,
   selectChat,
@@ -18,6 +19,7 @@ import {
   completeChatTurnSchema,
   createChatSchema,
   createMessageSchema,
+  messagePageQuerySchema,
   updateChatSchema,
 } from "../schemas/ChatSchemas.js";
 import { completeChatTurn } from "../services/ChatCompletionService.js";
@@ -117,10 +119,35 @@ export const removeChat: RequestHandler = (request, response) => {
 
 export const getChatMessages: RequestHandler = (request, response) => {
   const chatId = parseChatId(request.params);
+  const pagedRequest =
+    request.query.limit !== undefined || request.query.before !== undefined;
+
+  if (!pagedRequest) {
+    response.json({
+      ok: true,
+      messages: getMessagesByChatId(chatId),
+    });
+    return;
+  }
+
+  const query = messagePageQuerySchema.safeParse(request.query);
+
+  if (!query.success) {
+    throw new AppError(400, "Invalid message page query.", query.error.flatten());
+  }
+
+  const page = getMessagePageByChatId(chatId, {
+    limit: query.data.limit,
+    beforeMessageId: query.data.before,
+  });
 
   response.json({
     ok: true,
-    messages: getMessagesByChatId(chatId),
+    messages: page.messages,
+    pagination: {
+      hasMore: page.hasMore,
+      nextBeforeMessageId: page.nextBeforeMessageId,
+    },
   });
 };
 

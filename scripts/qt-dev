@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HEALTH_URL="http://127.0.0.1:3333/api/health"
+BACKEND_PID=""
+
+cleanup() {
+  if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
+    kill "$BACKEND_PID" 2>/dev/null || true
+    wait "$BACKEND_PID" 2>/dev/null || true
+  fi
+}
+
+trap cleanup EXIT INT TERM
+
+if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+  printf 'Starting Archivist backend...\n'
+  (
+    cd "$ROOT"
+    npm run dev:backend
+  ) &
+  BACKEND_PID=$!
+
+  for _ in {1..80}; do
+    if curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+      break
+    fi
+
+    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+      printf 'Archivist backend exited before becoming healthy.\n' >&2
+      exit 1
+    fi
+
+    sleep 0.25
+  done
+
+  if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+    printf 'Archivist backend did not become healthy at %s.\n' "$HEALTH_URL" >&2
+    exit 1
+  fi
+fi
+
+"$ROOT/scripts/qt-run"
