@@ -26,6 +26,11 @@ export const createMessageSchema = z.object({
   status: z.enum(["streaming", "complete", "cancelled", "failed"]).optional(),
 });
 
+export const messagePageQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(250),
+  before: z.string().uuid().optional(),
+});
+
 export const completeChatTurnSchema = z.object({
   content: z
     .string()
