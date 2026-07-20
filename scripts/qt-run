@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="$ROOT/build/qt-debug"
+APP_BUNDLE="$BUILD_DIR/archivist-qt.app"
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/archivist-qt"
+PLAIN_BINARY="$BUILD_DIR/archivist-qt"
+
+"$ROOT/scripts/qt-build"
+
+if [[ -x "$APP_BINARY" ]]; then
+  exec "$APP_BINARY"
+fi
+
+exec "$PLAIN_BINARY"

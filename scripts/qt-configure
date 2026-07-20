@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="$ROOT/build/qt-debug"
+
+if command -v brew >/dev/null 2>&1; then
+  QT_PREFIX="$(brew --prefix)"
+else
+  QT_PREFIX=""
+fi
+
+cmake \
+  -S "$ROOT/qt" \
+  -B "$BUILD_DIR" \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  ${QT_PREFIX:+-DCMAKE_PREFIX_PATH="$QT_PREFIX"}
