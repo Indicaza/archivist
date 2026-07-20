@@ -22,15 +22,15 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 42
-        anchors.rightMargin: 24
+        anchors.leftMargin: 40
+        anchors.rightMargin: 39
         spacing: 12
 
         Text {
             Layout.fillWidth: true
             text: "Archivist"
             color: root.theme.appText
-            font.family: "Georgia"
+            font.family: root.theme.titleFontFamily
             font.pixelSize: 27
             font.weight: Font.DemiBold
             verticalAlignment: Text.AlignVCenter
@@ -44,15 +44,18 @@ Rectangle {
             border.color: "#3c3656"
             gradient: Gradient {
                 GradientStop { position: 0.0; color: "#9d8ae8" }
+                GradientStop { position: 0.45; color: "#6f70ca" }
                 GradientStop { position: 1.0; color: "#2b6f69" }
             }
 
-            Text {
-                anchors.centerIn: parent
-                text: "Z"
-                color: "#ffffff"
-                font.pixelSize: 13
-                font.weight: Font.Bold
+            Rectangle {
+                x: 8
+                y: 5
+                width: 9
+                height: 6
+                radius: 4
+                color: "#70ffffff"
+                rotation: -18
             }
 
             HoverHandler {

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "ChatMessage"
+import "JumpToLatestButton"
 
 Rectangle {
     id: root
@@ -11,6 +12,10 @@ Rectangle {
 
     color: theme.surfaceBg
     clip: true
+
+    function jumpToLatest() {
+        transcript.positionViewAtEnd()
+    }
 
     function appendUserMessage(message) {
         var trimmed = message.trim()
@@ -31,9 +36,7 @@ Rectangle {
             timestampValue: "Now"
         })
 
-        Qt.callLater(function() {
-            transcript.positionViewAtEnd()
-        })
+        Qt.callLater(jumpToLatest)
     }
 
     function seedMessages() {
@@ -47,22 +50,23 @@ Rectangle {
             timestampValue: "7:42 PM"
         })
 
-        for (var index = 0; index < 42; index += 1) {
+        for (var index = 0; index < 56; index += 1) {
             var userTurn = index % 2 === 0
             var cycle = Math.floor(index / 2) + 1
+            var longResponse = cycle % 6 === 0
 
             messages.append({
                 roleValue: userTurn ? "user" : "assistant",
                 contentValue: userTurn
                     ? "Synthetic native transcript turn " + cycle + ". This scroll exists to exercise variable-height delegates without creating a DOM node for the entire history."
-                    : "Archivist response " + cycle + ". Qt Quick ListView creates and reuses delegates around the visible viewport, giving this migration a native virtualization foundation.",
+                    : longResponse
+                        ? "Archivist response " + cycle + ". Qt Quick ListView creates and reuses delegates around the visible viewport, giving this migration a native virtualization foundation.\n\nThis longer paragraph deliberately changes the delegate height. The important result is that scrolling remains smooth while the surrounding Workbench keeps its shadows, borders, dock, Explorer, and artifact surfaces."
+                        : "Archivist response " + cycle + ". Qt Quick ListView creates and reuses delegates around the visible viewport, giving this migration a native virtualization foundation.",
                 timestampValue: "Demo " + String(index + 1)
             })
         }
 
-        Qt.callLater(function() {
-            transcript.positionViewAtEnd()
-        })
+        Qt.callLater(jumpToLatest)
     }
 
     Component.onCompleted: seedMessages()
@@ -73,7 +77,7 @@ Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 38
+        height: root.theme.workspaceHeaderHeight
         color: theme.controlSurfaceBg
 
         Rectangle {
@@ -105,29 +109,18 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: "Qt Workbench Foundation"
+                text: "Context Compiler Test 1"
                 color: root.theme.appText
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
 
-            Rectangle {
-                Layout.preferredWidth: 72
-                Layout.preferredHeight: 22
-                radius: 11
-                color: root.theme.accentSoft
-                border.width: 1
-                border.color: "#4c426d"
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "NATIVE"
-                    color: root.theme.accentBright
-                    font.pixelSize: 8
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.8
-                }
+            Text {
+                text: "Archivist  ·  Grumpy"
+                color: root.theme.mutedText
+                font.pixelSize: 8
+                opacity: 0.72
             }
         }
     }
@@ -135,16 +128,19 @@ Rectangle {
     ListView {
         id: transcript
 
+        readonly property bool nearEnd: contentHeight <= height
+            || contentY >= contentHeight - height - 90
+
         anchors.top: workspaceHeader.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.leftMargin: root.leftInset
         clip: true
-        spacing: 10
-        topMargin: 18
+        spacing: root.theme.messageVerticalGap
+        topMargin: 16
         bottomMargin: 22
-        cacheBuffer: 1200
+        cacheBuffer: 1600
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -166,6 +162,22 @@ Rectangle {
 
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
+        }
+    }
+
+    JumpToLatestButton {
+        anchors.right: parent.right
+        anchors.rightMargin: 18
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 18
+        theme: root.theme
+        visible: !transcript.nearEnd
+        opacity: visible ? 1 : 0
+        z: 20
+        onClicked: root.jumpToLatest()
+
+        Behavior on opacity {
+            NumberAnimation { duration: 150 }
         }
     }
 }

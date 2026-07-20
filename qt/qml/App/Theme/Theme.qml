@@ -34,15 +34,26 @@ QtObject {
     readonly property color composerBg: "#1d1b17"
     readonly property color composerPlaceholder: "#918779"
 
+    readonly property string titleFontFamily: "Georgia"
+    readonly property string bodyFontFamily: ".AppleSystemUIFont"
+
     readonly property int topbarHeight: 42
     readonly property int activityRailWidth: 38
     readonly property int statusBarHeight: 22
+    readonly property int explorerHeaderHeight: 34
     readonly property int explorerMinWidth: 204
     readonly property int explorerMaxWidth: 282
+    readonly property int workspaceHeaderHeight: 38
     readonly property int chatDockHeaderHeight: 42
     readonly property int chatDockBodyHeight: 172
     readonly property int artifactDrawerWidth: 278
     readonly property int artifactDrawerHeight: 430
+
+    readonly property int transcriptContentWidth: 920
+    readonly property int assistantMessageWidth: 920
+    readonly property int userMessageWidth: 680
+    readonly property int messageHorizontalInset: 24
+    readonly property int messageVerticalGap: 12
 
     readonly property int radiusSmall: 6
     readonly property int radiusMedium: 10

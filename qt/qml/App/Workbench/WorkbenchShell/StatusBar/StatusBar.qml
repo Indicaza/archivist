@@ -21,9 +21,9 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 10
+        anchors.leftMargin: 8
         anchors.rightMargin: 10
-        spacing: 9
+        spacing: 8
 
         Rectangle {
             Layout.preferredWidth: 6
@@ -50,6 +50,24 @@ Rectangle {
         }
 
         Text {
+            text: "▣  Archivist"
+            color: root.theme.mutedText
+            font.pixelSize: 8
+        }
+
+        Text {
+            text: "▱  Context Compiler Test 1"
+            color: root.theme.mutedText
+            font.pixelSize: 8
+        }
+
+        Text {
+            text: "♙  Grumpy"
+            color: root.theme.mutedText
+            font.pixelSize: 8
+        }
+
+        Text {
             text: root.explorerOpen ? "Explorer open" : "Explorer hidden"
             color: root.theme.mutedText
             font.pixelSize: 8
@@ -58,12 +76,6 @@ Rectangle {
         Text {
             text: root.dockAttached ? "Dock attached" : "Dock centered"
             color: root.theme.mutedText
-            font.pixelSize: 8
-        }
-
-        Text {
-            text: "Qt 6.11"
-            color: root.theme.accentBright
             font.pixelSize: 8
         }
     }

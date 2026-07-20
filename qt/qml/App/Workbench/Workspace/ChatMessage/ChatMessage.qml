@@ -10,17 +10,27 @@ Item {
 
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
+    readonly property real contentZoneWidth: Math.min(
+        Math.max(0, width - theme.messageHorizontalInset * 2),
+        theme.transcriptContentWidth
+    )
+    readonly property real contentZoneX: theme.messageHorizontalInset
+    readonly property real desiredFrameWidth: userMessage
+        ? theme.userMessageWidth
+        : theme.assistantMessageWidth
 
     width: ListView.view ? ListView.view.width : 900
-    height: frame.height + 14
+    height: frame.height + 18
 
     Item {
         id: frame
 
-        x: root.userMessage ? root.width - width - 24 : 24
-        width: Math.min(root.width - 48, root.userMessage ? 680 : 920)
+        x: root.userMessage
+            ? root.contentZoneX + root.contentZoneWidth - width
+            : root.contentZoneX
+        width: Math.min(root.contentZoneWidth, root.desiredFrameWidth)
         height: messageColumn.implicitHeight
-        scale: messageHover.hovered ? 1.006 : 1.0
+        scale: messageHover.hovered ? 1.003 : 1.0
 
         Column {
             id: messageColumn
@@ -28,45 +38,71 @@ Item {
             width: parent.width
             spacing: 6
 
-            Row {
-                anchors.right: root.userMessage ? parent.right : undefined
-                anchors.left: root.userMessage ? undefined : parent.left
-                layoutDirection: root.userMessage ? Qt.RightToLeft : Qt.LeftToRight
-                spacing: 8
+            Item {
+                width: parent.width
+                height: 27
 
-                Rectangle {
-                    width: 24
-                    height: 24
-                    radius: 8
-                    color: root.userMessage ? "#241f18" : root.systemMessage ? "#24201a" : root.theme.accentSoft
-                    border.width: 1
-                    border.color: root.userMessage ? "#53432c" : root.systemMessage ? "#50442f" : "#554a7b"
+                Row {
+                    id: messageHeader
 
-                    Text {
-                        anchors.centerIn: parent
-                        text: root.userMessage ? "Y" : root.systemMessage ? "!" : "A"
-                        color: root.userMessage ? "#d1b17d" : root.systemMessage ? root.theme.warning : root.theme.accentBright
-                        font.pixelSize: 10
-                        font.weight: Font.Bold
+                    anchors.left: root.userMessage ? undefined : parent.left
+                    anchors.right: root.userMessage ? parent.right : undefined
+                    anchors.verticalCenter: parent.verticalCenter
+                    layoutDirection: root.userMessage ? Qt.RightToLeft : Qt.LeftToRight
+                    spacing: 8
+
+                    Rectangle {
+                        width: 24
+                        height: 24
+                        radius: 8
+                        color: root.userMessage
+                            ? "#241f18"
+                            : root.systemMessage
+                                ? "#24201a"
+                                : root.theme.accentSoft
+                        border.width: 1
+                        border.color: root.userMessage
+                            ? "#53432c"
+                            : root.systemMessage
+                                ? "#50442f"
+                                : "#554a7b"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: root.userMessage ? "Y" : root.systemMessage ? "!" : "✣"
+                            color: root.userMessage
+                                ? "#d1b17d"
+                                : root.systemMessage
+                                    ? root.theme.warning
+                                    : root.theme.accentBright
+                            font.pixelSize: root.userMessage ? 9 : 11
+                            font.weight: Font.Bold
+                        }
                     }
-                }
 
-                Column {
-                    spacing: 1
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        layoutDirection: root.userMessage ? Qt.RightToLeft : Qt.LeftToRight
+                        spacing: 7
 
-                    Text {
-                        text: root.userMessage ? "YOU" : root.systemMessage ? "SYSTEM" : "ARCHIVIST"
-                        color: root.theme.appText
-                        font.pixelSize: 9
-                        font.weight: Font.Bold
-                        font.letterSpacing: 0.7
-                    }
+                        Text {
+                            text: root.userMessage
+                                ? "YOU"
+                                : root.systemMessage
+                                    ? "SYSTEM"
+                                    : "ARCHIVIST"
+                            color: root.theme.appText
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                            font.letterSpacing: 0.7
+                        }
 
-                    Text {
-                        text: root.timestamp
-                        color: root.theme.mutedText
-                        font.pixelSize: 8
-                        opacity: 0.58
+                        Text {
+                            text: root.timestamp
+                            color: root.theme.mutedText
+                            font.pixelSize: 8
+                            opacity: 0.58
+                        }
                     }
                 }
             }
@@ -77,9 +113,17 @@ Item {
                 width: parent.width
                 height: messageText.implicitHeight + 30
                 radius: root.theme.radiusLarge
-                color: root.userMessage ? root.theme.userBg : root.systemMessage ? root.theme.systemBg : root.theme.assistantBg
+                color: root.userMessage
+                    ? root.theme.userBg
+                    : root.systemMessage
+                        ? root.theme.systemBg
+                        : root.theme.assistantBg
                 border.width: 1
-                border.color: root.userMessage ? root.theme.userBorder : root.systemMessage ? "#4b4030" : root.theme.assistantBorder
+                border.color: root.userMessage
+                    ? root.theme.userBorder
+                    : root.systemMessage
+                        ? "#4b4030"
+                        : root.theme.assistantBorder
 
                 Rectangle {
                     anchors.top: parent.top
@@ -88,8 +132,24 @@ Item {
                     anchors.right: root.userMessage ? parent.right : undefined
                     width: 3
                     radius: 2
-                    color: root.userMessage ? root.theme.userAccent : root.systemMessage ? root.theme.warning : root.theme.accent
-                    opacity: 0.72
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0.0
+                            color: root.userMessage
+                                ? "#a6c49a5a"
+                                : root.systemMessage
+                                    ? "#94c49a5a"
+                                    : "#b88f7adf"
+                        }
+                        GradientStop {
+                            position: 1.0
+                            color: root.userMessage
+                                ? "#18c49a5a"
+                                : root.systemMessage
+                                    ? "#20c49a5a"
+                                    : "#288f7adf"
+                        }
+                    }
                 }
 
                 Text {
@@ -98,11 +158,14 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: 15
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
+                    anchors.topMargin: 14
                     text: root.content
                     color: root.theme.appText
+                    font.family: root.theme.bodyFontFamily
                     font.pixelSize: 13
-                    lineHeight: 1.42
+                    lineHeight: 1.55
                     wrapMode: Text.Wrap
                     textFormat: Text.PlainText
                 }
