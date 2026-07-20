@@ -6,15 +6,26 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QNetworkReply>
+#include <QSet>
 #include <QUuid>
 
 namespace
 {
+constexpr int initialMessagePageSize = 160;
+constexpr int olderMessagePageSize = 120;
+
 struct JsonReplyResult
 {
     bool ok = false;
     QJsonObject object;
     QString errorMessage;
+};
+
+struct MessagePage
+{
+    QVariantList messages;
+    bool hasMore = false;
+    QString nextBeforeMessageId;
 };
 
 QString responseErrorMessage(const QJsonObject &object, const QString &fallback)
@@ -102,6 +113,17 @@ QVariantList mapMessages(const QJsonArray &array)
     return messages;
 }
 
+MessagePage mapMessagePage(const QJsonObject &object)
+{
+    const QJsonObject pagination = object.value(QStringLiteral("pagination")).toObject();
+
+    return {
+        mapMessages(object.value(QStringLiteral("messages")).toArray()),
+        pagination.value(QStringLiteral("hasMore")).toBool(false),
+        pagination.value(QStringLiteral("nextBeforeMessageId")).toString(),
+    };
+}
+
 QVariantMap optimisticMessage(
     const QString &id,
     const QString &chatId,
@@ -163,6 +185,16 @@ bool ChatStore::loadingChats() const
 bool ChatStore::loadingMessages() const
 {
     return m_loadingMessages;
+}
+
+bool ChatStore::loadingOlderMessages() const
+{
+    return m_loadingOlderMessages;
+}
+
+bool ChatStore::hasOlderMessages() const
+{
+    return m_hasOlderMessages;
 }
 
 bool ChatStore::responding() const
@@ -264,6 +296,7 @@ void ChatStore::selectChat(const QString &chatId)
 
     setErrorMessage({});
     setMessages({});
+    resetMessagePageState();
     setLoadingMessages(true);
 
     QJsonObject body;
@@ -295,20 +328,30 @@ void ChatStore::refreshSelectedMessages()
 {
     if (m_selectedChatId.isEmpty()) {
         setMessages({});
+        resetMessagePageState();
         setLoadingMessages(false);
         return;
     }
 
+    const QString requestedChatId = m_selectedChatId;
+
     setErrorMessage({});
+    resetMessagePageState();
     setLoadingMessages(true);
 
-    const QString path = QStringLiteral("/chats/%1/messages")
-        .arg(encodedPathSegment(m_selectedChatId));
+    const QString path = QStringLiteral("/chats/%1/messages?limit=%2")
+        .arg(encodedPathSegment(requestedChatId))
+        .arg(initialMessagePageSize);
     QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
         const JsonReplyResult result = consumeJsonReply(reply);
         reply->deleteLater();
+
+        if (requestedChatId != m_selectedChatId) {
+            return;
+        }
+
         setLoadingMessages(false);
 
         if (!result.ok) {
@@ -316,8 +359,94 @@ void ChatStore::refreshSelectedMessages()
             return;
         }
 
-        setMessages(mapMessages(result.object.value(QStringLiteral("messages")).toArray()));
+        const MessagePage page = mapMessagePage(result.object);
+        setMessages(page.messages);
+        setMessagePageState(page.hasMore, page.nextBeforeMessageId);
     });
+}
+
+void ChatStore::loadOlderMessages()
+{
+    if (
+        m_selectedChatId.isEmpty()
+        || m_loadingMessages
+        || m_loadingOlderMessages
+        || !m_hasOlderMessages
+        || m_beforeMessageId.isEmpty()
+    ) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+    const QString requestedBeforeMessageId = m_beforeMessageId;
+
+    setErrorMessage({});
+    setLoadingOlderMessages(true);
+
+    const QString path = QStringLiteral("/chats/%1/messages?limit=%2&before=%3")
+        .arg(encodedPathSegment(requestedChatId))
+        .arg(olderMessagePageSize)
+        .arg(encodedPathSegment(requestedBeforeMessageId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, requestedChatId, requestedBeforeMessageId]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+
+            if (
+                requestedChatId != m_selectedChatId
+                || requestedBeforeMessageId != m_beforeMessageId
+            ) {
+                return;
+            }
+
+            if (!result.ok) {
+                setLoadingOlderMessages(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const MessagePage page = mapMessagePage(result.object);
+            QSet<QString> existingIds;
+            existingIds.reserve(m_messages.size());
+
+            for (const QVariant &value : m_messages) {
+                existingIds.insert(value.toMap().value(QStringLiteral("id")).toString());
+            }
+
+            QVariantList prependedMessages;
+            prependedMessages.reserve(page.messages.size());
+
+            for (const QVariant &value : page.messages) {
+                const QString id = value.toMap().value(QStringLiteral("id")).toString();
+                if (!id.isEmpty() && !existingIds.contains(id)) {
+                    prependedMessages.append(value);
+                }
+            }
+
+            setMessagePageState(page.hasMore, page.nextBeforeMessageId);
+
+            if (!prependedMessages.isEmpty()) {
+                QVariantList nextMessages = prependedMessages;
+                nextMessages.reserve(prependedMessages.size() + m_messages.size());
+
+                for (const QVariant &value : m_messages) {
+                    nextMessages.append(value);
+                }
+
+                emit olderMessagesWillPrepend(prependedMessages.size());
+                m_messages = nextMessages;
+                emit messagesChanged();
+                emit olderMessagesPrepended(prependedMessages.size());
+            }
+
+            setLoadingOlderMessages(false);
+        }
+    );
 }
 
 void ChatStore::sendMessage(const QString &content)
@@ -428,6 +557,7 @@ void ChatStore::setSelectedChatId(const QString &chatId)
     }
 
     m_selectedChatId = chatId;
+    resetMessagePageState();
     setCompletionMetadata({}, {});
     emit selectedChatIdChanged();
     emit selectedChatChanged();
@@ -463,6 +593,26 @@ void ChatStore::setLoadingMessages(bool loading)
     emit loadingMessagesChanged();
 }
 
+void ChatStore::setLoadingOlderMessages(bool loading)
+{
+    if (m_loadingOlderMessages == loading) {
+        return;
+    }
+
+    m_loadingOlderMessages = loading;
+    emit loadingOlderMessagesChanged();
+}
+
+void ChatStore::setHasOlderMessages(bool hasOlderMessages)
+{
+    if (m_hasOlderMessages == hasOlderMessages) {
+        return;
+    }
+
+    m_hasOlderMessages = hasOlderMessages;
+    emit hasOlderMessagesChanged();
+}
+
 void ChatStore::setResponding(bool responding)
 {
     if (m_responding == responding) {
@@ -492,6 +642,20 @@ void ChatStore::setCompletionMetadata(const QString &provider, const QString &mo
     m_lastProvider = provider;
     m_lastModel = model;
     emit completionMetadataChanged();
+}
+
+void ChatStore::setMessagePageState(bool hasMore, const QString &beforeMessageId)
+{
+    const bool usablePage = hasMore && !beforeMessageId.isEmpty();
+    m_beforeMessageId = usablePage ? beforeMessageId : QString{};
+    setHasOlderMessages(usablePage);
+}
+
+void ChatStore::resetMessagePageState()
+{
+    m_beforeMessageId.clear();
+    setHasOlderMessages(false);
+    setLoadingOlderMessages(false);
 }
 
 void ChatStore::promoteSelectedChat()

@@ -10,6 +10,20 @@ Rectangle {
 
     required property var theme
     property real leftObstruction: 0
+    property bool historyLoadPending: false
+    property int historyAnchorIndex: -1
+    property real historyAnchorOffset: 0
+    property real historyAnchorContentY: 0
+    property real historyAnchorContentHeight: 0
+    property int historyPrependedCount: 0
+    property int historyRestorePass: 0
+    property bool scrollToEndPending: false
+    property int scrollToEndPass: 0
+
+    readonly property real historyPrefetchDistance: Math.max(
+        6000,
+        transcript.height * 6
+    )
 
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "No Chat Selected"
     readonly property bool hasSelectedChat: ChatStore.selectedChatId.length > 0
@@ -18,23 +32,145 @@ Rectangle {
     color: theme.surfaceBg
     clip: true
 
-    function jumpToLatest() {
+    function scheduleScrollToEnd() {
         if (ChatStore.messages.length === 0) {
             return
         }
 
-        transcript.forceLayout()
-        transcript.positionViewAtIndex(ChatStore.messages.length - 1, ListView.End)
+        root.scrollToEndPending = true
+        root.scrollToEndPass = 0
+        scrollToEndTimer.restart()
+    }
 
-        Qt.callLater(function() {
+    function cancelScrollToEnd() {
+        scrollToEndTimer.stop()
+        root.scrollToEndPending = false
+        root.scrollToEndPass = 0
+    }
+
+    function positionAtEnd() {
+        if (!root.scrollToEndPending || transcript.count === 0) {
+            return
+        }
+
+        transcript.forceLayout()
+        transcript.positionViewAtEnd()
+
+        root.scrollToEndPass += 1
+
+        if (root.scrollToEndPass < 3) {
+            scrollToEndTimer.restart()
+            return
+        }
+
+        root.scrollToEndPending = false
+        root.scrollToEndPass = 0
+    }
+
+    function jumpToLatest() {
+        transcript.cancelFlick()
+        root.scheduleScrollToEnd()
+    }
+
+    function canPrefetchHistory() {
+        return transcript.visible
+            && ChatStore.hasOlderMessages
+            && !ChatStore.loadingMessages
+            && !ChatStore.loadingOlderMessages
+            && !root.historyLoadPending
+            && transcript.contentY
+                <= transcript.originY + root.historyPrefetchDistance
+    }
+
+    function scheduleHistoryPrefetch() {
+        if (root.canPrefetchHistory()) {
+            historyPrefetchTimer.restart()
+        }
+    }
+
+    function requestOlderMessages() {
+        if (!root.canPrefetchHistory()) {
+            return
+        }
+
+        root.historyLoadPending = true
+        ChatStore.loadOlderMessages()
+    }
+
+    function captureHistoryAnchor(count) {
+        root.cancelScrollToEnd()
+        transcript.cancelFlick()
+        transcript.forceLayout()
+
+        const sampleY = transcript.contentY + Math.min(
+            48,
+            Math.max(2, transcript.height * 0.08)
+        )
+        const visibleIndex = transcript.indexAt(
+            Math.max(1, transcript.width / 2),
+            sampleY
+        )
+        const anchorIndex = visibleIndex >= 0 ? visibleIndex : 0
+        const anchorItem = transcript.itemAtIndex(anchorIndex)
+
+        root.historyAnchorIndex = anchorIndex
+        root.historyAnchorOffset = anchorItem
+            ? anchorItem.y - transcript.contentY
+            : 0
+        root.historyAnchorContentY = transcript.contentY
+        root.historyAnchorContentHeight = transcript.contentHeight
+        root.historyPrependedCount = count
+        root.historyRestorePass = 0
+    }
+
+    function restoreHistoryAnchor() {
+        if (!root.historyLoadPending || root.historyPrependedCount <= 0) {
+            return
+        }
+
+        const targetIndex = root.historyAnchorIndex + root.historyPrependedCount
+
+        transcript.forceLayout()
+
+        if (targetIndex >= 0 && targetIndex < ChatStore.messages.length) {
+            transcript.positionViewAtIndex(targetIndex, ListView.Beginning)
             transcript.forceLayout()
-            transcript.positionViewAtEnd()
-            transcript.contentY = Math.max(
-                transcript.originY,
-                transcript.contentHeight - transcript.height + transcript.bottomMargin
-            )
-            transcript.returnToBounds()
-        })
+
+            const anchorItem = transcript.itemAtIndex(targetIndex)
+            if (anchorItem) {
+                transcript.contentY = anchorItem.y - root.historyAnchorOffset
+            } else {
+                transcript.contentY = root.historyAnchorContentY
+                    + transcript.contentHeight
+                    - root.historyAnchorContentHeight
+            }
+        } else {
+            transcript.contentY = root.historyAnchorContentY
+                + transcript.contentHeight
+                - root.historyAnchorContentHeight
+        }
+
+        transcript.returnToBounds()
+        root.historyRestorePass += 1
+
+        if (root.historyRestorePass < 4) {
+            historyRestoreTimer.restart()
+            return
+        }
+
+        root.clearHistoryAnchor()
+        root.scheduleHistoryPrefetch()
+    }
+
+    function clearHistoryAnchor() {
+        historyRestoreTimer.stop()
+        root.historyLoadPending = false
+        root.historyAnchorIndex = -1
+        root.historyAnchorOffset = 0
+        root.historyAnchorContentY = 0
+        root.historyAnchorContentHeight = 0
+        root.historyPrependedCount = 0
+        root.historyRestorePass = 0
     }
 
     Component.onCompleted: ChatStore.refresh()
@@ -43,12 +179,73 @@ Rectangle {
         target: ChatStore
 
         function onMessagesChanged() {
-            Qt.callLater(root.jumpToLatest)
+            if (root.historyLoadPending) {
+                return
+            }
+
+            root.scheduleScrollToEnd()
         }
 
         function onSelectedChatIdChanged() {
-            Qt.callLater(root.jumpToLatest)
+            root.clearHistoryAnchor()
+            root.cancelScrollToEnd()
         }
+
+        function onLoadingMessagesChanged() {
+            if (!ChatStore.loadingMessages && ChatStore.messages.length > 0) {
+                root.scheduleScrollToEnd()
+            }
+        }
+
+        function onOlderMessagesWillPrepend(count) {
+            root.captureHistoryAnchor(count)
+        }
+
+        function onOlderMessagesPrepended(count) {
+            root.historyPrependedCount = count
+            historyRestoreTimer.restart()
+        }
+
+        function onLoadingOlderMessagesChanged() {
+            if (
+                !ChatStore.loadingOlderMessages
+                && root.historyLoadPending
+                && root.historyPrependedCount <= 0
+            ) {
+                Qt.callLater(function() {
+                    if (
+                        root.historyLoadPending
+                        && root.historyPrependedCount <= 0
+                    ) {
+                        root.clearHistoryAnchor()
+                    }
+                })
+            }
+        }
+    }
+
+    Timer {
+        id: historyPrefetchTimer
+
+        interval: 55
+        repeat: false
+        onTriggered: root.requestOlderMessages()
+    }
+
+    Timer {
+        id: historyRestoreTimer
+
+        interval: 16
+        repeat: false
+        onTriggered: root.restoreHistoryAnchor()
+    }
+
+    Timer {
+        id: scrollToEndTimer
+
+        interval: 16
+        repeat: false
+        onTriggered: root.positionAtEnd()
     }
 
     Rectangle {
@@ -117,12 +314,9 @@ Rectangle {
     ListView {
         id: transcript
 
-        readonly property real bottomContentY: Math.max(
-            originY,
-            contentHeight - height + bottomMargin
-        )
-        readonly property bool nearEnd: contentHeight <= height
-            || contentY >= bottomContentY - 24
+        readonly property bool nearEnd: count === 0 || atYEnd
+        readonly property bool nearBeginning: contentY
+            <= originY + root.historyPrefetchDistance
 
         anchors.top: workspaceHeader.bottom
         anchors.left: parent.left
@@ -131,12 +325,39 @@ Rectangle {
         visible: root.hasSelectedChat && root.hasMessages
         clip: true
         spacing: root.theme.messageVerticalGap
-        topMargin: 16
+        topMargin: 22
         bottomMargin: 22
-        cacheBuffer: 1600
+        cacheBuffer: Math.max(8000, height * 7)
+        displayMarginBeginning: 1200
+        displayMarginEnd: 800
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         model: ChatStore.messages
+
+        onCountChanged: {
+            if (root.scrollToEndPending) {
+                scrollToEndTimer.restart()
+            }
+        }
+
+        onContentHeightChanged: {
+            if (root.scrollToEndPending) {
+                scrollToEndTimer.restart()
+            }
+        }
+
+        onContentYChanged: {
+            if (nearBeginning) {
+                root.scheduleHistoryPrefetch()
+            }
+        }
+
+        onMovementStarted: {
+            root.cancelScrollToEnd()
+            root.scheduleHistoryPrefetch()
+        }
+
+        onMovementEnded: root.scheduleHistoryPrefetch()
 
         delegate: ChatMessage {
             required property var modelData
@@ -150,8 +371,26 @@ Rectangle {
             leftObstruction: root.leftObstruction
         }
 
-        ScrollBar.vertical: ScrollBar {
-            policy: ScrollBar.AsNeeded
+    }
+
+    Rectangle {
+        anchors.top: workspaceHeader.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 7
+        width: historyStatusText.implicitWidth + 18
+        height: 22
+        visible: ChatStore.loadingOlderMessages
+        color: root.theme.controlSurfaceBg
+        radius: 4
+        z: 12
+
+        Text {
+            id: historyStatusText
+
+            anchors.centerIn: parent
+            text: "Loading earlier messages…"
+            color: root.theme.mutedText
+            font.pixelSize: 8
         }
     }
 
