@@ -1,4 +1,5 @@
 import QtQuick
+import Archivist.Services 1.0
 import "ActivityRail"
 import "ExplorerDock"
 import "StatusBar"
@@ -93,7 +94,7 @@ Rectangle {
 
         onDockModeToggleRequested: root.dockAttached = !root.dockAttached
         onMessageSubmitted: function(message) {
-            workspace.appendUserMessage(message)
+            ChatStore.sendMessage(message)
         }
 
         Behavior on x {

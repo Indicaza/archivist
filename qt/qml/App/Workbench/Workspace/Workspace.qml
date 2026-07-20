@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Archivist.Services 1.0
 import "ChatMessage"
 import "JumpToLatestButton"
 
@@ -10,16 +11,20 @@ Rectangle {
     required property var theme
     property real leftObstruction: 0
 
+    readonly property string selectedChatTitle: ChatStore.selectedChat.title || "No Chat Selected"
+    readonly property bool hasSelectedChat: ChatStore.selectedChatId.length > 0
+    readonly property bool hasMessages: ChatStore.messages.length > 0
+
     color: theme.surfaceBg
     clip: true
 
     function jumpToLatest() {
-        if (messages.count === 0) {
+        if (ChatStore.messages.length === 0) {
             return
         }
 
         transcript.forceLayout()
-        transcript.positionViewAtIndex(messages.count - 1, ListView.End)
+        transcript.positionViewAtIndex(ChatStore.messages.length - 1, ListView.End)
 
         Qt.callLater(function() {
             transcript.forceLayout()
@@ -32,59 +37,19 @@ Rectangle {
         })
     }
 
-    function appendUserMessage(message) {
-        var trimmed = message.trim()
+    Component.onCompleted: ChatStore.refresh()
 
-        if (trimmed.length === 0) {
-            return
+    Connections {
+        target: ChatStore
+
+        function onMessagesChanged() {
+            Qt.callLater(root.jumpToLatest)
         }
 
-        messages.append({
-            roleValue: "user",
-            contentValue: trimmed,
-            timestampValue: "Now"
-        })
-
-        messages.append({
-            roleValue: "assistant",
-            contentValue: "The native Qt Workspace received that message. Backend wiring comes after this visual and structural slice is stable.",
-            timestampValue: "Now"
-        })
-
-        Qt.callLater(jumpToLatest)
+        function onSelectedChatIdChanged() {
+            Qt.callLater(root.jumpToLatest)
+        }
     }
-
-    function seedMessages() {
-        if (messages.count > 0) {
-            return
-        }
-
-        messages.append({
-            roleValue: "system",
-            contentValue: "Qt Workbench prototype · local visual data only · Express and SQLite remain untouched.",
-            timestampValue: "7:42 PM"
-        })
-
-        for (var index = 0; index < 56; index += 1) {
-            var userTurn = index % 2 === 0
-            var cycle = Math.floor(index / 2) + 1
-            var longResponse = cycle % 6 === 0
-
-            messages.append({
-                roleValue: userTurn ? "user" : "assistant",
-                contentValue: userTurn
-                    ? "Synthetic native transcript turn " + cycle + ". This scroll exists to exercise variable-height delegates without creating a DOM node for the entire history."
-                    : longResponse
-                        ? "Archivist response " + cycle + ". Qt Quick ListView creates and reuses delegates around the visible viewport, giving this migration a native virtualization foundation.\n\nThis longer paragraph deliberately changes the delegate height. The important result is that scrolling remains smooth while the surrounding Workbench keeps its shadows, borders, dock, Explorer, and artifact surfaces."
-                        : "Archivist response " + cycle + ". Qt Quick ListView creates and reuses delegates around the visible viewport, giving this migration a native virtualization foundation.",
-                timestampValue: "Demo " + String(index + 1)
-            })
-        }
-
-        Qt.callLater(jumpToLatest)
-    }
-
-    Component.onCompleted: seedMessages()
 
     Rectangle {
         id: workspaceHeader
@@ -124,7 +89,7 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: "Context Compiler Test 1"
+                text: root.selectedChatTitle
                 color: root.theme.appText
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
@@ -132,10 +97,19 @@ Rectangle {
             }
 
             Text {
-                text: "Archivist  ·  Grumpy"
-                color: root.theme.mutedText
+                text: ChatStore.responding
+                    ? "Archivist is thinking"
+                    : ChatStore.lastModel.length > 0
+                        ? ChatStore.lastProvider + "  ·  " + ChatStore.lastModel
+                        : root.hasSelectedChat
+                            ? "Ready"
+                            : "Select a Chat"
+                color: ChatStore.responding
+                    ? root.theme.appText
+                    : root.theme.mutedText
                 font.pixelSize: 8
-                opacity: 0.72
+                opacity: ChatStore.responding ? 0.9 : 0.72
+                elide: Text.ElideRight
             }
         }
     }
@@ -154,6 +128,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+        visible: root.hasSelectedChat && root.hasMessages
         clip: true
         spacing: root.theme.messageVerticalGap
         topMargin: 16
@@ -161,26 +136,60 @@ Rectangle {
         cacheBuffer: 1600
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
-
-        model: ListModel {
-            id: messages
-        }
+        model: ChatStore.messages
 
         delegate: ChatMessage {
-            required property string roleValue
-            required property string contentValue
-            required property string timestampValue
+            required property var modelData
 
             width: transcript.width
             theme: root.theme
-            role: roleValue
-            content: contentValue
-            timestamp: timestampValue
+            role: String(modelData.role || "system")
+            content: String(modelData.content || "")
+            timestamp: String(modelData.displayTimestamp || "")
+            status: String(modelData.status || "complete")
             leftObstruction: root.leftObstruction
         }
 
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
+        }
+    }
+
+    Column {
+        anchors.centerIn: parent
+        width: Math.min(460, parent.width - 80)
+        spacing: 8
+        visible: !transcript.visible
+
+        Text {
+            width: parent.width
+            text: ChatStore.loadingChats
+                ? "Loading Chats…"
+                : ChatStore.loadingMessages
+                    ? "Loading conversation…"
+                    : ChatStore.errorMessage.length > 0
+                        ? "Chat could not be loaded"
+                        : !root.hasSelectedChat
+                            ? "Select a Chat"
+                            : "This conversation is empty"
+            color: root.theme.appText
+            font.pixelSize: 16
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+            width: parent.width
+            text: ChatStore.errorMessage.length > 0
+                ? ChatStore.errorMessage
+                : !root.hasSelectedChat
+                    ? "Open Chats from the command dock to choose a conversation."
+                    : "Send a message below to begin."
+            color: root.theme.mutedText
+            font.pixelSize: 11
+            lineHeight: 1.45
+            wrapMode: Text.Wrap
+            horizontalAlignment: Text.AlignHCenter
         }
     }
 
@@ -190,7 +199,7 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         theme: root.theme
-        visible: !transcript.nearEnd
+        visible: transcript.visible && !transcript.nearEnd
         opacity: visible ? 1 : 0
         z: 20
         onClicked: root.jumpToLatest()

@@ -4,6 +4,7 @@
 #include <QQuickStyle>
 #include <qqml.h>
 
+#include "App/Domains/Chat/chat_store.h"
 #include "App/Domains/Library/library_store.h"
 
 int main(int argc, char *argv[])
@@ -18,7 +19,9 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     LibraryStore libraryStore;
+    ChatStore chatStore;
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LibraryStore", &libraryStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatStore", &chatStore);
 
     QQmlApplicationEngine engine;
 

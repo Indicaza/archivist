@@ -7,10 +7,13 @@ Item {
     required property string role
     required property string content
     required property string timestamp
+    required property string status
     required property real leftObstruction
 
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
+    readonly property bool streamingMessage: status === "streaming"
+    readonly property bool failedMessage: status === "failed"
     readonly property real idealContentZoneWidth: Math.min(
         Math.max(0, width - theme.messageHorizontalInset * 2),
         theme.transcriptContentWidth
@@ -76,11 +79,10 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: root.userMessage ? "Y" : root.systemMessage ? "!" : "✣"
-                            color: root.systemMessage
-                                ? root.theme.mutedText
-                                : root.theme.appText
+                            color: root.theme.appText
                             font.pixelSize: root.userMessage ? 8 : 10
                             font.weight: Font.Bold
+                            opacity: root.streamingMessage ? 0.62 : 1
                         }
                     }
 
@@ -102,10 +104,16 @@ Item {
                         }
 
                         Text {
-                            text: root.timestamp
-                            color: root.theme.mutedText
+                            text: root.failedMessage
+                                ? "FAILED"
+                                : root.streamingMessage
+                                    ? "WORKING"
+                                    : root.timestamp
+                            color: root.failedMessage
+                                ? root.theme.danger
+                                : root.theme.mutedText
                             font.pixelSize: 8
-                            opacity: 0.52
+                            opacity: root.failedMessage ? 0.9 : 0.52
                         }
                     }
                 }
@@ -125,6 +133,7 @@ Item {
                 border.width: 0
                 antialiasing: false
                 clip: true
+                opacity: root.streamingMessage ? 0.72 : 1
 
                 Text {
                     id: messageText
