@@ -8,13 +8,28 @@ Rectangle {
     id: root
 
     required property var theme
-    property real leftInset: 0
+    property real leftObstruction: 0
 
     color: theme.surfaceBg
     clip: true
 
     function jumpToLatest() {
-        transcript.positionViewAtEnd()
+        if (messages.count === 0) {
+            return
+        }
+
+        transcript.forceLayout()
+        transcript.positionViewAtIndex(messages.count - 1, ListView.End)
+
+        Qt.callLater(function() {
+            transcript.forceLayout()
+            transcript.positionViewAtEnd()
+            transcript.contentY = Math.max(
+                transcript.originY,
+                transcript.contentHeight - transcript.height + transcript.bottomMargin
+            )
+            transcript.returnToBounds()
+        })
     }
 
     function appendUserMessage(message) {
@@ -90,7 +105,7 @@ Rectangle {
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 14 + root.leftInset
+            anchors.leftMargin: Math.max(14, root.leftObstruction + 14)
             anchors.rightMargin: 14
             spacing: 8
 
@@ -128,14 +143,17 @@ Rectangle {
     ListView {
         id: transcript
 
+        readonly property real bottomContentY: Math.max(
+            originY,
+            contentHeight - height + bottomMargin
+        )
         readonly property bool nearEnd: contentHeight <= height
-            || contentY >= contentHeight - height - 90
+            || contentY >= bottomContentY - 24
 
         anchors.top: workspaceHeader.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.leftMargin: root.leftInset
         clip: true
         spacing: root.theme.messageVerticalGap
         topMargin: 16
@@ -158,6 +176,7 @@ Rectangle {
             role: roleValue
             content: contentValue
             timestamp: timestampValue
+            leftObstruction: root.leftObstruction
         }
 
         ScrollBar.vertical: ScrollBar {

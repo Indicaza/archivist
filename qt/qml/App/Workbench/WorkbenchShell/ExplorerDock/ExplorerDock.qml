@@ -11,6 +11,14 @@ Rectangle {
 
     signal closeRequested()
 
+    property string selectedNodeId: ""
+    property string filterText: ""
+    property var expandedNodeIds: ({
+        "backend": true,
+        "frontend": true,
+        "qt": true
+    })
+
     readonly property var viewTitles: [
         "Library Explorer",
         "Archived Libraries",
@@ -19,9 +27,147 @@ Rectangle {
         "Tools"
     ]
 
+    readonly property var treeNodes: [
+        { id: "backend", parentId: "", title: "backend", glyph: "□", folder: true },
+        { id: "backend-data", parentId: "backend", title: "data", glyph: "□", folder: true },
+        { id: "backend-src", parentId: "backend", title: "src", glyph: "□", folder: true },
+        { id: "backend-package", parentId: "backend", title: "package.json", glyph: "{}", folder: false },
+        { id: "backend-tsconfig", parentId: "backend", title: "tsconfig.json", glyph: "{}", folder: false },
+        { id: "backend-data-cache", parentId: "backend-data", title: "ai-model-cache.json", glyph: "{}", folder: false },
+        { id: "backend-api", parentId: "backend-src", title: "api", glyph: "□", folder: true },
+        { id: "backend-core", parentId: "backend-src", title: "core", glyph: "□", folder: true },
+        { id: "backend-database", parentId: "backend-src", title: "database", glyph: "□", folder: true },
+        { id: "backend-app", parentId: "backend-src", title: "app.ts", glyph: "{}", folder: false },
+        { id: "backend-chats", parentId: "backend-api", title: "chats", glyph: "□", folder: true },
+        { id: "backend-libraries", parentId: "backend-api", title: "libraries", glyph: "□", folder: true },
+        { id: "backend-agents", parentId: "backend-api", title: "agents", glyph: "□", folder: true },
+        { id: "frontend", parentId: "", title: "frontend", glyph: "□", folder: true },
+        { id: "frontend-electron", parentId: "frontend", title: "electron", glyph: "□", folder: true },
+        { id: "frontend-src", parentId: "frontend", title: "src", glyph: "□", folder: true },
+        { id: "frontend-package", parentId: "frontend", title: "package.json", glyph: "{}", folder: false },
+        { id: "frontend-vite", parentId: "frontend", title: "vite.config.ts", glyph: "{}", folder: false },
+        { id: "frontend-main-cjs", parentId: "frontend-electron", title: "main.cjs", glyph: "{}", folder: false },
+        { id: "frontend-preload-cjs", parentId: "frontend-electron", title: "preload.cjs", glyph: "{}", folder: false },
+        { id: "frontend-components", parentId: "frontend-src", title: "components", glyph: "□", folder: true },
+        { id: "frontend-domains", parentId: "frontend-src", title: "domains", glyph: "□", folder: true },
+        { id: "frontend-styles", parentId: "frontend-src", title: "styles", glyph: "□", folder: true },
+        { id: "frontend-app", parentId: "frontend-src", title: "App.tsx", glyph: "{}", folder: false },
+        { id: "frontend-workbench", parentId: "frontend-components", title: "workbench", glyph: "□", folder: true },
+        { id: "frontend-chat", parentId: "frontend-components", title: "chat", glyph: "□", folder: true },
+        { id: "qt", parentId: "", title: "qt", glyph: "□", folder: true },
+        { id: "qt-qml", parentId: "qt", title: "qml", glyph: "□", folder: true },
+        { id: "qt-src", parentId: "qt", title: "src", glyph: "□", folder: true },
+        { id: "qt-cmake", parentId: "qt", title: "CMakeLists.txt", glyph: "▤", folder: false },
+        { id: "qt-app", parentId: "qt-qml", title: "App", glyph: "□", folder: true },
+        { id: "qt-app-qml", parentId: "qt-qml", title: "App.qml", glyph: "◇", folder: false },
+        { id: "qt-main", parentId: "qt-src", title: "main.cpp", glyph: "{}", folder: false },
+        { id: "catalog-test", parentId: "", title: "catalog-test.txt", glyph: "▤", folder: false, muted: true, warning: true },
+        { id: "package-lock", parentId: "", title: "package-lock.json", glyph: "{}", folder: false },
+        { id: "package-root", parentId: "", title: "package.json", glyph: "{}", folder: false },
+        { id: "readme-root", parentId: "", title: "README.md", glyph: "▤", folder: false }
+    ]
+
     color: theme.surfaceBg
     border.width: 0
     clip: true
+
+    function isExpanded(nodeId) {
+        return expandedNodeIds[nodeId] === true
+    }
+
+    function nodeMatches(node, query) {
+        return query.length === 0
+            || node.title.toLowerCase().indexOf(query) !== -1
+    }
+
+    function subtreeMatches(nodeId, query) {
+        for (var index = 0; index < treeNodes.length; index += 1) {
+            var child = treeNodes[index]
+
+            if (child.parentId !== nodeId) {
+                continue
+            }
+
+            if (nodeMatches(child, query) || subtreeMatches(child.id, query)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    function appendVisibleChildren(parentId, depth, query) {
+        for (var index = 0; index < treeNodes.length; index += 1) {
+            var node = treeNodes[index]
+
+            if (node.parentId !== parentId) {
+                continue
+            }
+
+            var includeNode = query.length === 0
+                || nodeMatches(node, query)
+                || subtreeMatches(node.id, query)
+
+            if (!includeNode) {
+                continue
+            }
+
+            visibleTree.append({
+                nodeId: node.id,
+                itemTitle: node.title,
+                itemGlyph: node.glyph,
+                itemDepth: depth,
+                itemSelected: selectedNodeId === node.id,
+                itemMuted: node.muted === true,
+                itemFolder: node.folder === true,
+                itemExpanded: node.folder === true && isExpanded(node.id),
+                itemWarning: node.warning === true
+            })
+
+            if (node.folder === true && (query.length > 0 || isExpanded(node.id))) {
+                appendVisibleChildren(node.id, depth + 1, query)
+            }
+        }
+    }
+
+    function rebuildTree() {
+        visibleTree.clear()
+        appendVisibleChildren("", 0, filterText.trim().toLowerCase())
+    }
+
+    function activateNode(nodeId, folder) {
+        selectedNodeId = nodeId
+
+        if (folder) {
+            expandedNodeIds[nodeId] = !isExpanded(nodeId)
+        }
+
+        rebuildTree()
+    }
+
+    function collapseAll() {
+        expandedNodeIds = ({})
+        rebuildTree()
+    }
+
+    function expandAll() {
+        var nextExpanded = ({})
+
+        for (var index = 0; index < treeNodes.length; index += 1) {
+            if (treeNodes[index].folder === true) {
+                nextExpanded[treeNodes[index].id] = true
+            }
+        }
+
+        expandedNodeIds = nextExpanded
+        rebuildTree()
+    }
+
+    Component.onCompleted: rebuildTree()
+
+    ListModel {
+        id: visibleTree
+    }
 
     Rectangle {
         anchors.right: parent.right
@@ -134,33 +280,109 @@ Rectangle {
                             elide: Text.ElideRight
                         }
 
-                        Repeater {
-                            model: ["⌄", "⌕", "+", "✎", "▣"]
+                        Button {
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            text: "⌃"
+                            hoverEnabled: true
+                            padding: 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Collapse all"
+                            onClicked: root.collapseAll()
 
-                            delegate: Button {
-                                required property string modelData
-
-                                Layout.preferredWidth: 24
-                                Layout.preferredHeight: 24
-                                text: modelData
-                                hoverEnabled: true
-                                padding: 0
-
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                    font.pixelSize: 12
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Rectangle {
-                                    radius: 4
-                                    color: parent.hovered ? root.theme.hoverBg : "transparent"
-                                    border.width: parent.hovered ? 1 : 0
-                                    border.color: root.theme.quietBorder
-                                }
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
+
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? root.theme.hoverBg : "transparent"
+                            }
+                        }
+
+                        Button {
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            text: "⌄"
+                            hoverEnabled: true
+                            padding: 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Expand all"
+                            onClicked: root.expandAll()
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? root.theme.hoverBg : "transparent"
+                            }
+                        }
+
+                        Button {
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            text: "+"
+                            hoverEnabled: true
+                            padding: 0
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
+                                font.pixelSize: 13
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? root.theme.hoverBg : "transparent"
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 33
+                    color: root.theme.surfaceBg
+
+                    TextField {
+                        id: libraryFilter
+
+                        anchors.fill: parent
+                        anchors.leftMargin: 7
+                        anchors.rightMargin: 7
+                        anchors.topMargin: 4
+                        anchors.bottomMargin: 4
+                        placeholderText: "Filter files"
+                        placeholderTextColor: root.theme.mutedText
+                        color: root.theme.appText
+                        font.pixelSize: 10
+                        leftPadding: 8
+                        rightPadding: 8
+                        selectByMouse: true
+                        onTextChanged: {
+                            root.filterText = text
+                            root.rebuildTree()
+                        }
+
+                        background: Rectangle {
+                            radius: 4
+                            color: "#0f0e0c"
+                            border.width: 1
+                            border.color: parent.activeFocus
+                                ? "#554a7b"
+                                : root.theme.quietBorder
                         }
                     }
                 }
@@ -199,7 +421,7 @@ Rectangle {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "163"
+                                text: String(root.treeNodes.length)
                                 color: root.theme.mutedText
                                 font.pixelSize: 8
                             }
@@ -215,6 +437,7 @@ Rectangle {
                             text: "↻"
                             hoverEnabled: true
                             padding: 0
+                            onClicked: root.rebuildTree()
 
                             contentItem: Text {
                                 text: parent.text
@@ -245,30 +468,10 @@ Rectangle {
                     boundsBehavior: Flickable.StopAtBounds
                     cacheBuffer: 600
                     reuseItems: true
-
-                    model: ListModel {
-                        ListElement { itemTitle: "backend"; itemGlyph: "□"; itemDepth: 0; itemSelected: false; itemMuted: false; itemFolder: true; itemExpanded: true; itemWarning: false }
-                        ListElement { itemTitle: "data"; itemGlyph: "□"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: true; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "src"; itemGlyph: "□"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: true; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "package.json"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "tsconfig.json"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "frontend"; itemGlyph: "□"; itemDepth: 0; itemSelected: false; itemMuted: false; itemFolder: true; itemExpanded: true; itemWarning: false }
-                        ListElement { itemTitle: "src"; itemGlyph: "□"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: true; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "eslint.config.js"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "index.html"; itemGlyph: "◇"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "package.json"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "README.md"; itemGlyph: "▤"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "tsconfig.app.json"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "tsconfig.json"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "tsconfig.node.json"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "vite.config.ts"; itemGlyph: "{}"; itemDepth: 1; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "catalog-test.txt"; itemGlyph: "▤"; itemDepth: 0; itemSelected: false; itemMuted: true; itemFolder: false; itemExpanded: false; itemWarning: true }
-                        ListElement { itemTitle: "package-lock.json"; itemGlyph: "{}"; itemDepth: 0; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "package.json"; itemGlyph: "{}"; itemDepth: 0; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                        ListElement { itemTitle: "README.md"; itemGlyph: "▤"; itemDepth: 0; itemSelected: false; itemMuted: false; itemFolder: false; itemExpanded: false; itemWarning: false }
-                    }
+                    model: visibleTree
 
                     delegate: ExplorerItem {
+                        required property string nodeId
                         required property string itemTitle
                         required property string itemGlyph
                         required property int itemDepth
@@ -288,6 +491,7 @@ Rectangle {
                         folder: itemFolder
                         expanded: itemExpanded
                         warning: itemWarning
+                        onActivated: root.activateNode(nodeId, itemFolder)
                     }
 
                     ScrollBar.vertical: ScrollBar {
@@ -316,7 +520,9 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "Ready  ·  Jul 19, 11:16 AM  ·  13 missing"
+                            text: root.selectedNodeId.length > 0
+                                ? "Selected  ·  " + root.selectedNodeId
+                                : "Ready  ·  Native tree prototype"
                             color: root.theme.mutedText
                             font.pixelSize: 8
                             opacity: 0.72

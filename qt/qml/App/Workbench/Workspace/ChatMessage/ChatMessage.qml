@@ -7,14 +7,29 @@ Item {
     required property string role
     required property string content
     required property string timestamp
+    required property real leftObstruction
 
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
-    readonly property real contentZoneWidth: Math.min(
+    readonly property real idealContentZoneWidth: Math.min(
         Math.max(0, width - theme.messageHorizontalInset * 2),
         theme.transcriptContentWidth
     )
-    readonly property real contentZoneX: theme.messageHorizontalInset
+    readonly property real centeredContentZoneX: Math.max(
+        theme.messageHorizontalInset,
+        (width - idealContentZoneWidth) / 2
+    )
+    readonly property real contentZoneX: Math.max(
+        centeredContentZoneX,
+        leftObstruction + theme.messageHorizontalInset
+    )
+    readonly property real contentZoneWidth: Math.max(
+        0,
+        Math.min(
+            idealContentZoneWidth,
+            width - theme.messageHorizontalInset - contentZoneX
+        )
+    )
     readonly property real desiredFrameWidth: userMessage
         ? theme.userMessageWidth
         : theme.assistantMessageWidth

@@ -23,6 +23,8 @@ Rectangle {
     readonly property real dockHeight: theme.chatDockHeaderHeight + theme.chatDockBodyHeight
     readonly property real attachedDockX: theme.activityRailWidth + explorerWidth
     readonly property real centeredDockWidth: Math.min(width - 32, 1120)
+    readonly property real workspaceLeftObstruction: theme.activityRailWidth
+        + (explorerOpen ? explorerWidth : 0)
 
     color: theme.surfaceBg
     clip: true
@@ -30,12 +32,12 @@ Rectangle {
     Workspace {
         id: workspace
 
-        x: theme.activityRailWidth
+        x: 0
         y: 0
-        width: parent.width - theme.activityRailWidth
+        width: parent.width
         height: parent.height - statusBar.height - chatDock.height
         theme: root.theme
-        leftInset: root.explorerOpen ? root.explorerWidth : 0
+        leftObstruction: root.workspaceLeftObstruction
     }
 
     ActivityRail {

@@ -14,10 +14,13 @@ Button {
     required property bool expanded
     required property bool warning
 
+    signal activated()
+
     width: parent ? parent.width : 220
     height: 23
     hoverEnabled: true
     padding: 0
+    onClicked: activated()
 
     contentItem: Item {
         Text {
@@ -28,7 +31,7 @@ Button {
             height: parent.height
             visible: root.folder
             text: root.expanded ? "⌄" : "›"
-            color: root.theme.mutedText
+            color: root.hovered ? root.theme.appText : root.theme.mutedText
             font.pixelSize: 11
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
