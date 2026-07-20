@@ -21,6 +21,7 @@ class ChatStore final : public QObject
     Q_PROPERTY(bool loadingOlderMessages READ loadingOlderMessages NOTIFY loadingOlderMessagesChanged)
     Q_PROPERTY(bool hasOlderMessages READ hasOlderMessages NOTIFY hasOlderMessagesChanged)
     Q_PROPERTY(bool responding READ responding NOTIFY respondingChanged)
+    Q_PROPERTY(bool assigningAgent READ assigningAgent NOTIFY assigningAgentChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString lastProvider READ lastProvider NOTIFY completionMetadataChanged)
     Q_PROPERTY(QString lastModel READ lastModel NOTIFY completionMetadataChanged)
@@ -37,6 +38,7 @@ public:
     [[nodiscard]] bool loadingOlderMessages() const;
     [[nodiscard]] bool hasOlderMessages() const;
     [[nodiscard]] bool responding() const;
+    [[nodiscard]] bool assigningAgent() const;
     [[nodiscard]] QString errorMessage() const;
     [[nodiscard]] QString lastProvider() const;
     [[nodiscard]] QString lastModel() const;
@@ -46,6 +48,7 @@ public:
     Q_INVOKABLE void refreshSelectedMessages();
     Q_INVOKABLE void loadOlderMessages();
     Q_INVOKABLE void sendMessage(const QString &content);
+    Q_INVOKABLE void assignAgentToSelectedChat(const QString &agentId);
 
 signals:
     void chatsChanged();
@@ -59,6 +62,7 @@ signals:
     void loadingOlderMessagesChanged();
     void hasOlderMessagesChanged();
     void respondingChanged();
+    void assigningAgentChanged();
     void errorMessageChanged();
     void completionMetadataChanged();
 
@@ -73,11 +77,13 @@ private:
     void setLoadingOlderMessages(bool loading);
     void setHasOlderMessages(bool hasOlderMessages);
     void setResponding(bool responding);
+    void setAssigningAgent(bool assigning);
     void setErrorMessage(const QString &message);
     void setCompletionMetadata(const QString &provider, const QString &model);
     void setMessagePageState(bool hasMore, const QString &beforeMessageId);
     void resetMessagePageState();
     void promoteSelectedChat();
+    void replaceChat(const QVariantMap &chat);
     [[nodiscard]] bool containsChat(const QString &chatId) const;
 
     QNetworkAccessManager m_network;
@@ -91,6 +97,7 @@ private:
     bool m_loadingOlderMessages = false;
     bool m_hasOlderMessages = false;
     bool m_responding = false;
+    bool m_assigningAgent = false;
     QString m_errorMessage;
     QString m_lastProvider;
     QString m_lastModel;

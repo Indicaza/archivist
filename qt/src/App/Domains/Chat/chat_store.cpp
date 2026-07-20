@@ -202,6 +202,11 @@ bool ChatStore::responding() const
     return m_responding;
 }
 
+bool ChatStore::assigningAgent() const
+{
+    return m_assigningAgent;
+}
+
 QString ChatStore::errorMessage() const
 {
     return m_errorMessage;
@@ -285,7 +290,7 @@ void ChatStore::fetchAppState()
 
 void ChatStore::selectChat(const QString &chatId)
 {
-    if (m_responding || chatId.isEmpty() || !containsChat(chatId)) {
+    if (m_responding || m_assigningAgent || chatId.isEmpty() || !containsChat(chatId)) {
         return;
     }
 
@@ -453,7 +458,12 @@ void ChatStore::sendMessage(const QString &content)
 {
     const QString trimmedContent = content.trimmed();
 
-    if (trimmedContent.isEmpty() || m_selectedChatId.isEmpty() || m_responding) {
+    if (
+        trimmedContent.isEmpty()
+        || m_selectedChatId.isEmpty()
+        || m_responding
+        || m_assigningAgent
+    ) {
         return;
     }
 
@@ -536,6 +546,58 @@ void ChatStore::sendMessage(const QString &content)
             result.object.value(QStringLiteral("model")).toString()
         );
         promoteSelectedChat();
+    });
+}
+
+void ChatStore::assignAgentToSelectedChat(const QString &agentId)
+{
+    if (
+        m_selectedChatId.isEmpty()
+        || agentId.isEmpty()
+        || m_responding
+        || m_assigningAgent
+        || selectedChat().value(QStringLiteral("agentId")).toString() == agentId
+    ) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+
+    setErrorMessage({});
+    setAssigningAgent(true);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("agentId"), agentId);
+
+    const QString path = QStringLiteral("/chats/%1")
+        .arg(encodedPathSegment(requestedChatId));
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("PATCH"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setAssigningAgent(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap updatedChat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+
+        if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
+            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat assignment."));
+            return;
+        }
+
+        replaceChat(updatedChat);
     });
 }
 
@@ -623,6 +685,16 @@ void ChatStore::setResponding(bool responding)
     emit respondingChanged();
 }
 
+void ChatStore::setAssigningAgent(bool assigning)
+{
+    if (m_assigningAgent == assigning) {
+        return;
+    }
+
+    m_assigningAgent = assigning;
+    emit assigningAgentChanged();
+}
+
 void ChatStore::setErrorMessage(const QString &message)
 {
     if (m_errorMessage == message) {
@@ -676,6 +748,27 @@ void ChatStore::promoteSelectedChat()
         QVariantList nextChats = m_chats;
         const QVariant selected = nextChats.takeAt(index);
         nextChats.prepend(selected);
+        setChats(nextChats);
+        return;
+    }
+}
+
+void ChatStore::replaceChat(const QVariantMap &chat)
+{
+    const QString chatId = chat.value(QStringLiteral("id")).toString();
+
+    if (chatId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextChats = m_chats;
+
+    for (qsizetype index = 0; index < nextChats.size(); ++index) {
+        if (nextChats.at(index).toMap().value(QStringLiteral("id")).toString() != chatId) {
+            continue;
+        }
+
+        nextChats[index] = chat;
         setChats(nextChats);
         return;
     }

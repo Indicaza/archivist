@@ -12,12 +12,31 @@ Rectangle {
 
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name || "Standalone"
+    readonly property var selectedAgent: agentForId(ChatStore.selectedChat.agentId)
+    readonly property string selectedAgentName: selectedAgent && selectedAgent.name
+        ? String(selectedAgent.name)
+        : ChatStore.selectedChat.agentId
+            ? "Unavailable"
+            : "None"
     readonly property bool canSubmit: ChatStore.selectedChatId.length > 0
         && !ChatStore.responding
+        && !ChatStore.assigningAgent
         && composer.text.trim().length > 0
 
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
+
+    function agentForId(agentId) {
+        var agents = AgentStore.agents || []
+
+        for (var index = 0; index < agents.length; index += 1) {
+            if (String(agents[index].id) === String(agentId || "")) {
+                return agents[index]
+            }
+        }
+
+        return null
+    }
 
     function submitDraft() {
         var trimmed = composer.text.trim()
@@ -30,6 +49,8 @@ Rectangle {
         composer.clear()
         composer.forceActiveFocus()
     }
+
+    Component.onCompleted: AgentStore.refresh()
 
     color: theme.surfaceBg
     border.width: 0
@@ -97,12 +118,11 @@ Rectangle {
                         }
 
                         Text {
-                            text: ChatStore.selectedChat.agentId
-                                ? "♙  AGENT  Assigned"
-                                : "♙  AGENT  None"
+                            text: "♙  AGENT  " + root.selectedAgentName
                             color: root.theme.mutedText
                             font.pixelSize: 8
                             font.letterSpacing: 0.25
+                            elide: Text.ElideRight
                         }
                     }
                 }
@@ -417,8 +437,9 @@ Rectangle {
                         }
 
                         Text {
-                            visible: root.activePanel === "chats"
-                            text: ChatStore.loadingChats ? "Loading" : String(ChatStore.chats.length)
+                            text: root.activePanel === "chats"
+                                ? ChatStore.loadingChats ? "Loading" : String(ChatStore.chats.length)
+                                : AgentStore.loading ? "Loading" : String(AgentStore.agents.length)
                             color: root.theme.mutedText
                             font.pixelSize: 8
                             opacity: 0.65
@@ -487,38 +508,137 @@ Rectangle {
                         }
                     }
 
-                    Column {
+                    Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: root.activePanel === "agents"
-                        spacing: 7
 
-                        Text {
-                            width: parent.width
-                            text: "Assigned Agent"
-                            color: root.theme.appText
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                        }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 6
 
-                        Text {
-                            width: parent.width
-                            text: ChatStore.selectedChat.agentId
-                                ? String(ChatStore.selectedChat.agentId)
-                                : "Select a Chat to inspect its Agent."
-                            color: root.theme.mutedText
-                            font.pixelSize: 8
-                            wrapMode: Text.WrapAnywhere
-                        }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: AgentStore.errorMessage.length > 0
+                                text: AgentStore.errorMessage
+                                color: root.theme.danger
+                                font.pixelSize: 8
+                                wrapMode: Text.Wrap
+                            }
 
-                        Text {
-                            width: parent.width
-                            text: "The full native Agent browser is the next domain slice after Chat is stable."
-                            color: root.theme.mutedText
-                            font.pixelSize: 8
-                            lineHeight: 1.4
-                            wrapMode: Text.Wrap
-                            opacity: 0.72
+                            Text {
+                                Layout.fillWidth: true
+                                visible: ChatStore.selectedChatId.length === 0
+                                text: "Select a Chat before assigning an Agent."
+                                color: root.theme.mutedText
+                                font.pixelSize: 8
+                                wrapMode: Text.Wrap
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: ChatStore.assigningAgent
+                                text: "Updating Agent assignment…"
+                                color: root.theme.accentBright
+                                font.pixelSize: 8
+                            }
+
+                            ListView {
+                                id: agentList
+
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: AgentStore.agents.length > 0
+                                spacing: 2
+                                clip: true
+                                model: AgentStore.agents
+
+                                delegate: Rectangle {
+                                    id: agentItem
+
+                                    required property var modelData
+
+                                    readonly property bool assigned: String(modelData.id)
+                                        === String(ChatStore.selectedChat.agentId || "")
+
+                                    width: agentList.width
+                                    height: 48
+                                    color: agentTap.pressed
+                                        ? "#292621"
+                                        : agentHover.hovered
+                                            ? root.theme.hoverBg
+                                            : assigned
+                                                ? "#211f1c"
+                                                : "transparent"
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: 2
+                                        visible: agentItem.assigned
+                                        color: root.theme.accentBright
+                                        opacity: 0.7
+                                    }
+
+                                    Column {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.leftMargin: 9
+                                        anchors.rightMargin: 7
+                                        spacing: 3
+
+                                        Text {
+                                            width: parent.width
+                                            text: String(agentItem.modelData.name || "Unnamed Agent")
+                                                + (agentItem.assigned ? "  ✓" : "")
+                                            color: root.theme.appText
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: agentItem.modelData.description
+                                                || (agentItem.modelData.generation
+                                                    ? String(agentItem.modelData.generation.model || "")
+                                                    : "")
+                                            color: root.theme.mutedText
+                                            font.pixelSize: 8
+                                            opacity: 0.72
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    HoverHandler {
+                                        id: agentHover
+                                    }
+
+                                    TapHandler {
+                                        id: agentTap
+                                        enabled: ChatStore.selectedChatId.length > 0
+                                            && !ChatStore.responding
+                                            && !ChatStore.assigningAgent
+                                            && !agentItem.assigned
+                                        onTapped: ChatStore.assignAgentToSelectedChat(
+                                            String(agentItem.modelData.id)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: !AgentStore.loading && AgentStore.agents.length === 0
+                                text: "No active Agents found."
+                                color: root.theme.mutedText
+                                font.pixelSize: 8
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
                 }

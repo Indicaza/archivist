@@ -13,6 +13,8 @@ qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(archivist-qt
     src/main.cpp
+    src/App/Domains/Agent/agent_store.cpp
+    src/App/Domains/Agent/agent_store.h
     src/App/Domains/Chat/chat_store.cpp
     src/App/Domains/Chat/chat_store.h
     src/App/Domains/Library/library_store.cpp
