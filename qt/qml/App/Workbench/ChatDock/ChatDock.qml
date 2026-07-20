@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "AgentEditor"
 
 Rectangle {
     id: root
@@ -444,6 +445,41 @@ Rectangle {
                             font.pixelSize: 8
                             opacity: 0.65
                         }
+
+                        Button {
+                            visible: root.activePanel === "agents"
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            text: "+"
+                            enabled: !AgentStore.mutating
+                            hoverEnabled: true
+                            padding: 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Create Agent"
+                            onClicked: agentEditor.openForCreate()
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled && parent.hovered
+                                    ? root.theme.appText
+                                    : root.theme.mutedText
+                                font.pixelSize: 14
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                color: parent.hovered
+                                    ? root.theme.hoverBg
+                                    : "transparent"
+                                border.width: 1
+                                border.color: parent.hovered
+                                    ? root.theme.panelBorder
+                                    : "transparent"
+                                radius: 4
+                            }
+                        }
                     }
 
                     ListView {
@@ -581,50 +617,93 @@ Rectangle {
                                         opacity: 0.7
                                     }
 
-                                    Column {
+                                    Item {
+                                        id: assignmentArea
+
                                         anchors.left: parent.left
+                                        anchors.right: editAgentButton.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+
+                                        Column {
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.leftMargin: 9
+                                            anchors.rightMargin: 5
+                                            spacing: 3
+
+                                            Text {
+                                                width: parent.width
+                                                text: String(agentItem.modelData.name || "Unnamed Agent")
+                                                    + (agentItem.assigned ? "  ✓" : "")
+                                                color: root.theme.appText
+                                                font.pixelSize: 9
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Text {
+                                                width: parent.width
+                                                text: agentItem.modelData.description
+                                                    || (agentItem.modelData.generation
+                                                        ? String(agentItem.modelData.generation.model || "")
+                                                        : "")
+                                                color: root.theme.mutedText
+                                                font.pixelSize: 8
+                                                opacity: 0.72
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+
+                                        HoverHandler {
+                                            id: agentHover
+                                        }
+
+                                        TapHandler {
+                                            id: agentTap
+                                            enabled: ChatStore.selectedChatId.length > 0
+                                                && !ChatStore.responding
+                                                && !ChatStore.assigningAgent
+                                                && !agentItem.assigned
+                                            onTapped: ChatStore.assignAgentToSelectedChat(
+                                                String(agentItem.modelData.id)
+                                            )
+                                        }
+                                    }
+
+                                    Button {
+                                        id: editAgentButton
+
                                         anchors.right: parent.right
+                                        anchors.rightMargin: 5
                                         anchors.verticalCenter: parent.verticalCenter
-                                        anchors.leftMargin: 9
-                                        anchors.rightMargin: 7
-                                        spacing: 3
+                                        width: 27
+                                        height: 27
+                                        text: "✎"
+                                        enabled: !AgentStore.mutating
+                                        hoverEnabled: true
+                                        padding: 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Edit Agent"
+                                        onClicked: agentEditor.openForEdit(agentItem.modelData)
 
-                                        Text {
-                                            width: parent.width
-                                            text: String(agentItem.modelData.name || "Unnamed Agent")
-                                                + (agentItem.assigned ? "  ✓" : "")
-                                            color: root.theme.appText
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                            elide: Text.ElideRight
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: parent.enabled && parent.hovered
+                                                ? root.theme.appText
+                                                : root.theme.mutedText
+                                            font.pixelSize: 11
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
                                         }
 
-                                        Text {
-                                            width: parent.width
-                                            text: agentItem.modelData.description
-                                                || (agentItem.modelData.generation
-                                                    ? String(agentItem.modelData.generation.model || "")
-                                                    : "")
-                                            color: root.theme.mutedText
-                                            font.pixelSize: 8
-                                            opacity: 0.72
-                                            elide: Text.ElideRight
+                                        background: Rectangle {
+                                            color: parent.hovered
+                                                ? root.theme.hoverBg
+                                                : "transparent"
+                                            radius: 4
                                         }
-                                    }
-
-                                    HoverHandler {
-                                        id: agentHover
-                                    }
-
-                                    TapHandler {
-                                        id: agentTap
-                                        enabled: ChatStore.selectedChatId.length > 0
-                                            && !ChatStore.responding
-                                            && !ChatStore.assigningAgent
-                                            && !agentItem.assigned
-                                        onTapped: ChatStore.assignAgentToSelectedChat(
-                                            String(agentItem.modelData.id)
-                                        )
                                     }
                                 }
                             }
@@ -644,5 +723,11 @@ Rectangle {
                 }
             }
         }
+    }
+
+    AgentEditor {
+        id: agentEditor
+
+        theme: root.theme
     }
 }
