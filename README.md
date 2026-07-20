@@ -1,672 +1,663 @@
 # Archivist
 
-> **Status:** The persistent Chat, Agent, Context Compiler, retrieval, Library catalog, and modular Workbench foundations are working. The next major product slice is connecting Library file contents to Chat through safe, inspectable retrieval.
+> **Status:** A native Qt 6/QML Workbench is connected to the existing Express, SQLite, filesystem, Context Compiler, Agent, and AI-provider backend. Native Library browsing, persistent Chat, paginated history, and AI responses work. Next: native Agent integration, then safe Library file reading and file-aware Chat.
 
-Archivist is a local-first Electron AI workspace for durable conversation, file-aware retrieval, and safe computer work.
+Archivist is a local-first AI workspace for durable project memory, inspectable context, and safe computer work.
 
 ```text
-Choose a folder
-→ scan and understand its structure
+Choose a Library
+→ catalog its files
 → talk to an AI that remembers
-→ retrieve only relevant context
-→ review proposed changes
-→ approve, reject, or undo them
+→ retrieve only relevant evidence
+→ inspect sources and work performed
+→ approve, reject, or undo consequential actions
 ```
-
-Core promise:
 
 ```text
 Your files stay yours.
 Chat history is durable.
 Provider context is temporary and curated.
-Memory and consequential actions remain inspectable.
+Memory, sources, tools, and consequential actions remain inspectable.
 ```
+
+---
+
+# Product Direction
+
+Archivist should not compete with Codex or Claude Code on raw model intelligence, terminal execution, worktrees, or generic coding-agent behavior.
+
+> Archivist is a durable, local project-memory and work-orchestration layer that can use OpenAI, Codex, Claude, and other agents as workers.
+
+Providers supply intelligence and execution. Archivist owns:
+
+```text
+Libraries and project knowledge
+Chats and decisions
+explicit Context Compiler behavior
+sources and provenance
+Agent identities and assignments
+artifacts and task outcomes
+permissions and approvals
+operation history
+provider-independent continuity
+```
+
+A Library should become the durable world for a project, not merely a temporary folder attachment:
+
+```text
+Library
+├── source files and indexed knowledge
+├── Chats and decisions
+├── Agents and task runs
+├── pinned evidence and artifacts
+└── approvals and operation history
+```
+
+The long-term opportunity is a human-readable workspace coordinating trusted AI workers without hiding context, evidence, or consequences.
+
+---
+
+# Runtime Direction
+
+Electron and React established the product, backend contracts, and visual language, but large variable-height Chat histories exposed a practical rendering ceiling on weaker hardware.
+
+The migration preserves the backend and replaces the desktop presentation layer:
+
+```text
+Qt 6 / QML
+  native Workbench, Explorer, Chat, animation, desktop lifecycle
+        |
+C++ domain stores
+  HTTP requests, client state, QML-facing models
+        |
+Express API
+  validation, orchestration, product behavior
+        |
+SQLite + filesystem + AI providers
+  durable state, catalog, retrieval, generation
+```
+
+The React frontend remains a behavioral and visual reference. New desktop work targets Qt unless a task explicitly concerns the legacy client.
+
+The native client already provides fast startup, smooth variable-height Chat rendering, responsive paginated history, and substantially more animation and layout headroom.
+
+This is a client lift-and-shift, not a backend rewrite.
 
 ---
 
 # Development Handoff Rules
 
-This README is the seed for new development chats.
+This README is the durable project seed. Literal current source always wins.
 
-## Zach's coding-help preferences
+## Coding-help preferences
 
 Optimize for low-cognitive-load, copy-paste development while Zach steers product and architecture.
 
-For new files or folders:
-
 ```text
-Give exact shell commands first.
-Assume repository root unless stated otherwise.
-Use mkdir -p and touch when helpful.
+new paths
+→ exact shell commands first
+→ assume repository root unless stated otherwise
+
+files around 500 lines or less
+→ prefer complete replacements
+→ label exact path and create/replace
+
+larger or partial edits
+→ unique search anchor
+→ exact old block
+→ complete replacement block
+→ explicit end boundary
 ```
 
-For files around **500 lines or less**:
+Prefer complete vertical slices, one build after the chunk, clear commit boundaries, minimal unrelated refactors, direct pushback on risky choices, reversible changes, and fixes grounded in current files.
+
+Avoid vague placement, intentional red builds, scattered micro-edits, premature abstractions, long implementation lectures, and committed handoff artifacts.
+
+## Fractal Qt architecture
 
 ```text
-Prefer complete whole-file replacements.
-Label the exact path and whether the file is created or replaced.
-A larger paste is usually cheaper than several correction rounds.
-```
-
-For larger files or partial edits:
-
-```text
-1. Give a unique search anchor.
-2. Show the exact old block.
-3. Show the complete replacement block.
-4. State where the replacement ends.
-```
-
-Default step shape:
-
-```text
-path
-→ action
-→ copy-pasteable code or command
-→ verification command
-```
-
-Prefer:
-
-- complete vertical slices;
-- one build after the full chunk;
-- clear commit boundaries;
-- minimal unrelated refactors;
-- direct professional pushback when a choice is risky;
-- reversible changes;
-- fixes grounded in the actual current files.
-
-Avoid:
-
-- vague placement instructions;
-- intentional red builds;
-- scattered micro-edits;
-- repeated questions when the repository already answers them;
-- premature abstractions;
-- long architecture lectures during active implementation;
-- committing generated patches, handoff bundles, or temporary context archives.
-
-## Mandatory frontend architecture
-
-Archivist uses a fractal feature architecture.
-
-```text
-Feature
-├── Feature.tsx
-├── Feature.module.css
+Feature/
+├── Feature.qml
 └── ChildFeature/
-    ├── ChildFeature.tsx
-    ├── ChildFeature.module.css
+    ├── ChildFeature.qml
     └── NestedFeature/
+        └── NestedFeature.qml
 ```
 
 Rules:
 
-- Every meaningful visual component gets its own folder.
-- Component CSS stays beside the component.
-- Parent features own their child components.
-- Do not flatten unrelated components into one large directory.
-- Shared domain API and types stay under `domains/<domain>`.
-- Shared design tokens stay centralized.
-- Keep `App.tsx` focused on top-level orchestration.
-- Do not casually modify the Topbar while working on unrelated features.
+- meaningful visual features own their children;
+- do not flatten unrelated QML into generic folders;
+- Workbench components own layout, not domain behavior;
+- networking and state stay in domain stores;
+- theme tokens stay centralized;
+- `App.qml` stays focused on orchestration;
+- unrelated work should not casually modify the Topbar.
+
+C++ stores mirror product domains:
+
+```text
+qt/src/App/Domains/<Domain>/
+├── <domain>_store.h
+└── <domain>_store.cpp
+```
+
+---
+
+# Context + Patch Workflow
+
+```text
+local repository
+→ generated text context
+→ coding chat
+→ numbered patch
+→ check, apply, build, test, commit
+→ fresh context
+```
+
+Temporary root files are never committed:
+
+```text
+qt-context-012.txt
+012-qt-agent-integration.patch
+```
+
+Add local ignores once:
+
+```bash
+cat >> .git/info/exclude <<'EOF_IGNORE'
+qt-context-*.txt
+[0-9][0-9][0-9]-*.patch
+EOF_IGNORE
+```
+
+Generate context:
+
+```bash
+./scripts/qt-context
+```
+
+Include exact backend paths for the next slice:
+
+```bash
+./scripts/qt-context \
+  backend/src/api/agents \
+  backend/src/api/chats
+```
+
+The bundle includes branch, status, recent commits, a filtered tree, uncommitted diff, all Qt source, and requested reference paths.
+
+Apply a returned patch:
+
+```bash
+git apply --check 012-feature-name.patch
+git apply 012-feature-name.patch
+
+git status --short
+git diff --stat
+```
+
+After testing:
+
+```bash
+git add <completed-paths>
+git commit -m "describe the completed vertical slice"
+git status
+```
+
+Never generate a patch against an old bundle after files change.
 
 ---
 
 # Current Product Snapshot
 
-## Working
+## Native Qt client
 
-### Runtime and persistence
+### Workbench
 
-- [x] Electron + React/Vite/TypeScript desktop shell.
-- [x] Express/TypeScript backend at `127.0.0.1:3333`.
-- [x] Node 24 workspace with one-command development startup.
-- [x] SQLite WAL mode and versioned migrations.
-- [x] Persistent Libraries, Chats, messages, Agents, and selected state.
-- [x] Conversations survive Electron and backend restarts.
-- [x] Backend and frontend production builds pass.
+- [x] Qt 6/QML application and CMake build.
+- [x] Native Topbar, Activity Rail, Explorer, Workspace, Chat dock, Artifact Drawer shell, and status bar.
+- [x] Centered Workspace collision behavior around the Explorer.
+- [x] Flat neutral Chat presentation.
+- [x] Native hover, press, layout, and animation foundations.
+- [x] One-command backend and Qt startup through `./scripts/qt-dev`.
 
 ### Libraries
 
-- [x] Library create, select, rename, archive, restore, and delete flows.
-- [x] Native folder selection through the Electron shell.
-- [x] Read-only Library filesystem scanning.
-- [x] Root-constrained traversal that rejects escaped paths.
-- [x] Persistent `library_scans` history.
-- [x] Persistent `library_files` metadata catalog.
-- [x] Missing-file reconciliation after successful rescans.
-- [x] Ignore handling for development folders such as `.git`, `node_modules`, `dist`, `build`, and `coverage`.
-- [x] Navigable Library file tree in the Explorer.
-- [x] File metadata search and manual rescan controls.
+- [x] Load active Libraries through the existing API.
+- [x] Restore and persist selected Library.
+- [x] Load cataloged files and trigger rescans.
+- [x] Native expandable file tree from flat catalog records.
+- [x] Filtering preserves visible ancestors.
+- [x] File selection and Explorer status.
 
 ### Chats
 
-- [x] Chat create, select, rename, archive, restore, and delete flows.
-- [x] Chat archive and restore HTTP endpoints.
-- [x] Persistent messages and selected Chat restoration.
-- [x] Optimistic user-message presentation.
-- [x] Real OpenAI responses behind an `AIProvider` boundary.
-- [x] Active Chat ordering updates after activity.
-- [x] Distinct User, Archivist, and System message presentation.
-- [x] Message timestamps and delivery/status presentation.
-- [x] Working copy-message controls.
-- [x] Working fenced-code copy controls.
-- [x] Local thumbs-up and thumbs-down response state.
-- [x] Retry, edit, resend, and additional-action presentation hooks.
-- [x] Dedicated empty, loading, and thinking states.
-- [x] Jump-to-latest control when browsing older messages.
-- [x] Responsive transcript widths and reduced-motion support.
+- [x] Load persistent Chats and selected state.
+- [x] Load real messages and send through `/respond`.
+- [x] Optimistic user messages and temporary thinking state.
+- [x] Provider and model response metadata.
+- [x] Variable-height native message delegates.
+- [x] Cursor-based upward history pagination.
+- [x] Large initial load and aggressive history prefetch.
+- [x] Visible-position preservation when older pages prepend.
+- [x] Chats open at the newest message.
+- [x] Reliable jump-to-latest with native `ListView` positioning.
+- [x] Enter sends; Shift+Enter inserts a newline.
+- [x] Misleading paginated scrollbar removed.
 
-### Agents and generation
+## Durable backend
 
-- [x] Persistent Agents.
-- [x] Built-in Archivist default Agent.
-- [x] Agent create, edit, duplicate, archive, restore, and delete flows.
-- [x] Agent assignment to Chats.
-- [x] Agent identity configuration.
-- [x] Agent profession, mission, expertise, responsibility, limitation, and success-criteria configuration.
-- [x] Doctrine and system-instruction configuration.
-- [x] Output-contract and verbosity configuration.
-- [x] Generation configuration for provider, model, temperature, output tokens, top-p, and penalties.
-- [x] Agent-owned Context Compiler selection and configuration.
-- [x] Provider health endpoint.
-- [x] AI model catalog and refresh endpoint.
+- [x] Express 5, TypeScript, Node 24, SQLite WAL, and versioned migrations.
+- [x] Persistent Libraries, scans, file catalog, Chats, messages, Agents, and selected state.
+- [x] Root-constrained read-only Library scanning.
+- [x] Chat CRUD, archive, restore, response, and paginated-message routes.
+- [x] Persistent Agents and built-in Archivist Agent.
+- [x] Agent identity, doctrine, output, generation, and Context Compiler configuration.
+- [x] OpenAI behind an `AIProvider` boundary.
+- [x] Provider health and dynamic model catalog.
+- [x] Versioned deterministic Context Compilers.
+- [x] SQLite FTS5 Chat retrieval.
+- [x] Auto Balanced v2 separates evidence, conversation, and current intent.
 
-### Context and retrieval
+## Legacy reference client
 
-- [x] Context Compiler registry with persisted per-Agent compiler/config.
-- [x] Generic Context Compiler Laboratory controls.
-- [x] Deterministic compilers:
-  - Recent History;
-  - Contiguous History;
-  - Turn Pairs;
-  - Keyword Recency;
-  - Auto Balanced v1;
-  - Auto Balanced v2.
-- [x] SQLite FTS5 index for completed Chat messages.
-- [x] Automatic FTS backfill and insert/update/delete synchronization.
-- [x] Ranked Chat retrieval with BM25, excerpts, metadata, and token estimates.
-- [x] Auto Balanced v2 separates evidence from intent.
-- [x] The current user message remains last in provider context.
-- [x] Provider-specific translation remains inside the provider adapter.
-
-### Workbench shell
-
-- [x] Modular Workbench shell replacing the old monolithic Sidebar layout.
-- [x] Compact activity rail.
-- [x] Collapsible Explorer dock.
-- [x] Libraries, archived Libraries, search, plugins, and tools Explorer modes.
-- [x] Staged Explorer widths for shallow and deeply nested trees.
-- [x] Unified central workspace surface.
-- [x] Persistent Chat command deck.
-- [x] Attached and centered Chat dock modes.
-- [x] Chat dock mode adapts when the Explorer closes.
-- [x] Active Chat header with Library and Agent context.
-- [x] Chat management control in the dock header.
-- [x] Chats and Agents browsers inside the command deck.
-- [x] Full-width Workbench status bar.
-- [x] Artifact drawer shell for future durable outputs.
-- [x] Responsive behavior for narrow and short desktop windows.
-- [x] Reduced expensive blur and layout effects.
-- [x] Hover-neighbor motion and reduced-motion fallbacks.
-- [x] Workbench state persisted locally.
-
----
-
-# Recent Milestone: Workbench and Chat Presentation
-
-The `feature/workbench-shell` branch turns Archivist from a collection of sidebar panels into a coherent desktop workspace.
-
-## Workbench structure
-
-```text
-frontend/src/components/workbench/
-├── ArtifactDrawer/
-├── ChatDock/
-│   ├── ChatDockHeader/
-│   └── DockPlaceholder/
-├── WorkbenchCanvas/
-└── WorkbenchShell/
-    ├── ActivityRail/
-    ├── ExplorerDock/
-    ├── StatusBar/
-    ├── WorkbenchLayoutContext.tsx
-    ├── WorkbenchShell.module.css
-    └── WorkbenchShell.tsx
-```
-
-The shell now provides:
-
-```text
-Topbar
-→ Activity Rail
-→ Explorer Dock
-→ Main Workspace
-→ Chat Command Deck
-→ Status Bar
-```
-
-The Chat command deck can either:
-
-```text
-attach to the open Explorer
-```
-
-or:
-
-```text
-center itself beneath the workspace
-```
-
-Chats and Agents no longer consume permanent right-sidebar space. They open inside the command deck only when needed.
-
-## Chat presentation structure
-
-```text
-frontend/src/components/chat/
-├── ChatWindow.tsx
-├── ChatWindow.module.css
-└── ChatWindow/
-    ├── ChatEmptyState/
-    │   ├── ChatEmptyState.tsx
-    │   └── ChatEmptyState.module.css
-    └── ChatMessage/
-        ├── ChatMessage.tsx
-        ├── ChatMessage.module.css
-        ├── ChatMessageActions/
-        │   ├── ChatMessageActions.tsx
-        │   └── ChatMessageActions.module.css
-        └── MessageContent/
-            ├── MessageContent.tsx
-            └── MessageContent.module.css
-```
-
-Message presentation now includes:
-
-```text
-role identity
-timestamp
-status
-message surface
-fenced code presentation
-copy controls
-rating controls
-future action controls
-```
-
-Working now:
-
-- copying an entire message;
-- copying an individual fenced code block;
-- toggling local positive or negative response ratings;
-- jumping back to the latest message.
-
-Presented but not connected to backend behavior yet:
-
-- retry response;
-- edit user message;
-- resend message;
-- extended message actions.
-
-## Endpoint repair
-
-The frontend already expected:
-
-```text
-POST /api/chats/:chatId/archive
-POST /api/chats/:chatId/restore
-```
-
-The Chat model already implemented both operations, but the controller and router wiring were missing.
-
-Those endpoints are now exposed and preserve selected-Chat fallback behavior.
-
-## Repository cleanup
-
-Temporary development artifacts are ignored and removed from the branch:
-
-```text
-archivist-workbench-shell-v*.patch
-*-context.tar.gz
-chat-presentation-context.txt
-```
-
-Do not commit handoff bundles or generated patch files to product branches.
+- [x] Electron and React remain as behavioral and visual reference.
+- [x] Existing management flows remain usable during native parity work.
+- [x] Unpaginated message requests remain compatible.
+- [~] New desktop work should not target React by default.
 
 ---
 
 # Current Limitations
 
-- [~] Only OpenAI is wired as a generation provider.
-- [~] Library scanning currently catalogs metadata; it does not parse or index file contents.
-- [~] Library files cannot yet be opened, previewed, or attached to a Chat from the Workbench.
-- [~] The Context Compiler can retrieve Chat history but not Library content.
-- [~] Chat history loads as one list; upward pagination is not built.
-- [~] Retrieval is lexical FTS only; there are no embeddings.
-- [~] Retrieved Chat evidence uses individual messages rather than neighboring turns.
-- [~] AI responses use request/response rather than token streaming.
-- [~] Message ratings are local UI state only.
-- [~] Retry, edit, resend, and more-message controls are placeholders.
-- [~] The Artifact Drawer is a presentation shell without persistent artifacts.
-- [~] Source and context manifests are not visible in the primary Workbench.
-- [~] Compiler diagnostic logging should eventually sit behind a development flag.
-- [~] Production credentials should use the OS keychain.
+## Native parity
 
-## Not built yet
+- [~] Qt Library create, rename, archive, restore, and delete are incomplete.
+- [~] Qt Chat create, rename, archive, restore, and delete are incomplete.
+- [~] Real Agent loading, selection, and management are not connected in Qt.
+- [~] Some Electron-era message actions remain presentation-only.
+- [~] Artifact Drawer remains a shell.
+- [~] Packaging and non-macOS verification are unfinished.
 
-- [ ] Library file-content extraction.
-- [ ] Library-content FTS indexing and chunk retrieval.
-- [ ] File previews and safe open-in-system actions.
-- [ ] Chat file attachments and pinned sources.
-- [ ] Library-aware Context Compiler candidates.
-- [ ] Visible source and context inspector.
-- [ ] Message pagination and true infinite scroll.
-- [ ] Streaming Chat responses.
+## Product work not built
+
+- [ ] Safe Library file-content reading and Workspace preview.
+- [ ] Chat attachments and pinned sources.
+- [ ] Library-content chunking, FTS, and Context Compiler candidates.
+- [ ] Visible source and Context Compiler manifest inspection.
+- [ ] Read-only Agent tool execution trace.
+- [ ] Streaming responses.
 - [ ] Embeddings and semantic retrieval.
-- [ ] User-approved durable memory.
-- [ ] Durable artifact storage.
-- [ ] File-writing tools.
-- [ ] Human-reviewable diffs.
-- [ ] Operation ledger.
-- [ ] Approval and revert workflows.
-- [ ] Autonomous routines or multi-Agent orchestration.
+- [ ] User-approved durable memory and artifacts.
+- [ ] File-writing tools, reviewable diffs, operation ledger, and revert.
+- [ ] External-worker delegation and multi-Agent task orchestration.
+- [ ] OS keychain credential storage.
 
 ---
 
 # Immediate Roadmap
 
-## 1. Merge the Workbench shell
-
-The current PR should establish the visual and structural foundation for future product work.
-
-Before merging:
+## 1. Native Agent integration
 
 ```text
-build passes
-→ working tree clean
-→ temporary artifacts absent
-→ Chat archive and restore verified
-→ PR scope reviewed
+load real Agents
+→ resolve selected Chat's assigned Agent
+→ show Agent name and configuration
+→ change Chat-to-Agent assignment
+→ create and edit Agents
+→ duplicate, archive, restore, delete
 ```
 
-After merging, new work should branch from updated `main`.
+Reuse the existing backend APIs. Do not create Qt-only Agent behavior.
 
-## 2. Library content retrieval — next major slice
-
-The persistent Library metadata catalog exists. The next step is making those files useful to Chat without introducing mutation.
-
-First complete vertical slice:
+## 2. Read-only Library file preview
 
 ```text
-select a cataloged file
-→ safely resolve it inside the Library root
-→ read supported text content
-→ preview it in Archivist
-→ attach or pin it to the active Chat
-→ send selected excerpts through the Context Compiler
-→ show the source used for the response
+select cataloged file
+→ validate Library ownership
+→ resolve inside Library root
+→ enforce type and size limits
+→ read supported text
+→ show it in the Workspace
 ```
 
-Backend direction:
+First formats:
 
 ```text
-LibraryFileReader
-→ validates catalog ownership
-→ resolves the path inside the Library root
-→ enforces supported types and size limits
-→ returns text plus source metadata
+.md .txt .json .ts .tsx .js .jsx .css .html .qml .cpp .h
 ```
 
-Do not let controllers read arbitrary filesystem paths.
+Controllers must never accept arbitrary filesystem paths. Keep v1 strictly read-only.
 
-Suggested first supported formats:
+## 3. File-aware Chat
 
 ```text
-.md
-.txt
-.json
-.ts
-.tsx
-.js
-.jsx
-.css
-.html
+preview file
+→ attach or pin approved source
+→ represent excerpts as evidence
+→ pass evidence through Context Compiler
+→ keep current user intent last
+→ show sources used
 ```
 
-Keep the first version read-only.
+This is the first major slice that makes Archivist more than a fast Chat client.
 
-## 3. Library indexing and retrieval
-
-After direct file preview and attachment work:
+## 4. Library indexing and retrieval
 
 ```text
 cataloged file
-→ extract text
-→ split into deterministic chunks
-→ persist chunk metadata
-→ index chunks with SQLite FTS5
-→ retrieve ranked Library evidence
-→ feed candidates into Auto Balanced
+→ deterministic extraction and chunks
+→ SQLite metadata and FTS5
+→ ranked Library evidence
+→ Context Compiler candidates
 ```
 
-Library retrieval results should include:
+Preserve Library ID, file ID, relative path, line or chunk range, excerpt, ranking score, and token estimate.
+
+## 5. Visible read-only Agent tools
+
+Start with:
 
 ```text
-Library ID
-file ID
-relative path
-chunk or line range
-excerpt
-ranking score
-estimated tokens
+search_library
+read_file
+list_directory
+search_chat_history
+inspect_source
 ```
 
-## 4. Infinite Chat history
+Execution must remain observable:
 
 ```text
-Permanent timeline = complete browsable record.
-Provider context   = curated subset for one response.
+Agent requests tool
+→ Archivist displays request
+→ tool runs within explicit scope
+→ result or failure is stored
+→ Agent continues
+→ user can inspect the trace
 ```
 
-Required behavior:
+## 6. Small swarm proof
 
-- paginate messages;
-- load recent messages first;
-- fetch older rows while scrolling upward;
-- preserve the visible scroll anchor;
-- keep retrieval independent from UI pagination;
-- retain the current jump-to-latest behavior.
-
-## 5. Visible context and sources
-
-The user should be able to inspect what Archivist selected.
+Do not begin with a generic multi-Agent playground.
 
 ```text
-response
-→ source cards
-→ selected excerpts
-→ Context Compiler manifest
-→ token-budget explanation
+one coordinator
+→ two specialist Agents
+→ read-only tools
+→ explicit assignments
+→ independent findings
+→ disagreement and confidence notes
+→ sourced final synthesis
 ```
 
-This should fit naturally into the Artifact Drawer or a dedicated inspector surface.
+A useful non-coding test is a modernization proposal built from architecture docs, meeting notes, Jira exports, customer feedback, and repository files. Archivist owns context, evidence, task graph, and final artifact; Codex or another provider may remain the implementation worker.
 
-## 6. Streaming and message actions
+## 7. Streaming and safe mutation
 
-After the retrieval path is stable:
-
-- stream assistant output;
-- connect retry to a new completion attempt;
-- connect edit/resend to explicit Chat operations;
-- persist response ratings;
-- expose more-message actions only when they have real behavior.
-
-## 7. Tools and safe mutation
+Only after retrieval and tool execution are inspectable:
 
 ```text
-read-only retrieval
-→ visible sources
+streaming
+→ real retry/edit/resend
+→ durable artifacts
 → proposed file changes
 → diff and approval
 → operation ledger
 → revert
 ```
 
-Do not skip directly from file reading to autonomous mutation.
+Do not skip from file reading to autonomous mutation.
 
 ---
 
 # Core Architecture
 
-## Runtime
+Archivist is a modular monolith.
 
 ```text
-Electron shell
-  native dialogs, narrow IPC, lifecycle
+Qt/QML desktop
+  presentation and native interaction
         |
-React frontend
-  Workbench, Chat, Explorer, management modals
+C++ domain stores
+  HTTP requests, client state, QML models
         |
 Express API
-  routes, validation, controllers
+  routes, schemas, controllers
         |
-Domain services and models
-  Libraries, Chats, Agents, cognition, completion
+Domain models and services
+  persistence, invariants, orchestration
         |
 SQLite + filesystem + provider adapters
 ```
 
-Archivist is a modular monolith.
+Business behavior belongs behind the local HTTP API. QML must not duplicate backend invariants.
 
-Use Electron IPC only for desktop-shell capabilities. Business behavior belongs behind the local HTTP API.
-
-## Workbench architecture
+## Workbench ownership
 
 ```text
 WorkbenchShell
 ├── ActivityRail
 ├── ExplorerDock
-├── WorkbenchCanvas
+├── Workspace
 ├── ChatDock
 ├── ArtifactDrawer
 └── StatusBar
 ```
 
-The Workbench shell owns layout behavior.
+The shell owns layout. Libraries, Chats, Agents, files, and artifacts supply domain content.
 
-Domain features such as Libraries, Chats, Agents, files, and artifacts supply content to those layout surfaces.
-
-Do not put Library or Chat business logic inside generic Workbench components.
-
-## Context architecture
+## Context ownership
 
 ```text
-Search tools
-→ return ranked ContextCandidates
-
-Selectors and orchestrators
-→ call one or more search tools
-
-Context Compiler
-→ merges
-→ deduplicates
-→ budgets
-→ orders
-→ builds provider messages
+search tools → ranked ContextCandidates
+selectors    → candidate sets
+compiler     → merge, deduplicate, budget, order, provider messages
 ```
 
-Important distinction:
-
 ```text
-Intent       = final current user message
-Conversation = recent real user/assistant history
+Intent       = current user message
+Conversation = recent real Chat history
 Evidence     = retrieved reference material
 ```
 
-Auto Balanced v2 assembles:
+Retrieved evidence must never masquerade as current intent.
+
+## Domain boundaries
 
 ```text
-retrieved evidence system envelope
-→ recent contiguous conversation
-→ current user message last
+Agent      reusable AI behavior
+Chat       durable conversation assigned to an Agent
+Library    user-owned filesystem root and observed project knowledge
+AIProvider vendor-specific generation adapter
+Artifact   durable inspectable output
+ToolRun    observable scoped execution
+TaskGraph  coordinated work and dependencies
 ```
 
-Retrieved old messages or Library excerpts must never masquerade as current user intent.
+The filesystem is authoritative for file contents. SQLite stores structured state, metadata, indexes, history, and execution records.
 
-## Agent boundary
+---
 
-Agents own reusable AI behavior.
+# Repository Direction
 
 ```text
-Agent
-├── identity
-├── profession
-├── doctrine
-├── output contract
-├── system instructions
-├── generation config
-└── context compiler config
+Archivist/
+├── backend/src/
+│   ├── api/{agents,ai,appState,chats,cognition,libraries}/
+│   ├── core/
+│   ├── database/
+│   └── middleware/
+├── frontend/                  legacy React reference client
+├── qt/
+│   ├── CMakeLists.txt
+│   ├── qml/App/{Theme,Topbar,Workbench}/
+│   └── src/App/Domains/
+├── scripts/
+│   ├── qt-build
+│   ├── qt-configure
+│   ├── qt-context
+│   ├── qt-dev
+│   └── qt-run
+└── README.md
 ```
 
-Chats reference Agents.
-
-The Chat completion path should resolve behavior from the assigned Agent rather than accumulating vendor or prompt settings directly on the Chat.
-
-## Provider boundary
+Backend placement:
 
 ```text
-ChatCompletionService
-→ AIProvider interface
-→ OpenAIProvider today
-→ more providers later
+routes       URL mapping and precedence
+controllers  HTTP translation
+schemas      runtime validation
+models       persistence and invariants
+services     multi-step coordination
+core         vendor-independent contracts
+providers    vendor-specific adapters
 ```
 
-Controllers must not call provider SDKs directly.
+---
 
-Provider-specific request translation belongs in the provider adapter.
+# API Direction
 
-## Library boundary
+Base URL:
 
 ```text
-filesystem
-→ authoritative user content
-
-Library scan
-→ observes metadata
-
-Library catalog
-→ persists known file state
-
-Library reader
-→ safely reads approved content
-
-Library retrieval
-→ selects relevant excerpts
-
-File tools
-→ propose reviewed mutations later
+http://127.0.0.1:3333/api
 ```
 
-The metadata catalog is not the source of truth for file contents. The filesystem remains authoritative.
+Qt currently connects to:
+
+```text
+GET    /api/health
+GET    /api/app-state
+PATCH  /api/app-state/selected-library
+GET    /api/libraries
+GET    /api/libraries/:libraryId/files
+POST   /api/libraries/:libraryId/scan
+GET    /api/chats
+PATCH  /api/chats/selected
+GET    /api/chats/:chatId/messages
+POST   /api/chats/:chatId/respond
+```
+
+Existing backend domains also expose full Library, Chat, Agent, model, provider, Context Compiler, and message-search management APIs. Inspect the current routes before adding duplicates.
+
+Paginated history:
+
+```text
+GET /api/chats/:chatId/messages?limit=160
+GET /api/chats/:chatId/messages?limit=120&before=<oldest-message-id>
+```
+
+The unpaginated request remains for legacy compatibility.
+
+---
+
+# Development Commands
+
+```bash
+nvm use
+npm install
+./scripts/qt-dev
+```
+
+Qt only:
+
+```bash
+./scripts/qt-configure
+./scripts/qt-build
+./scripts/qt-run
+```
+
+Checks:
+
+```bash
+npm run build -w backend
+npm run build
+npm run lint
+curl http://127.0.0.1:3333/api/health
+sqlite3 backend/data/archivist.db ".tables"
+```
+
+---
+
+# Git and PR Safety
+
+Before a PR:
+
+```bash
+git status
+git log --oneline --decorate -10
+git push -u origin "$(git branch --show-current)"
+```
+
+Before deleting a branch, verify the merge reached `main`:
+
+```bash
+git fetch origin
+git switch main
+git pull --ff-only origin main
+
+git log --oneline --decorate -10
+git branch -r --contains <feature-tip-sha>
+```
+
+Only then:
+
+```bash
+git branch -d <merged-branch>
+```
+
+Delete the remote branch only after the PR visibly reports **Merged** and updated `main` contains the final feature tip.
+
+---
+
+# Feature Rhythm
+
+```text
+smallest complete behavior
+→ narrow branch
+→ fresh context bundle
+→ one focused patch
+→ UI and API verification
+→ one build
+→ one commit boundary
+→ push
+→ verify merge before cleanup
+```
+
+Good PR boundaries:
+
+```text
+native Agent integration
+native Chat management
+native Library management
+Library file reader and preview
+file-aware Chat and source inspector
+Library FTS
+read-only tools
+small swarm proof
+streaming
+safe file mutation
+```
 
 ---
 
 # Product and Safety Principles
 
 1. Local-first by default.
-2. Filesystem is authoritative for user files.
-3. SQLite stores structured state, history, metadata, and indexes.
+2. Filesystem authoritative for user files.
+3. SQLite for state, history, metadata, indexes, and execution records.
 4. Chat is the primary command surface.
-5. The Workbench is the stable visual shell around Chat.
+5. Workbench is the stable visual shell.
 6. History is durable; provider context is temporary.
-7. Current intent must remain distinct from retrieved evidence.
-8. Meaningful memory should be inspectable and user-controlled.
+7. Current intent stays distinct from evidence.
+8. Memory and sources are inspectable and user-controlled.
 9. No silent filesystem mutation.
-10. Archive or deprecate before destructive removal.
-11. Proposal before consequential action.
+10. Proposal before consequential action.
+11. Read-only before mutation.
 12. Deterministic workflows before autonomous Agents.
-13. Read-only access before mutation.
+13. Providers are workers, not owners of project continuity.
 14. Vertical slices before speculative infrastructure.
 15. Complexity must pay rent.
 
@@ -680,424 +671,63 @@ human approval before destructive action
 
 ---
 
-# Technical Foundation
-
-```text
-Desktop:     Electron
-Frontend:    React 19 + Vite + TypeScript
-Backend:     Node 24 + Express 5 + TypeScript
-Validation:  Zod
-Database:    SQLite through better-sqlite3
-Search:      SQLite FTS5
-AI:          OpenAI provider adapter
-Styling:     co-located CSS + centralized theme tokens
-```
-
-Key backend areas:
-
-```text
-backend/src/
-├── api/
-│   ├── agents/
-│   ├── ai/
-│   ├── appState/
-│   ├── chats/
-│   ├── cognition/
-│   │   ├── contextCompilers/
-│   │   └── contextRetrieval/
-│   └── libraries/
-├── core/
-│   ├── ai/
-│   └── cognition/
-│       ├── conscious/context/
-│       │   ├── compilers/
-│       │   └── utilities/
-│       └── retrieval/
-├── database/
-└── middleware/
-```
-
-Backend placement rules:
-
-```text
-routes       URL mapping and precedence
-controllers  HTTP translation
-schemas      runtime validation
-models       persistence and invariants
-services     multi-step coordination
-core         vendor-independent contracts
-providers    vendor-specific adapters
-```
-
-Fixed collection routes must precede parameter routes:
-
-```text
-/archived
-→ /selected
-→ /:id
-```
-
-Action routes must be registered explicitly:
-
-```text
-/:id/archive
-/:id/restore
-/:id/duplicate
-/:id/respond
-```
-
----
-
-# Core Data Direction
-
-```text
-libraries
-  id, name, description?, root_path, archived_at?, timestamps
-
-library_scans
-  id, library_id, status, counts, errors, timestamps
-
-library_files
-  id, library_id, relative_path, name, extension,
-  size_bytes, modified_at, status, last_seen_scan_id,
-  last_seen_at, timestamps
-
-agents
-  id, name, description, identity, profession,
-  doctrine, output contract, system instructions,
-  generation config, context config, built-in flag,
-  archived_at, timestamps
-
-chats
-  id, library_id?, title, type, agent_id,
-  archived_at, timestamps
-
-messages
-  id, chat_id, role, content, status, timestamps
-
-message_search
-  FTS5 mirror of completed non-empty messages
-
-app_settings
-  selected_library_id?, selected_chat_id?
-```
-
-`library_id = null` means a standalone Chat.
-
-Future:
-
-```text
-library_file_chunks
-library_file_search
-chat attachments
-pinned sources
-approved memories
-artifacts
-operation ledger
-```
-
----
-
-# API Surface
-
-Development base URL:
-
-```text
-http://127.0.0.1:3333/api
-```
-
-## Health
-
-```text
-GET /api/health
-```
-
-## Libraries
-
-```text
-GET    /api/libraries
-GET    /api/libraries/archived
-POST   /api/libraries
-GET    /api/libraries/:libraryId
-PATCH  /api/libraries/:libraryId
-POST   /api/libraries/:libraryId/archive
-POST   /api/libraries/:libraryId/restore
-GET    /api/libraries/:libraryId/files
-POST   /api/libraries/:libraryId/scan
-```
-
-## Chats
-
-```text
-GET    /api/chats
-GET    /api/chats/archived
-POST   /api/chats
-PATCH  /api/chats/selected
-GET    /api/chats/:chatId
-PATCH  /api/chats/:chatId
-DELETE /api/chats/:chatId
-POST   /api/chats/:chatId/archive
-POST   /api/chats/:chatId/restore
-GET    /api/chats/:chatId/messages
-POST   /api/chats/:chatId/messages
-POST   /api/chats/:chatId/respond
-```
-
-## Agents
-
-```text
-GET    /api/agents
-GET    /api/agents/archived
-POST   /api/agents
-GET    /api/agents/:agentId
-PATCH  /api/agents/:agentId
-DELETE /api/agents/:agentId
-POST   /api/agents/:agentId/duplicate
-POST   /api/agents/:agentId/archive
-POST   /api/agents/:agentId/restore
-```
-
-## AI providers and models
-
-```text
-GET  /api/ai/models
-POST /api/ai/models/refresh
-GET  /api/ai/providers
-```
-
-## Context and retrieval
-
-```text
-GET /api/cognition/context-compilers
-GET /api/cognition/search/messages
-```
-
----
-
-# Development Commands
-
-From the repository root:
-
-```bash
-nvm use
-npm install
-npm run dev
-```
-
-Individual processes:
-
-```bash
-npm run dev:backend
-npm run dev:frontend
-npm run dev:electron
-```
-
-Build:
-
-```bash
-npm run build
-npm run build -w backend
-npm run build -w frontend
-```
-
-Lint:
-
-```bash
-npm run lint
-```
-
-Useful checks:
-
-```bash
-curl http://127.0.0.1:3333/api/health
-
-curl http://127.0.0.1:3333/api/agents
-
-curl http://127.0.0.1:3333/api/ai/models
-
-curl http://127.0.0.1:3333/api/cognition/context-compilers
-
-curl --get http://127.0.0.1:3333/api/cognition/search/messages \
-  --data-urlencode "q=obsidian compass"
-
-sqlite3 backend/data/archivist.db ".tables"
-
-sqlite3 backend/data/archivist.db "PRAGMA user_version;"
-
-sqlite3 backend/data/archivist.db \
-  "SELECT count(*) FROM message_search;"
-```
-
-`SIGINT` and Electron lifecycle errors after `Ctrl+C` are normal shutdown noise.
-
-## Normal branch push
-
-```bash
-git status
-
-npm run build
-
-git add -A
-
-git commit -m "describe the completed vertical slice"
-
-git push -u origin "$(git branch --show-current)"
-```
-
-## Push another commit to the current branch
-
-```bash
-git status
-
-git add -A
-
-git commit -m "describe the follow-up"
-
-git push
-```
-
-## Documentation-only push
-
-```bash
-git add README.md
-
-git commit -m "docs: update Archivist project handoff"
-
-git push origin feature/workbench-shell
-```
-
-## Confirm the branch is clean
-
-```bash
-git status
-
-git log --oneline -5
-```
-
-Expected:
-
-```text
-nothing to commit, working tree clean
-```
-
-## After the PR is merged
-
-```bash
-git switch main
-
-git pull origin main
-
-git branch -d feature/workbench-shell
-```
-
-Delete the remote branch only after confirming the merge:
-
-```bash
-git push origin --delete feature/workbench-shell
-```
-
----
-
-# Feature Rhythm
-
-```text
-define the smallest complete behavior
-→ create a narrow branch
-→ establish exact paths
-→ implement the full chunk
-→ verify through UI and API
-→ run one build
-→ commit and push
-→ merge before the next large slice
-```
-
-Avoid mixing unrelated product slices into one PR.
-
-Examples of separate PRs:
-
-```text
-Workbench shell
-Library content reader
-Library FTS indexing
-Infinite Chat pagination
-Streaming responses
-File mutation tools
-```
-
----
-
-# Seed for the Next Development Chat
-
-Archivist is a local-first Electron AI workspace.
+# Next Development Handoff
 
 Working now:
 
-- persistent Libraries, Chats, messages, Agents, and selected state;
-- real OpenAI Chat through an `AIProvider` boundary;
-- Agent builder with identity, profession, doctrine, output, generation, and Context Compiler configuration;
-- AI provider health and model discovery;
-- versioned Context Compiler framework and compiler laboratory;
-- deterministic history compilers;
-- SQLite FTS5 Chat retrieval;
-- Auto Balanced v2, which separates retrieved evidence from current intent;
-- persistent read-only Library file scans and metadata catalog;
-- navigable Library Explorer tree;
-- modular Workbench shell with activity rail, Explorer, Chat command deck, Artifact Drawer shell, and status bar;
-- polished Chat message presentation and copy controls;
-- Chat archive and restore routes;
-- backend and frontend builds pass.
-
-The Workbench PR is on:
-
 ```text
-feature/workbench-shell
+native Qt Workbench
+real Library API and expandable file tree
+real persistent Chats and AI responses
+paginated native message history
+smooth open-at-bottom scrolling
+persistent backend Agents and cognition
 ```
 
-After it merges, work from updated `main`.
-
-Next milestone:
+Current migration branch:
 
 ```text
-Library content retrieval and file-aware Chat
+feature/qt-workbench-foundation
 ```
 
-Suggested sequence:
+Do not delete it until the PR is verified as merged and updated `main` contains its final tip.
 
-1. Inspect the Library scanner, file catalog model/types, Library routes, file tree, ContextCandidate types, Context Compiler, and Chat completion flow.
-2. Add a root-constrained `LibraryFileReader`.
-3. Add a safe endpoint for reading one cataloged supported text file.
-4. Add a Workbench file-preview surface.
-5. Allow the user to pin or attach a file to the active Chat.
-6. Represent attached excerpts as explicit evidence candidates.
-7. Feed them through Auto Balanced without confusing evidence with current intent.
-8. Show the file path and excerpt used for the answer.
-9. Keep the entire first slice read-only.
-10. Follow with deterministic file chunking and Library FTS indexing.
-
-Out of scope for that first slice:
+Recommended next branch after merge:
 
 ```text
-file mutation
-embeddings
-autonomous tools
-multi-Agent orchestration
-background swarms
-silent memory
-image generation
-large visual redesign
+feature/qt-agent-integration
 ```
 
-Required working style:
+First milestone:
 
-- exact commands for new paths;
-- fractal component architecture;
-- whole-file replacements around 500 lines or less;
-- exact search anchors and old/new blocks for partial edits;
-- complete copy-pasteable chunks;
-- one build after the chunk;
-- direct pushback on risky architecture;
-- preserve unrelated working behavior;
-- never commit temporary patches or context bundles.
+```text
+load real Agents
+→ show assigned Agent
+→ change Chat assignment
+→ open native Agent management
+```
+
+Then:
+
+```text
+safe Library file reader
+→ native preview
+→ attach or pin evidence
+→ file-aware response with visible sources
+```
+
+Required workflow:
+
+```text
+exact commands
+fractal paths
+literal current files
+fresh focused context bundle
+one verified patch
+one build
+one commit boundary
+no temporary artifacts in Git
+```
 
 ```text
 One workspace.

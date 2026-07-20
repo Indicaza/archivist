@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: scripts/qt-context must run inside the Archivist Git repository." >&2
+  exit 1
+fi
+
+sequence=""
+
+if [[ $# -gt 0 && "$1" =~ ^[0-9]{1,3}$ ]]; then
+  sequence="$(printf "%03d" "$1")"
+  shift
+fi
+
+if [[ -z "$sequence" ]]; then
+  next_number=1
+
+  for existing_file in qt-context-*.txt; do
+    [[ -e "$existing_file" ]] || continue
+
+    candidate="${existing_file#qt-context-}"
+    candidate="${candidate%.txt}"
+
+    if [[ "$candidate" =~ ^[0-9]+$ ]]; then
+      candidate_number=$((10#$candidate))
+
+      if (( candidate_number >= next_number )); then
+        next_number=$((candidate_number + 1))
+      fi
+    fi
+  done
+
+  sequence="$(printf "%03d" "$next_number")"
+fi
+
+output_file="qt-context-${sequence}.txt"
+
+if [[ -e "$output_file" ]]; then
+  echo "Error: $output_file already exists." >&2
+  echo "Pass a different number or remove the old bundle." >&2
+  exit 1
+fi
+
+paths=(
+  "README.md"
+  "qt"
+  "scripts/qt-build"
+  "scripts/qt-configure"
+  "scripts/qt-context"
+  "scripts/qt-dev"
+  "scripts/qt-run"
+)
+
+for extra_path in "$@"; do
+  paths+=("$extra_path")
+done
+
+temporary_file="$(mktemp "${TMPDIR:-/tmp}/archivist-qt-context.XXXXXX")"
+trap 'rm -f "$temporary_file"' EXIT
+
+section() {
+  printf "\n\n===== %s =====\n\n" "$1" >> "$temporary_file"
+}
+
+printf "===== ARCHIVIST QT CONTEXT %s =====\n" "$sequence" >> "$temporary_file"
+
+section "GENERATED"
+date >> "$temporary_file"
+
+section "GIT BRANCH"
+git branch --show-current >> "$temporary_file"
+
+section "GIT STATUS"
+git status --short >> "$temporary_file"
+
+section "RECENT COMMITS"
+git log --oneline -10 >> "$temporary_file"
+
+section "REQUESTED PATHS"
+printf "%s\n" "${paths[@]}" >> "$temporary_file"
+
+section "REPOSITORY TREE"
+
+if command -v tree >/dev/null 2>&1; then
+  tree \
+    -a \
+    -L 6 \
+    -I '.git|node_modules|dist|build|coverage|backend/data|CMakeFiles|*.db|*.db-*|qt-context-*.txt|*.patch' \
+    >> "$temporary_file"
+else
+  find . \
+    \( \
+      -path './.git' -o \
+      -path './node_modules' -o \
+      -path './backend/node_modules' -o \
+      -path './frontend/node_modules' -o \
+      -path './dist' -o \
+      -path './build' -o \
+      -path './coverage' -o \
+      -path './backend/data' -o \
+      -path './qt/build' -o \
+      -name CMakeFiles \
+    \) -prune -o \
+    -maxdepth 6 \
+    -print \
+    | sort \
+    >> "$temporary_file"
+fi
+
+section "UNCOMMITTED DIFF"
+git diff -- "${paths[@]}" >> "$temporary_file"
+
+section "FILES"
+
+git ls-files \
+  --cached \
+  --others \
+  --exclude-standard \
+  -- "${paths[@]}" \
+  | sort -u \
+  | while IFS= read -r file_path; do
+      [[ -f "$file_path" ]] || continue
+
+      file_size="$(wc -c < "$file_path" | tr -d ' ')"
+
+      if (( file_size > 750000 )); then
+        printf "===== SKIPPED LARGE FILE: %s (%s bytes) =====\n\n" \
+          "$file_path" \
+          "$file_size" \
+          >> "$temporary_file"
+        continue
+      fi
+
+      if [[ -s "$file_path" ]] && ! LC_ALL=C grep -Iq . "$file_path"; then
+        printf "===== SKIPPED BINARY FILE: %s =====\n\n" \
+          "$file_path" \
+          >> "$temporary_file"
+        continue
+      fi
+
+      printf "===== FILE: %s =====\n\n" "$file_path" >> "$temporary_file"
+      cat "$file_path" >> "$temporary_file"
+      printf "\n\n" >> "$temporary_file"
+    done
+
+section "CONTEXT SUMMARY"
+printf "Lines: %s\n" "$(wc -l < "$temporary_file" | tr -d ' ')" >> "$temporary_file"
+printf "Bytes: %s\n" "$(wc -c < "$temporary_file" | tr -d ' ')" >> "$temporary_file"
+
+mv "$temporary_file" "$output_file"
+trap - EXIT
+
+echo "Created $output_file"
+echo
+echo "Upload that file with the next requested change."
