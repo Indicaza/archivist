@@ -99,7 +99,7 @@ Archivist/
 │   ├── qml/App/          Theme, Workbench, Explorer, Chat, previews and editors
 │   └── src/App/Domains/  C++ Library, Chat and Agent stores
 ├── frontend/             Legacy Electron/React reference client
-├── scripts/              Qt configure, build, run and development helpers
+├── scripts/              Native build, runtime, cleanup and context helpers
 └── README.md
 ```
 
@@ -108,7 +108,7 @@ Archivist/
 The current development environment targets macOS.
 
 - Node.js 24 LTS
-- npm
+- npm 10 or newer
 - Qt 6.8 or newer
 - CMake 3.24 or newer
 - Ninja
@@ -130,10 +130,21 @@ npm install
 cp backend/.env.example backend/.env
 # Add the required AI-provider credentials to backend/.env.
 
-./scripts/qt-dev
+npm run dev
 ```
 
-`qt-dev` validates the Node version and native SQLite module, starts the local backend when needed, waits for the health endpoint, builds the native client, and launches Archivist.
+The root development command owns the complete native session:
+
+```text
+validate Node and better-sqlite3
+→ stop the previous managed backend
+→ clean up stale Archivist listeners
+→ start one backend
+→ wait for API health
+→ build the Qt client
+→ launch Archivist
+→ clean up the backend when Archivist exits
+```
 
 The backend API runs at:
 
@@ -141,55 +152,95 @@ The backend API runs at:
 http://127.0.0.1:3333/api
 ```
 
-### Native-module recovery
-
-`better-sqlite3` is compiled for a specific Node ABI. After changing Node versions, rebuild it before starting the backend:
-
-```bash
-nvm use
-npm rebuild better-sqlite3
-```
-
-The backend logs the active database path, schema version, and attachment-table readiness at startup.
-
 ## Development commands
 
-Run the complete local application:
+Build the complete active application:
 
 ```bash
-./scripts/qt-dev
+npm run build
 ```
 
-Work with the native client directly:
+Build and launch the backend and native Qt client in one terminal:
 
 ```bash
-./scripts/qt-configure
-./scripts/qt-build
-./scripts/qt-run
+npm run dev
+```
+
+Stop a previous managed development session:
+
+```bash
+npm run dev:stop
+```
+
+Focused native commands:
+
+```bash
+npm run dev:qt
+npm run build:qt
+npm run qt:configure
+npm run qt:run
+```
+
+The legacy Electron/React client remains available as a reference:
+
+```bash
+npm run dev:legacy
+npm run build:legacy
 ```
 
 Useful checks:
 
 ```bash
-npm run build -w backend
-npm run build
 npm run lint
 curl http://127.0.0.1:3333/api/health
 sqlite3 backend/data/archivist.db "PRAGMA user_version;"
+lsof -nP -iTCP:3333 -sTCP:LISTEN
 ```
 
-When testing backend or database changes, stop any stale process already listening on port `3333` so the new code and migrations actually start:
+## Runtime management
+
+The managed backend PID is stored at:
+
+```text
+backend/data/runtime/qt-dev-backend.pid
+```
+
+`npm run dev` owns the backend process tree and cleans it up when the Qt application exits or the terminal receives `Ctrl+C`.
+
+When a previous session ended unexpectedly:
 
 ```bash
-lsof -tiTCP:3333 -sTCP:LISTEN | xargs kill 2>/dev/null || true
-./scripts/qt-dev
+npm run dev:stop
+npm run dev
 ```
+
+The cleanup script only stops backend processes belonging to this Archivist repository. It refuses to kill an unrelated application using port `3333` and reports the conflicting process instead.
+
+### Native-module recovery
+
+`better-sqlite3` is compiled for a specific Node ABI. After changing Node versions:
+
+```bash
+nvm use
+npm rebuild better-sqlite3
+npm run dev
+```
+
+A native-module mismatch commonly appears as:
+
+```text
+ERR_DLOPEN_FAILED
+```
+
+The development launcher validates the active Node version and SQLite module before starting the application.
+
+The backend also logs the active database path, schema version, and attachment-table readiness during startup.
 
 ## Status
 
 Archivist currently has a native Workbench, persistent Libraries and Chats, paginated history, real AI responses, configurable Agents, safe Library file preview, persistent Chat attachments, bounded file-aware context, and visible source state.
 
-Current development is focused on richer context/source inspection, Library indexing and retrieval, and observable read-only Agent tools.
+Current development is focused on richer context inspection, Library indexing and retrieval, and observable read-only Agent tools.
 
 ---
 

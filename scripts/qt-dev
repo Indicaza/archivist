@@ -2,54 +2,226 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HEALTH_URL="http://127.0.0.1:3333/api/health"
+BACKEND_PORT="3333"
+HEALTH_URL="http://127.0.0.1:${BACKEND_PORT}/api/health"
+RUNTIME_DIR="$ROOT/backend/data/runtime"
+PID_FILE="$RUNTIME_DIR/qt-dev-backend.pid"
 BACKEND_PID=""
+PROCESS_TREE=()
 
-cleanup() {
-  if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
-    kill "$BACKEND_PID" 2>/dev/null || true
-    wait "$BACKEND_PID" 2>/dev/null || true
-  fi
+collect_process_tree() {
+  local pid="$1"
+  local child
+
+  PROCESS_TREE+=("$pid")
+
+  while IFS= read -r child; do
+    [[ -n "$child" ]] || continue
+    collect_process_tree "$child"
+  done < <(pgrep -P "$pid" 2>/dev/null || true)
 }
 
-trap cleanup EXIT INT TERM
+terminate_process_tree() {
+  local root_pid="$1"
+  local pid
+  local still_running
 
-if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
-  (
-    cd "$ROOT"
-    node scripts/check-node-version.mjs
+  [[ "$root_pid" =~ ^[0-9]+$ ]] || return 0
 
-    if ! node -e 'const Database = require("better-sqlite3"); const database = new Database(":memory:"); database.close();' >/dev/null 2>&1; then
-      printf 'better-sqlite3 is not built for %s.\n' "$(node --version)" >&2
-      printf 'Run: nvm use && npm rebuild better-sqlite3\n' >&2
-      exit 1
+  if ! kill -0 "$root_pid" 2>/dev/null; then
+    return 0
+  fi
+
+  PROCESS_TREE=()
+  collect_process_tree "$root_pid"
+
+  kill -TERM "${PROCESS_TREE[@]}" 2>/dev/null || true
+
+  for _ in {1..40}; do
+    still_running=0
+
+    for pid in "${PROCESS_TREE[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        still_running=1
+        break
+      fi
+    done
+
+    if (( still_running == 0 )); then
+      return 0
     fi
-  )
 
-  printf 'Starting Archivist backend...\n'
-  (
-    cd "$ROOT"
-    npm run dev:backend
-  ) &
-  BACKEND_PID=$!
+    sleep 0.1
+  done
 
-  for _ in {1..80}; do
-    if curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+  for pid in "${PROCESS_TREE[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
+}
+
+process_working_directory() {
+  local pid="$1"
+
+  lsof -a -p "$pid" -d cwd -Fn 2>/dev/null \
+    | sed -n 's/^n//p' \
+    | head -n 1
+}
+
+repository_process_root() {
+  local current_pid="$1"
+  local candidate_pid="$1"
+  local parent_pid
+  local parent_cwd
+  local parent_command
+
+  while true; do
+    parent_pid="$(ps -p "$current_pid" -o ppid= 2>/dev/null | tr -d '[:space:]')"
+
+    if [[ ! "$parent_pid" =~ ^[0-9]+$ ]] || (( parent_pid <= 1 )); then
       break
     fi
 
-    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-      printf 'Archivist backend exited before becoming healthy.\n' >&2
-      exit 1
+    parent_cwd="$(process_working_directory "$parent_pid")"
+    parent_command="$(ps -p "$parent_pid" -o command= 2>/dev/null || true)"
+
+    if [[ "$parent_cwd" != "$ROOT" && "$parent_cwd" != "$ROOT/"* ]]; then
+      break
     fi
+
+    if [[ ! "$parent_command" =~ (node|npm|npx|tsx|dev:backend|qt-dev) ]]; then
+      break
+    fi
+
+    candidate_pid="$parent_pid"
+    current_pid="$parent_pid"
+  done
+
+  printf '%s\n' "$candidate_pid"
+}
+
+clear_managed_backend() {
+  local previous_pid=""
+  local previous_cwd=""
+
+  if [[ ! -f "$PID_FILE" ]]; then
+    return 0
+  fi
+
+  previous_pid="$(tr -d '[:space:]' < "$PID_FILE")"
+
+  if [[ "$previous_pid" =~ ^[0-9]+$ ]] && kill -0 "$previous_pid" 2>/dev/null; then
+    previous_cwd="$(process_working_directory "$previous_pid")"
+
+    if [[ "$previous_cwd" == "$ROOT" || "$previous_cwd" == "$ROOT/"* ]]; then
+      printf 'Stopping previous Archivist backend process tree (%s)...\n' "$previous_pid"
+      terminate_process_tree "$previous_pid"
+    fi
+  fi
+
+  rm -f "$PID_FILE"
+}
+
+clear_stale_repository_listener() {
+  local listener_pids=""
+  local listener_pid
+  local listener_cwd
+  local listener_command
+  local listener_root_pid
+
+  for _ in {1..5}; do
+    listener_pids="$(lsof -tiTCP:"$BACKEND_PORT" -sTCP:LISTEN 2>/dev/null || true)"
+
+    if [[ -z "$listener_pids" ]]; then
+      return 0
+    fi
+
+    for listener_pid in $listener_pids; do
+      listener_cwd="$(process_working_directory "$listener_pid")"
+      listener_command="$(ps -p "$listener_pid" -o command= 2>/dev/null || true)"
+
+      if [[ "$listener_cwd" == "$ROOT" || "$listener_cwd" == "$ROOT/"* ]]; then
+        listener_root_pid="$(repository_process_root "$listener_pid")"
+        printf 'Stopping stale Archivist backend process tree (%s)...\n' "$listener_root_pid"
+        terminate_process_tree "$listener_root_pid"
+        continue
+      fi
+
+      printf 'Port %s is already used by another process.\n' "$BACKEND_PORT" >&2
+      printf 'PID: %s\n' "$listener_pid" >&2
+      printf 'Command: %s\n' "${listener_command:-unknown}" >&2
+      printf 'Working directory: %s\n' "${listener_cwd:-unknown}" >&2
+      printf 'Stop that process before retrying.\n' >&2
+      return 1
+    done
 
     sleep 0.25
   done
 
-  if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
-    printf 'Archivist backend did not become healthy at %s.\n' "$HEALTH_URL" >&2
-    exit 1
+  printf 'A process keeps reclaiming port %s.\n' "$BACKEND_PORT" >&2
+  printf 'Run: npm run dev:stop\n' >&2
+  return 1
+}
+
+cleanup() {
+  local exit_code=$?
+
+  trap - EXIT INT TERM HUP
+
+  if [[ -n "$BACKEND_PID" ]]; then
+    printf '\nStopping Archivist backend...\n'
+    terminate_process_tree "$BACKEND_PID"
+    wait "$BACKEND_PID" 2>/dev/null || true
   fi
+
+  rm -f "$PID_FILE"
+  exit "$exit_code"
+}
+
+trap cleanup EXIT INT TERM HUP
+
+cd "$ROOT"
+
+node scripts/check-node-version.mjs
+
+if ! node -e 'const Database = require("better-sqlite3"); const database = new Database(":memory:"); database.close();' >/dev/null 2>&1; then
+  printf 'better-sqlite3 is not built for %s.\n' "$(node --version)" >&2
+  printf 'Run: nvm use && npm rebuild better-sqlite3\n' >&2
+  exit 1
 fi
 
+mkdir -p "$RUNTIME_DIR"
+
+clear_managed_backend
+clear_stale_repository_listener
+
+printf 'Starting Archivist backend on port %s...\n' "$BACKEND_PORT"
+(
+  cd "$ROOT"
+  exec npm run dev:backend
+) &
+BACKEND_PID=$!
+printf '%s\n' "$BACKEND_PID" > "$PID_FILE"
+
+for _ in {1..120}; do
+  if curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+    break
+  fi
+
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    wait "$BACKEND_PID" 2>/dev/null || true
+    printf 'Archivist backend exited before becoming healthy.\n' >&2
+    exit 1
+  fi
+
+  sleep 0.25
+done
+
+if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+  printf 'Archivist backend did not become healthy at %s.\n' "$HEALTH_URL" >&2
+  exit 1
+fi
+
+printf 'Archivist backend is healthy. Building and launching Qt...\n'
 "$ROOT/scripts/qt-run"
