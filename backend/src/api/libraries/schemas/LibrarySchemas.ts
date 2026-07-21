@@ -22,3 +22,7 @@ export const updateLibrarySchema = z
 export const libraryIdParamsSchema = z.object({
   libraryId: z.string().uuid(),
 });
+
+export const libraryFileIdParamsSchema = libraryIdParamsSchema.extend({
+  fileId: z.string().uuid(),
+});

@@ -16,6 +16,14 @@ export type LibraryFile = {
   updatedAt: string;
 };
 
+export type LibraryFilePreview = {
+  file: LibraryFile;
+  content: string;
+  encoding: "utf-8";
+  lineCount: number;
+  readAt: string;
+};
+
 export type LibraryScan = {
   id: string;
   libraryId: string;
