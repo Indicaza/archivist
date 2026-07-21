@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/Mnemosyne.png" alt="Mnemosyne, the memory of Archivist" width="100%">
+</p>
+
 # Archivist
 
 > A local-first AI workspace for durable project memory, curated context, and inspectable computer work.

@@ -156,6 +156,35 @@ export function getLibraryFileCatalog(libraryId: string): LibraryFileCatalog {
   };
 }
 
+export function getLibraryFileById(
+  libraryId: string,
+  fileId: string,
+): LibraryFile | null {
+  const row = database
+    .prepare(
+      `
+        SELECT
+          id,
+          library_id,
+          relative_path,
+          name,
+          extension,
+          size_bytes,
+          modified_at,
+          status,
+          last_seen_at,
+          created_at,
+          updated_at
+        FROM library_files
+        WHERE id = ?
+          AND library_id = ?
+      `,
+    )
+    .get(fileId, libraryId) as LibraryFileRow | undefined;
+
+  return row ? mapLibraryFile(row) : null;
+}
+
 export function createLibraryScan(libraryId: string): LibraryScan {
   const runningScan = database
     .prepare(

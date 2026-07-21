@@ -101,6 +101,28 @@ QVariantMap LibraryStore::latestScan() const
     return m_latestScan;
 }
 
+QString LibraryStore::selectedFileId() const
+{
+    return m_selectedFileId;
+}
+
+QVariantMap LibraryStore::selectedFile() const
+{
+    for (const QVariant &value : m_files) {
+        const QVariantMap file = value.toMap();
+        if (file.value(QStringLiteral("id")).toString() == m_selectedFileId) {
+            return file;
+        }
+    }
+
+    return {};
+}
+
+QVariantMap LibraryStore::filePreview() const
+{
+    return m_filePreview;
+}
+
 bool LibraryStore::loadingLibraries() const
 {
     return m_loadingLibraries;
@@ -111,6 +133,11 @@ bool LibraryStore::loadingFiles() const
     return m_loadingFiles;
 }
 
+bool LibraryStore::loadingFilePreview() const
+{
+    return m_loadingFilePreview;
+}
+
 bool LibraryStore::scanning() const
 {
     return m_scanning;
@@ -119,6 +146,11 @@ bool LibraryStore::scanning() const
 QString LibraryStore::errorMessage() const
 {
     return m_errorMessage;
+}
+
+QString LibraryStore::filePreviewError() const
+{
+    return m_filePreviewError;
 }
 
 QNetworkRequest LibraryStore::requestFor(const QString &path) const
@@ -198,6 +230,7 @@ void LibraryStore::selectLibrary(const QString &libraryId)
         return;
     }
 
+    clearFilePreview();
     setErrorMessage({});
     setFiles({});
     setLatestScan({});
@@ -232,6 +265,7 @@ void LibraryStore::selectLibrary(const QString &libraryId)
 void LibraryStore::refreshSelectedFiles()
 {
     if (m_selectedLibraryId.isEmpty()) {
+        clearFilePreview();
         setFiles({});
         setLatestScan({});
         setLoadingFiles(false);
@@ -266,6 +300,7 @@ void LibraryStore::scanSelectedLibrary()
         return;
     }
 
+    clearFilePreview();
     setErrorMessage({});
     setScanning(true);
 
@@ -293,6 +328,76 @@ void LibraryStore::scanSelectedLibrary()
     });
 }
 
+void LibraryStore::previewFile(const QString &fileId)
+{
+    if (m_selectedLibraryId.isEmpty() || fileId.isEmpty() || !containsFile(fileId)) {
+        return;
+    }
+
+    const QVariantMap file = [&]() {
+        for (const QVariant &value : m_files) {
+            const QVariantMap candidate = value.toMap();
+            if (candidate.value(QStringLiteral("id")).toString() == fileId) {
+                return candidate;
+            }
+        }
+
+        return QVariantMap{};
+    }();
+
+    setSelectedFileId(fileId);
+    setFilePreview({});
+    setFilePreviewError({});
+
+    if (file.value(QStringLiteral("status")).toString() != QStringLiteral("available")) {
+        setLoadingFilePreview(false);
+        setFilePreviewError(
+            QStringLiteral("This file is not currently available. Rescan the Library and try again.")
+        );
+        return;
+    }
+
+    setLoadingFilePreview(true);
+
+    const QString libraryId = m_selectedLibraryId;
+    const QString path = QStringLiteral("/libraries/%1/files/%2/content")
+        .arg(encodedPathSegment(libraryId), encodedPathSegment(fileId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, libraryId, fileId]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+
+            if (m_selectedLibraryId != libraryId || m_selectedFileId != fileId) {
+                return;
+            }
+
+            setLoadingFilePreview(false);
+
+            if (!result.ok) {
+                setFilePreviewError(result.errorMessage);
+                return;
+            }
+
+            setFilePreview(
+                result.object.value(QStringLiteral("preview")).toObject().toVariantMap()
+            );
+        }
+    );
+}
+
+void LibraryStore::clearFilePreview()
+{
+    setSelectedFileId({});
+    setFilePreview({});
+    setLoadingFilePreview(false);
+    setFilePreviewError({});
+}
+
 void LibraryStore::setLibraries(const QVariantList &libraries)
 {
     if (m_libraries == libraries) {
@@ -310,6 +415,7 @@ void LibraryStore::setSelectedLibraryId(const QString &libraryId)
         return;
     }
 
+    clearFilePreview();
     m_selectedLibraryId = libraryId;
     emit selectedLibraryIdChanged();
     emit selectedLibraryChanged();
@@ -323,6 +429,11 @@ void LibraryStore::setFiles(const QVariantList &files)
 
     m_files = files;
     emit filesChanged();
+    emit selectedFileChanged();
+
+    if (!m_selectedFileId.isEmpty() && !containsFile(m_selectedFileId)) {
+        clearFilePreview();
+    }
 }
 
 void LibraryStore::setLatestScan(const QVariantMap &latestScan)
@@ -333,6 +444,27 @@ void LibraryStore::setLatestScan(const QVariantMap &latestScan)
 
     m_latestScan = latestScan;
     emit latestScanChanged();
+}
+
+void LibraryStore::setSelectedFileId(const QString &fileId)
+{
+    if (m_selectedFileId == fileId) {
+        return;
+    }
+
+    m_selectedFileId = fileId;
+    emit selectedFileIdChanged();
+    emit selectedFileChanged();
+}
+
+void LibraryStore::setFilePreview(const QVariantMap &preview)
+{
+    if (m_filePreview == preview) {
+        return;
+    }
+
+    m_filePreview = preview;
+    emit filePreviewChanged();
 }
 
 void LibraryStore::setLoadingLibraries(bool loading)
@@ -355,6 +487,16 @@ void LibraryStore::setLoadingFiles(bool loading)
     emit loadingFilesChanged();
 }
 
+void LibraryStore::setLoadingFilePreview(bool loading)
+{
+    if (m_loadingFilePreview == loading) {
+        return;
+    }
+
+    m_loadingFilePreview = loading;
+    emit loadingFilePreviewChanged();
+}
+
 void LibraryStore::setScanning(bool scanning)
 {
     if (m_scanning == scanning) {
@@ -375,6 +517,16 @@ void LibraryStore::setErrorMessage(const QString &message)
     emit errorMessageChanged();
 }
 
+void LibraryStore::setFilePreviewError(const QString &message)
+{
+    if (m_filePreviewError == message) {
+        return;
+    }
+
+    m_filePreviewError = message;
+    emit filePreviewErrorChanged();
+}
+
 bool LibraryStore::containsLibrary(const QString &libraryId) const
 {
     if (libraryId.isEmpty()) {
@@ -383,6 +535,21 @@ bool LibraryStore::containsLibrary(const QString &libraryId) const
 
     for (const QVariant &value : m_libraries) {
         if (value.toMap().value(QStringLiteral("id")).toString() == libraryId) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool LibraryStore::containsFile(const QString &fileId) const
+{
+    if (fileId.isEmpty()) {
+        return false;
+    }
+
+    for (const QVariant &value : m_files) {
+        if (value.toMap().value(QStringLiteral("id")).toString() == fileId) {
             return true;
         }
     }

@@ -88,6 +88,7 @@ Rectangle {
                         title: parts[directoryIndex],
                         glyph: "□",
                         folder: true,
+                        fileId: "",
                         relativePath: directoryPath,
                         muted: false,
                         warning: false
@@ -103,6 +104,7 @@ Rectangle {
                 title: String(file.name || parts[parts.length - 1]),
                 glyph: glyphForFile(file.name, file.extension),
                 folder: false,
+                fileId: String(file.id),
                 relativePath: relativePath,
                 muted: file.status !== "available",
                 warning: file.status !== "available"
@@ -216,6 +218,7 @@ Rectangle {
                 itemSelected: selectedNodeId === node.id,
                 itemMuted: node.muted === true,
                 itemFolder: node.folder === true,
+                itemFileId: String(node.fileId || ""),
                 itemExpanded: node.folder === true && isExpanded(node.id),
                 itemWarning: node.warning === true
             })
@@ -232,7 +235,7 @@ Rectangle {
         appendVisibleChildren("", 0, filterText.trim().toLowerCase())
     }
 
-    function activateNode(nodeId, folder) {
+    function activateNode(nodeId, folder, fileId) {
         selectedNodeId = nodeId
 
         for (var index = 0; index < treeNodes.length; index += 1) {
@@ -244,6 +247,8 @@ Rectangle {
 
         if (folder) {
             expandedNodeIds[nodeId] = !isExpanded(nodeId)
+        } else if (fileId.length > 0) {
+            LibraryStore.previewFile(fileId)
         }
 
         rebuildTree()
@@ -716,6 +721,7 @@ Rectangle {
                         required property bool itemSelected
                         required property bool itemMuted
                         required property bool itemFolder
+                        required property string itemFileId
                         required property bool itemExpanded
                         required property bool itemWarning
 
@@ -729,7 +735,7 @@ Rectangle {
                         folder: itemFolder
                         expanded: itemExpanded
                         warning: itemWarning
-                        onActivated: root.activateNode(nodeId, itemFolder)
+                        onActivated: root.activateNode(nodeId, itemFolder, itemFileId)
                     }
 
                     ScrollBar.vertical: ScrollBar {

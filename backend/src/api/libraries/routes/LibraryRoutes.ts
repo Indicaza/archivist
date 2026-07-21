@@ -9,6 +9,7 @@ import {
   postRestoreLibrary,
 } from "../controllers/LibraryController.js";
 import {
+  getLibraryFileContent,
   getLibraryFiles,
   postLibraryScan,
 } from "../controllers/LibraryFileController.js";
@@ -19,6 +20,10 @@ libraryRouter.get("/", getLibraries);
 libraryRouter.get("/archived", getArchivedLibraryList);
 libraryRouter.post("/", postLibrary);
 libraryRouter.get("/:libraryId/files", getLibraryFiles);
+libraryRouter.get(
+  "/:libraryId/files/:fileId/content",
+  getLibraryFileContent,
+);
 libraryRouter.post("/:libraryId/scan", postLibraryScan);
 libraryRouter.get("/:libraryId", getLibrary);
 libraryRouter.patch("/:libraryId", patchLibrary);

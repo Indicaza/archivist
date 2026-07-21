@@ -3,6 +3,7 @@ import { access, lstat, opendir } from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../../../errors/app-error.js";
 import { getLibraryById } from "../models/Library.js";
+import { supportedLibraryTextExtensions } from "./LibraryFilePolicy.js";
 import {
   completeLibraryScan,
   createLibraryScan,
@@ -14,18 +15,6 @@ import type {
   ScanLibraryResult,
   ScannedLibraryFile,
 } from "../types/LibraryFileTypes.js";
-
-const supportedExtensions = new Set([
-  ".md",
-  ".txt",
-  ".json",
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".css",
-  ".html",
-]);
 
 const ignoredDirectoryNames = new Set([
   ".git",
@@ -161,7 +150,7 @@ async function scanDirectory(
 
       const extension = path.extname(entry.name).toLowerCase();
 
-      if (!supportedExtensions.has(extension)) {
+      if (!supportedLibraryTextExtensions.has(extension)) {
         accumulator.ignoredEntryCount += 1;
         continue;
       }

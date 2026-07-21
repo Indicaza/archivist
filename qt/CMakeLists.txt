@@ -35,6 +35,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
         qml/App/Workbench/Workspace/Workspace.qml
+        qml/App/Workbench/Workspace/FilePreview/FilePreview.qml
         qml/App/Workbench/Workspace/ChatMessage/ChatMessage.qml
         qml/App/Workbench/Workspace/JumpToLatestButton/JumpToLatestButton.qml
         qml/App/Workbench/ChatDock/ChatDock.qml

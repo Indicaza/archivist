@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Archivist.Services 1.0
 import "ChatMessage"
 import "JumpToLatestButton"
+import "FilePreview"
 
 Rectangle {
     id: root
@@ -28,6 +29,13 @@ Rectangle {
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "No Chat Selected"
     readonly property bool hasSelectedChat: ChatStore.selectedChatId.length > 0
     readonly property bool hasMessages: ChatStore.messages.length > 0
+    readonly property bool previewActive: LibraryStore.selectedFileId.length > 0
+    readonly property string previewPath: LibraryStore.selectedFile.relativePath
+        ? String(LibraryStore.selectedFile.relativePath)
+        : "Library file"
+    readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name
+        ? String(LibraryStore.selectedLibrary.name)
+        : "Library"
 
     color: theme.surfaceBg
     clip: true
@@ -286,29 +294,80 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: root.selectedChatTitle
+                text: root.previewActive
+                    ? root.selectedLibraryName + "  /  " + root.previewPath
+                    : root.selectedChatTitle
                 color: root.theme.appText
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
-                elide: Text.ElideRight
+                elide: Text.ElideMiddle
             }
 
             Text {
-                text: ChatStore.responding
-                    ? "Archivist is thinking"
-                    : ChatStore.lastModel.length > 0
-                        ? ChatStore.lastProvider + "  ·  " + ChatStore.lastModel
-                        : root.hasSelectedChat
-                            ? "Ready"
-                            : "Select a Chat"
-                color: ChatStore.responding
-                    ? root.theme.appText
-                    : root.theme.mutedText
+                text: root.previewActive
+                    ? LibraryStore.loadingFilePreview
+                        ? "Opening file"
+                        : LibraryStore.filePreviewError.length > 0
+                            ? "Preview unavailable"
+                            : "Read-only preview"
+                    : ChatStore.responding
+                        ? "Archivist is thinking"
+                        : ChatStore.lastModel.length > 0
+                            ? ChatStore.lastProvider + "  ·  " + ChatStore.lastModel
+                            : root.hasSelectedChat
+                                ? "Ready"
+                                : "Select a Chat"
+                color: root.previewActive && LibraryStore.filePreviewError.length > 0
+                    ? root.theme.danger
+                    : ChatStore.responding && !root.previewActive
+                        ? root.theme.appText
+                        : root.theme.mutedText
                 font.pixelSize: 8
-                opacity: ChatStore.responding ? 0.9 : 0.72
+                opacity: ChatStore.responding && !root.previewActive ? 0.9 : 0.72
                 elide: Text.ElideRight
             }
+
+            Button {
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                visible: root.previewActive
+                text: "×"
+                hoverEnabled: true
+                padding: 0
+                ToolTip.visible: hovered
+                ToolTip.text: "Close file preview"
+                onClicked: LibraryStore.clearFilePreview()
+
+                contentItem: Text {
+                    text: parent.text
+                    color: parent.hovered
+                        ? root.theme.appText
+                        : root.theme.mutedText
+                    font.pixelSize: 15
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? root.theme.hoverBg : "transparent"
+                    radius: 4
+                }
+            }
         }
+    }
+
+    FilePreview {
+        anchors.top: workspaceHeader.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        visible: root.previewActive
+        theme: root.theme
+        file: LibraryStore.selectedFile
+        preview: LibraryStore.filePreview
+        loading: LibraryStore.loadingFilePreview
+        errorMessage: LibraryStore.filePreviewError
+        leftObstruction: root.leftObstruction
     }
 
     ListView {
@@ -322,7 +381,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        visible: root.hasSelectedChat && root.hasMessages
+        visible: !root.previewActive && root.hasSelectedChat && root.hasMessages
         clip: true
         spacing: root.theme.messageVerticalGap
         topMargin: 22
@@ -379,7 +438,7 @@ Rectangle {
         anchors.topMargin: 7
         width: historyStatusText.implicitWidth + 18
         height: 22
-        visible: ChatStore.loadingOlderMessages
+        visible: !root.previewActive && ChatStore.loadingOlderMessages
         color: root.theme.controlSurfaceBg
         radius: 4
         z: 12
@@ -398,7 +457,7 @@ Rectangle {
         anchors.centerIn: parent
         width: Math.min(460, parent.width - 80)
         spacing: 8
-        visible: !transcript.visible
+        visible: !root.previewActive && !transcript.visible
 
         Text {
             width: parent.width
