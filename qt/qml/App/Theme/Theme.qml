@@ -43,8 +43,8 @@ QtObject {
     readonly property int workspaceHeaderHeight: 38
     readonly property int chatDockHeaderHeight: 42
     readonly property int chatDockBodyHeight: 172
-    readonly property int artifactDrawerWidth: 278
-    readonly property int artifactDrawerHeight: 430
+    readonly property int artifactDrawerWidth: 360
+    readonly property int artifactDrawerHeight: 560
 
     readonly property int transcriptContentWidth: 920
     readonly property int assistantMessageWidth: 920

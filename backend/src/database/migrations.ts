@@ -514,6 +514,38 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE context_runs (
+          id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          user_message_id TEXT NOT NULL,
+          assistant_message_id TEXT NOT NULL UNIQUE,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          snapshot_json TEXT NOT NULL CHECK (json_valid(snapshot_json)),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (chat_id)
+            REFERENCES chats(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (user_message_id)
+            REFERENCES messages(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (assistant_message_id)
+            REFERENCES messages(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX context_runs_chat_created_at_index
+          ON context_runs(chat_id, created_at DESC);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

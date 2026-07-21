@@ -3,6 +3,7 @@ import {
   getArchivedChatList,
   getChatAttachmentList,
   getChat,
+  getChatMessageContext,
   getChatMessages,
   getChats,
   patchChat,
@@ -54,6 +55,11 @@ chatRouter.patch("/:chatId", patchChat);
 chatRouter.delete("/:chatId", removeChat);
 
 chatRouter.get("/:chatId/messages", getChatMessages);
+
+chatRouter.get(
+  "/:chatId/messages/:messageId/context",
+  getChatMessageContext,
+);
 
 chatRouter.post("/:chatId/messages", postChatMessage);
 

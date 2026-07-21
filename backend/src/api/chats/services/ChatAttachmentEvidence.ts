@@ -1,9 +1,11 @@
 import { readLibraryFilePreview } from "../../libraries/services/LibraryFileReader.js";
 import type { ContextSourceMessage } from "../../../core/cognition/conscious/context/ContextCompilerTypes.js";
 import { estimateTokens } from "../../../core/cognition/conscious/context/utilities/estimateTokens.js";
+import type { ContextSourceOutcome } from "../../cognition/contextRuns/types/ContextRunTypes.js";
 import { getChatFileAttachments } from "../models/ChatAttachment.js";
 import type {
   ChatAttachmentSource,
+  ChatFileAttachment,
   ChatMessage,
 } from "../types/ChatTypes.js";
 
@@ -15,6 +17,7 @@ const minimumUsefulSourceTokens = 128;
 export type ChatAttachmentEvidence = {
   contextMessage: ContextSourceMessage | null;
   sources: ChatAttachmentSource[];
+  outcomes: ContextSourceOutcome[];
   warnings: string[];
 };
 
@@ -53,6 +56,35 @@ function sourceCreatedAt(currentMessage: ChatMessage): string {
   return new Date(currentTimestamp - 1).toISOString();
 }
 
+function sourceMetadata(
+  attachment: ChatFileAttachment,
+): ContextSourceOutcome["metadata"] {
+  return {
+    attachmentId: attachment.id,
+    libraryId: attachment.libraryId,
+    libraryName: attachment.libraryName,
+    fileId: attachment.fileId,
+    fileName: attachment.fileName,
+    relativePath: attachment.relativePath,
+  };
+}
+
+function sourceOutcome(
+  attachment: ChatFileAttachment,
+  input: Omit<
+    ContextSourceOutcome,
+    "id" | "source" | "label" | "metadata"
+  >,
+): ContextSourceOutcome {
+  return {
+    id: attachment.id,
+    source: "library-file",
+    label: `${attachment.libraryName}/${attachment.relativePath}`,
+    metadata: sourceMetadata(attachment),
+    ...input,
+  };
+}
+
 export async function buildChatAttachmentEvidence(
   chatId: string,
   currentMessage: ChatMessage,
@@ -60,16 +92,46 @@ export async function buildChatAttachmentEvidence(
   const attachments = getChatFileAttachments(chatId);
   const warnings: string[] = [];
   const sources: ChatAttachmentSource[] = [];
+  const outcomes: ContextSourceOutcome[] = [];
   const sourceBlocks: string[] = [];
 
   let remainingTokens = maximumAttachmentEvidenceTokens;
 
   for (const attachment of attachments) {
-    if (remainingTokens < minimumUsefulSourceTokens + sourceEnvelopeTokenReserve) {
-      warnings.push(
-        "Additional attached files were omitted because the attachment evidence budget was exhausted.",
+    if (attachment.fileStatus !== "available") {
+      const reason =
+        attachment.fileStatus === "missing"
+          ? "The attached file is missing from its Library."
+          : "The attached file is not currently readable.";
+
+      outcomes.push(
+        sourceOutcome(attachment, {
+          status: "unavailable",
+          estimatedTokens: 0,
+          includedTokens: 0,
+          truncated: false,
+          reason,
+        }),
       );
-      break;
+      warnings.push(`Attached file ${attachment.relativePath} was skipped: ${reason}`);
+      continue;
+    }
+
+    if (remainingTokens < minimumUsefulSourceTokens + sourceEnvelopeTokenReserve) {
+      const reason = "The attachment evidence budget was exhausted.";
+      outcomes.push(
+        sourceOutcome(attachment, {
+          status: "omitted",
+          estimatedTokens: 0,
+          includedTokens: 0,
+          truncated: false,
+          reason,
+        }),
+      );
+      warnings.push(
+        `Attached file ${attachment.relativePath} was omitted because ${reason.toLowerCase()}`,
+      );
+      continue;
     }
 
     try {
@@ -100,9 +162,17 @@ export async function buildChatAttachmentEvidence(
       const blockTokens = estimateTokens(block);
 
       if (blockTokens > remainingTokens) {
-        warnings.push(
-          `Attached file ${attachment.relativePath} was omitted because it could not fit within the evidence budget.`,
+        const reason = "The file could not fit within the remaining evidence budget.";
+        outcomes.push(
+          sourceOutcome(attachment, {
+            status: "omitted",
+            estimatedTokens: blockTokens,
+            includedTokens: 0,
+            truncated,
+            reason,
+          }),
         );
+        warnings.push(`Attached file ${attachment.relativePath} was omitted: ${reason}`);
         continue;
       }
 
@@ -117,10 +187,31 @@ export async function buildChatAttachmentEvidence(
         estimatedTokens: blockTokens,
         truncated,
       });
+      outcomes.push(
+        sourceOutcome(attachment, {
+          status: truncated ? "truncated" : "included",
+          estimatedTokens: blockTokens,
+          includedTokens: blockTokens,
+          truncated,
+          reason: truncated
+            ? `The file was limited to approximately ${maximumTokensPerAttachedFile.toLocaleString()} tokens.`
+            : null,
+        }),
+      );
       remainingTokens -= blockTokens;
     } catch (error) {
+      const reason = errorMessage(error);
+      outcomes.push(
+        sourceOutcome(attachment, {
+          status: "failed",
+          estimatedTokens: 0,
+          includedTokens: 0,
+          truncated: false,
+          reason,
+        }),
+      );
       warnings.push(
-        `Attached file ${attachment.relativePath} was skipped: ${errorMessage(error)}`,
+        `Attached file ${attachment.relativePath} was skipped: ${reason}`,
       );
     }
   }
@@ -129,6 +220,7 @@ export async function buildChatAttachmentEvidence(
     return {
       contextMessage: null,
       sources,
+      outcomes,
       warnings,
     };
   }
@@ -152,6 +244,7 @@ export async function buildChatAttachmentEvidence(
       createdAt: sourceCreatedAt(currentMessage),
     },
     sources,
+    outcomes,
     warnings,
   };
 }

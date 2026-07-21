@@ -19,6 +19,8 @@ class ChatStore final : public QObject
     Q_PROPERTY(QVariantList messages READ messages NOTIFY messagesChanged)
     Q_PROPERTY(QVariantList attachments READ attachments NOTIFY attachmentsChanged)
     Q_PROPERTY(QVariantList lastSources READ lastSources NOTIFY completionMetadataChanged)
+    Q_PROPERTY(QVariantMap inspectedContext READ inspectedContext NOTIFY inspectedContextChanged)
+    Q_PROPERTY(QString inspectedMessageId READ inspectedMessageId NOTIFY inspectedContextChanged)
     Q_PROPERTY(bool loadingChats READ loadingChats NOTIFY loadingChatsChanged)
     Q_PROPERTY(bool loadingArchivedChats READ loadingArchivedChats NOTIFY loadingArchivedChatsChanged)
     Q_PROPERTY(bool loadingMessages READ loadingMessages NOTIFY loadingMessagesChanged)
@@ -29,7 +31,9 @@ class ChatStore final : public QObject
     Q_PROPERTY(bool assigningAgent READ assigningAgent NOTIFY assigningAgentChanged)
     Q_PROPERTY(bool mutating READ mutating NOTIFY mutatingChanged)
     Q_PROPERTY(bool mutatingAttachment READ mutatingAttachment NOTIFY mutatingAttachmentChanged)
+    Q_PROPERTY(bool loadingContext READ loadingContext NOTIFY loadingContextChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString contextErrorMessage READ contextErrorMessage NOTIFY contextErrorMessageChanged)
     Q_PROPERTY(QString lastProvider READ lastProvider NOTIFY completionMetadataChanged)
     Q_PROPERTY(QString lastModel READ lastModel NOTIFY completionMetadataChanged)
 
@@ -43,6 +47,8 @@ public:
     [[nodiscard]] QVariantList messages() const;
     [[nodiscard]] QVariantList attachments() const;
     [[nodiscard]] QVariantList lastSources() const;
+    [[nodiscard]] QVariantMap inspectedContext() const;
+    [[nodiscard]] QString inspectedMessageId() const;
     [[nodiscard]] bool loadingChats() const;
     [[nodiscard]] bool loadingArchivedChats() const;
     [[nodiscard]] bool loadingMessages() const;
@@ -53,7 +59,9 @@ public:
     [[nodiscard]] bool assigningAgent() const;
     [[nodiscard]] bool mutating() const;
     [[nodiscard]] bool mutatingAttachment() const;
+    [[nodiscard]] bool loadingContext() const;
     [[nodiscard]] QString errorMessage() const;
+    [[nodiscard]] QString contextErrorMessage() const;
     [[nodiscard]] QString lastProvider() const;
     [[nodiscard]] QString lastModel() const;
 
@@ -67,6 +75,8 @@ public:
     Q_INVOKABLE void assignAgentToSelectedChat(const QString &agentId);
     Q_INVOKABLE void attachFile(const QString &libraryId, const QString &fileId);
     Q_INVOKABLE void removeAttachment(const QString &attachmentId);
+    Q_INVOKABLE void loadMessageContext(const QString &messageId);
+    Q_INVOKABLE void clearInspectedContext();
     Q_INVOKABLE void updateChat(const QString &chatId, const QVariantMap &input);
     Q_INVOKABLE void archiveChat(const QString &chatId);
     Q_INVOKABLE void restoreChat(const QString &chatId);
@@ -94,6 +104,9 @@ signals:
     void mutatingAttachmentChanged();
     void errorMessageChanged();
     void completionMetadataChanged();
+    void inspectedContextChanged();
+    void loadingContextChanged();
+    void contextErrorMessageChanged();
     void attachmentAdded(const QVariantMap &attachment);
     void attachmentRemoved(const QString &attachmentId);
     void chatUpdated(const QVariantMap &chat);
@@ -119,7 +132,10 @@ private:
     void setAssigningAgent(bool assigning);
     void setMutating(bool mutating);
     void setMutatingAttachment(bool mutating);
+    void setLoadingContext(bool loading);
     void setErrorMessage(const QString &message);
+    void setContextErrorMessage(const QString &message);
+    void setInspectedContext(const QString &messageId, const QVariantMap &context);
     void setCompletionMetadata(
         const QString &provider,
         const QString &model,
@@ -145,6 +161,8 @@ private:
     QVariantList m_messages;
     QVariantList m_attachments;
     QVariantList m_lastSources;
+    QVariantMap m_inspectedContext;
+    QString m_inspectedMessageId;
     QString m_beforeMessageId;
     bool m_loadingChats = false;
     bool m_loadingArchivedChats = false;
@@ -156,7 +174,9 @@ private:
     bool m_assigningAgent = false;
     bool m_mutating = false;
     bool m_mutatingAttachment = false;
+    bool m_loadingContext = false;
     QString m_errorMessage;
+    QString m_contextErrorMessage;
     QString m_lastProvider;
     QString m_lastModel;
 };
