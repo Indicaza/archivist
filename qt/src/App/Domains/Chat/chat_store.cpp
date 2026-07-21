@@ -142,6 +142,20 @@ QVariantMap optimisticMessage(
         {QStringLiteral("displayTimestamp"), QStringLiteral("Now")},
     };
 }
+
+QVariantList withoutChat(const QVariantList &chats, const QString &chatId)
+{
+    QVariantList result;
+    result.reserve(chats.size());
+
+    for (const QVariant &value : chats) {
+        if (value.toMap().value(QStringLiteral("id")).toString() != chatId) {
+            result.append(value);
+        }
+    }
+
+    return result;
+}
 }
 
 ChatStore::ChatStore(QObject *parent)
@@ -153,6 +167,11 @@ ChatStore::ChatStore(QObject *parent)
 QVariantList ChatStore::chats() const
 {
     return m_chats;
+}
+
+QVariantList ChatStore::archivedChats() const
+{
+    return m_archivedChats;
 }
 
 QString ChatStore::selectedChatId() const
@@ -182,6 +201,11 @@ bool ChatStore::loadingChats() const
     return m_loadingChats;
 }
 
+bool ChatStore::loadingArchivedChats() const
+{
+    return m_loadingArchivedChats;
+}
+
 bool ChatStore::loadingMessages() const
 {
     return m_loadingMessages;
@@ -205,6 +229,11 @@ bool ChatStore::responding() const
 bool ChatStore::assigningAgent() const
 {
     return m_assigningAgent;
+}
+
+bool ChatStore::mutating() const
+{
+    return m_mutating;
 }
 
 QString ChatStore::errorMessage() const
@@ -255,6 +284,31 @@ void ChatStore::refresh()
     });
 }
 
+void ChatStore::refreshArchived()
+{
+    if (m_loadingArchivedChats) {
+        return;
+    }
+
+    clearError();
+    setLoadingArchivedChats(true);
+
+    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/chats/archived")));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setLoadingArchivedChats(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        setArchivedChats(result.object.value(QStringLiteral("chats")).toArray().toVariantList());
+    });
+}
+
 void ChatStore::fetchAppState()
 {
     QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/app-state")));
@@ -290,7 +344,7 @@ void ChatStore::fetchAppState()
 
 void ChatStore::selectChat(const QString &chatId)
 {
-    if (m_responding || m_assigningAgent || chatId.isEmpty() || !containsChat(chatId)) {
+    if (m_responding || m_assigningAgent || m_mutating || chatId.isEmpty() || !containsChat(chatId)) {
         return;
     }
 
@@ -463,6 +517,7 @@ void ChatStore::sendMessage(const QString &content)
         || m_selectedChatId.isEmpty()
         || m_responding
         || m_assigningAgent
+        || m_mutating
     ) {
         return;
     }
@@ -556,6 +611,7 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
         || agentId.isEmpty()
         || m_responding
         || m_assigningAgent
+        || m_mutating
         || selectedChat().value(QStringLiteral("agentId")).toString() == agentId
     ) {
         return;
@@ -601,6 +657,178 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
     });
 }
 
+void ChatStore::updateChat(const QString &chatId, const QVariantMap &input)
+{
+    if (
+        m_mutating
+        || m_responding
+        || m_assigningAgent
+        || chatId.isEmpty()
+        || input.isEmpty()
+    ) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/chats/%1").arg(encodedPathSegment(chatId));
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("PATCH"),
+        QJsonDocument(QJsonObject::fromVariantMap(input)).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap chat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+
+        if (chat.value(QStringLiteral("id")).toString() != chatId) {
+            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat."));
+            return;
+        }
+
+        upsertActiveChat(chat);
+        emit chatUpdated(chat);
+    });
+}
+
+void ChatStore::archiveChat(const QString &chatId)
+{
+    if (m_mutating || m_responding || m_assigningAgent || chatId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/chats/%1/archive").arg(encodedPathSegment(chatId));
+    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap chat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+        const QString nextSelectedChatId = result.object
+            .value(QStringLiteral("selectedChatId"))
+            .toString();
+        const bool selectionChanged = m_selectedChatId == chatId;
+
+        removeActiveChat(chatId);
+        upsertArchivedChat(chat);
+
+        if (selectionChanged) {
+            setMessages({});
+            setSelectedChatId(nextSelectedChatId);
+            refreshSelectedMessages();
+        }
+
+        emit chatArchived(chat);
+    });
+}
+
+void ChatStore::restoreChat(const QString &chatId)
+{
+    if (m_mutating || m_responding || m_assigningAgent || chatId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/chats/%1/restore").arg(encodedPathSegment(chatId));
+    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap chat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+
+        removeArchivedChat(chatId);
+        upsertActiveChat(chat);
+        emit chatRestored(chat);
+    });
+}
+
+void ChatStore::deleteChat(const QString &chatId)
+{
+    if (m_mutating || m_responding || m_assigningAgent || chatId.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    const QString path = QStringLiteral("/chats/%1").arg(encodedPathSegment(chatId));
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("DELETE")
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QString nextSelectedChatId = result.object
+            .value(QStringLiteral("selectedChatId"))
+            .toString();
+        const bool selectionChanged = m_selectedChatId == chatId;
+
+        removeActiveChat(chatId);
+        removeArchivedChat(chatId);
+
+        if (selectionChanged) {
+            setMessages({});
+            setSelectedChatId(nextSelectedChatId);
+            refreshSelectedMessages();
+        }
+
+        emit chatDeleted(chatId);
+    });
+}
+
+void ChatStore::clearError()
+{
+    setErrorMessage({});
+}
+
 void ChatStore::setChats(const QVariantList &chats)
 {
     if (m_chats == chats) {
@@ -610,6 +838,16 @@ void ChatStore::setChats(const QVariantList &chats)
     m_chats = chats;
     emit chatsChanged();
     emit selectedChatChanged();
+}
+
+void ChatStore::setArchivedChats(const QVariantList &chats)
+{
+    if (m_archivedChats == chats) {
+        return;
+    }
+
+    m_archivedChats = chats;
+    emit archivedChatsChanged();
 }
 
 void ChatStore::setSelectedChatId(const QString &chatId)
@@ -643,6 +881,16 @@ void ChatStore::setLoadingChats(bool loading)
 
     m_loadingChats = loading;
     emit loadingChatsChanged();
+}
+
+void ChatStore::setLoadingArchivedChats(bool loading)
+{
+    if (m_loadingArchivedChats == loading) {
+        return;
+    }
+
+    m_loadingArchivedChats = loading;
+    emit loadingArchivedChatsChanged();
 }
 
 void ChatStore::setLoadingMessages(bool loading)
@@ -693,6 +941,16 @@ void ChatStore::setAssigningAgent(bool assigning)
 
     m_assigningAgent = assigning;
     emit assigningAgentChanged();
+}
+
+void ChatStore::setMutating(bool mutating)
+{
+    if (m_mutating == mutating) {
+        return;
+    }
+
+    m_mutating = mutating;
+    emit mutatingChanged();
 }
 
 void ChatStore::setErrorMessage(const QString &message)
@@ -751,6 +1009,42 @@ void ChatStore::promoteSelectedChat()
         setChats(nextChats);
         return;
     }
+}
+
+void ChatStore::upsertActiveChat(const QVariantMap &chat)
+{
+    const QString chatId = chat.value(QStringLiteral("id")).toString();
+
+    if (chatId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextChats = withoutChat(m_chats, chatId);
+    nextChats.prepend(chat);
+    setChats(nextChats);
+}
+
+void ChatStore::upsertArchivedChat(const QVariantMap &chat)
+{
+    const QString chatId = chat.value(QStringLiteral("id")).toString();
+
+    if (chatId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextChats = withoutChat(m_archivedChats, chatId);
+    nextChats.prepend(chat);
+    setArchivedChats(nextChats);
+}
+
+void ChatStore::removeActiveChat(const QString &chatId)
+{
+    setChats(withoutChat(m_chats, chatId));
+}
+
+void ChatStore::removeArchivedChat(const QString &chatId)
+{
+    setArchivedChats(withoutChat(m_archivedChats, chatId));
 }
 
 void ChatStore::replaceChat(const QVariantMap &chat)

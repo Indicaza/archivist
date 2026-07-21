@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "AgentEditor"
+import "ChatEditor"
 
 Rectangle {
     id: root
@@ -11,6 +12,7 @@ Rectangle {
     property bool attached: true
     property string activePanel: "none"
     property bool archivedAgentsOpen: false
+    property bool archivedChatsOpen: false
 
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name || "Standalone"
@@ -23,6 +25,7 @@ Rectangle {
     readonly property bool canSubmit: ChatStore.selectedChatId.length > 0
         && !ChatStore.responding
         && !ChatStore.assigningAgent
+        && !ChatStore.mutating
         && composer.text.trim().length > 0
 
     signal dockModeToggleRequested()
@@ -55,6 +58,7 @@ Rectangle {
     Component.onCompleted: {
         AgentStore.refresh()
         AgentStore.refreshArchived()
+        ChatStore.refreshArchived()
     }
 
     color: theme.surfaceBg
@@ -141,6 +145,7 @@ Rectangle {
                     padding: 0
                     ToolTip.visible: hovered
                     ToolTip.text: "Manage Chat"
+                    onClicked: chatEditor.openForChat(ChatStore.selectedChat)
 
                     contentItem: Text {
                         text: parent.text
@@ -269,7 +274,7 @@ Rectangle {
 
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        enabled: ChatStore.selectedChatId.length > 0 && !ChatStore.responding
+                        enabled: ChatStore.selectedChatId.length > 0 && !ChatStore.responding && !ChatStore.mutating
                         placeholderText: ChatStore.responding
                             ? "Archivist is thinking…"
                             : ChatStore.selectedChatId.length > 0
@@ -523,14 +528,51 @@ Rectangle {
                             }
 
                             Text {
-                                anchors.fill: parent
+                                anchors.left: parent.left
+                                anchors.right: chatEditButton.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
                                 anchors.leftMargin: 9
-                                anchors.rightMargin: 6
+                                anchors.rightMargin: 4
                                 text: String(modelData.title || "Untitled Chat")
                                 color: root.theme.appText
                                 font.pixelSize: 9
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
+                            }
+
+                            Button {
+                                id: chatEditButton
+
+                                anchors.right: parent.right
+                                anchors.rightMargin: 3
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 25
+                                height: 25
+                                text: "✎"
+                                enabled: !ChatStore.mutating && !ChatStore.responding
+                                hoverEnabled: true
+                                padding: 0
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Manage Chat"
+                                onClicked: chatEditor.openForChat(chatItem.modelData)
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.enabled && parent.hovered
+                                        ? root.theme.appText
+                                        : root.theme.mutedText
+                                    font.pixelSize: 10
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    color: parent.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
+                                    radius: 4
+                                }
                             }
 
                             HoverHandler {
@@ -545,6 +587,111 @@ Rectangle {
                                     root.activePanel = "none"
                                 }
                             }
+                        }
+                    }
+
+                    Button {
+                        visible: root.activePanel === "chats"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        text: (root.archivedChatsOpen ? "▾" : "▸")
+                            + "  Archived  "
+                            + String(ChatStore.archivedChats.length)
+                        enabled: !ChatStore.mutating
+                        hoverEnabled: true
+                        padding: 0
+                        onClicked: {
+                            root.archivedChatsOpen = !root.archivedChatsOpen
+                            if (root.archivedChatsOpen) {
+                                ChatStore.refreshArchived()
+                            }
+                        }
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: parent.hovered
+                                ? root.theme.appText
+                                : root.theme.mutedText
+                            font.pixelSize: 8
+                            font.weight: Font.DemiBold
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: 7
+                        }
+
+                        background: Rectangle {
+                            color: parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                            border.width: 1
+                            border.color: root.theme.quietBorder
+                            radius: 4
+                        }
+                    }
+
+                    ListView {
+                        id: archivedChatList
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.activePanel === "chats"
+                            && root.archivedChatsOpen
+                                ? 116
+                                : 0
+                        visible: root.activePanel === "chats" && root.archivedChatsOpen
+                        spacing: 2
+                        clip: true
+                        model: ChatStore.archivedChats
+
+                        delegate: Rectangle {
+                            id: archivedChatItem
+
+                            required property var modelData
+
+                            width: archivedChatList.width
+                            height: 34
+                            color: archivedChatHover.hovered
+                                ? root.theme.hoverBg
+                                : "transparent"
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 9
+                                anchors.rightMargin: 30
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: String(archivedChatItem.modelData.title || "Untitled Chat")
+                                color: root.theme.mutedText
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "✎"
+                                color: root.theme.mutedText
+                                font.pixelSize: 10
+                            }
+
+                            HoverHandler {
+                                id: archivedChatHover
+                            }
+
+                            TapHandler {
+                                enabled: !ChatStore.mutating && !ChatStore.responding
+                                onTapped: chatEditor.openForChat(archivedChatItem.modelData)
+                            }
+                        }
+
+                        footer: Text {
+                            width: archivedChatList.width
+                            height: ChatStore.loadingArchivedChats ? 28 : 0
+                            visible: ChatStore.loadingArchivedChats
+                            text: "Loading archived Chats…"
+                            color: root.theme.mutedText
+                            font.pixelSize: 8
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                     }
 
@@ -669,6 +816,7 @@ Rectangle {
                                             enabled: ChatStore.selectedChatId.length > 0
                                                 && !ChatStore.responding
                                                 && !ChatStore.assigningAgent
+                                                && !ChatStore.mutating
                                                 && !agentItem.assigned
                                             onTapped: ChatStore.assignAgentToSelectedChat(
                                                 String(agentItem.modelData.id)
@@ -838,6 +986,12 @@ Rectangle {
                 ChatStore.refresh()
             }
         }
+    }
+
+    ChatEditor {
+        id: chatEditor
+
+        theme: root.theme
     }
 
     AgentEditor {
