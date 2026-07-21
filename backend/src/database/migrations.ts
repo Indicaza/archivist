@@ -461,6 +461,59 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 10,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE chat_file_attachments (
+          id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          library_file_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (chat_id)
+            REFERENCES chats(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (library_file_id)
+            REFERENCES library_files(id)
+            ON DELETE CASCADE,
+          UNIQUE (chat_id, library_file_id)
+        );
+
+        CREATE INDEX chat_file_attachments_chat_created_at_index
+          ON chat_file_attachments(chat_id, created_at);
+      `);
+    },
+  },
+  {
+    // Repair databases that reported schema version 10 without the attachment
+    // table. CREATE IF NOT EXISTS keeps this safe for healthy databases.
+    version: 11,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS chat_file_attachments (
+          id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          library_file_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (chat_id)
+            REFERENCES chats(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (library_file_id)
+            REFERENCES library_files(id)
+            ON DELETE CASCADE,
+          UNIQUE (chat_id, library_file_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS
+          chat_file_attachments_chat_created_at_index
+          ON chat_file_attachments(chat_id, created_at);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

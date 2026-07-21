@@ -191,7 +191,7 @@ export function getChatById(chatId: string): Chat | null {
   return row ? mapChat(row) : null;
 }
 
-function requireActiveChat(chatId: string): Chat {
+export function requireActiveChat(chatId: string): Chat {
   const chat = getChatById(chatId);
 
   if (!chat) {

@@ -15,6 +15,17 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
+  (
+    cd "$ROOT"
+    node scripts/check-node-version.mjs
+
+    if ! node -e 'const Database = require("better-sqlite3"); const database = new Database(":memory:"); database.close();' >/dev/null 2>&1; then
+      printf 'better-sqlite3 is not built for %s.\n' "$(node --version)" >&2
+      printf 'Run: nvm use && npm rebuild better-sqlite3\n' >&2
+      exit 1
+    fi
+  )
+
   printf 'Starting Archivist backend...\n'
   (
     cd "$ROOT"

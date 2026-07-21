@@ -1,6 +1,11 @@
 import type { RequestHandler } from "express";
 import { AppError } from "../../../errors/app-error.js";
 import {
+  createChatFileAttachment,
+  deleteChatFileAttachment,
+  getChatFileAttachments,
+} from "../models/ChatAttachment.js";
+import {
   archiveChat,
   createChat,
   createMessage,
@@ -15,7 +20,9 @@ import {
   updateChat,
 } from "../models/Chat.js";
 import {
+  chatAttachmentIdParamsSchema,
   chatIdParamsSchema,
+  createChatFileAttachmentSchema,
   completeChatTurnSchema,
   createChatSchema,
   createMessageSchema,
@@ -32,6 +39,23 @@ function parseChatId(params: unknown): string {
   }
 
   return parsed.data.chatId;
+}
+
+function parseChatAttachmentIds(params: unknown): {
+  chatId: string;
+  attachmentId: string;
+} {
+  const parsed = chatAttachmentIdParamsSchema.safeParse(params);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid Chat attachment ID.",
+      parsed.error.flatten(),
+    );
+  }
+
+  return parsed.data;
 }
 
 export const getChats: RequestHandler = (_request, response) => {
@@ -114,6 +138,47 @@ export const removeChat: RequestHandler = (request, response) => {
   response.json({
     ok: true,
     selectedChatId: deleteChat(chatId),
+  });
+};
+
+export const getChatAttachmentList: RequestHandler = (
+  request,
+  response,
+) => {
+  const chatId = parseChatId(request.params);
+
+  response.json({
+    ok: true,
+    attachments: getChatFileAttachments(chatId),
+  });
+};
+
+export const postChatAttachment: RequestHandler = (request, response) => {
+  const chatId = parseChatId(request.params);
+  const body = createChatFileAttachmentSchema.safeParse(request.body);
+
+  if (!body.success) {
+    throw new AppError(
+      400,
+      "Invalid Chat attachment.",
+      body.error.flatten(),
+    );
+  }
+
+  response.status(201).json({
+    ok: true,
+    attachment: createChatFileAttachment(chatId, body.data),
+  });
+};
+
+export const removeChatAttachment: RequestHandler = (request, response) => {
+  const { chatId, attachmentId } = parseChatAttachmentIds(request.params);
+
+  deleteChatFileAttachment(chatId, attachmentId);
+
+  response.json({
+    ok: true,
+    attachmentId,
   });
 };
 

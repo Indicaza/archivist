@@ -12,7 +12,7 @@ const defaultDatabasePath = path.resolve(
   "../../data/archivist.db",
 );
 
-const databasePath =
+export const databasePath =
   process.env.ARCHIVIST_DB_PATH?.trim() || defaultDatabasePath;
 
 fs.mkdirSync(path.dirname(databasePath), {
@@ -26,6 +26,29 @@ database.pragma("journal_mode = WAL");
 database.pragma("busy_timeout = 5000");
 
 runMigrations(database);
+
+const schemaVersion = database.pragma("user_version", {
+  simple: true,
+}) as number;
+const attachmentTableReady = Boolean(
+  database
+    .prepare(
+      `
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = 'chat_file_attachments'
+        LIMIT 1
+      `,
+    )
+    .get(),
+);
+
+console.info(
+  `[Database] ${databasePath} · schema v${schemaVersion} · attachments ${
+    attachmentTableReady ? "ready" : "missing"
+  }`,
+);
 
 export function closeDatabase(): void {
   if (database.open) {
