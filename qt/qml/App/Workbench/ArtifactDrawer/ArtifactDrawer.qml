@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.Controls
+import Archivist.Services 1.0
+import "ContextInspector"
 
 Item {
     id: root
@@ -7,8 +9,16 @@ Item {
     required property var theme
     property bool open: false
 
+    function openForMessage(messageId) {
+        root.open = true
+        ChatStore.loadMessageContext(messageId)
+    }
+
     width: open ? theme.artifactDrawerWidth + 29 : 29
-    height: Math.min(theme.artifactDrawerHeight, parent ? parent.height - 170 : theme.artifactDrawerHeight)
+    height: Math.min(
+        theme.artifactDrawerHeight,
+        parent ? parent.height - 96 : theme.artifactDrawerHeight
+    )
 
     Button {
         id: toggleButton
@@ -21,6 +31,8 @@ Item {
         hoverEnabled: true
         padding: 0
         onClicked: root.open = !root.open
+        ToolTip.visible: hovered
+        ToolTip.text: root.open ? "Close Context Inspector" : "Open Context Inspector"
 
         contentItem: Text {
             text: parent.text
@@ -56,7 +68,7 @@ Item {
 
             Rectangle {
                 width: parent.width
-                height: 32
+                height: 36
                 color: "#1a1916"
 
                 Rectangle {
@@ -71,59 +83,46 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "✦  CHAT ARTIFACTS"
+                    text: "✦  CONTEXT INSPECTOR"
                     color: root.theme.mutedText
                     font.pixelSize: 9
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
-            }
 
-            Item {
-                width: parent.width
-                height: parent.height - 32
+                Button {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 26
+                    height: 26
+                    text: "×"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.open = false
 
-                Column {
-                    anchors.centerIn: parent
-                    width: parent.width - 36
-                    spacing: 10
-
-                    Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 50
-                        height: 50
-                        radius: 14
-                        color: root.theme.accentSoft
-                        border.width: 1
-                        border.color: "#554a7b"
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "✦"
-                            color: root.theme.accentBright
-                            font.pixelSize: 20
-                        }
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.hovered
+                            ? root.theme.appText
+                            : root.theme.mutedText
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
                     }
 
-                    Text {
-                        width: parent.width
-                        text: "No artifacts yet"
-                        color: root.theme.appText
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-
-                    Text {
-                        width: parent.width
-                        text: "Attachments, generated files, sources, and tool output will collect here."
-                        color: root.theme.mutedText
-                        font.pixelSize: 10
-                        lineHeight: 1.35
-                        wrapMode: Text.Wrap
-                        horizontalAlignment: Text.AlignHCenter
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered ? root.theme.hoverBg : "transparent"
                     }
                 }
+            }
+
+            ContextInspector {
+                width: parent.width
+                height: parent.height - 36
+                theme: root.theme
+                onSourceOpening: root.open = false
             }
         }
     }

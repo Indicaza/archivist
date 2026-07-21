@@ -10,6 +10,8 @@ Rectangle {
     id: root
 
     required property var theme
+
+    signal contextInspectionRequested(string messageId)
     property real leftObstruction: 0
     property bool historyLoadPending: false
     property int historyAnchorIndex: -1
@@ -423,11 +425,15 @@ Rectangle {
 
             width: transcript.width
             theme: root.theme
+            messageId: String(modelData.id || "")
             role: String(modelData.role || "system")
             content: String(modelData.content || "")
             timestamp: String(modelData.displayTimestamp || "")
             status: String(modelData.status || "complete")
             leftObstruction: root.leftObstruction
+            onContextInspectionRequested: function(messageId) {
+                root.contextInspectionRequested(messageId)
+            }
         }
 
     }

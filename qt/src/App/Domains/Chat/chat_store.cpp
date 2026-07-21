@@ -225,6 +225,16 @@ QVariantList ChatStore::lastSources() const
     return m_lastSources;
 }
 
+QVariantMap ChatStore::inspectedContext() const
+{
+    return m_inspectedContext;
+}
+
+QString ChatStore::inspectedMessageId() const
+{
+    return m_inspectedMessageId;
+}
+
 bool ChatStore::loadingChats() const
 {
     return m_loadingChats;
@@ -277,9 +287,19 @@ bool ChatStore::mutatingAttachment() const
     return m_mutatingAttachment;
 }
 
+bool ChatStore::loadingContext() const
+{
+    return m_loadingContext;
+}
+
 QString ChatStore::errorMessage() const
 {
     return m_errorMessage;
+}
+
+QString ChatStore::contextErrorMessage() const
+{
+    return m_contextErrorMessage;
 }
 
 QString ChatStore::lastProvider() const
@@ -852,6 +872,51 @@ void ChatStore::removeAttachment(const QString &attachmentId)
     );
 }
 
+void ChatStore::loadMessageContext(const QString &messageId)
+{
+    if (m_selectedChatId.isEmpty() || messageId.isEmpty()) {
+        clearInspectedContext();
+        return;
+    }
+
+    setInspectedContext(messageId, {});
+    setContextErrorMessage({});
+    setLoadingContext(true);
+
+    const QString chatId = m_selectedChatId;
+    const QString path = QStringLiteral("/chats/%1/messages/%2/context")
+        .arg(encodedPathSegment(chatId), encodedPathSegment(messageId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId, messageId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+
+        if (m_selectedChatId != chatId || m_inspectedMessageId != messageId) {
+            return;
+        }
+
+        setLoadingContext(false);
+
+        if (!result.ok) {
+            setContextErrorMessage(result.errorMessage);
+            return;
+        }
+
+        setInspectedContext(
+            messageId,
+            result.object.value(QStringLiteral("contextRun")).toObject().toVariantMap()
+        );
+    });
+}
+
+void ChatStore::clearInspectedContext()
+{
+    setLoadingContext(false);
+    setContextErrorMessage({});
+    setInspectedContext({}, {});
+}
+
 void ChatStore::updateChat(const QString &chatId, const QVariantMap &input)
 {
     if (
@@ -1054,6 +1119,7 @@ void ChatStore::setSelectedChatId(const QString &chatId)
 
     m_selectedChatId = chatId;
     resetMessagePageState();
+    clearInspectedContext();
     setAttachments({});
     setCompletionMetadata({}, {}, {});
     emit selectedChatIdChanged();
@@ -1179,6 +1245,40 @@ void ChatStore::setMutatingAttachment(bool mutating)
 
     m_mutatingAttachment = mutating;
     emit mutatingAttachmentChanged();
+}
+
+void ChatStore::setLoadingContext(bool loading)
+{
+    if (m_loadingContext == loading) {
+        return;
+    }
+
+    m_loadingContext = loading;
+    emit loadingContextChanged();
+}
+
+void ChatStore::setContextErrorMessage(const QString &message)
+{
+    if (m_contextErrorMessage == message) {
+        return;
+    }
+
+    m_contextErrorMessage = message;
+    emit contextErrorMessageChanged();
+}
+
+void ChatStore::setInspectedContext(
+    const QString &messageId,
+    const QVariantMap &context
+)
+{
+    if (m_inspectedMessageId == messageId && m_inspectedContext == context) {
+        return;
+    }
+
+    m_inspectedMessageId = messageId;
+    m_inspectedContext = context;
+    emit inspectedContextChanged();
 }
 
 void ChatStore::setErrorMessage(const QString &message)

@@ -39,6 +39,9 @@ Rectangle {
         height: parent.height - statusBar.height - chatDock.height
         theme: root.theme
         leftObstruction: root.workspaceLeftObstruction
+        onContextInspectionRequested: function(messageId) {
+            artifactDrawer.openForMessage(messageId)
+        }
     }
 
     ActivityRail {

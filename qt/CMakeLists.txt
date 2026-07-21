@@ -42,6 +42,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ChatDock/ChatEditor/ChatEditor.qml
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml
+        qml/App/Workbench/ArtifactDrawer/ContextInspector/ContextInspector.qml
 )
 
 target_link_libraries(archivist-qt

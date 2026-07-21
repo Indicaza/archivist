@@ -4,6 +4,10 @@ export const chatIdParamsSchema = z.object({
   chatId: z.string().uuid(),
 });
 
+export const chatMessageIdParamsSchema = chatIdParamsSchema.extend({
+  messageId: z.string().uuid(),
+});
+
 export const chatAttachmentIdParamsSchema = chatIdParamsSchema.extend({
   attachmentId: z.string().uuid(),
 });

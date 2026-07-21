@@ -48,12 +48,14 @@ fi
 
 paths=(
   "README.md"
+  "package.json"
   "qt"
   "scripts/qt-build"
   "scripts/qt-configure"
   "scripts/qt-context"
   "scripts/qt-dev"
   "scripts/qt-run"
+  "scripts/qt-stop"
 )
 
 for extra_path in "$@"; do

@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import { requireContextRunByAssistantMessage } from "../../cognition/contextRuns/models/ContextRun.js";
 import { AppError } from "../../../errors/app-error.js";
 import {
   createChatFileAttachment,
@@ -22,6 +23,7 @@ import {
 import {
   chatAttachmentIdParamsSchema,
   chatIdParamsSchema,
+  chatMessageIdParamsSchema,
   createChatFileAttachmentSchema,
   completeChatTurnSchema,
   createChatSchema,
@@ -51,6 +53,24 @@ function parseChatAttachmentIds(params: unknown): {
     throw new AppError(
       400,
       "Invalid Chat attachment ID.",
+      parsed.error.flatten(),
+    );
+  }
+
+  return parsed.data;
+}
+
+
+function parseChatMessageIds(params: unknown): {
+  chatId: string;
+  messageId: string;
+} {
+  const parsed = chatMessageIdParamsSchema.safeParse(params);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid Chat message ID.",
       parsed.error.flatten(),
     );
   }
@@ -213,6 +233,16 @@ export const getChatMessages: RequestHandler = (request, response) => {
       hasMore: page.hasMore,
       nextBeforeMessageId: page.nextBeforeMessageId,
     },
+  });
+};
+
+
+export const getChatMessageContext: RequestHandler = (request, response) => {
+  const { chatId, messageId } = parseChatMessageIds(request.params);
+
+  response.json({
+    ok: true,
+    contextRun: requireContextRunByAssistantMessage(chatId, messageId),
   });
 };
 

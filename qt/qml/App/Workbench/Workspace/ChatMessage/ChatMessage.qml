@@ -1,14 +1,18 @@
 import QtQuick
+import QtQuick.Controls
 
 Item {
     id: root
 
     required property var theme
+    required property string messageId
     required property string role
     required property string content
     required property string timestamp
     required property string status
     required property real leftObstruction
+
+    signal contextInspectionRequested(string messageId)
 
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
@@ -114,6 +118,41 @@ Item {
                                 : root.theme.mutedText
                             font.pixelSize: 8
                             opacity: root.failedMessage ? 0.9 : 0.52
+                        }
+                    }
+
+                    Button {
+                        width: 58
+                        height: 20
+                        visible: !root.userMessage
+                            && !root.systemMessage
+                            && !root.streamingMessage
+                            && root.messageId.length > 0
+                        text: "Context"
+                        hoverEnabled: true
+                        padding: 0
+                        onClicked: root.contextInspectionRequested(root.messageId)
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: parent.hovered
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                            font.pixelSize: 8
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered
+                                ? root.theme.hoverBg
+                                : "transparent"
+                            border.width: 1
+                            border.color: parent.hovered
+                                ? "#554a7b"
+                                : root.theme.quietBorder
                         }
                     }
                 }

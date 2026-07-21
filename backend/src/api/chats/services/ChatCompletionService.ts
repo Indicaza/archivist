@@ -1,5 +1,6 @@
 import { getAgentById, requireActiveAgent } from "../../agents/models/Agent.js";
 import { buildAgentInstructions } from "../../agents/services/AgentInstructionBuilder.js";
+import { createContextRun } from "../../cognition/contextRuns/models/ContextRun.js";
 import { buildChatAttachmentEvidence } from "./ChatAttachmentEvidence.js";
 import { aiProviderRegistry } from "../../../core/ai/AIProviderRegistry.js";
 import { modelCatalog } from "../../../core/ai/ModelCatalog.js";
@@ -237,6 +238,30 @@ export async function completeChatTurn(
     content: result.text,
     status: "complete",
   });
+
+  try {
+    createContextRun({
+      chatId,
+      userMessageId: userMessage.id,
+      assistantMessageId: assistantMessage.id,
+      provider: result.provider,
+      model: result.model,
+      agentId: agent.id,
+      compiler: contextManifest.compiler,
+      manifest: contextManifest,
+      warnings: contextWarnings,
+      sources: attachmentEvidence.outcomes,
+    });
+  } catch (error) {
+    console.error("[ContextRun] Failed to persist context inspection data.", {
+      chatId,
+      assistantMessageId: assistantMessage.id,
+      error,
+    });
+    contextWarnings.push(
+      "Archivist completed the response but could not persist its context inspection record.",
+    );
+  }
 
   return {
     userMessage,
