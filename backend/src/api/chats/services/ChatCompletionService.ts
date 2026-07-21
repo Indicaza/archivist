@@ -1,9 +1,11 @@
 import { getAgentById, requireActiveAgent } from "../../agents/models/Agent.js";
 import { buildAgentInstructions } from "../../agents/services/AgentInstructionBuilder.js";
+import { buildChatAttachmentEvidence } from "./ChatAttachmentEvidence.js";
 import { aiProviderRegistry } from "../../../core/ai/AIProviderRegistry.js";
 import { modelCatalog } from "../../../core/ai/ModelCatalog.js";
 import { modelRegistry } from "../../../core/ai/ModelRegistry.js";
 import { contextCompilerRegistry } from "../../../core/cognition/conscious/context/ContextCompilerRegistry.js";
+import { estimateTokens } from "../../../core/cognition/conscious/context/utilities/estimateTokens.js";
 import type {
   ContextCompilerConfig,
   ContextManifest,
@@ -14,7 +16,7 @@ import {
   getChatById,
   getMessagesByChatId,
 } from "../models/Chat.js";
-import type { ChatMessage } from "../types/ChatTypes.js";
+import type { ChatAttachmentSource, ChatMessage } from "../types/ChatTypes.js";
 
 type CompleteChatTurnResult = {
   userMessage: ChatMessage;
@@ -24,6 +26,7 @@ type CompleteChatTurnResult = {
   agentId: string;
   contextManifest: ContextManifest;
   contextWarnings: string[];
+  attachmentSources: ChatAttachmentSource[];
 };
 
 function toContextSourceMessage(message: ChatMessage): ContextSourceMessage {
@@ -97,6 +100,26 @@ export async function completeChatTurn(
   });
 
   const storedMessages = getMessagesByChatId(chatId);
+  const attachmentEvidence = await buildChatAttachmentEvidence(
+    chatId,
+    userMessage,
+  );
+
+  const sourceMessages = storedMessages
+    .filter((message) => message.status === "complete")
+    .map(toContextSourceMessage);
+
+  if (attachmentEvidence.contextMessage) {
+    const currentMessageIndex = sourceMessages.findIndex(
+      (message) => message.id === userMessage.id,
+    );
+
+    sourceMessages.splice(
+      currentMessageIndex < 0 ? sourceMessages.length : currentMessageIndex,
+      0,
+      attachmentEvidence.contextMessage,
+    );
+  }
 
   const definition = contextCompilerRegistry.getDefinition(
     agent.context.compiler,
@@ -110,26 +133,101 @@ export async function completeChatTurn(
   const compiledContext = definition.compiler.compile({
     chatId,
     currentMessageId: userMessage.id,
-
-    messages: storedMessages
-      .filter((message) => message.status === "complete")
-      .map(toContextSourceMessage),
-
+    messages: sourceMessages,
     config: validatedConfig,
   });
+
+  const contextWarnings = [
+    ...compiledContext.warnings,
+    ...attachmentEvidence.warnings,
+  ];
+
+  const attachmentContextIncluded =
+    attachmentEvidence.contextMessage !== null &&
+    compiledContext.manifest.includedMessageIds.includes(
+      attachmentEvidence.contextMessage.id,
+    );
+
+  const attachmentSources = attachmentEvidence.contextMessage
+    ? attachmentEvidence.sources
+    : [];
+
+  let providerMessages = compiledContext.providerMessages;
+  let includedMessageIds = compiledContext.manifest.includedMessageIds;
+  let omittedMessageIds = compiledContext.manifest.omittedMessageIds;
+  let estimatedInputTokens = compiledContext.manifest.estimatedInputTokens;
+
+  if (
+    attachmentEvidence.contextMessage !== null &&
+    !attachmentContextIncluded
+  ) {
+    providerMessages = [
+      {
+        role: "system",
+        content: attachmentEvidence.contextMessage.content,
+      },
+      ...providerMessages,
+    ];
+    includedMessageIds = [
+      attachmentEvidence.contextMessage.id,
+      ...includedMessageIds,
+    ];
+    omittedMessageIds = omittedMessageIds.filter(
+      (messageId) => messageId !== attachmentEvidence.contextMessage?.id,
+    );
+    estimatedInputTokens += estimateTokens(
+      attachmentEvidence.contextMessage.content,
+    );
+    contextWarnings.push(
+      "The selected Context Compiler omitted explicit attached-file evidence, so Archivist restored that bounded evidence ahead of the compiled conversation.",
+    );
+  }
+
+  const contextManifest: ContextManifest = {
+    ...compiledContext.manifest,
+    includedMessageIds,
+    omittedMessageIds,
+    includedMessageCount: includedMessageIds.length,
+    omittedMessageCount: omittedMessageIds.length,
+    estimatedInputTokens,
+    includedSources: attachmentSources.map((source) => ({
+      id: source.attachmentId,
+      source: "library-file",
+      label: `${source.libraryName}/${source.relativePath}`,
+      estimatedTokens: source.estimatedTokens,
+      truncated: source.truncated,
+      metadata: {
+        attachmentId: source.attachmentId,
+        libraryId: source.libraryId,
+        libraryName: source.libraryName,
+        fileId: source.fileId,
+        fileName: source.fileName,
+        relativePath: source.relativePath,
+      },
+    })),
+  };
+
+  if (
+    contextManifest.estimatedInputTokens >
+    contextManifest.totalBudget - contextManifest.responseTokenReserve
+  ) {
+    contextWarnings.push(
+      "Explicit attached-file evidence caused the estimated provider input to exceed the selected Context Compiler budget.",
+    );
+  }
 
   logCompiledContext(
     chatId,
     agent.id,
     validatedConfig,
-    compiledContext.manifest,
-    compiledContext.warnings,
+    contextManifest,
+    contextWarnings,
   );
 
   const result = await provider.generateText({
     instructions: buildAgentInstructions(agent),
 
-    messages: compiledContext.providerMessages,
+    messages: providerMessages,
 
     generation: agent.generation,
   });
@@ -146,7 +244,8 @@ export async function completeChatTurn(
     provider: result.provider,
     model: result.model,
     agentId: agent.id,
-    contextManifest: compiledContext.manifest,
-    contextWarnings: compiledContext.warnings,
+    contextManifest,
+    contextWarnings,
+    attachmentSources,
   };
 }

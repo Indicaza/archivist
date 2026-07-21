@@ -156,6 +156,24 @@ QVariantList withoutChat(const QVariantList &chats, const QString &chatId)
 
     return result;
 }
+
+
+QVariantList withoutAttachment(
+    const QVariantList &attachments,
+    const QString &attachmentId
+)
+{
+    QVariantList result;
+    result.reserve(attachments.size());
+
+    for (const QVariant &value : attachments) {
+        if (value.toMap().value(QStringLiteral("id")).toString() != attachmentId) {
+            result.append(value);
+        }
+    }
+
+    return result;
+}
 }
 
 ChatStore::ChatStore(QObject *parent)
@@ -196,6 +214,17 @@ QVariantList ChatStore::messages() const
     return m_messages;
 }
 
+
+QVariantList ChatStore::attachments() const
+{
+    return m_attachments;
+}
+
+QVariantList ChatStore::lastSources() const
+{
+    return m_lastSources;
+}
+
 bool ChatStore::loadingChats() const
 {
     return m_loadingChats;
@@ -209,6 +238,12 @@ bool ChatStore::loadingArchivedChats() const
 bool ChatStore::loadingMessages() const
 {
     return m_loadingMessages;
+}
+
+
+bool ChatStore::loadingAttachments() const
+{
+    return m_loadingAttachments;
 }
 
 bool ChatStore::loadingOlderMessages() const
@@ -234,6 +269,12 @@ bool ChatStore::assigningAgent() const
 bool ChatStore::mutating() const
 {
     return m_mutating;
+}
+
+
+bool ChatStore::mutatingAttachment() const
+{
+    return m_mutatingAttachment;
 }
 
 QString ChatStore::errorMessage() const
@@ -344,17 +385,19 @@ void ChatStore::fetchAppState()
 
 void ChatStore::selectChat(const QString &chatId)
 {
-    if (m_responding || m_assigningAgent || m_mutating || chatId.isEmpty() || !containsChat(chatId)) {
+    if (m_responding || m_assigningAgent || m_mutating || m_mutatingAttachment || chatId.isEmpty() || !containsChat(chatId)) {
         return;
     }
 
     if (chatId == m_selectedChatId) {
         refreshSelectedMessages();
+        refreshSelectedAttachments();
         return;
     }
 
     setErrorMessage({});
     setMessages({});
+    setAttachments({});
     resetMessagePageState();
     setLoadingMessages(true);
 
@@ -421,6 +464,43 @@ void ChatStore::refreshSelectedMessages()
         const MessagePage page = mapMessagePage(result.object);
         setMessages(page.messages);
         setMessagePageState(page.hasMore, page.nextBeforeMessageId);
+    });
+}
+
+void ChatStore::refreshSelectedAttachments()
+{
+    if (m_selectedChatId.isEmpty()) {
+        setAttachments({});
+        setLoadingAttachments(false);
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+
+    setLoadingAttachments(true);
+
+    const QString path = QStringLiteral("/chats/%1/attachments")
+        .arg(encodedPathSegment(requestedChatId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+
+        if (requestedChatId != m_selectedChatId) {
+            return;
+        }
+
+        setLoadingAttachments(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        setAttachments(
+            result.object.value(QStringLiteral("attachments")).toArray().toVariantList()
+        );
     });
 }
 
@@ -518,6 +598,7 @@ void ChatStore::sendMessage(const QString &content)
         || m_responding
         || m_assigningAgent
         || m_mutating
+        || m_mutatingAttachment
     ) {
         return;
     }
@@ -598,7 +679,8 @@ void ChatStore::sendMessage(const QString &content)
         setMessages(storedMessages);
         setCompletionMetadata(
             result.object.value(QStringLiteral("provider")).toString(),
-            result.object.value(QStringLiteral("model")).toString()
+            result.object.value(QStringLiteral("model")).toString(),
+            result.object.value(QStringLiteral("attachmentSources")).toArray().toVariantList()
         );
         promoteSelectedChat();
     });
@@ -612,6 +694,7 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
         || m_responding
         || m_assigningAgent
         || m_mutating
+        || m_mutatingAttachment
         || selectedChat().value(QStringLiteral("agentId")).toString() == agentId
     ) {
         return;
@@ -657,10 +740,123 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
     });
 }
 
+void ChatStore::attachFile(const QString &libraryId, const QString &fileId)
+{
+    if (
+        m_selectedChatId.isEmpty()
+        || libraryId.isEmpty()
+        || fileId.isEmpty()
+        || m_responding
+        || m_mutating
+        || m_mutatingAttachment
+    ) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+
+    setErrorMessage({});
+    setMutatingAttachment(true);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("libraryId"), libraryId);
+    body.insert(QStringLiteral("fileId"), fileId);
+
+    const QString path = QStringLiteral("/chats/%1/attachments")
+        .arg(encodedPathSegment(requestedChatId));
+    QNetworkReply *reply = m_network.post(
+        requestFor(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutatingAttachment(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        if (requestedChatId != m_selectedChatId) {
+            return;
+        }
+
+        const QVariantMap attachment = result.object
+            .value(QStringLiteral("attachment"))
+            .toObject()
+            .toVariantMap();
+
+        if (
+            attachment.value(QStringLiteral("chatId")).toString()
+            != requestedChatId
+        ) {
+            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat attachment."));
+            return;
+        }
+
+        upsertAttachment(attachment);
+        emit attachmentAdded(attachment);
+    });
+}
+
+void ChatStore::removeAttachment(const QString &attachmentId)
+{
+    if (
+        m_selectedChatId.isEmpty()
+        || attachmentId.isEmpty()
+        || m_responding
+        || m_mutating
+        || m_mutatingAttachment
+    ) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+
+    setErrorMessage({});
+    setMutatingAttachment(true);
+
+    const QString path = QStringLiteral("/chats/%1/attachments/%2")
+        .arg(
+            encodedPathSegment(requestedChatId),
+            encodedPathSegment(attachmentId)
+        );
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("DELETE")
+    );
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, requestedChatId, attachmentId]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+            setMutatingAttachment(false);
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            if (requestedChatId != m_selectedChatId) {
+                return;
+            }
+
+            removeAttachmentFromList(attachmentId);
+            emit attachmentRemoved(attachmentId);
+        }
+    );
+}
+
 void ChatStore::updateChat(const QString &chatId, const QVariantMap &input)
 {
     if (
         m_mutating
+        || m_mutatingAttachment
         || m_responding
         || m_assigningAgent
         || chatId.isEmpty()
@@ -706,7 +902,7 @@ void ChatStore::updateChat(const QString &chatId, const QVariantMap &input)
 
 void ChatStore::archiveChat(const QString &chatId)
 {
-    if (m_mutating || m_responding || m_assigningAgent || chatId.isEmpty()) {
+    if (m_mutating || m_mutatingAttachment || m_responding || m_assigningAgent || chatId.isEmpty()) {
         return;
     }
 
@@ -750,7 +946,7 @@ void ChatStore::archiveChat(const QString &chatId)
 
 void ChatStore::restoreChat(const QString &chatId)
 {
-    if (m_mutating || m_responding || m_assigningAgent || chatId.isEmpty()) {
+    if (m_mutating || m_mutatingAttachment || m_responding || m_assigningAgent || chatId.isEmpty()) {
         return;
     }
 
@@ -783,7 +979,7 @@ void ChatStore::restoreChat(const QString &chatId)
 
 void ChatStore::deleteChat(const QString &chatId)
 {
-    if (m_mutating || m_responding || m_assigningAgent || chatId.isEmpty()) {
+    if (m_mutating || m_mutatingAttachment || m_responding || m_assigningAgent || chatId.isEmpty()) {
         return;
     }
 
@@ -858,9 +1054,11 @@ void ChatStore::setSelectedChatId(const QString &chatId)
 
     m_selectedChatId = chatId;
     resetMessagePageState();
-    setCompletionMetadata({}, {});
+    setAttachments({});
+    setCompletionMetadata({}, {}, {});
     emit selectedChatIdChanged();
     emit selectedChatChanged();
+    refreshSelectedAttachments();
 }
 
 void ChatStore::setMessages(const QVariantList &messages)
@@ -871,6 +1069,16 @@ void ChatStore::setMessages(const QVariantList &messages)
 
     m_messages = messages;
     emit messagesChanged();
+}
+
+void ChatStore::setAttachments(const QVariantList &attachments)
+{
+    if (m_attachments == attachments) {
+        return;
+    }
+
+    m_attachments = attachments;
+    emit attachmentsChanged();
 }
 
 void ChatStore::setLoadingChats(bool loading)
@@ -901,6 +1109,16 @@ void ChatStore::setLoadingMessages(bool loading)
 
     m_loadingMessages = loading;
     emit loadingMessagesChanged();
+}
+
+void ChatStore::setLoadingAttachments(bool loading)
+{
+    if (m_loadingAttachments == loading) {
+        return;
+    }
+
+    m_loadingAttachments = loading;
+    emit loadingAttachmentsChanged();
 }
 
 void ChatStore::setLoadingOlderMessages(bool loading)
@@ -953,6 +1171,16 @@ void ChatStore::setMutating(bool mutating)
     emit mutatingChanged();
 }
 
+void ChatStore::setMutatingAttachment(bool mutating)
+{
+    if (m_mutatingAttachment == mutating) {
+        return;
+    }
+
+    m_mutatingAttachment = mutating;
+    emit mutatingAttachmentChanged();
+}
+
 void ChatStore::setErrorMessage(const QString &message)
 {
     if (m_errorMessage == message) {
@@ -963,14 +1191,23 @@ void ChatStore::setErrorMessage(const QString &message)
     emit errorMessageChanged();
 }
 
-void ChatStore::setCompletionMetadata(const QString &provider, const QString &model)
+void ChatStore::setCompletionMetadata(
+    const QString &provider,
+    const QString &model,
+    const QVariantList &sources
+)
 {
-    if (m_lastProvider == provider && m_lastModel == model) {
+    if (
+        m_lastProvider == provider
+        && m_lastModel == model
+        && m_lastSources == sources
+    ) {
         return;
     }
 
     m_lastProvider = provider;
     m_lastModel = model;
+    m_lastSources = sources;
     emit completionMetadataChanged();
 }
 
@@ -1066,6 +1303,40 @@ void ChatStore::replaceChat(const QVariantMap &chat)
         setChats(nextChats);
         return;
     }
+}
+
+void ChatStore::upsertAttachment(const QVariantMap &attachment)
+{
+    const QString attachmentId = attachment.value(QStringLiteral("id")).toString();
+
+    if (attachmentId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextAttachments;
+    nextAttachments.reserve(m_attachments.size() + 1);
+
+    bool replaced = false;
+
+    for (const QVariant &value : m_attachments) {
+        if (value.toMap().value(QStringLiteral("id")).toString() == attachmentId) {
+            nextAttachments.append(attachment);
+            replaced = true;
+        } else {
+            nextAttachments.append(value);
+        }
+    }
+
+    if (!replaced) {
+        nextAttachments.append(attachment);
+    }
+
+    setAttachments(nextAttachments);
+}
+
+void ChatStore::removeAttachmentFromList(const QString &attachmentId)
+{
+    setAttachments(withoutAttachment(m_attachments, attachmentId));
 }
 
 bool ChatStore::containsChat(const QString &chatId) const

@@ -4,6 +4,15 @@ export const chatIdParamsSchema = z.object({
   chatId: z.string().uuid(),
 });
 
+export const chatAttachmentIdParamsSchema = chatIdParamsSchema.extend({
+  attachmentId: z.string().uuid(),
+});
+
+export const createChatFileAttachmentSchema = z.object({
+  libraryId: z.string().uuid(),
+  fileId: z.string().uuid(),
+});
+
 export const createChatSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   agentId: z.string().uuid().optional(),

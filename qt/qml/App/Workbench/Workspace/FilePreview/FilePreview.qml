@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Archivist.Services 1.0
 
 Rectangle {
     id: root
@@ -11,6 +12,7 @@ Rectangle {
     required property bool loading
     required property string errorMessage
     property real leftObstruction: 0
+    property string pendingAttachmentFileId: ""
 
     readonly property string content: preview && preview.content
         ? String(preview.content)
@@ -22,8 +24,56 @@ Rectangle {
         ? Number(file.sizeBytes)
         : 0
 
+    readonly property string attachmentId: attachmentIdForFile()
+    readonly property bool attachedToChat: attachmentId.length > 0
+    readonly property bool canAttach: ChatStore.selectedChatId.length > 0
+        && file
+        && file.id
+        && !loading
+        && errorMessage.length === 0
+        && !ChatStore.responding
+        && !ChatStore.mutating
+        && !ChatStore.mutatingAttachment
+
+    function attachmentIdForFile() {
+        var attachments = ChatStore.attachments || []
+        var fileId = root.file && root.file.id ? String(root.file.id) : ""
+
+        for (var index = 0; index < attachments.length; index += 1) {
+            if (String(attachments[index].fileId || "") === fileId) {
+                return String(attachments[index].id || "")
+            }
+        }
+
+        return ""
+    }
+
     color: theme.workspaceBg
     clip: true
+
+    Connections {
+        target: ChatStore
+
+        function onAttachmentAdded(attachment) {
+            if (
+                root.pendingAttachmentFileId.length > 0
+                && String(attachment.fileId || "") === root.pendingAttachmentFileId
+            ) {
+                root.pendingAttachmentFileId = ""
+                LibraryStore.clearFilePreview()
+            }
+        }
+
+        function onErrorMessageChanged() {
+            if (
+                root.pendingAttachmentFileId.length > 0
+                && !ChatStore.mutatingAttachment
+                && ChatStore.errorMessage.length > 0
+            ) {
+                root.pendingAttachmentFileId = ""
+            }
+        }
+    }
 
     function formattedSize(bytes) {
         if (bytes < 1024) {
@@ -96,6 +146,64 @@ Rectangle {
                     color: root.theme.mutedText
                     font.pixelSize: 8
                     opacity: 0.72
+                }
+
+
+                Button {
+                    Layout.preferredWidth: root.attachedToChat ? 92 : 108
+                    Layout.preferredHeight: 28
+                    visible: !root.loading && root.errorMessage.length === 0
+                    enabled: root.canAttach
+                    text: root.pendingAttachmentFileId.length > 0
+                        ? "Attaching…"
+                        : root.attachedToChat
+                            ? "✓  Attached"
+                            : "＋  Attach to Chat"
+                    hoverEnabled: true
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: ChatStore.selectedChatId.length === 0
+                        ? "Select a Chat before attaching this file"
+                        : root.attachedToChat
+                            ? "Remove this file from the selected Chat"
+                            : "Use this file as explicit evidence in the selected Chat"
+                    onClicked: {
+                        if (root.attachedToChat) {
+                            ChatStore.removeAttachment(root.attachmentId)
+                        } else {
+                            root.pendingAttachmentFileId = String(root.file.id)
+                            ChatStore.attachFile(
+                                LibraryStore.selectedLibraryId,
+                                root.pendingAttachmentFileId
+                            )
+                        }
+                    }
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled
+                            ? root.attachedToChat
+                                ? root.theme.accentBright
+                                : root.theme.appText
+                            : root.theme.mutedText
+                        font.pixelSize: 8
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        opacity: parent.enabled ? 1 : 0.45
+                    }
+
+                    background: Rectangle {
+                        color: parent.enabled && parent.hovered
+                            ? root.theme.hoverBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.attachedToChat
+                            ? root.theme.accentBright
+                            : root.theme.quietBorder
+                        radius: 4
+                        opacity: parent.enabled ? 1 : 0.55
+                    }
                 }
             }
         }

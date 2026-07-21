@@ -7,6 +7,37 @@ export type Chat = {
   updatedAt: string;
 };
 
+
+export type ChatFileAttachment = {
+  id: string;
+  chatId: string;
+  libraryId: string;
+  libraryName: string;
+  fileId: string;
+  fileName: string;
+  relativePath: string;
+  extension: string;
+  sizeBytes: number;
+  fileStatus: "available" | "unreadable" | "missing";
+  createdAt: string;
+};
+
+export type CreateChatFileAttachmentInput = {
+  libraryId: string;
+  fileId: string;
+};
+
+export type ChatAttachmentSource = {
+  attachmentId: string;
+  libraryId: string;
+  libraryName: string;
+  fileId: string;
+  fileName: string;
+  relativePath: string;
+  estimatedTokens: number;
+  truncated: boolean;
+};
+
 export type MessageRole = "user" | "assistant" | "system";
 
 export type MessageStatus = "streaming" | "complete" | "cancelled" | "failed";

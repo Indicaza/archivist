@@ -13,7 +13,9 @@ Rectangle {
     property string activePanel: "none"
     property bool archivedAgentsOpen: false
     property bool archivedChatsOpen: false
+    property string attachmentNotice: ""
 
+    readonly property int attachmentCount: ChatStore.attachments.length
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name || "Standalone"
     readonly property var selectedAgent: agentForId(ChatStore.selectedChat.agentId)
@@ -26,6 +28,7 @@ Rectangle {
         && !ChatStore.responding
         && !ChatStore.assigningAgent
         && !ChatStore.mutating
+        && !ChatStore.mutatingAttachment
         && composer.text.trim().length > 0
 
     signal dockModeToggleRequested()
@@ -41,6 +44,18 @@ Rectangle {
         }
 
         return null
+    }
+
+    function sourceWasIncluded(attachmentId) {
+        var sources = ChatStore.lastSources || []
+
+        for (var index = 0; index < sources.length; index += 1) {
+            if (String(sources[index].attachmentId || "") === String(attachmentId || "")) {
+                return true
+            }
+        }
+
+        return false
     }
 
     function submitDraft() {
@@ -59,6 +74,30 @@ Rectangle {
         AgentStore.refresh()
         AgentStore.refreshArchived()
         ChatStore.refreshArchived()
+    }
+
+    Connections {
+        target: ChatStore
+
+        function onAttachmentAdded(attachment) {
+            var path = String(
+                attachment.relativePath || attachment.fileName || "Library file"
+            )
+            root.attachmentNotice = "Attached " + path
+            attachmentNoticeTimer.restart()
+        }
+
+        function onAttachmentRemoved(attachmentId) {
+            root.attachmentNotice = "Source detached"
+            attachmentNoticeTimer.restart()
+        }
+    }
+
+    Timer {
+        id: attachmentNoticeTimer
+        interval: 3000
+        repeat: false
+        onTriggered: root.attachmentNotice = ""
     }
 
     color: theme.surfaceBg
@@ -132,6 +171,21 @@ Rectangle {
                             font.pixelSize: 8
                             font.letterSpacing: 0.25
                             elide: Text.ElideRight
+                        }
+
+                        Rectangle {
+                            width: 1
+                            height: 10
+                            color: root.theme.quietBorder
+                        }
+
+                        Text {
+                            text: "▤  SOURCES  " + String(root.attachmentCount)
+                            color: root.attachmentCount > 0
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                            font.pixelSize: 8
+                            font.letterSpacing: 0.25
                         }
                     }
                 }
@@ -269,12 +323,160 @@ Rectangle {
                     anchors.fill: parent
                     spacing: 0
 
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: ChatStore.selectedChatId.length > 0 ? 38 : 0
+                        visible: ChatStore.selectedChatId.length > 0
+                        color: "#171512"
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: root.theme.quietBorder
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 8
+                            spacing: 8
+
+                            Text {
+                                text: "SOURCES  " + String(root.attachmentCount) + " ATTACHED"
+                                color: root.attachmentCount > 0
+                                    ? root.theme.accentBright
+                                    : root.theme.mutedText
+                                font.pixelSize: 7
+                                font.weight: Font.Bold
+                                font.letterSpacing: 0.55
+                                opacity: 0.82
+                            }
+
+                            Text {
+                                visible: !ChatStore.loadingAttachments
+                                    && root.attachmentCount === 0
+                                Layout.fillWidth: true
+                                text: "No files attached — preview a Library file to add one."
+                                color: root.theme.mutedText
+                                font.pixelSize: 8
+                                opacity: 0.66
+                                elide: Text.ElideRight
+                            }
+
+                            ListView {
+                                id: attachmentList
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 26
+                                visible: root.attachmentCount > 0
+                                orientation: ListView.Horizontal
+                                spacing: 6
+                                clip: true
+                                model: ChatStore.attachments
+
+                                delegate: Rectangle {
+                                    id: attachmentChip
+
+                                    required property var modelData
+
+                                    readonly property string sourcePath: String(
+                                        modelData.libraryName || "Library"
+                                    ) + " / " + String(
+                                        modelData.relativePath || modelData.fileName || "Library file"
+                                    )
+                                    readonly property bool includedInLastResponse: root.sourceWasIncluded(
+                                        modelData.id
+                                    )
+
+                                    width: Math.min(
+                                        190,
+                                        Math.max(90, attachmentLabel.implicitWidth + 30)
+                                    )
+                                    height: 24
+                                    color: root.theme.controlSurfaceBg
+                                    border.width: 1
+                                    border.color: attachmentChip.includedInLastResponse
+                                        ? root.theme.accentBright
+                                        : root.theme.quietBorder
+                                    radius: 4
+
+                                    Text {
+                                        id: attachmentLabel
+
+                                        anchors.left: parent.left
+                                        anchors.right: removeAttachmentButton.left
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 4
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: (attachmentChip.includedInLastResponse ? "✓  " : "▤  ")
+                                            + attachmentChip.sourcePath
+                                        color: root.theme.appText
+                                        font.pixelSize: 8
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    Button {
+                                        id: removeAttachmentButton
+
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 3
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 20
+                                        height: 20
+                                        text: "×"
+                                        enabled: !ChatStore.responding
+                                            && !ChatStore.mutating
+                                            && !ChatStore.mutatingAttachment
+                                        hoverEnabled: true
+                                        padding: 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Remove attached source"
+                                        onClicked: ChatStore.removeAttachment(
+                                            String(attachmentChip.modelData.id)
+                                        )
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: parent.enabled && parent.hovered
+                                                ? root.theme.appText
+                                                : root.theme.mutedText
+                                            font.pixelSize: 11
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            opacity: parent.enabled ? 1 : 0.45
+                                        }
+
+                                        background: Rectangle {
+                                            color: parent.enabled && parent.hovered
+                                                ? root.theme.hoverBg
+                                                : "transparent"
+                                            radius: 3
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                visible: ChatStore.loadingAttachments
+                                text: "Loading…"
+                                color: root.theme.mutedText
+                                font.pixelSize: 8
+                                opacity: 0.7
+                            }
+                        }
+                    }
+
                     TextArea {
                         id: composer
 
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        enabled: ChatStore.selectedChatId.length > 0 && !ChatStore.responding && !ChatStore.mutating
+                        enabled: ChatStore.selectedChatId.length > 0
+                            && !ChatStore.responding
+                            && !ChatStore.mutating
+                            && !ChatStore.mutatingAttachment
                         placeholderText: ChatStore.responding
                             ? "Archivist is thinking…"
                             : ChatStore.selectedChatId.length > 0
@@ -361,14 +563,35 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: ChatStore.errorMessage.length > 0
                                     ? ChatStore.errorMessage
-                                    : ChatStore.responding
-                                        ? "Archivist is thinking…"
-                                        : ChatStore.selectedChatId.length === 0
-                                            ? "Select a Chat"
-                                            : "Enter to send  ·  Shift+Enter for newline"
+                                    : root.attachmentNotice.length > 0
+                                        ? root.attachmentNotice
+                                        : ChatStore.mutatingAttachment
+                                            ? "Updating attached sources…"
+                                            : ChatStore.responding
+                                            ? "Archivist is thinking…"
+                                            : ChatStore.selectedChatId.length === 0
+                                                ? "Select a Chat"
+                                                : ChatStore.lastSources.length > 0
+                                                    ? "Included: "
+                                                        + String(
+                                                            ChatStore.lastSources[0].libraryName
+                                                            || "Library"
+                                                        )
+                                                        + " / "
+                                                        + String(
+                                                            ChatStore.lastSources[0].relativePath
+                                                            || ChatStore.lastSources[0].fileName
+                                                            || "attached source"
+                                                        )
+                                                        + (ChatStore.lastSources.length > 1
+                                                            ? "  +" + String(ChatStore.lastSources.length - 1)
+                                                            : "")
+                                                    : "Enter to send  ·  Shift+Enter for newline"
                                 color: ChatStore.errorMessage.length > 0
                                     ? root.theme.danger
-                                    : root.theme.mutedText
+                                    : root.attachmentNotice.length > 0
+                                        ? root.theme.success
+                                        : root.theme.mutedText
                                 font.pixelSize: 8
                                 opacity: 0.78
                                 elide: Text.ElideRight

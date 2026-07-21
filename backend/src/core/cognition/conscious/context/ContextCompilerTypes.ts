@@ -29,6 +29,15 @@ export type CompileContextInput<
   config: TConfig;
 };
 
+export type ContextManifestSource = {
+  id: string;
+  source: "library-file";
+  label: string;
+  estimatedTokens: number;
+  truncated: boolean;
+  metadata: Record<string, string | number | boolean | null>;
+};
+
 export type ContextManifest = {
   compiler: ContextCompilerDescriptor;
   includedMessageIds: string[];
@@ -39,6 +48,7 @@ export type ContextManifest = {
   responseTokenReserve: number;
   totalBudget: number;
   compilationTimeMs: number;
+  includedSources?: ContextManifestSource[];
 };
 
 export type CompiledContext = {
