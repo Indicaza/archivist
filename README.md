@@ -6,14 +6,17 @@
 
 > A local-first AI workspace for durable project memory, curated context, and inspectable computer work.
 
-Archivist turns folders into long-lived **Libraries** where files, conversations, Agents, decisions, and context stay connected over time. Instead of treating every AI session as disposable, Archivist gives each project a persistent home and keeps the user in control of what the model sees and does.
+Archivist turns folders into long-lived **Libraries** where files, conversations, Agents, decisions, and context stay connected over time.
+
+Instead of treating every AI session as disposable, Archivist gives each project a persistent home and keeps the user in control of what the model sees, remembers, and does.
 
 ```text
 Choose a Library
 → browse and preview its files
 → attach trusted sources to a Chat
 → talk to a persistent Agent
-→ inspect the context used
+→ inspect the exact context used
+→ reopen the original evidence
 ```
 
 Archivist is under active development. The native Qt desktop client is the primary application; the older Electron/React client remains in the repository as a behavioral reference.
@@ -22,15 +25,18 @@ Archivist is under active development. The native Qt desktop client is the prima
 
 - **Local-first Libraries** — register folders, scan their contents, and browse cataloged files without surrendering ownership of the filesystem.
 - **Safe native file preview** — open supported text and source files through a root-constrained, read-only backend boundary.
-- **Durable Chat** — persistent conversations, selected state, large-history pagination, and native variable-height message rendering.
-- **File-aware Chat** — explicitly attach Library files to a conversation, persist those attachments, and remove them at any time.
-- **Visible sources** — attached files appear in the Workbench, while sources included in the latest response are clearly marked.
-- **Bounded context** — attached evidence is token-budgeted and passed through the selected Context Compiler without replacing the user's current intent.
+- **Durable Chat** — preserve conversations, selected state, and large histories with cursor-based pagination.
+- **File-aware Chat** — explicitly attach Library files to an individual conversation and remove them at any time.
+- **Visible sources** — show attached files in the Workbench and mark sources included in the latest response.
+- **Bounded context** — budget attached evidence through the selected Context Compiler without replacing the user's current intent.
+- **Durable Context Inspector** — inspect the compiler, model, token accounting, warnings, message selection, and source outcomes behind individual assistant responses.
+- **Reopenable evidence** — jump from a recorded context source back to the authoritative Library file.
 - **Configurable Agents** — create reusable AI identities with personality, profession, doctrine, output rules, generation settings, and Context Compiler configuration.
 - **Chat-to-Agent assignment** — assign different Agents to different conversations and preserve those choices across restarts.
 - **Native management workflows** — create, rename, archive, restore, duplicate, and delete Chats and Agents through the Qt client.
 - **Provider abstraction** — OpenAI is currently supported behind an adapter boundary so project continuity does not belong to one model vendor.
-- **Inspectable persistence** — SQLite stores structured state, history, attachments, metadata, and indexes while the filesystem remains authoritative for user files.
+- **Inspectable persistence** — SQLite stores structured state, history, attachments, context records, metadata, and indexes while the filesystem remains authoritative for user files.
+- **Managed native development** — build and run the backend and Qt desktop client from the repository root in one supervised terminal session.
 
 ## Product philosophy
 
@@ -39,10 +45,11 @@ Archivist is designed around a few simple rules:
 1. **Local before cloud.** User files and project continuity should remain under the user's control.
 2. **Durable history, temporary provider context.** Chats persist; only curated context is sent to a model.
 3. **Evidence is not intent.** Retrieved material must remain visibly distinct from the user's current request.
-4. **Read-only before mutation.** Inspection and retrieval come before file-writing or autonomous actions.
-5. **Human approval before consequences.** Important operations should be reviewable, attributable, and reversible.
-6. **Providers are workers, not owners.** Archivist owns memory, sources, permissions, artifacts, and continuity.
-7. **Complexity must pay rent.** Prefer small, complete vertical slices over speculative infrastructure.
+4. **Inspection before automation.** A context system should explain what it used before it begins making broader decisions.
+5. **Read-only before mutation.** Inspection and retrieval come before file-writing or autonomous actions.
+6. **Human approval before consequences.** Important operations should be reviewable, attributable, and reversible.
+7. **Providers are workers, not owners.** Archivist owns memory, sources, permissions, artifacts, and continuity.
+8. **Complexity must pay rent.** Prefer small, complete vertical slices over speculative infrastructure.
 
 ## Architecture
 
@@ -50,7 +57,7 @@ Archivist is a local modular monolith with clear domain boundaries:
 
 ```text
 Qt 6 / QML desktop
-  native Workbench, Explorer, Chat, source controls, desktop lifecycle
+  native Workbench, Explorer, Chat, source controls, Context Inspector
         |
 C++ domain stores
   HTTP requests, client state, QML-facing models
@@ -62,7 +69,7 @@ Domain models and services
   persistence, safe file access, context compilation
         |
 SQLite + filesystem + AI providers
-  durable state, source files, retrieval, generation
+  durable state, authoritative files, retrieval, generation
 ```
 
 The API owns business rules. QML owns presentation and interaction. C++ stores bridge the two without duplicating backend invariants.
@@ -75,16 +82,44 @@ current user message
 + explicitly attached Library evidence
 → Context Compiler
 → bounded provider request
-→ response and source manifest
+→ assistant response
+→ durable context-run snapshot
+→ native Context Inspector
 ```
 
-The current user message remains the highest-priority intent. Attached files are evidence, not instructions.
+The current user message remains the highest-priority intent. Attached and retrieved files are evidence, not instructions.
+
+### Context inspection
+
+Each newly generated assistant response can preserve:
+
+```text
+compiler ID and version
+provider, model, and Agent
+input budget and response reserve
+estimated tokens used
+included and omitted messages
+compiler warnings and timing
+source outcomes and token contributions
+```
+
+Source outcomes are explicit:
+
+```text
+Included
+Truncated
+Omitted
+Unavailable
+Failed
+```
+
+Context records describe what happened during a specific response. They are not reconstructed later from files that may have changed.
 
 ### Data ownership
 
 ```text
 Filesystem  → authoritative user file contents
-SQLite      → Libraries, Chats, messages, Agents, attachments, metadata, indexes
+SQLite      → Libraries, Chats, messages, Agents, attachments, context records, indexes
 Providers   → temporary generation workers
 Archivist   → continuity, context, permissions, provenance, outcomes
 ```
@@ -96,7 +131,7 @@ Archivist/
 ├── assets/               README artwork and project media
 ├── backend/              Express 5, TypeScript, SQLite, AI and cognition domains
 ├── qt/                   Primary Qt 6 / QML desktop client
-│   ├── qml/App/          Theme, Workbench, Explorer, Chat, previews and editors
+│   ├── qml/App/          Workbench, Explorer, Chat, previews, inspectors and editors
 │   └── src/App/Domains/  C++ Library, Chat and Agent stores
 ├── frontend/             Legacy Electron/React reference client
 ├── scripts/              Native build, runtime, cleanup and context helpers
@@ -234,13 +269,36 @@ ERR_DLOPEN_FAILED
 
 The development launcher validates the active Node version and SQLite module before starting the application.
 
-The backend also logs the active database path, schema version, and attachment-table readiness during startup.
+The backend also logs the active database path, schema version, and important table readiness during startup.
 
 ## Status
 
-Archivist currently has a native Workbench, persistent Libraries and Chats, paginated history, real AI responses, configurable Agents, safe Library file preview, persistent Chat attachments, bounded file-aware context, and visible source state.
+Archivist currently has:
 
-Current development is focused on richer context inspection, Library indexing and retrieval, and observable read-only Agent tools.
+```text
+native Qt Workbench
+persistent Libraries and Chats
+safe Library file preview
+real provider-backed Agents
+persistent per-Chat file attachments
+bounded file-aware context
+durable per-response context records
+native source and token inspection
+reopenable evidence
+one-command native development workflow
+```
+
+The next milestone is deterministic Library text indexing and lexical retrieval:
+
+```text
+extract supported Library text
+→ create stable chunks with file and line provenance
+→ index chunks with SQLite FTS5
+→ search and inspect results manually
+→ later feed ranked evidence into Chat
+```
+
+Embeddings and automatic retrieval remain intentionally deferred until deterministic indexing is dependable and inspectable.
 
 ---
 
