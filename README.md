@@ -12,10 +12,11 @@ Instead of treating every AI session as disposable, Archivist gives each project
 
 ```text
 Choose a Library
-→ browse and preview its files
-→ attach trusted sources to a Chat
-→ talk to a persistent Agent
-→ inspect the exact context used
+→ scan and index its readable files
+→ ask a normal project question
+→ retrieve relevant evidence automatically
+→ compile a bounded provider request
+→ inspect the exact sources used
 → reopen the original evidence
 ```
 
@@ -25,17 +26,20 @@ Archivist is under active development. The native Qt desktop client is the prima
 
 - **Local-first Libraries** — register folders, scan their contents, and browse cataloged files without surrendering ownership of the filesystem.
 - **Safe native file preview** — open supported text and source files through a root-constrained, read-only backend boundary.
+- **Deterministic text indexing** — extract supported UTF-8 files, split them into stable chunks, preserve line provenance, and index them with SQLite FTS5.
+- **Incremental rescanning** — reuse unchanged documents, replace changed chunks, remove stale records, and report failed or unavailable files honestly.
+- **Automatic Library retrieval** — search the selected Library for each normal Chat request and provide bounded, relevant excerpts without requiring manual attachments.
 - **Durable Chat** — preserve conversations, selected state, and large histories with cursor-based pagination.
-- **File-aware Chat** — explicitly attach Library files to an individual conversation and remove them at any time.
-- **Visible sources** — show attached files in the Workbench and mark sources included in the latest response.
-- **Bounded context** — budget attached evidence through the selected Context Compiler without replacing the user's current intent.
-- **Durable Context Inspector** — inspect the compiler, model, token accounting, warnings, message selection, and source outcomes behind individual assistant responses.
-- **Reopenable evidence** — jump from a recorded context source back to the authoritative Library file.
+- **Explicit file attachments** — attach specific Library files to an individual Chat when the user wants guaranteed evidence.
+- **Evidence priority** — keep explicit attachments stronger than automatically retrieved candidates and avoid retrieving duplicate excerpts from attached files.
+- **Bounded context** — budget recent history, automatic retrieval, and attached evidence through the selected Context Compiler without replacing the user's current intent.
+- **Durable Context Inspector** — inspect the compiler, model, token accounting, warnings, message selection, retrieval mode, and source outcomes behind individual assistant responses.
+- **Reopenable evidence** — jump from an attached or automatically retrieved source back to the authoritative Library file.
 - **Configurable Agents** — create reusable AI identities with personality, profession, doctrine, output rules, generation settings, and Context Compiler configuration.
 - **Chat-to-Agent assignment** — assign different Agents to different conversations and preserve those choices across restarts.
 - **Native management workflows** — create, rename, archive, restore, duplicate, and delete Chats and Agents through the Qt client.
 - **Provider abstraction** — OpenAI is currently supported behind an adapter boundary so project continuity does not belong to one model vendor.
-- **Inspectable persistence** — SQLite stores structured state, history, attachments, context records, metadata, and indexes while the filesystem remains authoritative for user files.
+- **Inspectable persistence** — SQLite stores structured state, history, attachments, context records, document hashes, chunks, and search indexes while the filesystem remains authoritative for user files.
 - **Managed native development** — build and run the backend and Qt desktop client from the repository root in one supervised terminal session.
 
 ## Product philosophy
@@ -79,6 +83,7 @@ The API owns business rules. QML owns presentation and interaction. C++ stores b
 ```text
 current user message
 + recent durable conversation
++ automatically retrieved Library excerpts
 + explicitly attached Library evidence
 → Context Compiler
 → bounded provider request
@@ -87,7 +92,7 @@ current user message
 → native Context Inspector
 ```
 
-The current user message remains the highest-priority intent. Attached and retrieved files are evidence, not instructions.
+The current user message remains the highest-priority intent. Automatically retrieved and explicitly attached files are evidence, not instructions. Explicit attachments remain stronger than automatic candidates.
 
 ### Context inspection
 
@@ -134,7 +139,8 @@ Archivist/
 │   ├── qml/App/          Workbench, Explorer, Chat, previews, inspectors and editors
 │   └── src/App/Domains/  C++ Library, Chat and Agent stores
 ├── frontend/             Legacy Electron/React reference client
-├── scripts/              Native build, runtime, cleanup and context helpers
+├── scripts/              Native build, runtime, cleanup, smoke-test and context helpers
+├── devHandoff.md          Current development state and coding-chat handoff
 └── README.md
 ```
 
@@ -281,24 +287,38 @@ persistent Libraries and Chats
 safe Library file preview
 real provider-backed Agents
 persistent per-Chat file attachments
-bounded file-aware context
+deterministic Library text extraction and chunking
+incremental SQLite FTS5 indexing
+automatic selected-Library retrieval
+bounded attached and retrieved evidence
 durable per-response context records
-native source and token inspection
-reopenable evidence
+native source, retrieval-mode, and token inspection
+reopenable authoritative evidence
 one-command native development workflow
 ```
 
-The next milestone is deterministic Library text indexing and lexical retrieval:
+The core Archivist loop now works:
 
 ```text
-extract supported Library text
-→ create stable chunks with file and line provenance
-→ index chunks with SQLite FTS5
-→ search and inspect results manually
-→ later feed ranked evidence into Chat
+ask a normal project question
+→ search the selected Library automatically
+→ rank and budget relevant excerpts
+→ answer through the assigned Agent
+→ inspect exactly what was retrieved and included
 ```
 
-Embeddings and automatic retrieval remain intentionally deferred until deterministic indexing is dependable and inspectable.
+The next milestone is **retrieval demo hardening**:
+
+```text
+measure the slow path
+→ distinguish retrieval, compilation, provider, and rendering latency
+→ make index freshness automatic and obvious
+→ reduce noisy or redundant evidence
+→ improve retrieval status feedback
+→ exercise a small repeatable demo prompt set
+```
+
+Automatic retrieval is currently lexical and depends on the selected Library having been scanned. Embeddings remain deferred until deterministic retrieval exposes a concrete semantic-search limitation.
 
 ---
 
