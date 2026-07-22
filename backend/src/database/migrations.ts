@@ -546,6 +546,151 @@ const migrations: Migration[] = [
       `);
     },
   },
+
+  {
+    version: 13,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE library_documents (
+          library_file_id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (
+            status IN ('indexed', 'empty', 'unavailable', 'failed')
+          ),
+          content_hash TEXT,
+          source_modified_at TEXT NOT NULL,
+          source_size_bytes INTEGER NOT NULL CHECK (
+            source_size_bytes >= 0
+          ),
+          chunk_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            chunk_count >= 0
+          ),
+          error_message TEXT,
+          extracted_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_file_id)
+            REFERENCES library_files(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX library_documents_library_status_index
+          ON library_documents(library_id, status);
+
+        CREATE TABLE library_chunks (
+          id TEXT PRIMARY KEY,
+          library_file_id TEXT NOT NULL,
+          library_id TEXT NOT NULL,
+          ordinal INTEGER NOT NULL CHECK (
+            ordinal >= 0
+          ),
+          start_line INTEGER NOT NULL CHECK (
+            start_line >= 1
+          ),
+          end_line INTEGER NOT NULL CHECK (
+            end_line >= start_line
+          ),
+          content TEXT NOT NULL CHECK (
+            length(trim(content)) > 0
+          ),
+          estimated_tokens INTEGER NOT NULL CHECK (
+            estimated_tokens > 0
+          ),
+          content_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_file_id)
+            REFERENCES library_documents(library_file_id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          UNIQUE (library_file_id, ordinal)
+        );
+
+        CREATE INDEX library_chunks_library_file_ordinal_index
+          ON library_chunks(library_file_id, ordinal);
+
+        CREATE INDEX library_chunks_library_index
+          ON library_chunks(library_id);
+
+        CREATE VIRTUAL TABLE library_chunk_search USING fts5(
+          chunk_id UNINDEXED,
+          library_id UNINDEXED,
+          library_file_id UNINDEXED,
+          relative_path,
+          file_name,
+          content,
+          tokenize = 'unicode61'
+        );
+
+        CREATE TRIGGER library_chunk_search_after_insert
+        AFTER INSERT ON library_chunks
+        BEGIN
+          INSERT INTO library_chunk_search (
+            chunk_id,
+            library_id,
+            library_file_id,
+            relative_path,
+            file_name,
+            content
+          )
+          SELECT
+            new.id,
+            new.library_id,
+            new.library_file_id,
+            library_files.relative_path,
+            library_files.name,
+            new.content
+          FROM library_files
+          WHERE library_files.id = new.library_file_id;
+        END;
+
+        CREATE TRIGGER library_chunk_search_after_update
+        AFTER UPDATE OF
+          library_id,
+          library_file_id,
+          content
+        ON library_chunks
+        BEGIN
+          DELETE FROM library_chunk_search
+          WHERE chunk_id = old.id;
+
+          INSERT INTO library_chunk_search (
+            chunk_id,
+            library_id,
+            library_file_id,
+            relative_path,
+            file_name,
+            content
+          )
+          SELECT
+            new.id,
+            new.library_id,
+            new.library_file_id,
+            library_files.relative_path,
+            library_files.name,
+            new.content
+          FROM library_files
+          WHERE library_files.id = new.library_file_id;
+        END;
+
+        CREATE TRIGGER library_chunk_search_after_delete
+        AFTER DELETE ON library_chunks
+        BEGIN
+          DELETE FROM library_chunk_search
+          WHERE chunk_id = old.id;
+        END;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

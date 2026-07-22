@@ -17,6 +17,7 @@ export type ContextCandidate = {
 export type ContextRetrievalInput = {
   query: string;
   chatId?: string;
+  libraryId?: string;
   limit?: number;
 };
 
