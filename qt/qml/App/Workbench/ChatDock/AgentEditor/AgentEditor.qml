@@ -26,10 +26,74 @@ Popup {
     padding: 0
     modal: true
     focus: true
-    closePolicy: AgentStore.mutating ? Popup.NoAutoClose : Popup.CloseOnEscape
+    closePolicy: AgentStore.mutating
+        ? Popup.NoAutoClose
+        : Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+    enter: Transition {
+        ParallelAnimation {
+            NumberAnimation {
+                property: "opacity"
+                from: 0.0
+                to: 1.0
+                duration: editorRoot.theme.motionModalLaunch
+                easing.type: Easing.OutCubic
+            }
+
+            SequentialAnimation {
+                NumberAnimation {
+                    property: "scale"
+                    from: editorRoot.theme.modalSpawnScale
+                    to: editorRoot.theme.modalOvershootScale
+                    duration: editorRoot.theme.motionModalLaunch
+                    easing.type: Easing.OutCubic
+                }
+
+                NumberAnimation {
+                    property: "scale"
+                    from: editorRoot.theme.modalOvershootScale
+                    to: 1.0
+                    duration: editorRoot.theme.motionModalSettle
+                    easing.type: Easing.OutQuad
+                }
+            }
+        }
+    }
+
+    exit: Transition {
+        ParallelAnimation {
+            NumberAnimation {
+                property: "opacity"
+                from: 1.0
+                to: 0.0
+                duration: editorRoot.theme.motionModalCloseKick
+                    + editorRoot.theme.motionModalClose
+                easing.type: Easing.InCubic
+            }
+
+            SequentialAnimation {
+                NumberAnimation {
+                    property: "scale"
+                    from: 1.0
+                    to: editorRoot.theme.modalOvershootScale
+                    duration: editorRoot.theme.motionModalCloseKick
+                    easing.type: Easing.OutQuad
+                }
+
+                NumberAnimation {
+                    property: "scale"
+                    from: editorRoot.theme.modalOvershootScale
+                    to: editorRoot.theme.modalSpawnScale
+                    duration: editorRoot.theme.motionModalClose
+                    easing.type: Easing.InCubic
+                }
+            }
+        }
+    }
 
     Overlay.modal: Rectangle {
         color: "#aa090908"
+        opacity: editorRoot.opacity
     }
 
     background: Rectangle {

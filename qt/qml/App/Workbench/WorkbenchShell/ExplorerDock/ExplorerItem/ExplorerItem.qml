@@ -13,16 +13,30 @@ Button {
     required property bool folder
     required property bool expanded
     required property bool warning
+    required property bool neighborHovered
 
     signal activated()
 
     width: parent ? parent.width : 220
-    height: 23
+    height: 27
     hoverEnabled: true
     padding: 0
     onClicked: activated()
 
     contentItem: Item {
+        x: root.hovered ? 3 : root.neighborHovered ? 1.5 : 0
+
+        Behavior on x {
+            NumberAnimation {
+                duration: root.hovered || root.neighborHovered
+                    ? root.theme.motionHover
+                    : root.theme.motionHoverExit
+                easing.type: root.hovered || root.neighborHovered
+                    ? Easing.OutBack
+                    : Easing.OutCubic
+            }
+        }
+
         Text {
             x: 7 + root.depth * 13
             width: 10
@@ -30,7 +44,7 @@ Button {
             visible: root.folder
             text: root.expanded ? "⌄" : "›"
             color: root.hovered ? root.theme.appText : root.theme.mutedText
-            font.pixelSize: 11
+            font.pixelSize: 13
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -41,7 +55,7 @@ Button {
             height: parent.height
             text: root.glyph
             color: root.muted ? "#756e63" : root.theme.mutedText
-            font.pixelSize: root.folder ? 12 : 11
+            font.pixelSize: root.folder ? 14 : 13
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -52,7 +66,7 @@ Button {
             height: parent.height
             text: root.title
             color: root.muted ? "#756e63" : root.theme.appText
-            font.pixelSize: 10
+            font.pixelSize: 11
             font.strikeout: root.muted
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
@@ -65,7 +79,7 @@ Button {
             visible: root.warning
             text: "△"
             color: root.theme.mutedText
-            font.pixelSize: 10
+            font.pixelSize: 11
         }
     }
 
@@ -87,11 +101,30 @@ Button {
             color: root.theme.accent
             opacity: 0.72
         }
+
+        Behavior on color {
+            ColorAnimation { duration: root.theme.motionFast }
+        }
     }
 
-    scale: root.down ? 0.995 : 1.0
+    transformOrigin: Item.Left
+    scale: root.down
+        ? root.theme.pressedScale
+        : root.hovered
+            ? root.theme.hoverScale
+            : root.neighborHovered
+                ? root.theme.hoverNeighborScale
+                : 1.0
+    z: root.hovered ? 3 : root.neighborHovered ? 2 : 1
 
     Behavior on scale {
-        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+        NumberAnimation {
+            duration: root.hovered || root.neighborHovered
+                ? root.theme.motionHover
+                : root.theme.motionHoverExit
+            easing.type: root.hovered || root.neighborHovered
+                ? Easing.OutBack
+                : Easing.OutCubic
+        }
     }
 }

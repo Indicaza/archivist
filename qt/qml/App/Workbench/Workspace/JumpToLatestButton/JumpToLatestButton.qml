@@ -30,9 +30,16 @@ Button {
         border.width: 0
     }
 
-    scale: down ? 0.97 : 1.0
+    scale: down
+        ? root.theme.pressedScale
+        : hovered
+            ? root.theme.hoverScale
+            : 1.0
 
     Behavior on scale {
-        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+        NumberAnimation {
+            duration: root.theme.motionHover
+            easing.type: Easing.OutBack
+        }
     }
 }

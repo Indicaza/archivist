@@ -8,13 +8,22 @@ Button {
     required property string glyph
     required property string label
     required property bool active
+    required property bool neighborHovered
 
-    width: 30
-    height: 31
+    width: 34
+    height: 36
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
     padding: 0
-    scale: hovered ? 1.06 : 1.0
+    x: hovered ? 2 : neighborHovered ? 1 : 0
+    scale: down
+        ? theme.pressedScale
+        : hovered
+            ? theme.hoverScale
+            : neighborHovered
+                ? theme.hoverNeighborScale
+                : 1.0
+    z: hovered ? 3 : neighborHovered ? 2 : 1
 
     ToolTip.visible: hovered
     ToolTip.text: label
@@ -23,7 +32,7 @@ Button {
     contentItem: Text {
         text: root.glyph
         color: root.active || root.hovered ? root.theme.appText : root.theme.mutedText
-        font.pixelSize: 15
+        font.pixelSize: 17
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
@@ -48,6 +57,24 @@ Button {
     }
 
     Behavior on scale {
-        NumberAnimation { duration: 170; easing.type: Easing.OutBack }
+        NumberAnimation {
+            duration: root.hovered || root.neighborHovered
+                ? root.theme.motionHover
+                : root.theme.motionHoverExit
+            easing.type: root.hovered || root.neighborHovered
+                ? Easing.OutBack
+                : Easing.OutCubic
+        }
+    }
+
+    Behavior on x {
+        NumberAnimation {
+            duration: root.hovered || root.neighborHovered
+                ? root.theme.motionHover
+                : root.theme.motionHoverExit
+            easing.type: root.hovered || root.neighborHovered
+                ? Easing.OutBack
+                : Easing.OutCubic
+        }
     }
 }

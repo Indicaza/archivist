@@ -42,7 +42,7 @@ Item {
         : theme.assistantMessageWidth
 
     width: ListView.view ? ListView.view.width : 900
-    height: frame.height + 18
+    height: frame.height + 22
 
     Item {
         id: frame
@@ -52,6 +52,13 @@ Item {
             : root.contentZoneX
         width: Math.min(root.contentZoneWidth, root.desiredFrameWidth)
         height: messageColumn.implicitHeight
+        Behavior on x {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
 
         Column {
             id: messageColumn
@@ -61,7 +68,7 @@ Item {
 
             Item {
                 width: parent.width
-                height: 24
+                height: 27
 
                 Row {
                     anchors.left: root.userMessage ? undefined : parent.left
@@ -71,9 +78,9 @@ Item {
                     spacing: 7
 
                     Rectangle {
-                        width: 20
-                        height: 20
-                        radius: 4
+                        width: 22
+                        height: 22
+                        radius: 5
                         color: root.userMessage
                             ? "#1b1a17"
                             : root.systemMessage
@@ -84,7 +91,7 @@ Item {
                             anchors.centerIn: parent
                             text: root.userMessage ? "Y" : root.systemMessage ? "!" : "✣"
                             color: root.theme.appText
-                            font.pixelSize: root.userMessage ? 8 : 10
+                            font.pixelSize: root.userMessage ? 9 : 11
                             font.weight: Font.Bold
                             opacity: root.streamingMessage ? 0.62 : 1
                         }
@@ -102,7 +109,7 @@ Item {
                                     ? "SYSTEM"
                                     : "ARCHIVIST"
                             color: root.theme.appText
-                            font.pixelSize: 9
+                            font.pixelSize: 10
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -116,7 +123,7 @@ Item {
                             color: root.failedMessage
                                 ? root.theme.danger
                                 : root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             opacity: root.failedMessage ? 0.9 : 0.52
                         }
                     }
@@ -132,13 +139,25 @@ Item {
                         hoverEnabled: true
                         padding: 0
                         onClicked: root.contextInspectionRequested(root.messageId)
+                        scale: down
+                            ? root.theme.pressedScale
+                            : hovered
+                                ? root.theme.hoverScale
+                                : 1.0
+
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: root.theme.motionHover
+                                easing.type: Easing.OutBack
+                            }
+                        }
 
                         contentItem: Text {
                             text: parent.text
                             color: parent.hovered
                                 ? root.theme.accentBright
                                 : root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             font.weight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -163,13 +182,14 @@ Item {
 
                 width: parent.width
                 height: messageText.implicitHeight + 24
-                radius: 0
+                radius: 4
                 color: root.userMessage
                     ? root.theme.userBg
                     : root.systemMessage
                         ? root.theme.systemBg
                         : root.theme.assistantBg
-                border.width: 0
+                border.width: 1
+                border.color: root.theme.messageBorder
                 antialiasing: false
                 clip: true
                 opacity: root.streamingMessage ? 0.72 : 1
@@ -186,8 +206,8 @@ Item {
                     text: root.content
                     color: root.theme.appText
                     font.family: root.theme.bodyFontFamily
-                    font.pixelSize: 13
-                    lineHeight: 1.5
+                    font.pixelSize: 14
+                    lineHeight: 1.52
                     wrapMode: Text.Wrap
                     textFormat: Text.PlainText
                     renderType: Text.NativeRendering
