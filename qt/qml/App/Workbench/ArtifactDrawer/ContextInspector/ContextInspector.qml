@@ -402,7 +402,7 @@ Item {
                 Text {
                     width: parent.width
                     visible: root.sources.length === 0
-                    text: "No Library files were attached to this response."
+                    text: "No Library evidence was used for this response."
                     color: root.theme.mutedText
                     font.pixelSize: 9
                     wrapMode: Text.Wrap
@@ -421,6 +421,7 @@ Item {
                         readonly property string statusValue: String(modelData.status || "")
                         readonly property string libraryId: String(metadata.libraryId || "")
                         readonly property string fileId: String(metadata.fileId || "")
+                        readonly property string retrievalMode: String(metadata.retrievalMode || "attached")
 
                         width: parent.width
                         height: sourceColumn.implicitHeight + 18
@@ -461,12 +462,25 @@ Item {
 
                             Text {
                                 width: parent.width
-                                text: String(modelData.includedTokens || 0)
+                                text: (sourceCard.retrievalMode === "automatic"
+                                    ? (sourceCard.statusValue === "included"
+                                        || sourceCard.statusValue === "truncated"
+                                        ? "AUTO RETRIEVED  ·  "
+                                        : "AUTO CANDIDATE  ·  ")
+                                    : "ATTACHED  ·  ")
+                                    + String(modelData.includedTokens || 0)
                                     + " included / "
                                     + String(modelData.estimatedTokens || 0)
                                     + " estimated tokens"
-                                color: root.theme.mutedText
+                                color: sourceCard.retrievalMode === "automatic"
+                                    && (sourceCard.statusValue === "included"
+                                        || sourceCard.statusValue === "truncated")
+                                    ? root.theme.accentBright
+                                    : root.theme.mutedText
                                 font.pixelSize: 8
+                                font.weight: sourceCard.retrievalMode === "automatic"
+                                    ? Font.DemiBold
+                                    : Font.Normal
                                 wrapMode: Text.Wrap
                             }
 

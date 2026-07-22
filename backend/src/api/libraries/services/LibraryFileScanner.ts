@@ -20,6 +20,7 @@ import type {
 
 const ignoredDirectoryNames = new Set([
   ".git",
+  ".obsidian",
   "node_modules",
   "dist",
   "build",

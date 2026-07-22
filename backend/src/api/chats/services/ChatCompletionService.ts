@@ -2,6 +2,7 @@ import { getAgentById, requireActiveAgent } from "../../agents/models/Agent.js";
 import { buildAgentInstructions } from "../../agents/services/AgentInstructionBuilder.js";
 import { createContextRun } from "../../cognition/contextRuns/models/ContextRun.js";
 import { buildChatAttachmentEvidence } from "./ChatAttachmentEvidence.js";
+import { buildChatLibraryRetrievalEvidence } from "./ChatLibraryRetrievalEvidence.js";
 import { aiProviderRegistry } from "../../../core/ai/AIProviderRegistry.js";
 import { modelCatalog } from "../../../core/ai/ModelCatalog.js";
 import { modelRegistry } from "../../../core/ai/ModelRegistry.js";
@@ -105,12 +106,27 @@ export async function completeChatTurn(
     chatId,
     userMessage,
   );
+  const attachedFileIds = new Set(
+    attachmentEvidence.outcomes
+      .map((outcome) => outcome.metadata.fileId)
+      .filter((fileId): fileId is string => typeof fileId === "string"),
+  );
+  const retrievalEvidence = buildChatLibraryRetrievalEvidence(
+    chatId,
+    userMessage,
+    attachedFileIds,
+  );
 
   const sourceMessages = storedMessages
     .filter((message) => message.status === "complete")
     .map(toContextSourceMessage);
 
-  if (attachmentEvidence.contextMessage) {
+  const evidenceMessages = [
+    retrievalEvidence.contextMessage,
+    attachmentEvidence.contextMessage,
+  ].filter((message): message is ContextSourceMessage => message !== null);
+
+  if (evidenceMessages.length > 0) {
     const currentMessageIndex = sourceMessages.findIndex(
       (message) => message.id === userMessage.id,
     );
@@ -118,7 +134,7 @@ export async function completeChatTurn(
     sourceMessages.splice(
       currentMessageIndex < 0 ? sourceMessages.length : currentMessageIndex,
       0,
-      attachmentEvidence.contextMessage,
+      ...evidenceMessages,
     );
   }
 
@@ -141,7 +157,30 @@ export async function completeChatTurn(
   const contextWarnings = [
     ...compiledContext.warnings,
     ...attachmentEvidence.warnings,
+    ...retrievalEvidence.warnings,
   ];
+
+  const retrievalContextIncluded =
+    retrievalEvidence.contextMessage !== null &&
+    compiledContext.manifest.includedMessageIds.includes(
+      retrievalEvidence.contextMessage.id,
+    );
+
+  if (retrievalEvidence.contextMessage !== null) {
+    if (!retrievalContextIncluded) {
+      contextWarnings.push(
+        "The selected Context Compiler omitted automatically retrieved Library evidence.",
+      );
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[LibraryRetrieval] Context Compiler decision", {
+        chatId,
+        included: retrievalContextIncluded,
+        sourceCount: retrievalEvidence.manifestSources.length,
+      });
+    }
+  }
 
   const attachmentContextIncluded =
     attachmentEvidence.contextMessage !== null &&
@@ -191,21 +230,25 @@ export async function completeChatTurn(
     includedMessageCount: includedMessageIds.length,
     omittedMessageCount: omittedMessageIds.length,
     estimatedInputTokens,
-    includedSources: attachmentSources.map((source) => ({
-      id: source.attachmentId,
-      source: "library-file",
-      label: `${source.libraryName}/${source.relativePath}`,
-      estimatedTokens: source.estimatedTokens,
-      truncated: source.truncated,
-      metadata: {
-        attachmentId: source.attachmentId,
-        libraryId: source.libraryId,
-        libraryName: source.libraryName,
-        fileId: source.fileId,
-        fileName: source.fileName,
-        relativePath: source.relativePath,
-      },
-    })),
+    includedSources: [
+      ...attachmentSources.map((source) => ({
+        id: source.attachmentId,
+        source: "library-file" as const,
+        label: `${source.libraryName}/${source.relativePath}`,
+        estimatedTokens: source.estimatedTokens,
+        truncated: source.truncated,
+        metadata: {
+          attachmentId: source.attachmentId,
+          retrievalMode: "attached",
+          libraryId: source.libraryId,
+          libraryName: source.libraryName,
+          fileId: source.fileId,
+          fileName: source.fileName,
+          relativePath: source.relativePath,
+        },
+      })),
+      ...(retrievalContextIncluded ? retrievalEvidence.manifestSources : []),
+    ],
   };
 
   if (
@@ -239,6 +282,24 @@ export async function completeChatTurn(
     status: "complete",
   });
 
+  const retrievalOutcomes = retrievalEvidence.outcomes.map((outcome) => {
+    if (
+      retrievalContextIncluded
+      || (outcome.status !== "included" && outcome.status !== "truncated")
+    ) {
+      return outcome;
+    }
+
+    return {
+      ...outcome,
+      status: "omitted" as const,
+      includedTokens: 0,
+      truncated: false,
+      reason:
+        "The selected Context Compiler omitted automatically retrieved Library evidence.",
+    };
+  });
+
   try {
     createContextRun({
       chatId,
@@ -250,7 +311,10 @@ export async function completeChatTurn(
       compiler: contextManifest.compiler,
       manifest: contextManifest,
       warnings: contextWarnings,
-      sources: attachmentEvidence.outcomes,
+      sources: [
+        ...attachmentEvidence.outcomes,
+        ...retrievalOutcomes,
+      ],
     });
   } catch (error) {
     console.error("[ContextRun] Failed to persist context inspection data.", {

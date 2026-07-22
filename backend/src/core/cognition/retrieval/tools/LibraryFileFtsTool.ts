@@ -9,6 +9,62 @@ import type {
 const DEFAULT_LIMIT = 12;
 const MAXIMUM_LIMIT = 50;
 
+const ignoredSearchTokens = new Set([
+  "a",
+  "about",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "but",
+  "by",
+  "can",
+  "describe",
+  "do",
+  "does",
+  "explain",
+  "for",
+  "from",
+  "give",
+  "had",
+  "has",
+  "have",
+  "hello",
+  "hey",
+  "hi",
+  "how",
+  "i",
+  "in",
+  "is",
+  "it",
+  "know",
+  "me",
+  "my",
+  "of",
+  "on",
+  "or",
+  "our",
+  "please",
+  "tell",
+  "that",
+  "the",
+  "their",
+  "this",
+  "to",
+  "was",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+  "you",
+  "your",
+]);
+
 type LibraryChunkSearchRow = {
   chunkId: string;
   libraryId: string;
@@ -34,8 +90,8 @@ function clampLimit(limit: number | undefined): number {
 }
 
 function tokenizeQuery(query: string): string[] {
-  return (query.toLocaleLowerCase().match(/[\p{L}\p{N}_']+/gu) ?? [])
-    .filter((token) => token.length >= 2)
+  return (query.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])
+    .filter((token) => token.length >= 2 && !ignoredSearchTokens.has(token))
     .slice(0, 24);
 }
 
