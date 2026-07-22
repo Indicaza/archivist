@@ -39,7 +39,7 @@ Rectangle {
         ? String(LibraryStore.selectedLibrary.name)
         : "Library"
 
-    color: theme.surfaceBg
+    color: theme.workspaceBg
     clip: true
 
     function scheduleScrollToEnd() {
@@ -284,13 +284,13 @@ Rectangle {
             Text {
                 text: "Archivist"
                 color: root.theme.mutedText
-                font.pixelSize: 9
+                font.pixelSize: 10
             }
 
             Text {
                 text: "/"
                 color: root.theme.mutedText
-                font.pixelSize: 9
+                font.pixelSize: 10
                 opacity: 0.55
             }
 
@@ -300,7 +300,7 @@ Rectangle {
                     ? root.selectedLibraryName + "  /  " + root.previewPath
                     : root.selectedChatTitle
                 color: root.theme.appText
-                font.pixelSize: 10
+                font.pixelSize: 11
                 font.weight: Font.DemiBold
                 elide: Text.ElideMiddle
             }
@@ -324,7 +324,7 @@ Rectangle {
                     : ChatStore.responding && !root.previewActive
                         ? root.theme.appText
                         : root.theme.mutedText
-                font.pixelSize: 8
+                font.pixelSize: 9
                 opacity: ChatStore.responding && !root.previewActive ? 0.9 : 0.72
                 elide: Text.ElideRight
             }
@@ -339,6 +339,18 @@ Rectangle {
                 ToolTip.visible: hovered
                 ToolTip.text: "Close file preview"
                 onClicked: LibraryStore.clearFilePreview()
+                scale: down
+                    ? root.theme.pressedScale
+                    : hovered
+                        ? root.theme.hoverScale
+                        : 1.0
+
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: root.theme.motionHover
+                        easing.type: Easing.OutBack
+                    }
+                }
 
                 contentItem: Text {
                     text: parent.text
@@ -386,8 +398,8 @@ Rectangle {
         visible: !root.previewActive && root.hasSelectedChat && root.hasMessages
         clip: true
         spacing: root.theme.messageVerticalGap
-        topMargin: 22
-        bottomMargin: 22
+        topMargin: 34
+        bottomMargin: 34
         cacheBuffer: Math.max(8000, height * 7)
         displayMarginBeginning: 1200
         displayMarginEnd: 800
@@ -455,7 +467,7 @@ Rectangle {
             anchors.centerIn: parent
             text: "Loading earlier messages…"
             color: root.theme.mutedText
-            font.pixelSize: 8
+            font.pixelSize: 9
         }
     }
 
@@ -490,7 +502,7 @@ Rectangle {
                     ? "Open Chats from the command dock to choose a conversation."
                     : "Send a message below to begin."
             color: root.theme.mutedText
-            font.pixelSize: 11
+            font.pixelSize: 12
             lineHeight: 1.45
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter

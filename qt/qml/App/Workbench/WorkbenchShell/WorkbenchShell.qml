@@ -15,19 +15,93 @@ Rectangle {
     property int activeViewIndex: 0
     property bool explorerOpen: true
     property bool dockAttached: true
+    property bool resizingExplorer: false
+    property bool resizingDock: false
+    property real explorerWidth: theme.explorerDefaultWidth
+    property real dockHeight: theme.chatDockDefaultHeight
 
-    readonly property real explorerWidth: Math.min(
-        theme.explorerMaxWidth,
-        Math.max(theme.explorerMinWidth, width * 0.17)
+    readonly property real maximumExplorerWidth: Math.max(
+        theme.explorerMinWidth,
+        Math.min(
+            theme.explorerMaxWidth,
+            width - theme.activityRailWidth - 420
+        )
     )
+    readonly property real clampedExplorerWidth: Math.min(
+        maximumExplorerWidth,
+        Math.max(theme.explorerMinWidth, explorerWidth)
+    )
+    property real explorerExtent: explorerOpen ? clampedExplorerWidth : 0
+    readonly property real maximumDockHeight: Math.max(
+        theme.chatDockMinHeight,
+        height - theme.statusBarHeight - theme.workspaceMinHeight
+    )
+    readonly property real clampedDockHeight: Math.min(
+        maximumDockHeight,
+        Math.max(theme.chatDockMinHeight, dockHeight)
+    )
+    readonly property real centeredContentLeft: Math.max(
+        theme.messageHorizontalInset,
+        (width - theme.transcriptContentWidth) / 2
+    )
+    readonly property real explorerRight: theme.activityRailWidth + explorerExtent
+    readonly property bool explorerEncroachesWorkspace: explorerOpen
+        && explorerRight + theme.panelCollisionGap >= centeredContentLeft
     readonly property bool effectiveDockAttached: explorerOpen && dockAttached
-    readonly property real dockHeight: theme.chatDockHeaderHeight + theme.chatDockBodyHeight
-    readonly property real attachedDockX: theme.activityRailWidth + explorerWidth
+    readonly property real attachedDockX: explorerRight
     readonly property real centeredDockWidth: Math.min(width - 32, 1120)
-    readonly property real workspaceLeftObstruction: theme.activityRailWidth
-        + (explorerOpen ? explorerWidth : 0)
+    readonly property real centeredDockX: Math.max(
+        16,
+        (width - centeredDockWidth) / 2
+    )
+    readonly property real floatingDockX: explorerOpen
+        ? Math.max(centeredDockX, explorerRight + theme.panelCollisionGap)
+        : centeredDockX
+    readonly property real floatingDockWidth: Math.max(
+        360,
+        Math.min(centeredDockWidth, width - floatingDockX - 16)
+    )
+    readonly property real workspaceLeftObstruction: explorerEncroachesWorkspace
+        ? explorerRight
+        : theme.activityRailWidth
 
-    color: theme.surfaceBg
+    Behavior on explorerExtent {
+        enabled: !root.resizingExplorer
+        NumberAnimation {
+            duration: root.theme.motionPanel
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    function resetExplorerWidth() {
+        explorerWidth = theme.explorerDefaultWidth
+    }
+
+    function resetDockHeight() {
+        dockHeight = theme.chatDockDefaultHeight
+    }
+
+    function resizeExplorerTo(pointerX) {
+        explorerWidth = Math.min(
+            maximumExplorerWidth,
+            Math.max(
+                theme.explorerMinWidth,
+                pointerX - theme.activityRailWidth
+            )
+        )
+    }
+
+    function resizeDockTo(pointerY) {
+        dockHeight = Math.min(
+            maximumDockHeight,
+            Math.max(
+                theme.chatDockMinHeight,
+                height - theme.statusBarHeight - pointerY
+            )
+        )
+    }
+
+    color: theme.workspaceBg
     clip: true
 
     Workspace {
@@ -71,13 +145,65 @@ Rectangle {
 
         x: theme.activityRailWidth
         y: 0
-        width: root.explorerWidth
+        width: root.explorerExtent
         height: parent.height - statusBar.height
-        visible: root.explorerOpen
+        visible: width > 0.5
+        opacity: root.explorerOpen ? 1 : 0
         theme: root.theme
         activeViewIndex: root.activeViewIndex
         z: 15
         onCloseRequested: root.explorerOpen = false
+
+        Behavior on opacity {
+            NumberAnimation { duration: root.theme.motionFast }
+        }
+    }
+
+    Item {
+        id: explorerResizeHandle
+
+        x: root.explorerRight - width / 2
+        y: 0
+        width: root.theme.resizeHandleThickness
+        height: parent.height - statusBar.height
+        visible: root.explorerOpen
+        z: 25
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: explorerResizeArea.containsMouse || explorerResizeArea.pressed ? 2 : 1
+            height: parent.height
+            color: explorerResizeArea.containsMouse || explorerResizeArea.pressed
+                ? root.theme.accent
+                : root.theme.panelBorder
+            opacity: explorerResizeArea.containsMouse || explorerResizeArea.pressed
+                ? 0.9
+                : 0.52
+
+            Behavior on color {
+                ColorAnimation { duration: root.theme.motionFast }
+            }
+        }
+
+        MouseArea {
+            id: explorerResizeArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.SplitHCursor
+            onPressed: root.resizingExplorer = true
+            onReleased: root.resizingExplorer = false
+            onCanceled: root.resizingExplorer = false
+            onPositionChanged: function(mouse) {
+                if (!pressed) {
+                    return
+                }
+
+                const point = mapToItem(root, mouse.x, mouse.y)
+                root.resizeExplorerTo(point.x)
+            }
+            onDoubleClicked: root.resetExplorerWidth()
+        }
     }
 
     ChatDock {
@@ -85,12 +211,12 @@ Rectangle {
 
         x: root.effectiveDockAttached
             ? root.attachedDockX
-            : Math.max(16, (parent.width - width) / 2)
+            : root.floatingDockX
         y: parent.height - statusBar.height - height
         width: root.effectiveDockAttached
             ? parent.width - root.attachedDockX
-            : root.centeredDockWidth
-        height: root.dockHeight
+            : root.floatingDockWidth
+        height: root.clampedDockHeight
         theme: root.theme
         attached: root.effectiveDockAttached
         z: 30
@@ -101,12 +227,78 @@ Rectangle {
         }
 
         Behavior on x {
-            NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+            enabled: !root.effectiveDockAttached
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
         }
 
         Behavior on width {
-            NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+            enabled: !root.effectiveDockAttached
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
         }
+    }
+
+    Item {
+        id: dockResizeHandle
+
+        x: chatDock.x
+        y: chatDock.y - height / 2
+        width: chatDock.width
+        height: root.theme.resizeHandleThickness
+        z: 35
+
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width
+            height: dockResizeArea.containsMouse || dockResizeArea.pressed ? 2 : 1
+            color: dockResizeArea.containsMouse || dockResizeArea.pressed
+                ? root.theme.accent
+                : root.theme.panelBorder
+            opacity: dockResizeArea.containsMouse || dockResizeArea.pressed
+                ? 0.9
+                : 0.58
+
+            Behavior on color {
+                ColorAnimation { duration: root.theme.motionFast }
+            }
+        }
+
+        MouseArea {
+            id: dockResizeArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.SplitVCursor
+            onPressed: root.resizingDock = true
+            onReleased: root.resizingDock = false
+            onCanceled: root.resizingDock = false
+            onPositionChanged: function(mouse) {
+                if (!pressed) {
+                    return
+                }
+
+                const point = mapToItem(root, mouse.x, mouse.y)
+                root.resizeDockTo(point.y)
+            }
+            onDoubleClicked: root.resetDockHeight()
+        }
+    }
+
+    MouseArea {
+        id: artifactDrawerDismissArea
+
+        anchors.fill: parent
+        visible: artifactDrawer.open
+        acceptedButtons: Qt.LeftButton
+        z: 55
+        onClicked: artifactDrawer.open = false
     }
 
     ArtifactDrawer {
@@ -115,7 +307,7 @@ Rectangle {
         x: parent.width - width - 9
         y: Math.max(18, (parent.height - statusBar.height - height) / 2)
         theme: root.theme
-        z: 40
+        z: 60
     }
 
     StatusBar {

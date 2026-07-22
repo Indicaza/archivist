@@ -100,7 +100,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 42
+            Layout.preferredHeight: 46
             color: root.theme.controlSurfaceBg
             border.width: 1
             border.color: root.theme.quietBorder
@@ -115,7 +115,7 @@ Rectangle {
                 Text {
                     text: "READ-ONLY"
                     color: root.theme.accentBright
-                    font.pixelSize: 8
+                    font.pixelSize: 9
                     font.weight: Font.Bold
                     font.letterSpacing: 0.65
                 }
@@ -132,7 +132,7 @@ Rectangle {
                         ? String(root.file.relativePath)
                         : "Library file"
                     color: root.theme.appText
-                    font.pixelSize: 10
+                    font.pixelSize: 11
                     font.weight: Font.DemiBold
                     elide: Text.ElideMiddle
                 }
@@ -144,7 +144,7 @@ Rectangle {
                         + String(root.lineCount)
                         + (root.lineCount === 1 ? " line" : " lines")
                     color: root.theme.mutedText
-                    font.pixelSize: 8
+                    font.pixelSize: 9
                     opacity: 0.72
                 }
 
@@ -178,6 +178,18 @@ Rectangle {
                             )
                         }
                     }
+                    scale: down
+                        ? root.theme.pressedScale
+                        : hovered
+                            ? root.theme.hoverScale
+                            : 1.0
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: root.theme.motionHover
+                            easing.type: Easing.OutBack
+                        }
+                    }
 
                     contentItem: Text {
                         text: parent.text
@@ -186,7 +198,7 @@ Rectangle {
                                 ? root.theme.accentBright
                                 : root.theme.appText
                             : root.theme.mutedText
-                        font.pixelSize: 8
+                        font.pixelSize: 9
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -241,7 +253,7 @@ Rectangle {
                     selectionColor: "#5a4d8c"
                     selectedTextColor: "#ffffff"
                     font.family: Qt.platform.os === "osx" ? "Menlo" : "monospace"
-                    font.pixelSize: 11
+                    font.pixelSize: 12
                     leftPadding: 18
                     rightPadding: 18
                     topPadding: 16
@@ -271,7 +283,7 @@ Rectangle {
                     color: root.errorMessage.length > 0
                         ? root.theme.danger
                         : root.theme.appText
-                    font.pixelSize: 15
+                    font.pixelSize: 16
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                 }
@@ -283,7 +295,7 @@ Rectangle {
                         ? "Archivist is validating and reading the cataloged file."
                         : root.errorMessage
                     color: root.theme.mutedText
-                    font.pixelSize: 10
+                    font.pixelSize: 11
                     lineHeight: 1.45
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter

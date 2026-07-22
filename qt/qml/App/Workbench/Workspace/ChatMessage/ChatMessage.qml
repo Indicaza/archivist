@@ -38,11 +38,16 @@ Item {
         )
     )
     readonly property real desiredFrameWidth: userMessage
-        ? theme.userMessageWidth
+        ? Math.min(
+            theme.userMessageWidth,
+            content.indexOf("\n") >= 0 || content.length > 88
+                ? theme.userMessageWidth
+                : Math.max(240, content.length * 7.2 + 54)
+        )
         : theme.assistantMessageWidth
 
     width: ListView.view ? ListView.view.width : 900
-    height: frame.height + 18
+    height: frame.height + 28
 
     Item {
         id: frame
@@ -53,15 +58,23 @@ Item {
         width: Math.min(root.contentZoneWidth, root.desiredFrameWidth)
         height: messageColumn.implicitHeight
 
+        Behavior on x {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
+
         Column {
             id: messageColumn
 
             width: parent.width
-            spacing: 5
+            spacing: 10
 
             Item {
                 width: parent.width
-                height: 24
+                height: 30
 
                 Row {
                     anchors.left: root.userMessage ? undefined : parent.left
@@ -71,9 +84,9 @@ Item {
                     spacing: 7
 
                     Rectangle {
-                        width: 20
-                        height: 20
-                        radius: 4
+                        width: 22
+                        height: 22
+                        radius: 5
                         color: root.userMessage
                             ? "#1b1a17"
                             : root.systemMessage
@@ -84,7 +97,7 @@ Item {
                             anchors.centerIn: parent
                             text: root.userMessage ? "Y" : root.systemMessage ? "!" : "✣"
                             color: root.theme.appText
-                            font.pixelSize: root.userMessage ? 8 : 10
+                            font.pixelSize: root.userMessage ? 9 : 11
                             font.weight: Font.Bold
                             opacity: root.streamingMessage ? 0.62 : 1
                         }
@@ -102,7 +115,7 @@ Item {
                                     ? "SYSTEM"
                                     : "ARCHIVIST"
                             color: root.theme.appText
-                            font.pixelSize: 9
+                            font.pixelSize: 10
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -116,14 +129,14 @@ Item {
                             color: root.failedMessage
                                 ? root.theme.danger
                                 : root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             opacity: root.failedMessage ? 0.9 : 0.52
                         }
                     }
 
                     Button {
-                        width: 58
-                        height: 20
+                        width: 64
+                        height: 22
                         visible: !root.userMessage
                             && !root.systemMessage
                             && !root.streamingMessage
@@ -132,13 +145,25 @@ Item {
                         hoverEnabled: true
                         padding: 0
                         onClicked: root.contextInspectionRequested(root.messageId)
+                        scale: down
+                            ? root.theme.pressedScale
+                            : hovered
+                                ? root.theme.hoverScale
+                                : 1.0
+
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: root.theme.motionHover
+                                easing.type: Easing.OutBack
+                            }
+                        }
 
                         contentItem: Text {
                             text: parent.text
                             color: parent.hovered
                                 ? root.theme.accentBright
                                 : root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             font.weight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -158,39 +183,78 @@ Item {
                 }
             }
 
-            Rectangle {
-                id: surface
+            Item {
+                id: surfaceFrame
 
                 width: parent.width
-                height: messageText.implicitHeight + 24
-                radius: 0
-                color: root.userMessage
-                    ? root.theme.userBg
-                    : root.systemMessage
-                        ? root.theme.systemBg
-                        : root.theme.assistantBg
-                border.width: 0
-                antialiasing: false
-                clip: true
-                opacity: root.streamingMessage ? 0.72 : 1
+                height: richContent.implicitHeight
+                    + (root.userMessage || root.systemMessage ? 34 : 48)
 
-                Text {
-                    id: messageText
+                Rectangle {
+                    x: 0
+                    y: 4
+                    width: parent.width
+                    height: parent.height
+                    radius: root.userMessage
+                        ? root.theme.radiusMedium
+                        : root.theme.radiusPanel
+                    color: "#30000000"
+                    visible: !root.systemMessage
+                }
 
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 16
-                    anchors.topMargin: 11
-                    text: root.content
-                    color: root.theme.appText
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: 13
-                    lineHeight: 1.5
-                    wrapMode: Text.Wrap
-                    textFormat: Text.PlainText
-                    renderType: Text.NativeRendering
+                Rectangle {
+                    id: surface
+
+                    anchors.fill: parent
+                    radius: root.userMessage
+                        ? root.theme.radiusMedium
+                        : root.systemMessage
+                            ? root.theme.radiusSmall
+                            : root.theme.radiusPanel
+                    color: root.userMessage
+                        ? root.theme.userBg
+                        : root.systemMessage
+                            ? root.theme.systemBg
+                            : root.theme.assistantBg
+                    border.width: 1
+                    border.color: root.failedMessage
+                        ? root.theme.danger
+                        : root.userMessage
+                            ? root.theme.quietBorder
+                            : root.systemMessage
+                                ? root.theme.quietBorder
+                                : root.theme.panelBorder
+                    antialiasing: true
+                    clip: true
+                    opacity: root.streamingMessage ? 0.82 : 1
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.topMargin: 12
+                        anchors.bottomMargin: 16
+                        width: 2
+                        radius: 1
+                        color: root.failedMessage
+                            ? root.theme.danger
+                            : root.theme.accent
+                        opacity: root.systemMessage || root.userMessage ? 0 : 0.72
+                    }
+
+                    RichMessageContent {
+                        id: richContent
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: root.userMessage ? 18 : 26
+                        anchors.rightMargin: root.userMessage ? 18 : 26
+                        anchors.topMargin: root.userMessage ? 16 : 22
+                        theme: root.theme
+                        content: root.content
+                        compact: root.userMessage || root.systemMessage
+                    }
                 }
             }
         }

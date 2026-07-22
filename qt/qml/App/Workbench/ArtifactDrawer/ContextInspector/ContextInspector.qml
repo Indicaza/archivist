@@ -118,12 +118,12 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 10
+        anchors.margins: 14
+        spacing: 12
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 58
+            Layout.preferredHeight: 64
             radius: 7
             color: root.theme.controlSurfaceBg
             border.width: 1
@@ -143,7 +143,7 @@ Item {
                         Layout.fillWidth: true
                         text: String(root.compiler.name || root.compiler.id || "Context Compiler")
                         color: root.theme.appText
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
@@ -156,7 +156,7 @@ Item {
                             + "  ·  v"
                             + String(root.compiler.version || 1)
                         color: root.theme.mutedText
-                        font.pixelSize: 8
+                        font.pixelSize: 9
                         opacity: 0.78
                         elide: Text.ElideRight
                     }
@@ -178,7 +178,7 @@ Item {
                                 )
                             )
                         color: root.theme.accentBright
-                        font.pixelSize: 10
+                        font.pixelSize: 11
                         font.weight: Font.Bold
                     }
 
@@ -186,7 +186,7 @@ Item {
                         Layout.alignment: Qt.AlignRight
                         text: "input tokens"
                         color: root.theme.mutedText
-                        font.pixelSize: 7
+                        font.pixelSize: 8
                         opacity: 0.68
                     }
                 }
@@ -213,7 +213,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "Loading context…"
                     color: root.theme.mutedText
-                    font.pixelSize: 10
+                    font.pixelSize: 11
                 }
             }
         }
@@ -233,7 +233,7 @@ Item {
                     width: parent.width
                     text: "Context unavailable"
                     color: root.theme.appText
-                    font.pixelSize: 13
+                    font.pixelSize: 14
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                 }
@@ -242,7 +242,7 @@ Item {
                     width: parent.width
                     text: ChatStore.contextErrorMessage
                     color: root.theme.mutedText
-                    font.pixelSize: 9
+                    font.pixelSize: 10
                     lineHeight: 1.35
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
@@ -266,7 +266,7 @@ Item {
                     width: parent.width
                     text: "Select a response"
                     color: root.theme.appText
-                    font.pixelSize: 13
+                    font.pixelSize: 14
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                 }
@@ -275,7 +275,7 @@ Item {
                     width: parent.width
                     text: "Use the Context button on an Archivist response to inspect how it was assembled."
                     color: root.theme.mutedText
-                    font.pixelSize: 9
+                    font.pixelSize: 10
                     lineHeight: 1.35
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
@@ -318,7 +318,7 @@ Item {
                         Text {
                             text: "CONTEXT ACCOUNTING"
                             color: root.theme.mutedText
-                            font.pixelSize: 7
+                            font.pixelSize: 8
                             font.weight: Font.Bold
                             font.letterSpacing: 0.55
                         }
@@ -330,7 +330,7 @@ Item {
                                 + String(root.manifest.omittedMessageCount || 0)
                                 + " omitted"
                             color: root.theme.appText
-                            font.pixelSize: 9
+                            font.pixelSize: 10
                             wrapMode: Text.Wrap
                         }
 
@@ -341,7 +341,7 @@ Item {
                                 + String(root.manifest.compilationTimeMs || 0)
                                 + " ms compile"
                             color: root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             wrapMode: Text.Wrap
                         }
                     }
@@ -355,7 +355,7 @@ Item {
                     Text {
                         text: "WARNINGS  " + String(root.warnings.length)
                         color: root.theme.warning
-                        font.pixelSize: 7
+                        font.pixelSize: 8
                         font.weight: Font.Bold
                         font.letterSpacing: 0.55
                     }
@@ -382,7 +382,7 @@ Item {
                                 anchors.margins: 8
                                 text: String(modelData)
                                 color: root.theme.warning
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                                 lineHeight: 1.3
                                 wrapMode: Text.Wrap
                             }
@@ -394,7 +394,7 @@ Item {
                     width: parent.width
                     text: "SOURCES  " + String(root.sources.length)
                     color: root.theme.mutedText
-                    font.pixelSize: 7
+                    font.pixelSize: 8
                     font.weight: Font.Bold
                     font.letterSpacing: 0.55
                 }
@@ -404,7 +404,7 @@ Item {
                     visible: root.sources.length === 0
                     text: "No Library evidence was used for this response."
                     color: root.theme.mutedText
-                    font.pixelSize: 9
+                    font.pixelSize: 10
                     wrapMode: Text.Wrap
                     opacity: 0.72
                 }
@@ -447,7 +447,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: String(modelData.label || metadata.relativePath || "Library source")
                                     color: root.theme.appText
-                                    font.pixelSize: 9
+                                    font.pixelSize: 10
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideMiddle
                                 }
@@ -455,7 +455,7 @@ Item {
                                 Text {
                                     text: root.statusLabel(sourceCard.statusValue)
                                     color: root.statusColor(sourceCard.statusValue)
-                                    font.pixelSize: 7
+                                    font.pixelSize: 8
                                     font.weight: Font.Bold
                                 }
                             }
@@ -477,7 +477,7 @@ Item {
                                         || sourceCard.statusValue === "truncated")
                                     ? root.theme.accentBright
                                     : root.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                                 font.weight: sourceCard.retrievalMode === "automatic"
                                     ? Font.DemiBold
                                     : Font.Normal
@@ -492,14 +492,14 @@ Item {
                                     || sourceCard.statusValue === "unavailable"
                                     ? root.theme.danger
                                     : root.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                                 lineHeight: 1.3
                                 wrapMode: Text.Wrap
                             }
 
                             Button {
-                                width: 92
-                                height: 24
+                                width: 98
+                                height: 28
                                 text: "Open source"
                                 enabled: sourceCard.libraryId.length > 0
                                     && sourceCard.fileId.length > 0
@@ -515,7 +515,7 @@ Item {
                                     color: parent.enabled && parent.hovered
                                         ? root.theme.accentBright
                                         : root.theme.mutedText
-                                    font.pixelSize: 8
+                                    font.pixelSize: 9
                                     font.weight: Font.DemiBold
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
