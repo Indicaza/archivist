@@ -30,24 +30,33 @@ runMigrations(database);
 const schemaVersion = database.pragma("user_version", {
   simple: true,
 }) as number;
-const attachmentTableReady = Boolean(
-  database
-    .prepare(
-      `
-        SELECT 1
-        FROM sqlite_master
-        WHERE type = 'table'
-          AND name = 'chat_file_attachments'
-        LIMIT 1
-      `,
-    )
-    .get(),
-);
+
+function tableExists(tableName: string): boolean {
+  return Boolean(
+    database
+      .prepare(
+        `
+          SELECT 1
+          FROM sqlite_master
+          WHERE type IN ('table', 'view')
+            AND name = ?
+          LIMIT 1
+        `,
+      )
+      .get(tableName),
+  );
+}
+
+const attachmentTableReady = tableExists("chat_file_attachments");
+const libraryIndexReady =
+  tableExists("library_documents") &&
+  tableExists("library_chunks") &&
+  tableExists("library_chunk_search");
 
 console.info(
   `[Database] ${databasePath} · schema v${schemaVersion} · attachments ${
     attachmentTableReady ? "ready" : "missing"
-  }`,
+  } · Library index ${libraryIndexReady ? "ready" : "missing"}`,
 );
 
 export function closeDatabase(): void {

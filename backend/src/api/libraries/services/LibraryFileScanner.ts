@@ -4,6 +4,7 @@ import path from "node:path";
 import { AppError } from "../../../errors/app-error.js";
 import { getLibraryById } from "../models/Library.js";
 import { supportedLibraryTextExtensions } from "./LibraryFilePolicy.js";
+import { indexLibraryTextCatalog } from "./LibraryTextIndexer.js";
 import {
   completeLibraryScan,
   createLibraryScan,
@@ -11,6 +12,7 @@ import {
   getLibraryFileCatalog,
 } from "../models/LibraryFile.js";
 import type {
+  LibraryScan,
   LibraryScanIssue,
   ScanLibraryResult,
   ScannedLibraryFile,
@@ -18,6 +20,7 @@ import type {
 
 const ignoredDirectoryNames = new Set([
   ".git",
+  ".obsidian",
   "node_modules",
   "dist",
   "build",
@@ -215,21 +218,21 @@ export async function scanLibraryFiles(
   }
 
   const scan = createLibraryScan(libraryId);
+  const accumulator: ScanAccumulator = {
+    files: [],
+    issues: [],
+    discoveredFileCount: 0,
+    ignoredEntryCount: 0,
+    errorCount: 0,
+  };
+
+  let completedScan: LibraryScan;
 
   try {
     await validateLibraryRoot(library.rootPath);
-
-    const accumulator: ScanAccumulator = {
-      files: [],
-      issues: [],
-      discoveredFileCount: 0,
-      ignoredEntryCount: 0,
-      errorCount: 0,
-    };
-
     await scanDirectory(library.rootPath, "", accumulator);
 
-    const completedScan = completeLibraryScan({
+    completedScan = completeLibraryScan({
       scanId: scan.id,
       libraryId,
       files: accumulator.files,
@@ -237,14 +240,6 @@ export async function scanLibraryFiles(
       ignoredEntryCount: accumulator.ignoredEntryCount,
       errorCount: accumulator.errorCount,
     });
-
-    const catalog = getLibraryFileCatalog(libraryId);
-
-    return {
-      ...catalog,
-      scan: completedScan,
-      issues: accumulator.issues,
-    };
   } catch (error) {
     const message = getErrorMessage(error);
 
@@ -258,4 +253,14 @@ export async function scanLibraryFiles(
       cause: message,
     });
   }
+
+  const catalog = getLibraryFileCatalog(libraryId);
+  const index = await indexLibraryTextCatalog(libraryId, catalog);
+
+  return {
+    ...catalog,
+    scan: completedScan,
+    issues: accumulator.issues,
+    index,
+  };
 }

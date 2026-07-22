@@ -1,3 +1,5 @@
+import type { LibraryTextIndexSummary } from "./LibraryTextIndexTypes.js";
+
 export type LibraryFileStatus = "available" | "unreadable" | "missing";
 
 export type LibraryScanStatus = "running" | "complete" | "partial" | "failed";
@@ -50,6 +52,7 @@ export type LibraryFileCatalog = {
 export type ScanLibraryResult = LibraryFileCatalog & {
   scan: LibraryScan;
   issues: LibraryScanIssue[];
+  index: LibraryTextIndexSummary;
 };
 
 export type ScannedLibraryFile = {

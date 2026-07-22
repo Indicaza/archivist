@@ -29,7 +29,7 @@ function filesystemMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export async function readLibraryFilePreview(
+export async function readLibraryFileText(
   libraryId: string,
   fileId: string,
 ): Promise<LibraryFilePreview> {
@@ -94,7 +94,7 @@ export async function readLibraryFilePreview(
   if (stats.size > maxLibraryTextPreviewBytes) {
     throw new AppError(
       413,
-      `This file is too large to preview. The current limit is ${Math.round(
+      `This file is too large to read. The current limit is ${Math.round(
         maxLibraryTextPreviewBytes / 1024,
       )} KB.`,
       {
@@ -155,4 +155,11 @@ export async function readLibraryFilePreview(
     lineCount: content.length === 0 ? 0 : content.split(/\r\n|\r|\n/).length,
     readAt: new Date().toISOString(),
   };
+}
+
+export async function readLibraryFilePreview(
+  libraryId: string,
+  fileId: string,
+): Promise<LibraryFilePreview> {
+  return readLibraryFileText(libraryId, fileId);
 }
