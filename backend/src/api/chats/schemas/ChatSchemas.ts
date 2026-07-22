@@ -18,6 +18,7 @@ export const createChatFileAttachmentSchema = z.object({
 });
 
 export const createChatSchema = z.object({
+  libraryId: z.string().uuid(),
   title: z.string().trim().min(1).max(120).optional(),
   agentId: z.string().uuid().optional(),
 });

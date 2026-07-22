@@ -2,6 +2,7 @@ import { ARCHIVIST_DEFAULT_AGENT_ID } from "../../agents/models/AgentDefaults.js
 import { requireActiveAgent } from "../../agents/models/Agent.js";
 import { database } from "../../../database/database.js";
 import { AppError } from "../../../errors/app-error.js";
+import { getLibraryById } from "../../libraries/models/Library.js";
 import type {
   ArchiveChatResult,
   Chat,
@@ -15,6 +16,8 @@ import type {
 
 type ChatRow = {
   id: string;
+  library_id: string | null;
+  library_name: string | null;
   title: string;
   agent_id: string | null;
   archived_at: string | null;
@@ -43,6 +46,8 @@ type AppSettingsRow = {
 function mapChat(row: ChatRow): Chat {
   return {
     id: row.id,
+    libraryId: row.library_id,
+    libraryName: row.library_name,
     title: row.title,
     agentId: row.agent_id ?? ARCHIVIST_DEFAULT_AGENT_ID,
     archivedAt: row.archived_at,
@@ -102,13 +107,16 @@ function setSelectedChatId(chatId: string | null): void {
     .run(chatId);
 }
 
-function findFallbackChatId(excludedChatId?: string): string | null {
+function findFallbackChatId(
+  libraryId: string | null,
+  excludedChatId?: string,
+): string | null {
   const row = database
     .prepare(
       `
         SELECT id
         FROM chats
-        WHERE library_id IS NULL
+        WHERE library_id IS ?
           AND type = 'standard'
           AND archived_at IS NULL
           AND (? IS NULL OR id != ?)
@@ -116,7 +124,7 @@ function findFallbackChatId(excludedChatId?: string): string | null {
         LIMIT 1
       `,
     )
-    .get(excludedChatId ?? null, excludedChatId ?? null) as
+    .get(libraryId, excludedChatId ?? null, excludedChatId ?? null) as
     | { id: string }
     | undefined;
 
@@ -128,17 +136,20 @@ export function getAllChats(): Chat[] {
     .prepare(
       `
         SELECT
-          id,
-          title,
-          agent_id,
-          archived_at,
-          created_at,
-          updated_at
+          chats.id,
+          chats.library_id,
+          libraries.name AS library_name,
+          chats.title,
+          chats.agent_id,
+          chats.archived_at,
+          chats.created_at,
+          chats.updated_at
         FROM chats
-        WHERE library_id IS NULL
-          AND type = 'standard'
-          AND archived_at IS NULL
-        ORDER BY updated_at DESC, created_at DESC
+        LEFT JOIN libraries
+          ON libraries.id = chats.library_id
+        WHERE chats.type = 'standard'
+          AND chats.archived_at IS NULL
+        ORDER BY chats.updated_at DESC, chats.created_at DESC
       `,
     )
     .all() as ChatRow[];
@@ -151,17 +162,20 @@ export function getArchivedChats(): Chat[] {
     .prepare(
       `
         SELECT
-          id,
-          title,
-          agent_id,
-          archived_at,
-          created_at,
-          updated_at
+          chats.id,
+          chats.library_id,
+          libraries.name AS library_name,
+          chats.title,
+          chats.agent_id,
+          chats.archived_at,
+          chats.created_at,
+          chats.updated_at
         FROM chats
-        WHERE library_id IS NULL
-          AND type = 'standard'
-          AND archived_at IS NOT NULL
-        ORDER BY archived_at DESC
+        LEFT JOIN libraries
+          ON libraries.id = chats.library_id
+        WHERE chats.type = 'standard'
+          AND chats.archived_at IS NOT NULL
+        ORDER BY chats.archived_at DESC
       `,
     )
     .all() as ChatRow[];
@@ -174,16 +188,19 @@ export function getChatById(chatId: string): Chat | null {
     .prepare(
       `
         SELECT
-          id,
-          title,
-          agent_id,
-          archived_at,
-          created_at,
-          updated_at
+          chats.id,
+          chats.library_id,
+          libraries.name AS library_name,
+          chats.title,
+          chats.agent_id,
+          chats.archived_at,
+          chats.created_at,
+          chats.updated_at
         FROM chats
-        WHERE id = ?
-          AND library_id IS NULL
-          AND type = 'standard'
+        LEFT JOIN libraries
+          ON libraries.id = chats.library_id
+        WHERE chats.id = ?
+          AND chats.type = 'standard'
       `,
     )
     .get(chatId) as ChatRow | undefined;
@@ -212,6 +229,15 @@ export function createChat(input: CreateChatInput): Chat {
   const chatId = crypto.randomUUID();
   const title = deriveChatTitle(input.title);
   const agentId = input.agentId ?? ARCHIVIST_DEFAULT_AGENT_ID;
+  const library = getLibraryById(input.libraryId);
+
+  if (!library) {
+    throw new AppError(404, "Library not found.");
+  }
+
+  if (library.archivedAt) {
+    throw new AppError(409, "Chats cannot be created in an archived Library.");
+  }
 
   requireActiveAgent(agentId);
 
@@ -226,10 +252,10 @@ export function createChat(input: CreateChatInput): Chat {
             type,
             agent_id
           )
-          VALUES (?, NULL, ?, 'standard', ?)
+          VALUES (?, ?, ?, 'standard', ?)
         `,
       )
-      .run(chatId, title, agentId);
+      .run(chatId, library.id, title, agentId);
 
     setSelectedChatId(chatId);
 
@@ -316,7 +342,7 @@ export function archiveChat(chatId: string): ArchiveChatResult {
     let selectedChatId = getSelectedChatId();
 
     if (selectedChatId === chatId) {
-      selectedChatId = findFallbackChatId(chatId);
+      selectedChatId = findFallbackChatId(chat.libraryId, chatId);
       setSelectedChatId(selectedChatId);
     }
 
@@ -390,7 +416,7 @@ export function deleteChat(chatId: string): DeleteChatResult {
     let selectedChatId = getSelectedChatId();
 
     if (selectedChatId === chatId) {
-      selectedChatId = findFallbackChatId(chatId);
+      selectedChatId = findFallbackChatId(chat.libraryId, chatId);
       setSelectedChatId(selectedChatId);
     }
 

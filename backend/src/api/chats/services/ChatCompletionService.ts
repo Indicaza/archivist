@@ -113,6 +113,7 @@ export async function completeChatTurn(
   );
   const retrievalEvidence = buildChatLibraryRetrievalEvidence(
     chatId,
+    chat.libraryId,
     userMessage,
     attachedFileIds,
   );

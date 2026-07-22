@@ -370,6 +370,58 @@ void ChatStore::refreshArchived()
     });
 }
 
+void ChatStore::createChat(const QString &libraryId)
+{
+    if (
+        libraryId.isEmpty()
+        || m_mutating
+        || m_mutatingAttachment
+        || m_responding
+        || m_assigningAgent
+    ) {
+        return;
+    }
+
+    clearError();
+    setMutating(true);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("libraryId"), libraryId);
+
+    QNetworkReply *reply = m_network.post(
+        requestFor(QStringLiteral("/chats")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutating(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap chat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+        const QString chatId = chat.value(QStringLiteral("id")).toString();
+
+        if (chatId.isEmpty()) {
+            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat."));
+            return;
+        }
+
+        upsertActiveChat(chat);
+        setMessages({});
+        resetMessagePageState();
+        setSelectedChatId(chatId);
+        emit chatCreated(chat);
+    });
+}
+
 void ChatStore::fetchAppState()
 {
     QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/app-state")));
