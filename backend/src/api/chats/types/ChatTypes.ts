@@ -1,5 +1,7 @@
 export type Chat = {
   id: string;
+  libraryId: string | null;
+  libraryName: string | null;
   title: string;
   agentId: string;
   archivedAt: string | null;
@@ -59,6 +61,7 @@ export type ChatMessagePage = {
 };
 
 export type CreateChatInput = {
+  libraryId: string;
   title?: string;
   agentId?: string;
 };

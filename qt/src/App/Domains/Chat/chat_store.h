@@ -67,6 +67,7 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshArchived();
+    Q_INVOKABLE void createChat(const QString &libraryId);
     Q_INVOKABLE void selectChat(const QString &chatId);
     Q_INVOKABLE void refreshSelectedMessages();
     Q_INVOKABLE void refreshSelectedAttachments();
@@ -109,6 +110,7 @@ signals:
     void contextErrorMessageChanged();
     void attachmentAdded(const QVariantMap &attachment);
     void attachmentRemoved(const QString &attachmentId);
+    void chatCreated(const QVariantMap &chat);
     void chatUpdated(const QVariantMap &chat);
     void chatArchived(const QVariantMap &chat);
     void chatRestored(const QVariantMap &chat);

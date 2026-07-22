@@ -17,7 +17,10 @@ Rectangle {
 
     readonly property int attachmentCount: ChatStore.attachments.length
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
-    readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name || "Standalone"
+    readonly property string selectedLibraryName: ChatStore.selectedChat.libraryName
+        || (ChatStore.selectedChatId.length > 0
+            ? "Standalone"
+            : LibraryStore.selectedLibrary.name || "No Library")
     readonly property var selectedAgent: agentForId(ChatStore.selectedChat.agentId)
     readonly property string selectedAgentName: selectedAgent && selectedAgent.name
         ? String(selectedAgent.name)
@@ -90,6 +93,11 @@ Rectangle {
         function onAttachmentRemoved(attachmentId) {
             root.attachmentNotice = "Source detached"
             attachmentNoticeTimer.restart()
+        }
+
+        function onChatCreated(chat) {
+            root.activePanel = "none"
+            composer.forceActiveFocus()
         }
     }
 
@@ -679,16 +687,32 @@ Rectangle {
                         }
 
                         Button {
-                            visible: root.activePanel === "agents"
+                            visible: root.activePanel === "chats"
+                                || root.activePanel === "agents"
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
                             text: "+"
-                            enabled: !AgentStore.mutating
+                            enabled: root.activePanel === "chats"
+                                ? LibraryStore.selectedLibraryId.length > 0
+                                    && !ChatStore.mutating
+                                    && !ChatStore.responding
+                                : !AgentStore.mutating
                             hoverEnabled: true
                             padding: 0
                             ToolTip.visible: hovered
-                            ToolTip.text: "Create Agent"
-                            onClicked: agentEditor.openForCreate()
+                            ToolTip.text: root.activePanel === "chats"
+                                ? LibraryStore.selectedLibraryId.length > 0
+                                    ? "Create Chat in "
+                                        + String(LibraryStore.selectedLibrary.name || "Library")
+                                    : "Select a Library before creating a Chat"
+                                : "Create Agent"
+                            onClicked: {
+                                if (root.activePanel === "chats") {
+                                    ChatStore.createChat(LibraryStore.selectedLibraryId)
+                                } else {
+                                    agentEditor.openForCreate()
+                                }
+                            }
 
                             contentItem: Text {
                                 text: parent.text
@@ -730,7 +754,7 @@ Rectangle {
                             required property var modelData
 
                             width: chatList.width
-                            height: 31
+                            height: 40
                             radius: 0
                             color: chatTap.pressed
                                 ? "#292621"
@@ -750,18 +774,30 @@ Rectangle {
                                 opacity: 0.45
                             }
 
-                            Text {
+                            Column {
                                 anchors.left: parent.left
                                 anchors.right: chatEditButton.left
-                                anchors.top: parent.top
-                                anchors.bottom: parent.bottom
+                                anchors.verticalCenter: parent.verticalCenter
                                 anchors.leftMargin: 9
                                 anchors.rightMargin: 4
-                                text: String(modelData.title || "Untitled Chat")
-                                color: root.theme.appText
-                                font.pixelSize: 9
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
+                                spacing: 2
+
+                                Text {
+                                    width: parent.width
+                                    text: String(modelData.title || "Untitled Chat")
+                                    color: root.theme.appText
+                                    font.pixelSize: 9
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: String(modelData.libraryName || "Standalone")
+                                    color: root.theme.mutedText
+                                    font.pixelSize: 7
+                                    opacity: 0.68
+                                    elide: Text.ElideRight
+                                }
                             }
 
                             Button {
