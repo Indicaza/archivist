@@ -19,6 +19,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Chat/chat_store.h
     src/App/Domains/Collection/collection_store.cpp
     src/App/Domains/Collection/collection_store.h
+    src/App/Domains/Files/markdown_document_bridge.cpp
+    src/App/Domains/Files/markdown_document_bridge.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
     src/App/Services/workspace_state_store.cpp
