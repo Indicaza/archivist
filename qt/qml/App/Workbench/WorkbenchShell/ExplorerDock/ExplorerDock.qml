@@ -21,6 +21,7 @@ Rectangle {
     property string selectedNodePath: ""
     property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
+    readonly property var scopedLibraries: filteredLibraries()
 
     readonly property var viewTitles: [
         "Library Explorer",
@@ -157,7 +158,7 @@ Rectangle {
     }
 
     function libraryIndexForId(libraryId) {
-        var libraries = LibraryStore.libraries || []
+        var libraries = scopedLibraries || []
 
         for (var index = 0; index < libraries.length; index += 1) {
             if (String(libraries[index].id) === String(libraryId)) {
@@ -166,6 +167,24 @@ Rectangle {
         }
 
         return -1
+    }
+
+    function filteredLibraries() {
+        var scope = CollectionStore.scope
+        var libraries = LibraryStore.libraries || []
+
+        if (CollectionStore.selectedCollectionId.length === 0) {
+            return libraries
+        }
+
+        var filtered = []
+        for (var index = 0; index < libraries.length; index += 1) {
+            if (CollectionStore.includesLibrary(String(libraries[index].id))) {
+                filtered.push(libraries[index])
+            }
+        }
+
+        return filtered
     }
 
     function isExpanded(nodeId) {
@@ -445,7 +464,7 @@ Rectangle {
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 29
-                            model: LibraryStore.libraries
+                            model: root.scopedLibraries
                             textRole: "name"
                             valueRole: "id"
                             enabled: !LibraryStore.loadingLibraries && count > 0
@@ -473,7 +492,7 @@ Rectangle {
                             }
 
                             onActivated: function(index) {
-                                var library = LibraryStore.libraries[index]
+                                var library = root.scopedLibraries[index]
                                 if (library) {
                                     LibraryStore.selectLibrary(String(library.id))
                                 }

@@ -691,6 +691,144 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 14,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE collections (
+          id TEXT PRIMARY KEY,
+          parent_collection_id TEXT,
+          name TEXT NOT NULL CHECK (
+            length(trim(name)) > 0
+          ),
+          position INTEGER NOT NULL DEFAULT 0 CHECK (
+            position >= 0
+          ),
+          archived_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          CHECK (
+            parent_collection_id IS NULL
+            OR parent_collection_id != id
+          ),
+          FOREIGN KEY (parent_collection_id)
+            REFERENCES collections(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX collections_parent_position_index
+          ON collections(parent_collection_id, position, name);
+
+        CREATE INDEX collections_archived_at_index
+          ON collections(archived_at);
+
+        CREATE TABLE collection_items (
+          id TEXT PRIMARY KEY,
+          collection_id TEXT NOT NULL,
+          item_type TEXT NOT NULL CHECK (
+            item_type IN ('library', 'chat')
+          ),
+          item_id TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0 CHECK (
+            position >= 0
+          ),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (collection_id)
+            REFERENCES collections(id)
+            ON DELETE CASCADE,
+          UNIQUE (collection_id, item_type, item_id)
+        );
+
+        CREATE INDEX collection_items_collection_position_index
+          ON collection_items(collection_id, item_type, position);
+
+        CREATE INDEX collection_items_target_index
+          ON collection_items(item_type, item_id);
+
+        CREATE TABLE collection_agents (
+          id TEXT PRIMARY KEY,
+          collection_id TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0 CHECK (
+            position >= 0
+          ),
+          is_default INTEGER NOT NULL DEFAULT 0 CHECK (
+            is_default IN (0, 1)
+          ),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (collection_id)
+            REFERENCES collections(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (agent_id)
+            REFERENCES agents(id)
+            ON DELETE CASCADE,
+          UNIQUE (collection_id, agent_id)
+        );
+
+        CREATE INDEX collection_agents_collection_position_index
+          ON collection_agents(collection_id, position);
+
+        CREATE UNIQUE INDEX collection_agents_one_default
+          ON collection_agents(collection_id)
+          WHERE is_default = 1;
+
+        CREATE TRIGGER collection_items_validate_library_insert
+        BEFORE INSERT ON collection_items
+        WHEN
+          new.item_type = 'library'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM libraries
+            WHERE id = new.item_id
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Collection Library not found');
+        END;
+
+        CREATE TRIGGER collection_items_validate_chat_insert
+        BEFORE INSERT ON collection_items
+        WHEN
+          new.item_type = 'chat'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM chats
+            WHERE id = new.item_id
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'Collection Chat not found');
+        END;
+
+        CREATE TRIGGER collection_items_library_cleanup
+        AFTER DELETE ON libraries
+        BEGIN
+          DELETE FROM collection_items
+          WHERE item_type = 'library'
+            AND item_id = old.id;
+        END;
+
+        CREATE TRIGGER collection_items_chat_cleanup
+        AFTER DELETE ON chats
+        BEGIN
+          DELETE FROM collection_items
+          WHERE item_type = 'chat'
+            AND item_id = old.id;
+        END;
+
+        ALTER TABLE app_settings
+        ADD COLUMN selected_collection_id TEXT
+          REFERENCES collections(id)
+          ON DELETE SET NULL;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

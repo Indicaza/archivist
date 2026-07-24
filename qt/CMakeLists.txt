@@ -17,6 +17,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Agent/agent_store.h
     src/App/Domains/Chat/chat_store.cpp
     src/App/Domains/Chat/chat_store.h
+    src/App/Domains/Collection/collection_store.cpp
+    src/App/Domains/Collection/collection_store.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
 )
@@ -28,6 +30,11 @@ qt_add_qml_module(archivist-qt
         qml/App.qml
         qml/App/Theme/Theme.qml
         qml/App/Topbar/Topbar.qml
+        qml/App/Topbar/CollectionEditor/CollectionEditor.qml
+        qml/App/Topbar/CollectionEditor/CollectionEditorHeader.qml
+        qml/App/Topbar/CollectionEditor/CollectionEditorFooter.qml
+        qml/App/Topbar/CollectionEditor/CollectionMembershipCard.qml
+        qml/App/Topbar/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml

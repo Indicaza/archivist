@@ -370,7 +370,10 @@ void ChatStore::refreshArchived()
     });
 }
 
-void ChatStore::createChat(const QString &libraryId)
+void ChatStore::createChat(
+    const QString &libraryId,
+    const QString &agentId
+)
 {
     if (
         libraryId.isEmpty()
@@ -387,6 +390,9 @@ void ChatStore::createChat(const QString &libraryId)
 
     QJsonObject body;
     body.insert(QStringLiteral("libraryId"), libraryId);
+    if (!agentId.isEmpty()) {
+        body.insert(QStringLiteral("agentId"), agentId);
+    }
 
     QNetworkReply *reply = m_network.post(
         requestFor(QStringLiteral("/chats")),

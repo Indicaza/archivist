@@ -67,7 +67,10 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshArchived();
-    Q_INVOKABLE void createChat(const QString &libraryId);
+    Q_INVOKABLE void createChat(
+        const QString &libraryId,
+        const QString &agentId
+    );
     Q_INVOKABLE void selectChat(const QString &chatId);
     Q_INVOKABLE void refreshSelectedMessages();
     Q_INVOKABLE void refreshSelectedAttachments();

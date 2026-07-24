@@ -20,6 +20,8 @@ Rectangle {
     property int hoveredAgentIndex: -1
     property bool resizingPanel: false
     property real panelWidth: theme.chatDockPanelDefaultWidth
+    readonly property var scopedChats: filteredChats()
+    readonly property var orderedAgents: collectionOrderedAgents()
 
     readonly property int attachmentCount: ChatStore.attachments.length
     readonly property real panelMaximumWidth: Math.max(
@@ -57,6 +59,55 @@ Rectangle {
 
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
+
+    function filteredChats() {
+        var scope = CollectionStore.scope
+        var chats = ChatStore.chats || []
+
+        if (CollectionStore.selectedCollectionId.length === 0) {
+            return chats
+        }
+
+        var filtered = []
+        for (var index = 0; index < chats.length; index += 1) {
+            if (CollectionStore.includesChat(String(chats[index].id))) {
+                filtered.push(chats[index])
+            }
+        }
+
+        return filtered
+    }
+
+    function collectionOrderedAgents() {
+        var scope = CollectionStore.scope
+        var agents = AgentStore.agents || []
+
+        if (CollectionStore.selectedCollectionId.length === 0) {
+            return agents
+        }
+
+        var rosterIds = scope.agentIds || []
+        var ordered = []
+        var used = ({})
+
+        for (var rosterIndex = 0; rosterIndex < rosterIds.length; rosterIndex += 1) {
+            for (var agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
+                if (String(agents[agentIndex].id) === String(rosterIds[rosterIndex])) {
+                    ordered.push(agents[agentIndex])
+                    used[String(agents[agentIndex].id)] = true
+                    break
+                }
+            }
+        }
+
+        for (var index = 0; index < agents.length; index += 1) {
+            if (used[String(agents[index].id)] !== true) {
+                ordered.push(agents[index])
+            }
+        }
+
+        return ordered
+    }
 
     function agentForId(agentId) {
         var agents = AgentStore.agents || []
@@ -944,10 +995,10 @@ Rectangle {
                                     text: root.activePanel === "chats"
                                         ? ChatStore.loadingChats
                                             ? "…"
-                                            : String(ChatStore.chats.length)
+                                            : String(root.scopedChats.length)
                                         : AgentStore.loading
                                             ? "…"
-                                            : String(AgentStore.agents.length)
+                                            : String(root.orderedAgents.length)
                                     color: root.theme.mutedText
                                     font.pixelSize: root.theme.typeSize(8)
                                     font.weight: Font.DemiBold
@@ -976,7 +1027,13 @@ Rectangle {
                                     : "Create Agent"
                                 onClicked: {
                                     if (root.activePanel === "chats") {
-                                        ChatStore.createChat(LibraryStore.selectedLibraryId)
+                                        ChatStore.createChat(
+                                            LibraryStore.selectedLibraryId,
+                                            String(
+                                                CollectionStore.scope.defaultAgentId
+                                                    || ""
+                                            )
+                                        )
                                     } else {
                                         agentEditor.openForCreate()
                                     }
@@ -1017,7 +1074,7 @@ Rectangle {
                         topMargin: 4
                         bottomMargin: 4
                         clip: true
-                        model: ChatStore.chats
+                        model: root.scopedChats
 
                         delegate: Item {
                             id: chatDelegate
@@ -1326,12 +1383,12 @@ Rectangle {
 
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                visible: AgentStore.agents.length > 0
+                                visible: root.orderedAgents.length > 0
                                 spacing: 1
                                 topMargin: 4
                                 bottomMargin: 4
                                 clip: true
-                                model: AgentStore.agents
+                                model: root.orderedAgents
 
                                 delegate: Item {
                                     id: agentDelegate
@@ -1614,7 +1671,7 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                visible: !AgentStore.loading && AgentStore.agents.length === 0
+                                visible: !AgentStore.loading && root.orderedAgents.length === 0
                                 text: "No active Agents found."
                                 color: root.theme.mutedText
                                 font.pixelSize: root.theme.typeSize(8)
