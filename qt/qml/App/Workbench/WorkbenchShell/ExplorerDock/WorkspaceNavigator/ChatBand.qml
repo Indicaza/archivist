@@ -88,6 +88,7 @@ Item {
             LibraryStore.selectLibrary(libraryId)
         }
 
+        LibraryStore.clearFilePreview()
         ChatStore.selectChat(String(chat.id))
     }
 

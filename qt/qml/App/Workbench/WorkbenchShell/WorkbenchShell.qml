@@ -19,6 +19,7 @@ Rectangle {
     property bool resizingDock: false
     property real explorerWidth: theme.explorerDefaultWidth
     property real dockHeight: theme.chatDockDefaultHeight
+    property bool workspaceStateRestored: false
 
     readonly property real maximumExplorerWidth: Math.max(
         theme.explorerMinWidth,
@@ -77,6 +78,55 @@ Rectangle {
         }
     }
 
+    function scheduleWorkspaceStateSave() {
+        if (!workspaceStateRestored) {
+            return
+        }
+
+        workspaceStateSaveTimer.restart()
+    }
+
+    function saveWorkspaceState() {
+        if (!workspaceStateRestored) {
+            return
+        }
+
+        WorkspaceState.setValue("workspace/shell/activeViewIndex", activeViewIndex)
+        WorkspaceState.setValue("workspace/shell/explorerOpen", explorerOpen)
+        WorkspaceState.setValue("workspace/shell/explorerWidth", explorerWidth)
+        WorkspaceState.setValue("workspace/shell/dockAttached", dockAttached)
+        WorkspaceState.setValue("workspace/shell/dockHeight", dockHeight)
+    }
+
+    function restoreWorkspaceState() {
+        activeViewIndex = Math.max(
+            0,
+            Math.min(
+                4,
+                Number(WorkspaceState.value("workspace/shell/activeViewIndex", 0))
+            )
+        )
+        explorerOpen = Boolean(
+            WorkspaceState.value("workspace/shell/explorerOpen", true)
+        )
+        explorerWidth = Number(
+            WorkspaceState.value(
+                "workspace/shell/explorerWidth",
+                theme.explorerDefaultWidth
+            )
+        )
+        dockAttached = Boolean(
+            WorkspaceState.value("workspace/shell/dockAttached", true)
+        )
+        dockHeight = Number(
+            WorkspaceState.value(
+                "workspace/shell/dockHeight",
+                theme.chatDockDefaultHeight
+            )
+        )
+        workspaceStateRestored = true
+    }
+
     function resetExplorerWidth() {
         explorerWidth = theme.explorerDefaultWidth
     }
@@ -104,6 +154,27 @@ Rectangle {
             )
         )
     }
+
+    Timer {
+        id: workspaceStateSaveTimer
+
+        interval: 220
+        repeat: false
+        onTriggered: root.saveWorkspaceState()
+    }
+
+    Component.onCompleted: restoreWorkspaceState()
+    Component.onDestruction: {
+        workspaceStateSaveTimer.stop()
+        saveWorkspaceState()
+        WorkspaceState.sync()
+    }
+
+    onActiveViewIndexChanged: scheduleWorkspaceStateSave()
+    onExplorerOpenChanged: scheduleWorkspaceStateSave()
+    onExplorerWidthChanged: scheduleWorkspaceStateSave()
+    onDockAttachedChanged: scheduleWorkspaceStateSave()
+    onDockHeightChanged: scheduleWorkspaceStateSave()
 
     Connections {
         target: CollectionStore

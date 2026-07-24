@@ -143,6 +143,11 @@ bool LibraryStore::scanning() const
     return m_scanning;
 }
 
+bool LibraryStore::movingFile() const
+{
+    return m_movingFile;
+}
+
 QString LibraryStore::errorMessage() const
 {
     return m_errorMessage;
@@ -328,6 +333,55 @@ void LibraryStore::scanSelectedLibrary()
     });
 }
 
+void LibraryStore::moveFile(const QString &fileId, const QString &targetDirectory)
+{
+    if (
+        m_selectedLibraryId.isEmpty()
+        || fileId.isEmpty()
+        || !containsFile(fileId)
+        || m_movingFile
+    ) {
+        return;
+    }
+
+    setErrorMessage({});
+    setMovingFile(true);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("targetDirectory"), targetDirectory);
+
+    const QString libraryId = m_selectedLibraryId;
+    const QString path = QStringLiteral("/libraries/%1/files/%2")
+        .arg(encodedPathSegment(libraryId), encodedPathSegment(fileId));
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("PATCH"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, libraryId, fileId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMovingFile(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        if (m_selectedLibraryId != libraryId) {
+            return;
+        }
+
+        setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
+        const QVariantMap file = result.object.value(QStringLiteral("file")).toObject().toVariantMap();
+        emit fileMoved(
+            fileId,
+            file.value(QStringLiteral("relativePath")).toString()
+        );
+    });
+}
+
 void LibraryStore::previewFile(const QString &fileId)
 {
     if (m_selectedLibraryId.isEmpty() || fileId.isEmpty() || !containsFile(fileId)) {
@@ -505,6 +559,16 @@ void LibraryStore::setScanning(bool scanning)
 
     m_scanning = scanning;
     emit scanningChanged();
+}
+
+void LibraryStore::setMovingFile(bool moving)
+{
+    if (m_movingFile == moving) {
+        return;
+    }
+
+    m_movingFile = moving;
+    emit movingFileChanged();
 }
 
 void LibraryStore::setErrorMessage(const QString &message)

@@ -8,6 +8,7 @@
 #include "App/Domains/Chat/chat_store.h"
 #include "App/Domains/Collection/collection_store.h"
 #include "App/Domains/Library/library_store.h"
+#include "App/Services/workspace_state_store.h"
 
 int main(int argc, char *argv[])
 {
@@ -24,6 +25,7 @@ int main(int argc, char *argv[])
     CollectionStore collectionStore;
     LibraryStore libraryStore;
     ChatStore chatStore;
+    WorkspaceStateStore workspaceState;
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
     qmlRegisterSingletonInstance(
         "Archivist.Services",
@@ -34,6 +36,13 @@ int main(int argc, char *argv[])
     );
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LibraryStore", &libraryStore);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatStore", &chatStore);
+    qmlRegisterSingletonInstance(
+        "Archivist.Services",
+        1,
+        0,
+        "WorkspaceState",
+        &workspaceState
+    );
 
     QQmlApplicationEngine engine;
 

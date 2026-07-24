@@ -21,6 +21,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Collection/collection_store.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
+    src/App/Services/workspace_state_store.cpp
+    src/App/Services/workspace_state_store.h
 )
 
 qt_add_qml_module(archivist-qt
@@ -34,6 +36,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceDragSession.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/WorkspaceNavigator.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/SidebarBandHeader.qml
@@ -47,6 +50,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
         qml/App/Workbench/Workspace/Workspace.qml
+        qml/App/Workbench/Workspace/EditorTabs/EditorTabStrip.qml
         qml/App/Workbench/Workspace/FilePreview/FilePreview.qml
         qml/App/Workbench/Workspace/ChatMessage/ChatMessage.qml
         qml/App/Workbench/Workspace/ChatMessage/CodeBlock.qml

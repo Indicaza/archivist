@@ -5,6 +5,7 @@ import Archivist.Services 1.0
 import "ChatMessage"
 import "JumpToLatestButton"
 import "FilePreview"
+import "EditorTabs"
 
 Rectangle {
     id: root
@@ -41,9 +42,9 @@ Rectangle {
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name
         ? String(LibraryStore.selectedLibrary.name)
         : "Library"
-    readonly property real previewViewportX: root.previewActive
-        ? root.previewLeftObstruction
-        : 0
+    readonly property real previewViewportX: (
+        root.previewActive || editorTabStrip.hasTabs
+    ) ? root.previewLeftObstruction : 0
 
     gradient: Gradient {
         GradientStop {
@@ -333,8 +334,9 @@ Rectangle {
         anchors.top: parent.top
         x: root.previewViewportX
         width: Math.max(0, parent.width - root.previewViewportX)
-        height: root.theme.workspaceHeaderHeight
+        height: editorTabStrip.hasTabs ? 33 : root.theme.workspaceHeaderHeight
         color: theme.controlSurfaceBg
+        z: 50
 
         Behavior on x {
             SpringAnimation {
@@ -356,12 +358,16 @@ Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 1
-            color: root.theme.quietBorder
+            height: editorTabStrip.hasTabs ? 0.8 : 1
+            color: editorTabStrip.hasTabs
+                ? editorTabStrip.activeContourColor
+                : root.theme.quietBorder
+            opacity: editorTabStrip.hasTabs ? 0.72 : 1
         }
 
         RowLayout {
             anchors.fill: parent
+            visible: !editorTabStrip.hasTabs
             anchors.leftMargin: root.previewActive
                 ? 14
                 : Math.max(14, root.leftObstruction + 14)
@@ -458,6 +464,13 @@ Rectangle {
                     radius: 4
                 }
             }
+        }
+
+        EditorTabStrip {
+            id: editorTabStrip
+
+            anchors.fill: parent
+            theme: root.theme
         }
     }
 

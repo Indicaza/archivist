@@ -26,3 +26,7 @@ export const libraryIdParamsSchema = z.object({
 export const libraryFileIdParamsSchema = libraryIdParamsSchema.extend({
   fileId: z.string().uuid(),
 });
+
+export const moveLibraryFileSchema = z.object({
+  targetDirectory: z.string().trim().max(2000),
+});
