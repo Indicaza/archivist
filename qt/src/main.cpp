@@ -6,6 +6,7 @@
 
 #include "App/Domains/Agent/agent_store.h"
 #include "App/Domains/Chat/chat_store.h"
+#include "App/Domains/Collection/collection_store.h"
 #include "App/Domains/Library/library_store.h"
 
 int main(int argc, char *argv[])
@@ -20,9 +21,17 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     AgentStore agentStore;
+    CollectionStore collectionStore;
     LibraryStore libraryStore;
     ChatStore chatStore;
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
+    qmlRegisterSingletonInstance(
+        "Archivist.Services",
+        1,
+        0,
+        "CollectionStore",
+        &collectionStore
+    );
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LibraryStore", &libraryStore);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatStore", &chatStore);
 

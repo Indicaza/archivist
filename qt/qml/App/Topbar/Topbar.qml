@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Archivist.Services 1.0
 
 Rectangle {
     id: root
@@ -24,16 +25,20 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: 40
         anchors.rightMargin: 39
-        spacing: 12
+        spacing: 11
 
         Text {
-            Layout.fillWidth: true
+            Layout.preferredWidth: 176
             text: "Archivist"
             color: root.theme.appText
             font.family: root.theme.titleFontFamily
             font.pixelSize: root.theme.typeSize(27)
             font.weight: Font.DemiBold
             verticalAlignment: Text.AlignVCenter
+        }
+
+        Item {
+            Layout.fillWidth: true
         }
 
         Rectangle {
@@ -65,7 +70,10 @@ Rectangle {
             scale: avatarHover.hovered ? 1.08 : 1.0
 
             Behavior on scale {
-                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                NumberAnimation {
+                    duration: 180
+                    easing.type: Easing.OutCubic
+                }
             }
         }
     }

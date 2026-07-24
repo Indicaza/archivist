@@ -8,9 +8,11 @@ import {
 } from "../models/ChatAttachment.js";
 import {
   archiveChat,
+  attachChatAgent,
   createChat,
   createMessage,
   deleteChat,
+  detachChatAgent,
   getAllChats,
   getArchivedChats,
   getChatById,
@@ -21,6 +23,8 @@ import {
   updateChat,
 } from "../models/Chat.js";
 import {
+  attachChatAgentSchema,
+  chatAgentIdParamsSchema,
   chatAttachmentIdParamsSchema,
   chatIdParamsSchema,
   chatMessageIdParamsSchema,
@@ -55,6 +59,19 @@ function parseChatAttachmentIds(params: unknown): {
       "Invalid Chat attachment ID.",
       parsed.error.flatten(),
     );
+  }
+
+  return parsed.data;
+}
+
+function parseChatAgentIds(params: unknown): {
+  chatId: string;
+  agentId: string;
+} {
+  const parsed = chatAgentIdParamsSchema.safeParse(params);
+
+  if (!parsed.success) {
+    throw new AppError(400, "Invalid Chat Agent ID.", parsed.error.flatten());
   }
 
   return parsed.data;
@@ -131,6 +148,29 @@ export const patchChat: RequestHandler = (request, response) => {
   response.json({
     ok: true,
     chat: updateChat(chatId, body.data),
+  });
+};
+
+export const postChatAgent: RequestHandler = (request, response) => {
+  const chatId = parseChatId(request.params);
+  const body = attachChatAgentSchema.safeParse(request.body);
+
+  if (!body.success) {
+    throw new AppError(400, "Invalid Chat Agent.", body.error.flatten());
+  }
+
+  response.status(201).json({
+    ok: true,
+    chat: attachChatAgent(chatId, body.data),
+  });
+};
+
+export const removeChatAgent: RequestHandler = (request, response) => {
+  const { chatId, agentId } = parseChatAgentIds(request.params);
+
+  response.json({
+    ok: true,
+    chat: detachChatAgent(chatId, agentId),
   });
 };
 

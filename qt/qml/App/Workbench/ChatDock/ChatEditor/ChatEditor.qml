@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../AgentEditor"
+import "../ChatAgentPicker"
 
 Popup {
     id: editorRoot
@@ -10,16 +12,23 @@ Popup {
     property var editingChat: ({})
     property bool confirmingArchive: false
     property bool confirmingDelete: false
+    property bool attachNextCreatedAgent: false
+    property string pendingCreatedChatId: ""
 
     readonly property bool archived: editingChat
         && editingChat.archivedAt !== undefined
         && editingChat.archivedAt !== null
+    readonly property bool selectingChat: !archived
+        && String(editingChat.id || "").length > 0
+        && String(editingChat.id || "") !== String(ChatStore.selectedChatId)
     readonly property bool busy: ChatStore.mutating
         || ChatStore.responding
         || ChatStore.assigningAgent
+        || selectingChat
+    readonly property var attachedAgents: attachedAgentsForChat()
     readonly property var selectedAgent: agentField.currentIndex >= 0
-        && agentField.currentIndex < AgentStore.agents.length
-            ? AgentStore.agents[agentField.currentIndex]
+        && agentField.currentIndex < attachedAgents.length
+            ? attachedAgents[agentField.currentIndex]
             : null
     readonly property bool changed: titleField.text.trim() !== String(editingChat.title || "")
         || String(agentField.currentValue || "") !== String(editingChat.agentId || "")
@@ -33,8 +42,8 @@ Popup {
     parent: Overlay.overlay
     x: parent ? Math.round((parent.width - width) / 2) : 0
     y: parent ? Math.round((parent.height - height) / 2) : 0
-    width: Math.min(620, parent ? parent.width - 48 : 620)
-    height: Math.min(510, parent ? parent.height - 48 : 510)
+    width: Math.min(680, parent ? parent.width - 48 : 680)
+    height: Math.min(680, parent ? parent.height - 48 : 680)
     padding: 0
     modal: true
     focus: true
@@ -115,8 +124,27 @@ Popup {
         radius: editorRoot.theme.radiusPanel
     }
 
-    function agentIndexForId(agentId) {
+    function attachedAgentsForChat() {
         var agents = AgentStore.agents || []
+        var ids = editingChat && editingChat.agentIds
+            ? editingChat.agentIds
+            : []
+        var attached = []
+
+        for (var idIndex = 0; idIndex < ids.length; idIndex += 1) {
+            for (var agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
+                if (String(agents[agentIndex].id) === String(ids[idIndex])) {
+                    attached.push(agents[agentIndex])
+                    break
+                }
+            }
+        }
+
+        return attached
+    }
+
+    function agentIndexForId(agentId) {
+        var agents = attachedAgents || []
 
         for (var index = 0; index < agents.length; index += 1) {
             if (String(agents[index].id) === String(agentId || "")) {
@@ -125,6 +153,56 @@ Popup {
         }
 
         return -1
+    }
+
+    function ensureEditingChatSelected() {
+        var chatId = String(editingChat.id || "")
+        if (
+            chatId.length > 0
+            && chatId !== String(ChatStore.selectedChatId)
+        ) {
+            ChatStore.selectChat(chatId)
+        }
+    }
+
+    function syncEditingChat() {
+        var selectedChat = ChatStore.selectedChat || ({})
+        if (
+            editorRoot.visible
+            && String(selectedChat.id || "") === String(editingChat.id || "")
+        ) {
+            editingChat = selectedChat
+            agentField.currentIndex = agentIndexForId(selectedChat.agentId)
+        }
+    }
+
+    function openAgentPicker() {
+        if (archived || busy) {
+            return
+        }
+
+        ensureEditingChatSelected()
+        agentPicker.openPicker()
+    }
+
+    function createAttachedAgent() {
+        if (archived || busy) {
+            return
+        }
+
+        ensureEditingChatSelected()
+        attachNextCreatedAgent = true
+        pendingCreatedChatId = String(editingChat.id || "")
+        agentEditor.openForCreate()
+    }
+
+    function detachAgent(agentId) {
+        if (archived || busy || String(agentId || "").length === 0) {
+            return
+        }
+
+        ensureEditingChatSelected()
+        ChatStore.detachAgentFromSelectedChat(String(agentId))
     }
 
     function displayDate(value) {
@@ -149,6 +227,12 @@ Popup {
 
         ChatStore.clearError()
         editingChat = chat
+        if (
+            (chat.archivedAt === undefined || chat.archivedAt === null)
+            && String(ChatStore.selectedChatId) !== String(chat.id)
+        ) {
+            ChatStore.selectChat(String(chat.id))
+        }
         confirmingArchive = false
         confirmingDelete = false
         titleField.text = String(chat.title || "")
@@ -200,6 +284,10 @@ Popup {
     Connections {
         target: ChatStore
 
+        function onSelectedChatChanged() {
+            editorRoot.syncEditingChat()
+        }
+
         function onChatUpdated(chat) {
             if (
                 editorRoot.visible
@@ -234,6 +322,51 @@ Popup {
             ) {
                 editorRoot.close()
             }
+        }
+    }
+
+    Connections {
+        target: AgentStore
+
+        function onAgentCreated(agent) {
+            if (
+                editorRoot.attachNextCreatedAgent
+                && editorRoot.pendingCreatedChatId
+                    === String(editorRoot.editingChat.id || "")
+            ) {
+                editorRoot.ensureEditingChatSelected()
+                ChatStore.attachAgentToSelectedChat(String(agent.id || ""))
+            }
+
+            editorRoot.attachNextCreatedAgent = false
+            editorRoot.pendingCreatedChatId = ""
+        }
+    }
+
+    ChatAgentPicker {
+        id: agentPicker
+
+        theme: editorRoot.theme
+        attachedAgentIds: editorRoot.editingChat.agentIds || []
+        chatTitle: String(editorRoot.editingChat.title || "")
+        onAgentSelected: function(agentId) {
+            editorRoot.ensureEditingChatSelected()
+            ChatStore.attachAgentToSelectedChat(agentId)
+        }
+        onCreateRequested: editorRoot.createAttachedAgent()
+    }
+
+    AgentEditor {
+        id: agentEditor
+
+        theme: editorRoot.theme
+        onClosed: {
+            Qt.callLater(function() {
+                if (!AgentStore.mutating) {
+                    editorRoot.attachNextCreatedAgent = false
+                    editorRoot.pendingCreatedChatId = ""
+                }
+            })
         }
     }
 
@@ -400,8 +533,8 @@ Popup {
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 38
-                        enabled: !editorRoot.busy && AgentStore.agents.length > 0
-                        model: AgentStore.agents
+                        enabled: !editorRoot.busy && editorRoot.attachedAgents.length > 0
+                        model: editorRoot.attachedAgents
                         textRole: "name"
                         valueRole: "id"
                         onCurrentIndexChanged: editorRoot.clearConfirmations()
@@ -467,6 +600,207 @@ Popup {
                         font.pixelSize: editorRoot.theme.typeSize(9)
                         lineHeight: editorRoot.theme.typeLineHeightCompact
                         wrapMode: Text.Wrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 6
+                        spacing: 8
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Attached Agents"
+                            color: editorRoot.theme.mutedText
+                            font.pixelSize: editorRoot.theme.typeSize(9)
+                            font.weight: Font.DemiBold
+                        }
+
+                        Text {
+                            text: String(editorRoot.attachedAgents.length)
+                            color: editorRoot.theme.mutedText
+                            font.pixelSize: editorRoot.theme.typeSize(8)
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        Repeater {
+                            model: editorRoot.attachedAgents
+
+                            delegate: Rectangle {
+                                id: attachedAgentRow
+
+                                required property int index
+                                required property var modelData
+
+                                readonly property bool active:
+                                    String(modelData.id || "")
+                                        === String(editorRoot.editingChat.agentId || "")
+                                readonly property bool selectedForSave:
+                                    String(modelData.id || "")
+                                        === String(agentField.currentValue || "")
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 42
+                                radius: 5
+                                color: selectedForSave
+                                    ? editorRoot.theme.activeBg
+                                    : attachedAgentHover.hovered
+                                        ? editorRoot.theme.hoverBg
+                                        : editorRoot.theme.controlSurfaceBg
+                                border.width: active || selectedForSave ? 1 : 0
+                                border.color: active
+                                    ? "#6a5c99"
+                                    : editorRoot.theme.quietBorder
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 6
+                                    spacing: 8
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 7
+                                        Layout.preferredHeight: 7
+                                        radius: 4
+                                        color: attachedAgentRow.active
+                                            ? editorRoot.theme.accentBright
+                                            : editorRoot.theme.mutedText
+                                        opacity: attachedAgentRow.active ? 1 : 0.55
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 1
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: String(
+                                                attachedAgentRow.modelData.name
+                                                    || "Unnamed Agent"
+                                            )
+                                            color: editorRoot.theme.appText
+                                            font.pixelSize: editorRoot.theme.typeSize(10)
+                                            font.weight: attachedAgentRow.active
+                                                ? Font.DemiBold
+                                                : Font.Normal
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: String(
+                                                attachedAgentRow.modelData.description
+                                                    || "Reusable Archivist Agent"
+                                            )
+                                            color: editorRoot.theme.mutedText
+                                            font.pixelSize: editorRoot.theme.typeSize(8)
+                                            opacity: 0.7
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: attachedAgentRow.active
+                                            || attachedAgentRow.selectedForSave
+                                        text: attachedAgentRow.active
+                                            ? "ACTIVE"
+                                            : "SELECTED"
+                                        color: editorRoot.theme.accentBright
+                                        font.pixelSize: editorRoot.theme.typeSize(7)
+                                        font.weight: Font.Bold
+                                        font.letterSpacing: 0.45
+                                    }
+
+                                    Button {
+                                        Layout.preferredWidth: 28
+                                        Layout.preferredHeight: 28
+                                        text: "×"
+                                        enabled: !editorRoot.busy
+                                            && !attachedAgentRow.active
+                                            && !attachedAgentRow.selectedForSave
+                                        hoverEnabled: true
+                                        padding: 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: attachedAgentRow.active
+                                            ? "Select a replacement before detaching"
+                                            : "Detach Agent from this Chat"
+                                        onClicked: editorRoot.detachAgent(
+                                            String(attachedAgentRow.modelData.id || "")
+                                        )
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: parent.enabled && parent.hovered
+                                                ? "#e2b5b5"
+                                                : editorRoot.theme.mutedText
+                                            font.pixelSize: editorRoot.theme.typeSize(14)
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            opacity: parent.enabled ? 1 : 0.38
+                                        }
+
+                                        background: Rectangle {
+                                            radius: 4
+                                            color: parent.hovered
+                                                ? "#321b1b"
+                                                : "transparent"
+                                            border.width: parent.hovered ? 1 : 0
+                                            border.color: "#6f3636"
+                                        }
+                                    }
+                                }
+
+                                HoverHandler {
+                                    id: attachedAgentHover
+                                }
+
+                                TapHandler {
+                                    enabled: !editorRoot.busy
+                                    onTapped: {
+                                        agentField.currentIndex
+                                            = attachedAgentRow.index
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Button {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 34
+                        text: ChatStore.assigningAgent
+                            ? "Working…"
+                            : "+  Attach Agent"
+                        enabled: !editorRoot.busy
+                            && !editorRoot.archived
+                        hoverEnabled: true
+                        padding: 0
+                        onClicked: editorRoot.openAgentPicker()
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: parent.enabled && parent.hovered
+                                ? editorRoot.theme.appText
+                                : editorRoot.theme.mutedText
+                            font.pixelSize: editorRoot.theme.typeSize(9)
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: 4
+                            color: parent.hovered
+                                ? editorRoot.theme.hoverBg
+                                : editorRoot.theme.controlSurfaceBg
+                            border.width: 1
+                            border.color: parent.hovered
+                                ? "#554a7b"
+                                : editorRoot.theme.quietBorder
+                        }
                     }
                 }
 

@@ -4,6 +4,7 @@ export type Chat = {
   libraryName: string | null;
   title: string;
   agentId: string;
+  agentIds: string[];
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -69,6 +70,10 @@ export type CreateChatInput = {
 export type UpdateChatInput = {
   title?: string;
   agentId?: string;
+};
+
+export type AttachChatAgentInput = {
+  agentId: string;
 };
 
 export type CreateMessageInput = {

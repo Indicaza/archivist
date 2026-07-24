@@ -203,8 +203,8 @@ function getAssignedChatCount(agentId: string): number {
   const row = database
     .prepare(
       `
-        SELECT COUNT(*) AS count
-        FROM chats
+        SELECT COUNT(DISTINCT chat_id) AS count
+        FROM chat_agents
         WHERE agent_id = ?
       `,
     )
@@ -519,7 +519,7 @@ export function archiveAgent(agentId: string): ArchiveAgentResult {
   if (assignedChatCount > 0) {
     throw new AppError(
       409,
-      "This Agent is assigned to one or more Chats. Change those Chats before archiving it.",
+      "This Agent is attached to one or more Chats. Detach it before archiving.",
       {
         assignedChatCount,
       },
@@ -597,6 +597,24 @@ export function deleteAgent(agentId: string): DeleteAgentResult {
   }
 
   const deleteTransaction = database.transaction(() => {
+    database
+      .prepare(
+        `
+          INSERT OR IGNORE INTO chat_agents (
+            chat_id,
+            agent_id,
+            position
+          )
+          SELECT
+            id,
+            ?,
+            0
+          FROM chats
+          WHERE agent_id = ?
+        `,
+      )
+      .run(ARCHIVIST_DEFAULT_AGENT_ID, agentId);
+
     const reassignmentResult = database
       .prepare(
         `

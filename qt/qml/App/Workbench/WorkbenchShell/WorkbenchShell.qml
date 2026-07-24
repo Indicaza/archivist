@@ -105,6 +105,15 @@ Rectangle {
         )
     }
 
+    Connections {
+        target: CollectionStore
+
+        function onWorkspaceScopeChanged() {
+            LibraryStore.refresh()
+            ChatStore.refresh()
+        }
+    }
+
     color: theme.workspaceBg
     clip: true
 

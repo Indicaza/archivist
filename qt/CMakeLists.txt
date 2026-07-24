@@ -17,6 +17,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Agent/agent_store.h
     src/App/Domains/Chat/chat_store.cpp
     src/App/Domains/Chat/chat_store.h
+    src/App/Domains/Collection/collection_store.cpp
+    src/App/Domains/Collection/collection_store.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
 )
@@ -33,6 +35,16 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/WorkspaceNavigator.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/SidebarBandHeader.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionBand.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/ChatBand.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/ChatAgentRow.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditor.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditorHeader.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditorFooter.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionMembershipCard.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
         qml/App/Workbench/Workspace/Workspace.qml
         qml/App/Workbench/Workspace/FilePreview/FilePreview.qml
@@ -42,6 +54,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Workspace/ChatMessage/RichMessageContent.qml
         qml/App/Workbench/Workspace/JumpToLatestButton/JumpToLatestButton.qml
         qml/App/Workbench/ChatDock/ChatDock.qml
+        qml/App/Workbench/ChatDock/ChatAgentPicker/ChatAgentPicker.qml
         qml/App/Workbench/ChatDock/ChatEditor/ChatEditor.qml
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml

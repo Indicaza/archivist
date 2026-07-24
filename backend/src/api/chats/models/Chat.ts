@@ -5,6 +5,7 @@ import { AppError } from "../../../errors/app-error.js";
 import { getLibraryById } from "../../libraries/models/Library.js";
 import type {
   ArchiveChatResult,
+  AttachChatAgentInput,
   Chat,
   ChatMessage,
   ChatMessagePage,
@@ -50,10 +51,57 @@ function mapChat(row: ChatRow): Chat {
     libraryName: row.library_name,
     title: row.title,
     agentId: row.agent_id ?? ARCHIVIST_DEFAULT_AGENT_ID,
+    agentIds: getChatAgentIds(row.id),
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function getChatAgentIds(chatId: string): string[] {
+  const rows = database
+    .prepare(
+      `
+        SELECT chat_agents.agent_id
+        FROM chat_agents
+        INNER JOIN agents
+          ON agents.id = chat_agents.agent_id
+        WHERE chat_agents.chat_id = ?
+          AND agents.archived_at IS NULL
+        ORDER BY
+          chat_agents.position ASC,
+          chat_agents.created_at ASC
+      `,
+    )
+    .all(chatId) as { agent_id: string }[];
+
+  return rows.map((row) => row.agent_id);
+}
+
+function attachAgent(chatId: string, agentId: string): void {
+  database
+    .prepare(
+      `
+        INSERT OR IGNORE INTO chat_agents (
+          chat_id,
+          agent_id,
+          position
+        )
+        VALUES (
+          ?,
+          ?,
+          COALESCE(
+            (
+              SELECT MAX(position) + 1
+              FROM chat_agents
+              WHERE chat_id = ?
+            ),
+            0
+          )
+        )
+      `,
+    )
+    .run(chatId, agentId, chatId);
 }
 
 function mapMessage(row: MessageRow): ChatMessage {
@@ -257,6 +305,7 @@ export function createChat(input: CreateChatInput): Chat {
       )
       .run(chatId, library.id, title, agentId);
 
+    attachAgent(chatId, agentId);
     setSelectedChatId(chatId);
 
     const chat = getChatById(chatId);
@@ -284,26 +333,82 @@ export function updateChat(chatId: string, input: UpdateChatInput): Chat {
 
   requireActiveAgent(agentId);
 
-  database
-    .prepare(
-      `
-        UPDATE chats
-        SET
-          title = ?,
-          agent_id = ?,
-          updated_at = strftime(
-            '%Y-%m-%dT%H:%M:%fZ',
-            'now'
-          )
-        WHERE id = ?
-      `,
-    )
-    .run(title, agentId, chatId);
+  const updateTransaction = database.transaction(() => {
+    attachAgent(chatId, agentId);
+
+    database
+      .prepare(
+        `
+          UPDATE chats
+          SET
+            title = ?,
+            agent_id = ?,
+            updated_at = strftime(
+              '%Y-%m-%dT%H:%M:%fZ',
+              'now'
+            )
+          WHERE id = ?
+        `,
+      )
+      .run(title, agentId, chatId);
+  });
+
+  updateTransaction();
 
   const updatedChat = getChatById(chatId);
 
   if (!updatedChat) {
     throw new Error("The updated Chat could not be loaded.");
+  }
+
+  return updatedChat;
+}
+
+export function attachChatAgent(
+  chatId: string,
+  input: AttachChatAgentInput,
+): Chat {
+  requireActiveChat(chatId);
+  requireActiveAgent(input.agentId);
+  attachAgent(chatId, input.agentId);
+
+  const chat = getChatById(chatId);
+
+  if (!chat) {
+    throw new Error("The updated Chat Agent roster could not be loaded.");
+  }
+
+  return chat;
+}
+
+export function detachChatAgent(chatId: string, agentId: string): Chat {
+  const chat = requireActiveChat(chatId);
+
+  if (chat.agentId === agentId) {
+    throw new AppError(
+      409,
+      "Select another active Agent before detaching this one.",
+    );
+  }
+
+  const result = database
+    .prepare(
+      `
+        DELETE FROM chat_agents
+        WHERE chat_id = ?
+          AND agent_id = ?
+      `,
+    )
+    .run(chatId, agentId);
+
+  if (result.changes === 0) {
+    throw new AppError(404, "This Agent is not attached to the Chat.");
+  }
+
+  const updatedChat = getChatById(chatId);
+
+  if (!updatedChat) {
+    throw new Error("The updated Chat Agent roster could not be loaded.");
   }
 
   return updatedChat;

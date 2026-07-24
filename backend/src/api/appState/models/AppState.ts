@@ -1,8 +1,10 @@
 import { database } from "../../../database/database.js";
 import { AppError } from "../../../errors/app-error.js";
+import { getCollectionScope } from "../../collections/models/Collection.js";
 import type { AppState } from "../types/AppStateTypes.js";
 
 type AppStateRow = {
+  selected_collection_id: string | null;
   selected_library_id: string | null;
   selected_chat_id: string | null;
 };
@@ -16,6 +18,7 @@ export function getAppState(): AppState {
     .prepare(
       `
         SELECT
+          selected_collection_id,
           selected_library_id,
           selected_chat_id
         FROM app_settings
@@ -29,9 +32,65 @@ export function getAppState(): AppState {
   }
 
   return {
+    selectedCollectionId: row.selected_collection_id,
     selectedLibraryId: row.selected_library_id,
     selectedChatId: row.selected_chat_id,
   };
+}
+
+export function setSelectedCollection(
+  selectedCollectionId: string | null,
+): AppState {
+  const current = getAppState();
+
+  if (selectedCollectionId === null) {
+    database
+      .prepare(
+        `
+          UPDATE app_settings
+          SET
+            selected_collection_id = NULL,
+            updated_at = strftime(
+              '%Y-%m-%dT%H:%M:%fZ',
+              'now'
+            )
+          WHERE id = 1
+        `,
+      )
+      .run();
+
+    return getAppState();
+  }
+
+  const scope = getCollectionScope(selectedCollectionId);
+  const selectedLibraryId =
+    current.selectedLibraryId &&
+    scope.libraryIds.includes(current.selectedLibraryId)
+      ? current.selectedLibraryId
+      : (scope.libraryIds[0] ?? null);
+  const selectedChatId =
+    current.selectedChatId && scope.chatIds.includes(current.selectedChatId)
+      ? current.selectedChatId
+      : (scope.directChatIds[0] ?? scope.chatIds[0] ?? null);
+
+  database
+    .prepare(
+      `
+        UPDATE app_settings
+        SET
+          selected_collection_id = ?,
+          selected_library_id = ?,
+          selected_chat_id = ?,
+          updated_at = strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            'now'
+          )
+        WHERE id = 1
+      `,
+    )
+    .run(selectedCollectionId, selectedLibraryId, selectedChatId);
+
+  return getAppState();
 }
 
 export function setSelectedLibrary(selectedLibraryId: string | null): AppState {

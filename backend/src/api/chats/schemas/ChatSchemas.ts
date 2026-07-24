@@ -12,6 +12,14 @@ export const chatAttachmentIdParamsSchema = chatIdParamsSchema.extend({
   attachmentId: z.string().uuid(),
 });
 
+export const chatAgentIdParamsSchema = chatIdParamsSchema.extend({
+  agentId: z.string().uuid(),
+});
+
+export const attachChatAgentSchema = z.object({
+  agentId: z.string().uuid(),
+});
+
 export const createChatFileAttachmentSchema = z.object({
   libraryId: z.string().uuid(),
   fileId: z.string().uuid(),

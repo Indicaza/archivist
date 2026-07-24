@@ -67,7 +67,10 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshArchived();
-    Q_INVOKABLE void createChat(const QString &libraryId);
+    Q_INVOKABLE void createChat(
+        const QString &libraryId,
+        const QString &agentId
+    );
     Q_INVOKABLE void selectChat(const QString &chatId);
     Q_INVOKABLE void refreshSelectedMessages();
     Q_INVOKABLE void refreshSelectedAttachments();
@@ -75,6 +78,8 @@ public:
     Q_INVOKABLE void sendMessage(const QString &content);
     Q_INVOKABLE void finishMessageReveal(const QString &messageId);
     Q_INVOKABLE void assignAgentToSelectedChat(const QString &agentId);
+    Q_INVOKABLE void attachAgentToSelectedChat(const QString &agentId);
+    Q_INVOKABLE void detachAgentFromSelectedChat(const QString &agentId);
     Q_INVOKABLE void attachFile(const QString &libraryId, const QString &fileId);
     Q_INVOKABLE void removeAttachment(const QString &attachmentId);
     Q_INVOKABLE void loadMessageContext(const QString &messageId);
@@ -111,6 +116,7 @@ signals:
     void contextErrorMessageChanged();
     void attachmentAdded(const QVariantMap &attachment);
     void attachmentRemoved(const QString &attachmentId);
+    void agentAssigned(const QString &agentId);
     void chatCreated(const QVariantMap &chat);
     void chatUpdated(const QVariantMap &chat);
     void chatArchived(const QVariantMap &chat);

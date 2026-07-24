@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "ExplorerItem"
+import "WorkspaceNavigator"
 
 Rectangle {
     id: root
@@ -21,9 +22,10 @@ Rectangle {
     property string selectedNodePath: ""
     property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
+    readonly property var scopedLibraries: filteredLibraries()
 
     readonly property var viewTitles: [
-        "Library Explorer",
+        "Workspace Navigator",
         "Archived Libraries",
         "Library Search",
         "Plugins",
@@ -157,7 +159,7 @@ Rectangle {
     }
 
     function libraryIndexForId(libraryId) {
-        var libraries = LibraryStore.libraries || []
+        var libraries = scopedLibraries || []
 
         for (var index = 0; index < libraries.length; index += 1) {
             if (String(libraries[index].id) === String(libraryId)) {
@@ -166,6 +168,24 @@ Rectangle {
         }
 
         return -1
+    }
+
+    function filteredLibraries() {
+        var scope = CollectionStore.scope
+        var libraries = LibraryStore.libraries || []
+
+        if (CollectionStore.selectedCollectionId.length === 0) {
+            return libraries
+        }
+
+        var filtered = []
+        for (var index = 0; index < libraries.length; index += 1) {
+            if (CollectionStore.includesLibrary(String(libraries[index].id))) {
+                filtered.push(libraries[index])
+            }
+        }
+
+        return filtered
     }
 
     function isExpanded(nodeId) {
@@ -336,7 +356,10 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.theme.explorerHeaderHeight
+            Layout.preferredHeight: root.activeViewIndex === 0
+                ? 0
+                : root.theme.explorerHeaderHeight
+            visible: root.activeViewIndex !== 0
             color: root.theme.controlSurfaceBg
 
             Rectangle {
@@ -416,14 +439,26 @@ Rectangle {
     Component {
         id: libraryView
 
+        WorkspaceNavigator {
+            theme: root.theme
+            libraryContent: libraryBrowser
+            onCloseRequested: root.closeRequested()
+        }
+    }
+
+    Component {
+        id: libraryBrowser
+
         Item {
+            clip: true
+
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 0
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
+                    Layout.preferredHeight: 34
                     color: root.theme.controlSurfaceBg
 
                     Rectangle {
@@ -444,27 +479,19 @@ Rectangle {
                             id: librarySelector
 
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 29
-                            model: LibraryStore.libraries
+                            Layout.preferredHeight: 26
+                            model: root.scopedLibraries
                             textRole: "name"
                             valueRole: "id"
                             enabled: !LibraryStore.loadingLibraries && count > 0
                             hoverEnabled: true
+                            ToolTip.visible: hovered
+                            ToolTip.text: String(
+                                LibraryStore.selectedLibrary.rootPath
+                                    || "Select Library"
+                            )
                             leftPadding: 7
                             rightPadding: 24
-                            scale: hovered ? 1.02 : 1.0
-                            z: hovered ? 2 : 1
-
-                            Behavior on scale {
-                                NumberAnimation {
-                                    duration: librarySelector.hovered
-                                        ? root.theme.motionHover
-                                        : root.theme.motionHoverExit
-                                    easing.type: librarySelector.hovered
-                                        ? Easing.OutBack
-                                        : Easing.OutCubic
-                                }
-                            }
 
                             Binding {
                                 target: librarySelector
@@ -473,7 +500,7 @@ Rectangle {
                             }
 
                             onActivated: function(index) {
-                                var library = LibraryStore.libraries[index]
+                                var library = root.scopedLibraries[index]
                                 if (library) {
                                     LibraryStore.selectLibrary(String(library.id))
                                 }
@@ -566,11 +593,27 @@ Rectangle {
                             }
                         }
 
+                        Rectangle {
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 17
+                            radius: 9
+                            color: "#26231e"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: LibraryStore.loadingFiles
+                                    ? "…"
+                                    : String(LibraryStore.files.length)
+                                color: root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(8)
+                            }
+                        }
+
                         Button {
                             id: collapseAllButton
 
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 28
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
                             text: "⌃"
                             hoverEnabled: true
                             padding: 0
@@ -612,8 +655,8 @@ Rectangle {
                         Button {
                             id: expandAllButton
 
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 28
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
                             text: "⌄"
                             hoverEnabled: true
                             padding: 0
@@ -655,15 +698,15 @@ Rectangle {
                         Button {
                             id: refreshLibrariesButton
 
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 28
-                            text: LibraryStore.loadingLibraries ? "…" : "↻"
-                            enabled: !LibraryStore.loadingLibraries
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            text: LibraryStore.scanning ? "…" : "↻"
+                            enabled: LibraryStore.selectedLibraryId.length > 0 && !LibraryStore.scanning
                             hoverEnabled: true
                             padding: 0
                             ToolTip.visible: hovered
-                            ToolTip.text: "Refresh Libraries"
-                            onClicked: LibraryStore.refresh()
+                            ToolTip.text: "Rescan selected Library"
+                            onClicked: LibraryStore.scanSelectedLibrary()
                             onHoveredChanged: root.updateToolbarHover(2, hovered)
                             scale: root.magnifierScale(
                                 2,
@@ -700,7 +743,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 40
+                    Layout.preferredHeight: 34
                     color: root.theme.surfaceBg
 
                     TextField {
@@ -734,94 +777,7 @@ Rectangle {
                     }
                 }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 34
-                    color: root.theme.surfaceBg
 
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 1
-                        color: root.theme.quietBorder
-                    }
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 9
-                        anchors.rightMargin: 6
-                        spacing: 7
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: String(LibraryStore.selectedLibrary.rootPath || "No Library selected")
-                            color: root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideMiddle
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: 25
-                            Layout.preferredHeight: 16
-                            radius: 8
-                            color: "#26231e"
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: String(LibraryStore.files.length)
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                            }
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                        }
-
-                        Button {
-                            id: rescanLibraryButton
-
-                            Layout.preferredWidth: 23
-                            Layout.preferredHeight: 23
-                            text: LibraryStore.scanning ? "…" : "↻"
-                            enabled: LibraryStore.selectedLibraryId.length > 0 && !LibraryStore.scanning
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Rescan Library"
-                            onClicked: LibraryStore.scanSelectedLibrary()
-                            scale: down
-                                ? root.theme.pressedScale
-                                : hovered
-                                    ? root.theme.hoverScale
-                                    : 1.0
-
-                            Behavior on scale {
-                                enabled: !rescanLibraryButton.down
-
-                                NumberAnimation {
-                                    duration: root.theme.motionHover
-                                    easing.type: Easing.OutCubic
-                                }
-                            }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                            }
-                        }
-                    }
-                }
 
                 Item {
                     Layout.fillWidth: true
