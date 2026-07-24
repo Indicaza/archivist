@@ -4,7 +4,7 @@ var fallbackRendererId = "plain-text"
 
 var renderers = {
     "plain-text": renderer("plain-text", "Source", "PlainTextRenderer", true, ["source"]),
-    "markdown": renderer("markdown", "Markdown", "MarkdownRenderer", false, ["rendered", "source", "split"]),
+    "markdown": renderer("markdown", "Markdown", "MarkdownRenderer", true, ["rendered", "source", "split"]),
     "image": renderer("image", "Image", "ImageRenderer", false, ["rendered"]),
     "svg": renderer("svg", "SVG", "SvgRenderer", false, ["rendered", "source", "split"]),
     "structured-json": renderer("structured-json", "JSON", "StructuredDataRenderer", false, ["structured", "source", "split"]),

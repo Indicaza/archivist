@@ -33,6 +33,8 @@ qt_add_qml_module(archivist-qt
         qml/App/Theme/Theme.qml
         qml/App/Files/FileIdentity.js
         qml/App/Files/RendererRegistry.js
+        qml/App/Files/Renderers/PlainTextRenderer.qml
+        qml/App/Files/Renderers/MarkdownRenderer.qml
         qml/App/Topbar/Topbar.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../../Files/FileIdentity.js" as FileIdentity
 import "../../../Files/RendererRegistry.js" as RendererRegistry
+import "../../../Files/Renderers"
 
 Rectangle {
     id: root
@@ -35,6 +36,20 @@ Rectangle {
         languageId: file && file.languageId ? String(file.languageId) : ""
     })
     readonly property var rendererSelection: RendererRegistry.resolve(fileIdentity)
+    readonly property bool markdownRenderingAvailable: rendererSelection.id === "markdown"
+        && rendererSelection.available
+    readonly property string currentFileKey: String(file && file.id ? file.id : "")
+        + ":"
+        + String(rendererSelection.id || "plain-text")
+    property string viewMode: "source"
+
+    function resetViewMode() {
+        root.viewMode = root.markdownRenderingAvailable ? "rendered" : "source"
+    }
+
+    onCurrentFileKeyChanged: Qt.callLater(root.resetViewMode)
+
+    Component.onCompleted: resetViewMode()
 
     readonly property string attachmentId: attachmentIdForFile()
     readonly property bool attachedToChat: attachmentId.length > 0
@@ -265,6 +280,65 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
+            Layout.preferredHeight: root.markdownRenderingAvailable ? 36 : 0
+            visible: root.markdownRenderingAvailable
+            color: "transparent"
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                Item { Layout.fillWidth: true }
+
+                Repeater {
+                    model: [
+                        { id: "rendered", label: "Rendered" },
+                        { id: "source", label: "Source" },
+                        { id: "split", label: "Split" }
+                    ]
+
+                    Button {
+                        required property var modelData
+
+                        Layout.preferredWidth: modelData.id === "rendered" ? 84 : 66
+                        Layout.preferredHeight: 30
+                        text: modelData.label
+                        hoverEnabled: true
+                        padding: 0
+                        onClicked: root.viewMode = modelData.id
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: root.viewMode === modelData.id
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(9)
+                            font.weight: root.viewMode === modelData.id
+                                ? Font.Bold
+                                : Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            color: root.viewMode === modelData.id
+                                ? root.theme.activeBg
+                                : parent.hovered
+                                    ? root.theme.hoverBg
+                                    : root.theme.controlSurfaceBg
+                            border.width: 1
+                            border.color: root.viewMode === modelData.id
+                                ? root.theme.accent
+                                : root.theme.quietBorder
+                            radius: 4
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
             Layout.fillHeight: true
             color: root.theme.workspaceBgDeep
             border.width: 1
@@ -272,39 +346,56 @@ Rectangle {
             radius: 5
             clip: true
 
-            ScrollView {
-                id: previewScroll
-
+            PlainTextRenderer {
                 anchors.fill: parent
                 visible: !root.loading
                     && root.errorMessage.length === 0
                     && root.content.length > 0
-                clip: true
-                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                    && root.viewMode === "source"
+                theme: root.theme
+                content: root.content
+            }
 
-                TextArea {
-                    id: previewText
+            MarkdownRenderer {
+                anchors.fill: parent
+                visible: !root.loading
+                    && root.errorMessage.length === 0
+                    && root.content.length > 0
+                    && root.markdownRenderingAvailable
+                    && root.viewMode === "rendered"
+                theme: root.theme
+                content: root.content
+            }
 
-                    width: Math.max(previewScroll.availableWidth, implicitWidth)
-                    text: root.content
-                    readOnly: true
-                    selectByMouse: true
-                    wrapMode: TextEdit.NoWrap
-                    textFormat: TextEdit.PlainText
-                    color: root.theme.appText
-                    selectionColor: root.theme.messageSelectionBg
-                    selectedTextColor: root.theme.messageSelectionText
-                    font.family: Qt.platform.os === "osx" ? "Menlo" : "monospace"
-                    font.pixelSize: root.theme.typeCode
-                    leftPadding: 18
-                    rightPadding: 18
-                    topPadding: 16
-                    bottomPadding: 16
+            RowLayout {
+                anchors.fill: parent
+                visible: !root.loading
+                    && root.errorMessage.length === 0
+                    && root.content.length > 0
+                    && root.markdownRenderingAvailable
+                    && root.viewMode === "split"
+                spacing: 0
 
-                    background: Rectangle {
-                        color: "transparent"
-                    }
+                PlainTextRenderer {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 260
+                    theme: root.theme
+                    content: root.content
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.fillHeight: true
+                    color: root.theme.quietBorder
+                }
+
+                MarkdownRenderer {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 320
+                    theme: root.theme
+                    content: root.content
                 }
             }
 
