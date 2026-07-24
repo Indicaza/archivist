@@ -24,7 +24,7 @@ Item {
     property int settlingDestinationIndex: -1
     property bool settlingCommitMove: false
     property real settlingTabRootX: 0
-    readonly property color activeContourColor: "#a79a87"
+    readonly property color activeContourColor: "#5f5a52"
 
     visible: hasTabs
     clip: false
@@ -45,6 +45,11 @@ Item {
         }
 
         return -1
+    }
+
+    function newTabInsertionIndex() {
+        var activeIndex = tabIndexForKey(activeTabKey)
+        return activeIndex >= 0 ? activeIndex + 1 : tabs.count
     }
 
     function tabSnapshot(index) {
@@ -395,7 +400,8 @@ Item {
         var sizeBytes = Number(file.sizeBytes || 0)
 
         if (index < 0) {
-            tabs.append({
+            index = newTabInsertionIndex()
+            tabs.insert(index, {
                 tabKey: key,
                 tabType: "file",
                 fileId: fileId,
@@ -409,7 +415,6 @@ Item {
                 lineCount: 0,
                 agentCount: 0
             })
-            index = tabs.count - 1
         } else {
             tabs.setProperty(index, "title", title)
             tabs.setProperty(index, "relativePath", relativePath)
@@ -443,7 +448,8 @@ Item {
         var agentIds = chat.agentIds || []
 
         if (index < 0) {
-            tabs.append({
+            index = newTabInsertionIndex()
+            tabs.insert(index, {
                 tabKey: key,
                 tabType: "chat",
                 fileId: "",
@@ -457,7 +463,6 @@ Item {
                 lineCount: 0,
                 agentCount: agentIds.length
             })
-            index = tabs.count - 1
         } else {
             tabs.setProperty(index, "title", title)
             tabs.setProperty(index, "libraryName", libraryName)
@@ -689,9 +694,9 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 1.7
+            height: 0.8
             color: root.activeContourColor
-            opacity: 1
+            opacity: 0.72
         }
     }
 
@@ -743,7 +748,7 @@ Item {
         anchors.leftMargin: -1
         anchors.rightMargin: 0
         orientation: ListView.Horizontal
-        spacing: -8
+        spacing: -2
         clip: true
         interactive: !root.tabDragActive
 
@@ -781,22 +786,28 @@ Item {
                 132,
                 Math.min(280, tabTitle.implicitWidth + 74)
             )
-            y: 5
-            height: tabList.height - y
-            transformOrigin: active ? Item.Bottom : Item.Center
-            scale: draggingSource || settlingSource
-                ? active
-                    ? 1.0
-                    : 0.94
-                : active
-                    ? hovered
-                        ? 1.018
-                        : 1.0
-                    : hovered
-                        ? 0.96
-                        : neighborHovered
-                            ? 0.925
-                            : 0.90
+            readonly property real baseVisualHeight: active ? 26 : 22
+            property real hoverProgress: draggingSource || settlingSource
+                ? 0
+                : hovered
+                    ? 1
+                    : neighborHovered
+                        ? 0.34
+                        : 0
+
+            height: tabList.height
+            y: 0
+            transformOrigin: Item.Bottom
+            scale: 1.0
+
+            Behavior on hoverProgress {
+                enabled: !tabItem.draggingSource && !tabItem.settlingSource
+
+                NumberAnimation {
+                    duration: 220
+                    easing.type: Easing.OutCubic
+                }
+            }
             z: draggingSource
                 ? 6000
                 : settlingSource
@@ -834,18 +845,31 @@ Item {
             }
 
 
-            Behavior on scale {
-                NumberAnimation {
-                    duration: root.hoveredTabIndex >= 0
-                        ? 130
-                        : 170
-                    easing.type: Easing.OutCubic
+            Item {
+                id: tabVisual
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Math.min(tabItem.baseVisualHeight, tabList.height)
+                z: 3
+
+                transform: Scale {
+                    origin.x: tabVisual.width / 2
+                    origin.y: tabVisual.height
+                    xScale: 1 + tabItem.hoverProgress * (
+                        tabItem.active ? 0.018 : 0.022
+                    )
+                    yScale: 1 + tabItem.hoverProgress * (
+                        tabItem.active ? 0.075 : 0.13
+                    )
                 }
             }
 
             Canvas {
                 id: tabCanvas
 
+                parent: tabVisual
                 anchors.fill: parent
                 property color fillColor: tabItem.active
                     ? root.theme.workspaceBg
@@ -870,6 +894,20 @@ Item {
                 onTopInsetChanged: requestPaint()
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
+
+                Behavior on fillColor {
+                    ColorAnimation {
+                        duration: 170
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                Behavior on outlineColor {
+                    ColorAnimation {
+                        duration: 170
+                        easing.type: Easing.OutCubic
+                    }
+                }
 
                 onPaint: {
                     var context = getContext("2d")
@@ -904,7 +942,7 @@ Item {
 
                     context.globalAlpha = outlineOpacity
                     context.strokeStyle = outlineColor
-                    context.lineWidth = tabItem.active ? 2.15 : 1.35
+                    context.lineWidth = tabItem.active ? 1.25 : 0.85
                     context.lineJoin = "round"
                     context.beginPath()
                     context.moveTo(left, bottom)
@@ -934,11 +972,13 @@ Item {
             Text {
                 id: fileGlyph
 
+                parent: tabVisual
                 anchors.left: parent.left
-                anchors.leftMargin: 22
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: 1
-                width: 18
+                anchors.leftMargin: 14
+                anchors.verticalCenter: tabCanvas.verticalCenter
+                anchors.verticalCenterOffset: 0
+                width: 16
+                height: 18
                 text: root.glyphFor(tabItem.tabType, tabItem.extension)
                 color: tabItem.active || tabItem.hovered
                     ? root.theme.accentBright
@@ -946,18 +986,21 @@ Item {
                 opacity: tabItem.active || tabItem.hovered ? 1 : 0.92
                 font.pixelSize: root.theme.typeSize(9)
                 horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
                 z: 3
             }
 
             Text {
                 id: tabTitle
 
+                parent: tabVisual
                 anchors.left: fileGlyph.right
                 anchors.right: closeTabButton.left
-                anchors.leftMargin: 7
-                anchors.rightMargin: 5
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: 1
+                anchors.leftMargin: 6
+                anchors.rightMargin: 12
+                anchors.verticalCenter: tabCanvas.verticalCenter
+                anchors.verticalCenterOffset: 0
+                height: 18
                 text: tabItem.title
                 color: root.theme.appText
                 opacity: tabItem.active
@@ -967,6 +1010,7 @@ Item {
                         : 0.88
                 font.pixelSize: root.theme.typeSize(10)
                 font.weight: tabItem.active ? Font.DemiBold : Font.Medium
+                verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
                 z: 3
             }
@@ -1080,7 +1124,7 @@ Item {
                 visible: tabHover.containsMouse && !root.tabDragActive
                 delay: 900
                 timeout: 7000
-                y: tabItem.height + 8
+                y: tabList.height + 8
                 padding: 0
 
                 enter: Transition {
@@ -1291,12 +1335,13 @@ Item {
             Button {
                 id: closeTabButton
 
+                parent: tabVisual
                 anchors.right: parent.right
-                anchors.rightMargin: 11
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: 1
-                width: 21
-                height: 21
+                anchors.rightMargin: 8
+                anchors.verticalCenter: tabCanvas.verticalCenter
+                anchors.verticalCenterOffset: 0
+                width: 18
+                height: 18
                 z: 5
                 text: "×"
                 hoverEnabled: true
@@ -1313,7 +1358,7 @@ Item {
                     color: parent.hovered
                         ? root.theme.appText
                         : root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(13)
+                    font.pixelSize: root.theme.typeSize(12)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
