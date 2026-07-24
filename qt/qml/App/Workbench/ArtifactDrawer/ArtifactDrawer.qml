@@ -33,6 +33,18 @@ Item {
         onClicked: root.open = !root.open
         ToolTip.visible: hovered
         ToolTip.text: root.open ? "Close Context Inspector" : "Open Context Inspector"
+        scale: down
+            ? root.theme.pressedScale
+            : hovered
+                ? root.theme.hoverScale
+                : 1.0
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: root.theme.motionHover
+                easing.type: Easing.OutBack
+            }
+        }
 
         contentItem: Text {
             text: parent.text
@@ -51,16 +63,40 @@ Item {
     }
 
     Rectangle {
+        id: inspectorPanel
+
         anchors.left: toggleButton.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.right: parent.right
-        visible: root.open
+        opacity: root.open ? 1.0 : 0.0
+        scale: root.open ? 1.0 : root.theme.modalSpawnScale
+        transformOrigin: Item.Right
         radius: root.theme.radiusPanel
         color: root.theme.surfaceBg
         border.width: 1
         border.color: root.theme.panelBorder
         clip: true
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: root.open
+                    ? root.theme.motionModalLaunch
+                    : root.theme.motionModalClose
+                easing.type: root.open ? Easing.OutCubic : Easing.InCubic
+            }
+        }
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: root.open
+                    ? root.theme.motionModalLaunch + root.theme.motionModalSettle
+                    : root.theme.motionModalCloseKick
+                        + root.theme.motionModalClose
+                easing.type: root.open ? Easing.OutBack : Easing.InBack
+                easing.overshoot: 1.05
+            }
+        }
 
         Column {
             anchors.fill: parent
@@ -68,8 +104,8 @@ Item {
 
             Rectangle {
                 width: parent.width
-                height: 36
-                color: "#1a1916"
+                height: 40
+                color: root.theme.controlSurfaceBg
 
                 Rectangle {
                     anchors.left: parent.left
@@ -85,7 +121,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "✦  CONTEXT INSPECTOR"
                     color: root.theme.mutedText
-                    font.pixelSize: 9
+                    font.pixelSize: 10
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
@@ -100,13 +136,25 @@ Item {
                     hoverEnabled: true
                     padding: 0
                     onClicked: root.open = false
+                    scale: down
+                        ? root.theme.pressedScale
+                        : hovered
+                            ? root.theme.hoverScale
+                            : 1.0
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: root.theme.motionHover
+                            easing.type: Easing.OutBack
+                        }
+                    }
 
                     contentItem: Text {
                         text: parent.text
                         color: parent.hovered
                             ? root.theme.appText
                             : root.theme.mutedText
-                        font.pixelSize: 12
+                        font.pixelSize: 14
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -120,7 +168,7 @@ Item {
 
             ContextInspector {
                 width: parent.width
-                height: parent.height - 36
+                height: parent.height - 40
                 theme: root.theme
                 onSourceOpening: root.open = false
             }
@@ -128,6 +176,9 @@ Item {
     }
 
     Behavior on width {
-        NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+        NumberAnimation {
+            duration: root.theme.motionPanel
+            easing.type: Easing.OutCubic
+        }
     }
 }

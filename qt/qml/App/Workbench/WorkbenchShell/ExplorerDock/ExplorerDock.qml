@@ -19,6 +19,8 @@ Rectangle {
     property var childrenByParent: ({})
     property var filterMatchCache: ({})
     property string selectedNodePath: ""
+    property int hoveredTreeIndex: -1
+    property int toolbarHoverIndex: -1
 
     readonly property var viewTitles: [
         "Library Explorer",
@@ -272,6 +274,30 @@ Rectangle {
         rebuildTree()
     }
 
+    function magnifierScale(index, hoveredIndex, pressed) {
+        if (pressed) {
+            return theme.pressedScale
+        }
+
+        if (index === hoveredIndex) {
+            return theme.hoverScale
+        }
+
+        if (hoveredIndex >= 0 && Math.abs(index - hoveredIndex) === 1) {
+            return theme.hoverNeighborScale
+        }
+
+        return 1.0
+    }
+
+    function updateToolbarHover(index, hovered) {
+        if (hovered) {
+            toolbarHoverIndex = index
+        } else if (toolbarHoverIndex === index) {
+            toolbarHoverIndex = -1
+        }
+    }
+
     Component.onCompleted: {
         rebuildNodesFromFiles()
         LibraryStore.refresh()
@@ -311,7 +337,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: root.theme.explorerHeaderHeight
-            color: "#1a1916"
+            color: root.theme.controlSurfaceBg
 
             Rectangle {
                 anchors.left: parent.left
@@ -331,7 +357,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: root.viewTitles[root.activeViewIndex]
                     color: root.theme.mutedText
-                    font.pixelSize: 9
+                    font.pixelSize: 10
                     font.weight: Font.Bold
                     font.capitalization: Font.AllUppercase
                     font.letterSpacing: 1.0
@@ -339,17 +365,29 @@ Rectangle {
                 }
 
                 Button {
-                    Layout.preferredWidth: 25
-                    Layout.preferredHeight: 25
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
                     text: "‹"
                     hoverEnabled: true
                     padding: 0
                     onClicked: root.closeRequested()
+                    scale: down
+                        ? root.theme.pressedScale
+                        : hovered
+                            ? root.theme.hoverScale
+                            : 1.0
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: root.theme.motionHover
+                            easing.type: Easing.OutBack
+                        }
+                    }
 
                     contentItem: Text {
                         text: parent.text
                         color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: 17
+                        font.pixelSize: 18
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -381,7 +419,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 35
+                    Layout.preferredHeight: 42
                     color: root.theme.controlSurfaceBg
 
                     Rectangle {
@@ -402,7 +440,7 @@ Rectangle {
                             id: librarySelector
 
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 25
+                            Layout.preferredHeight: 29
                             model: LibraryStore.libraries
                             textRole: "name"
                             valueRole: "id"
@@ -410,6 +448,19 @@ Rectangle {
                             hoverEnabled: true
                             leftPadding: 7
                             rightPadding: 24
+                            scale: hovered ? 1.02 : 1.0
+                            z: hovered ? 2 : 1
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: librarySelector.hovered
+                                        ? root.theme.motionHover
+                                        : root.theme.motionHoverExit
+                                    easing.type: librarySelector.hovered
+                                        ? Easing.OutBack
+                                        : Easing.OutCubic
+                                }
+                            }
 
                             Binding {
                                 target: librarySelector
@@ -431,7 +482,7 @@ Rectangle {
                                         ? "Loading Libraries…"
                                         : "No Libraries"
                                 color: root.theme.appText
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 font.weight: Font.DemiBold
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
@@ -442,7 +493,7 @@ Rectangle {
                                 y: (parent.height - height) / 2
                                 text: "⌄"
                                 color: root.theme.mutedText
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                             }
 
                             background: Rectangle {
@@ -479,7 +530,7 @@ Rectangle {
                                 required property var modelData
 
                                 width: librarySelector.width - 8
-                                height: 30
+                                height: 36
                                 highlighted: librarySelector.highlightedIndex === index
 
                                 contentItem: Column {
@@ -490,7 +541,7 @@ Rectangle {
                                         width: parent.width
                                         text: String(modelData.name || "Library")
                                         color: root.theme.appText
-                                        font.pixelSize: 10
+                                        font.pixelSize: 11
                                         font.weight: Font.DemiBold
                                         elide: Text.ElideRight
                                     }
@@ -499,7 +550,7 @@ Rectangle {
                                         width: parent.width
                                         text: String(modelData.rootPath || "")
                                         color: root.theme.mutedText
-                                        font.pixelSize: 7
+                                        font.pixelSize: 9
                                         elide: Text.ElideMiddle
                                     }
                                 }
@@ -512,19 +563,36 @@ Rectangle {
                         }
 
                         Button {
-                            Layout.preferredWidth: 24
-                            Layout.preferredHeight: 24
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 28
                             text: "⌃"
                             hoverEnabled: true
                             padding: 0
                             ToolTip.visible: hovered
                             ToolTip.text: "Collapse all"
                             onClicked: root.collapseAll()
+                            onHoveredChanged: root.updateToolbarHover(0, hovered)
+                            scale: root.magnifierScale(
+                                0,
+                                root.toolbarHoverIndex,
+                                down
+                            )
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: root.toolbarHoverIndex >= 0
+                                        ? root.theme.motionHover
+                                        : root.theme.motionHoverExit
+                                    easing.type: root.toolbarHoverIndex >= 0
+                                        ? Easing.OutBack
+                                        : Easing.OutCubic
+                                }
+                            }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 12
+                                font.pixelSize: 14
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -536,19 +604,36 @@ Rectangle {
                         }
 
                         Button {
-                            Layout.preferredWidth: 24
-                            Layout.preferredHeight: 24
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 28
                             text: "⌄"
                             hoverEnabled: true
                             padding: 0
                             ToolTip.visible: hovered
                             ToolTip.text: "Expand all"
                             onClicked: root.expandAll()
+                            onHoveredChanged: root.updateToolbarHover(1, hovered)
+                            scale: root.magnifierScale(
+                                1,
+                                root.toolbarHoverIndex,
+                                down
+                            )
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: root.toolbarHoverIndex >= 0
+                                        ? root.theme.motionHover
+                                        : root.theme.motionHoverExit
+                                    easing.type: root.toolbarHoverIndex >= 0
+                                        ? Easing.OutBack
+                                        : Easing.OutCubic
+                                }
+                            }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 12
+                                font.pixelSize: 14
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -560,8 +645,8 @@ Rectangle {
                         }
 
                         Button {
-                            Layout.preferredWidth: 24
-                            Layout.preferredHeight: 24
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 28
                             text: LibraryStore.loadingLibraries ? "…" : "↻"
                             enabled: !LibraryStore.loadingLibraries
                             hoverEnabled: true
@@ -569,11 +654,28 @@ Rectangle {
                             ToolTip.visible: hovered
                             ToolTip.text: "Refresh Libraries"
                             onClicked: LibraryStore.refresh()
+                            onHoveredChanged: root.updateToolbarHover(2, hovered)
+                            scale: root.magnifierScale(
+                                2,
+                                root.toolbarHoverIndex,
+                                down
+                            )
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: root.toolbarHoverIndex >= 0
+                                        ? root.theme.motionHover
+                                        : root.theme.motionHoverExit
+                                    easing.type: root.toolbarHoverIndex >= 0
+                                        ? Easing.OutBack
+                                        : Easing.OutCubic
+                                }
+                            }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 13
+                                font.pixelSize: 15
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -588,7 +690,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 33
+                    Layout.preferredHeight: 40
                     color: root.theme.surfaceBg
 
                     TextField {
@@ -602,7 +704,7 @@ Rectangle {
                         placeholderText: "Filter files"
                         placeholderTextColor: root.theme.mutedText
                         color: root.theme.appText
-                        font.pixelSize: 10
+                        font.pixelSize: 11
                         leftPadding: 8
                         rightPadding: 8
                         selectByMouse: true
@@ -624,7 +726,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 30
+                    Layout.preferredHeight: 34
                     color: root.theme.surfaceBg
 
                     Rectangle {
@@ -645,7 +747,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: String(LibraryStore.selectedLibrary.rootPath || "No Library selected")
                             color: root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             font.weight: Font.DemiBold
                             elide: Text.ElideMiddle
                         }
@@ -660,7 +762,7 @@ Rectangle {
                                 anchors.centerIn: parent
                                 text: String(LibraryStore.files.length)
                                 color: root.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                             }
                         }
 
@@ -678,6 +780,18 @@ Rectangle {
                             ToolTip.visible: hovered
                             ToolTip.text: "Rescan Library"
                             onClicked: LibraryStore.scanSelectedLibrary()
+                            scale: down
+                                ? root.theme.pressedScale
+                                : hovered
+                                    ? root.theme.hoverScale
+                                    : 1.0
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: root.theme.motionHover
+                                    easing.type: Easing.OutBack
+                                }
+                            }
 
                             contentItem: Text {
                                 text: parent.text
@@ -714,6 +828,7 @@ Rectangle {
                     model: visibleTree
 
                     delegate: ExplorerItem {
+                        required property int index
                         required property string nodeId
                         required property string itemTitle
                         required property string itemGlyph
@@ -735,6 +850,15 @@ Rectangle {
                         folder: itemFolder
                         expanded: itemExpanded
                         warning: itemWarning
+                        neighborHovered: root.hoveredTreeIndex >= 0
+                            && Math.abs(root.hoveredTreeIndex - index) === 1
+                        onHoveredChanged: {
+                            if (hovered) {
+                                root.hoveredTreeIndex = index
+                            } else if (root.hoveredTreeIndex === index) {
+                                root.hoveredTreeIndex = -1
+                            }
+                        }
                         onActivated: root.activateNode(nodeId, itemFolder, itemFileId)
                     }
 
@@ -768,7 +892,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 28
+                    Layout.preferredHeight: root.theme.controlBarHeight
                     color: root.theme.controlSurfaceBg
 
                     Rectangle {
@@ -801,7 +925,7 @@ Rectangle {
                             color: LibraryStore.errorMessage.length > 0
                                 ? root.theme.danger
                                 : root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             opacity: 0.72
                             elide: Text.ElideRight
                         }

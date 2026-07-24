@@ -14,6 +14,10 @@ Rectangle {
     property bool archivedAgentsOpen: false
     property bool archivedChatsOpen: false
     property string attachmentNotice: ""
+    property int headerHoverIndex: -1
+    property int composerHoverIndex: -1
+    property int hoveredChatIndex: -1
+    property int hoveredAgentIndex: -1
 
     readonly property int attachmentCount: ChatStore.attachments.length
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
@@ -73,6 +77,36 @@ Rectangle {
         composer.forceActiveFocus()
     }
 
+    function magnifierScale(index, hoveredIndex, pressed) {
+        if (pressed) {
+            return theme.pressedScale
+        }
+
+        if (index === hoveredIndex) {
+            return theme.hoverScale
+        }
+
+        if (hoveredIndex >= 0 && Math.abs(index - hoveredIndex) === 1) {
+            return theme.hoverNeighborScale
+        }
+
+        return 1.0
+    }
+
+    function updateHoverIndex(group, index, hovered) {
+        if (hovered) {
+            if (group === "header") {
+                headerHoverIndex = index
+            } else if (group === "composer") {
+                composerHoverIndex = index
+            }
+        } else if (group === "header" && headerHoverIndex === index) {
+            headerHoverIndex = -1
+        } else if (group === "composer" && composerHoverIndex === index) {
+            composerHoverIndex = -1
+        }
+    }
+
     Component.onCompleted: {
         AgentStore.refresh()
         AgentStore.refreshArchived()
@@ -117,7 +151,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: parent.top
         height: 1
-        color: root.theme.quietBorder
+        color: root.theme.panelBorder
         z: 5
     }
 
@@ -163,7 +197,7 @@ Rectangle {
                         Text {
                             text: "▣  LIBRARY  " + root.selectedLibraryName
                             color: root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             font.letterSpacing: 0.25
                         }
 
@@ -176,7 +210,7 @@ Rectangle {
                         Text {
                             text: "♙  AGENT  " + root.selectedAgentName
                             color: root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             font.letterSpacing: 0.25
                             elide: Text.ElideRight
                         }
@@ -192,13 +226,15 @@ Rectangle {
                             color: root.attachmentCount > 0
                                 ? root.theme.accentBright
                                 : root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             font.letterSpacing: 0.25
                         }
                     }
                 }
 
                 Button {
+                    id: manageChatButton
+
                     Layout.preferredWidth: 31
                     Layout.preferredHeight: 31
                     text: "✎"
@@ -208,13 +244,34 @@ Rectangle {
                     ToolTip.visible: hovered
                     ToolTip.text: "Manage Chat"
                     onClicked: chatEditor.openForChat(ChatStore.selectedChat)
+                    onHoveredChanged: root.updateHoverIndex(
+                        "header",
+                        0,
+                        hovered
+                    )
+                    scale: root.magnifierScale(
+                        0,
+                        root.headerHoverIndex,
+                        down
+                    )
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: root.headerHoverIndex >= 0
+                                ? root.theme.motionHover
+                                : root.theme.motionHoverExit
+                            easing.type: root.headerHoverIndex >= 0
+                                ? Easing.OutBack
+                                : Easing.OutCubic
+                        }
+                    }
 
                     contentItem: Text {
                         text: parent.text
                         color: parent.enabled && parent.hovered
                             ? root.theme.appText
                             : root.theme.mutedText
-                        font.pixelSize: 12
+                        font.pixelSize: 14
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         opacity: parent.enabled ? 1 : 0.45
@@ -230,6 +287,8 @@ Rectangle {
                 }
 
                 Button {
+                    id: dockModeButton
+
                     Layout.preferredWidth: 31
                     Layout.preferredHeight: 31
                     text: root.attached ? "↙" : "↗"
@@ -238,11 +297,32 @@ Rectangle {
                     ToolTip.visible: hovered
                     ToolTip.text: root.attached ? "Center Chat Dock" : "Attach Chat Dock"
                     onClicked: root.dockModeToggleRequested()
+                    onHoveredChanged: root.updateHoverIndex(
+                        "header",
+                        1,
+                        hovered
+                    )
+                    scale: root.magnifierScale(
+                        1,
+                        root.headerHoverIndex,
+                        down
+                    )
+
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: root.headerHoverIndex >= 0
+                                ? root.theme.motionHover
+                                : root.theme.motionHoverExit
+                            easing.type: root.headerHoverIndex >= 0
+                                ? Easing.OutBack
+                                : Easing.OutCubic
+                        }
+                    }
 
                     contentItem: Text {
                         text: parent.text
                         color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: 13
+                        font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -260,6 +340,7 @@ Rectangle {
                     delegate: Button {
                         id: dockTabButton
 
+                        required property int index
                         required property string modelData
 
                         Layout.preferredWidth: 58
@@ -270,13 +351,18 @@ Rectangle {
                         onClicked: root.activePanel = root.activePanel === modelData
                             ? "none"
                             : modelData
+                        onHoveredChanged: root.updateHoverIndex(
+                            "header",
+                            index + 2,
+                            hovered
+                        )
 
                         contentItem: Text {
                             text: parent.text
                             color: root.activePanel === modelData || parent.hovered
                                 ? root.theme.appText
                                 : root.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: 10
                             font.weight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -303,10 +389,21 @@ Rectangle {
                             }
                         }
 
-                        scale: down ? 0.985 : 1.0
+                        scale: root.magnifierScale(
+                            index + 2,
+                            root.headerHoverIndex,
+                            down
+                        )
 
                         Behavior on scale {
-                            NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                            NumberAnimation {
+                                duration: root.headerHoverIndex >= 0
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
+                                easing.type: root.headerHoverIndex >= 0
+                                    ? Easing.OutBack
+                                    : Easing.OutCubic
+                            }
                         }
                     }
                 }
@@ -335,7 +432,7 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: ChatStore.selectedChatId.length > 0 ? 38 : 0
                         visible: ChatStore.selectedChatId.length > 0
-                        color: "#171512"
+                        color: root.theme.sidebarBg
 
                         Rectangle {
                             anchors.left: parent.left
@@ -356,7 +453,7 @@ Rectangle {
                                 color: root.attachmentCount > 0
                                     ? root.theme.accentBright
                                     : root.theme.mutedText
-                                font.pixelSize: 7
+                                font.pixelSize: 8
                                 font.weight: Font.Bold
                                 font.letterSpacing: 0.55
                                 opacity: 0.82
@@ -368,7 +465,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: "No files attached — preview a Library file to add one."
                                 color: root.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                                 opacity: 0.66
                                 elide: Text.ElideRight
                             }
@@ -421,7 +518,7 @@ Rectangle {
                                         text: (attachmentChip.includedInLastResponse ? "✓  " : "▤  ")
                                             + attachmentChip.sourcePath
                                         color: root.theme.appText
-                                        font.pixelSize: 8
+                                        font.pixelSize: 9
                                         elide: Text.ElideMiddle
                                     }
 
@@ -470,7 +567,7 @@ Rectangle {
                                 visible: ChatStore.loadingAttachments
                                 text: "Loading…"
                                 color: root.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                                 opacity: 0.7
                             }
                         }
@@ -495,7 +592,7 @@ Rectangle {
                         selectionColor: "#5a554b"
                         selectedTextColor: "#ffffff"
                         font.family: root.theme.bodyFontFamily
-                        font.pixelSize: 13
+                        font.pixelSize: 14
                         wrapMode: TextEdit.Wrap
                         leftPadding: 15
                         rightPadding: 15
@@ -520,8 +617,8 @@ Rectangle {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 36
-                        color: "#171512"
+                        Layout.preferredHeight: root.theme.controlBarHeight
+                        color: root.theme.sidebarBg
 
                         Rectangle {
                             anchors.left: parent.left
@@ -541,6 +638,7 @@ Rectangle {
                                 model: ["☷", "☰", "</>"]
 
                                 delegate: Button {
+                                    required property int index
                                     required property string modelData
 
                                     Layout.preferredWidth: 27
@@ -548,13 +646,34 @@ Rectangle {
                                     text: modelData
                                     hoverEnabled: true
                                     padding: 0
+                                    onHoveredChanged: root.updateHoverIndex(
+                                        "composer",
+                                        index,
+                                        hovered
+                                    )
+                                    scale: root.magnifierScale(
+                                        index,
+                                        root.composerHoverIndex,
+                                        down
+                                    )
+
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: root.composerHoverIndex >= 0
+                                                ? root.theme.motionHover
+                                                : root.theme.motionHoverExit
+                                            easing.type: root.composerHoverIndex >= 0
+                                                ? Easing.OutBack
+                                                : Easing.OutCubic
+                                        }
+                                    }
 
                                     contentItem: Text {
                                         text: parent.text
                                         color: parent.hovered
                                             ? root.theme.appText
                                             : root.theme.mutedText
-                                        font.pixelSize: modelData === "</>" ? 9 : 12
+                                        font.pixelSize: modelData === "</>" ? 10 : 14
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
                                     }
@@ -600,26 +719,49 @@ Rectangle {
                                     : root.attachmentNotice.length > 0
                                         ? root.theme.success
                                         : root.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: 9
                                 opacity: 0.78
                                 elide: Text.ElideRight
                             }
 
                             Button {
-                                Layout.preferredWidth: 68
-                                Layout.preferredHeight: 28
+                                id: sendButton
+
+                                Layout.preferredWidth: 74
+                                Layout.preferredHeight: 30
                                 text: ChatStore.responding ? "Working" : "➤  Send"
                                 enabled: root.canSubmit
                                 hoverEnabled: true
                                 padding: 0
                                 onClicked: root.submitDraft()
+                                onHoveredChanged: root.updateHoverIndex(
+                                    "composer",
+                                    3,
+                                    hovered
+                                )
+                                scale: root.magnifierScale(
+                                    3,
+                                    root.composerHoverIndex,
+                                    down
+                                )
+
+                                Behavior on scale {
+                                    NumberAnimation {
+                                        duration: root.composerHoverIndex >= 0
+                                            ? root.theme.motionHover
+                                            : root.theme.motionHoverExit
+                                        easing.type: root.composerHoverIndex >= 0
+                                            ? Easing.OutBack
+                                            : Easing.OutCubic
+                                    }
+                                }
 
                                 contentItem: Text {
                                     text: parent.text
                                     color: parent.enabled
                                         ? root.theme.appText
                                         : root.theme.mutedText
-                                    font.pixelSize: 9
+                                    font.pixelSize: 10
                                     font.weight: Font.Bold
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
@@ -643,7 +785,7 @@ Rectangle {
             Rectangle {
                 Layout.preferredWidth: root.activePanel === "none"
                     ? 0
-                    : Math.min(250, root.width * 0.32)
+                    : Math.min(280, root.width * 0.32)
                 Layout.fillHeight: true
                 visible: root.activePanel !== "none"
                 color: root.theme.sidebarBg
@@ -672,7 +814,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: root.activePanel === "chats" ? "CHATS" : "AGENTS"
                             color: root.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: 10
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -682,7 +824,7 @@ Rectangle {
                                 ? ChatStore.loadingChats ? "Loading" : String(ChatStore.chats.length)
                                 : AgentStore.loading ? "Loading" : String(AgentStore.agents.length)
                             color: root.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: 9
                             opacity: 0.65
                         }
 
@@ -744,49 +886,91 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: root.activePanel === "chats"
-                        spacing: 1
+                        spacing: 5
                         clip: true
                         model: ChatStore.chats
 
                         delegate: Rectangle {
                             id: chatItem
 
+                            required property int index
                             required property var modelData
 
-                            width: chatList.width
-                            height: 40
-                            radius: 0
+                            readonly property bool selected: String(modelData.id)
+                                === ChatStore.selectedChatId
+                            readonly property bool neighborHovered: root.hoveredChatIndex >= 0
+                                && Math.abs(root.hoveredChatIndex - index) === 1
+
+                            x: 14
+                            width: Math.max(0, chatList.width - 28)
+                            height: 48
+                            radius: root.theme.radiusSmall
                             color: chatTap.pressed
                                 ? "#292621"
                                 : chatHover.hovered
                                     ? root.theme.hoverBg
-                                    : String(modelData.id) === ChatStore.selectedChatId
+                                    : chatItem.selected
                                         ? "#211f1c"
-                                        : "transparent"
+                                        : root.theme.controlSurfaceBg
+                            border.width: 1
+                            border.color: chatHover.hovered
+                                ? root.theme.panelBorder
+                                : chatItem.selected
+                                    ? "#554a7b"
+                                    : root.theme.quietBorder
+                            transformOrigin: Item.Center
+                            scale: chatTap.pressed
+                                ? root.theme.pressedScale
+                                : chatHover.hovered
+                                    ? root.theme.hoverScale
+                                    : chatItem.neighborHovered
+                                        ? root.theme.hoverNeighborScale
+                                        : 1.0
+                            z: chatHover.hovered
+                                ? 3
+                                : chatItem.neighborHovered
+                                    ? 2
+                                    : 1
+
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: chatHover.hovered || chatItem.neighborHovered
+                                        ? root.theme.motionHover
+                                        : root.theme.motionHoverExit
+                                    easing.type: chatHover.hovered || chatItem.neighborHovered
+                                        ? Easing.OutBack
+                                        : Easing.OutCubic
+                                }
+                            }
+
+                            Behavior on color {
+                                ColorAnimation { duration: root.theme.motionFast }
+                            }
 
                             Rectangle {
                                 anchors.left: parent.left
                                 anchors.top: parent.top
                                 anchors.bottom: parent.bottom
-                                width: 2
-                                visible: String(modelData.id) === ChatStore.selectedChatId
-                                color: root.theme.appText
-                                opacity: 0.45
+                                width: 3
+                                visible: chatItem.selected
+                                color: root.theme.accentBright
+                                opacity: 0.78
                             }
 
                             Column {
                                 anchors.left: parent.left
                                 anchors.right: chatEditButton.left
                                 anchors.verticalCenter: parent.verticalCenter
-                                anchors.leftMargin: 9
-                                anchors.rightMargin: 4
-                                spacing: 2
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 7
+                                spacing: 3
 
                                 Text {
                                     width: parent.width
                                     text: String(modelData.title || "Untitled Chat")
                                     color: root.theme.appText
-                                    font.pixelSize: 9
+                                    font.pixelSize: 10
+                                    font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                 }
 
@@ -794,8 +978,8 @@ Rectangle {
                                     width: parent.width
                                     text: String(modelData.libraryName || "Standalone")
                                     color: root.theme.mutedText
-                                    font.pixelSize: 7
-                                    opacity: 0.68
+                                    font.pixelSize: 8
+                                    opacity: 0.72
                                     elide: Text.ElideRight
                                 }
                             }
@@ -804,11 +988,11 @@ Rectangle {
                                 id: chatEditButton
 
                                 anchors.right: parent.right
-                                anchors.rightMargin: 3
+                                anchors.rightMargin: 7
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: 25
-                                height: 25
-                                text: "✎"
+                                width: 58
+                                height: 27
+                                text: "Manage"
                                 enabled: !ChatStore.mutating && !ChatStore.responding
                                 hoverEnabled: true
                                 padding: 0
@@ -821,7 +1005,8 @@ Rectangle {
                                     color: parent.enabled && parent.hovered
                                         ? root.theme.appText
                                         : root.theme.mutedText
-                                    font.pixelSize: 10
+                                    font.pixelSize: 8
+                                    font.weight: Font.DemiBold
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
@@ -829,13 +1014,27 @@ Rectangle {
                                 background: Rectangle {
                                     color: parent.hovered
                                         ? root.theme.hoverBg
-                                        : "transparent"
-                                    radius: 4
+                                        : root.theme.surfaceBg
+                                    border.width: 1
+                                    border.color: parent.hovered
+                                        ? "#6557a0"
+                                        : root.theme.panelBorder
+                                    radius: root.theme.radiusSmall
                                 }
                             }
 
                             HoverHandler {
                                 id: chatHover
+
+                                onHoveredChanged: {
+                                    if (hovered) {
+                                        root.hoveredChatIndex = chatItem.index
+                                    } else {
+                                        if (root.hoveredChatIndex === chatItem.index) {
+                                            root.hoveredChatIndex = -1
+                                        }
+                                    }
+                                }
                             }
 
                             TapHandler {
@@ -995,36 +1194,75 @@ Rectangle {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 visible: AgentStore.agents.length > 0
-                                spacing: 2
+                                spacing: 5
                                 clip: true
                                 model: AgentStore.agents
 
                                 delegate: Rectangle {
                                     id: agentItem
 
+                                    required property int index
                                     required property var modelData
 
                                     readonly property bool assigned: String(modelData.id)
                                         === String(ChatStore.selectedChat.agentId || "")
+                                    readonly property bool neighborHovered: root.hoveredAgentIndex >= 0
+                                        && Math.abs(root.hoveredAgentIndex - index) === 1
 
-                                    width: agentList.width
-                                    height: 48
+                                    x: 14
+                                    width: Math.max(0, agentList.width - 28)
+                                    height: 56
+                                    radius: root.theme.radiusSmall
                                     color: agentTap.pressed
                                         ? "#292621"
                                         : agentHover.hovered
                                             ? root.theme.hoverBg
                                             : assigned
                                                 ? "#211f1c"
-                                                : "transparent"
+                                                : root.theme.controlSurfaceBg
+                                    border.width: 1
+                                    border.color: agentHover.hovered
+                                        ? root.theme.panelBorder
+                                        : agentItem.assigned
+                                            ? "#554a7b"
+                                            : root.theme.quietBorder
+                                    transformOrigin: Item.Center
+                                    scale: agentTap.pressed
+                                        ? root.theme.pressedScale
+                                        : agentHover.hovered
+                                            ? root.theme.hoverScale
+                                            : agentItem.neighborHovered
+                                                ? root.theme.hoverNeighborScale
+                                                : 1.0
+                                    z: agentHover.hovered
+                                        ? 3
+                                        : agentItem.neighborHovered
+                                            ? 2
+                                            : 1
+
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: agentHover.hovered || agentItem.neighborHovered
+                                                ? root.theme.motionHover
+                                                : root.theme.motionHoverExit
+                                            easing.type: agentHover.hovered || agentItem.neighborHovered
+                                                ? Easing.OutBack
+                                                : Easing.OutCubic
+                                        }
+                                    }
+
+                                    Behavior on color {
+                                        ColorAnimation { duration: root.theme.motionFast }
+                                    }
 
                                     Rectangle {
                                         anchors.left: parent.left
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
-                                        width: 2
+                                        width: 3
                                         visible: agentItem.assigned
                                         color: root.theme.accentBright
-                                        opacity: 0.7
+                                        opacity: 0.78
                                     }
 
                                     Item {
@@ -1039,8 +1277,8 @@ Rectangle {
                                             anchors.left: parent.left
                                             anchors.right: parent.right
                                             anchors.verticalCenter: parent.verticalCenter
-                                            anchors.leftMargin: 9
-                                            anchors.rightMargin: 5
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 7
                                             spacing: 3
 
                                             Text {
@@ -1048,7 +1286,7 @@ Rectangle {
                                                 text: String(agentItem.modelData.name || "Unnamed Agent")
                                                     + (agentItem.assigned ? "  ✓" : "")
                                                 color: root.theme.appText
-                                                font.pixelSize: 9
+                                                font.pixelSize: 10
                                                 font.weight: Font.DemiBold
                                                 elide: Text.ElideRight
                                             }
@@ -1060,16 +1298,11 @@ Rectangle {
                                                         ? String(agentItem.modelData.generation.model || "")
                                                         : "")
                                                 color: root.theme.mutedText
-                                                font.pixelSize: 8
+                                                font.pixelSize: 9
                                                 opacity: 0.72
                                                 elide: Text.ElideRight
                                             }
                                         }
-
-                                        HoverHandler {
-                                            id: agentHover
-                                        }
-
                                         TapHandler {
                                             id: agentTap
                                             enabled: ChatStore.selectedChatId.length > 0
@@ -1087,11 +1320,11 @@ Rectangle {
                                         id: editAgentButton
 
                                         anchors.right: parent.right
-                                        anchors.rightMargin: 5
+                                        anchors.rightMargin: 7
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: 27
+                                        width: 46
                                         height: 27
-                                        text: "✎"
+                                        text: "Edit"
                                         enabled: !AgentStore.mutating
                                         hoverEnabled: true
                                         padding: 0
@@ -1104,7 +1337,8 @@ Rectangle {
                                             color: parent.enabled && parent.hovered
                                                 ? root.theme.appText
                                                 : root.theme.mutedText
-                                            font.pixelSize: 11
+                                            font.pixelSize: 8
+                                            font.weight: Font.DemiBold
                                             horizontalAlignment: Text.AlignHCenter
                                             verticalAlignment: Text.AlignVCenter
                                         }
@@ -1112,8 +1346,26 @@ Rectangle {
                                         background: Rectangle {
                                             color: parent.hovered
                                                 ? root.theme.hoverBg
-                                                : "transparent"
-                                            radius: 4
+                                                : root.theme.surfaceBg
+                                            border.width: 1
+                                            border.color: parent.hovered
+                                                ? "#6557a0"
+                                                : root.theme.panelBorder
+                                            radius: root.theme.radiusSmall
+                                        }
+                                    }
+
+                                    HoverHandler {
+                                        id: agentHover
+
+                                        onHoveredChanged: {
+                                            if (hovered) {
+                                                root.hoveredAgentIndex = agentItem.index
+                                            } else {
+                                                if (root.hoveredAgentIndex === agentItem.index) {
+                                                    root.hoveredAgentIndex = -1
+                                                }
+                                            }
                                         }
                                     }
                                 }

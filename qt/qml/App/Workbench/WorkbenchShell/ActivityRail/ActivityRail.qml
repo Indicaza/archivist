@@ -12,6 +12,8 @@ Rectangle {
 
     signal viewRequested(int index)
 
+    property int hoveredButtonIndex: -1
+
     width: theme.activityRailWidth
     color: theme.railBg
     border.width: 0
@@ -27,8 +29,8 @@ Rectangle {
     ColumnLayout {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.topMargin: 6
-        spacing: 3
+        anchors.topMargin: 7
+        spacing: 4
 
         Repeater {
             model: ListModel {
@@ -48,6 +50,15 @@ Rectangle {
                 glyph: glyphValue
                 label: labelValue
                 active: root.panelOpen && root.activeViewIndex === index
+                neighborHovered: root.hoveredButtonIndex >= 0
+                    && Math.abs(root.hoveredButtonIndex - index) === 1
+                onHoveredChanged: {
+                    if (hovered) {
+                        root.hoveredButtonIndex = index
+                    } else if (root.hoveredButtonIndex === index) {
+                        root.hoveredButtonIndex = -1
+                    }
+                }
                 onClicked: root.viewRequested(index)
             }
         }
