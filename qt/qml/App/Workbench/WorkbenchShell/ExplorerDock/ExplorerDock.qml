@@ -357,7 +357,7 @@ Rectangle {
                     Layout.fillWidth: true
                     text: root.viewTitles[root.activeViewIndex]
                     color: root.theme.mutedText
-                    font.pixelSize: 10
+                    font.pixelSize: root.theme.typeSize(10)
                     font.weight: Font.Bold
                     font.capitalization: Font.AllUppercase
                     font.letterSpacing: 1.0
@@ -365,6 +365,8 @@ Rectangle {
                 }
 
                 Button {
+                    id: closeExplorerButton
+
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
                     text: "‹"
@@ -378,16 +380,18 @@ Rectangle {
                             : 1.0
 
                     Behavior on scale {
+                        enabled: !closeExplorerButton.down
+
                         NumberAnimation {
                             duration: root.theme.motionHover
-                            easing.type: Easing.OutBack
+                            easing.type: Easing.OutCubic
                         }
                     }
 
                     contentItem: Text {
                         text: parent.text
                         color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: 18
+                        font.pixelSize: root.theme.typeSize(18)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -482,7 +486,7 @@ Rectangle {
                                         ? "Loading Libraries…"
                                         : "No Libraries"
                                 color: root.theme.appText
-                                font.pixelSize: 12
+                                font.pixelSize: root.theme.typeSize(12)
                                 font.weight: Font.DemiBold
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
@@ -493,7 +497,7 @@ Rectangle {
                                 y: (parent.height - height) / 2
                                 text: "⌄"
                                 color: root.theme.mutedText
-                                font.pixelSize: 12
+                                font.pixelSize: root.theme.typeSize(12)
                             }
 
                             background: Rectangle {
@@ -541,7 +545,7 @@ Rectangle {
                                         width: parent.width
                                         text: String(modelData.name || "Library")
                                         color: root.theme.appText
-                                        font.pixelSize: 11
+                                        font.pixelSize: root.theme.typeSize(11)
                                         font.weight: Font.DemiBold
                                         elide: Text.ElideRight
                                     }
@@ -550,7 +554,7 @@ Rectangle {
                                         width: parent.width
                                         text: String(modelData.rootPath || "")
                                         color: root.theme.mutedText
-                                        font.pixelSize: 9
+                                        font.pixelSize: root.theme.typeSize(9)
                                         elide: Text.ElideMiddle
                                     }
                                 }
@@ -563,6 +567,8 @@ Rectangle {
                         }
 
                         Button {
+                            id: collapseAllButton
+
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 28
                             text: "⌃"
@@ -579,20 +585,20 @@ Rectangle {
                             )
 
                             Behavior on scale {
+                                enabled: !collapseAllButton.down
+
                                 NumberAnimation {
                                     duration: root.toolbarHoverIndex >= 0
                                         ? root.theme.motionHover
                                         : root.theme.motionHoverExit
-                                    easing.type: root.toolbarHoverIndex >= 0
-                                        ? Easing.OutBack
-                                        : Easing.OutCubic
+                                    easing.type: Easing.OutCubic
                                 }
                             }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 14
+                                font.pixelSize: root.theme.typeSize(14)
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -604,6 +610,8 @@ Rectangle {
                         }
 
                         Button {
+                            id: expandAllButton
+
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 28
                             text: "⌄"
@@ -620,20 +628,20 @@ Rectangle {
                             )
 
                             Behavior on scale {
+                                enabled: !expandAllButton.down
+
                                 NumberAnimation {
                                     duration: root.toolbarHoverIndex >= 0
                                         ? root.theme.motionHover
                                         : root.theme.motionHoverExit
-                                    easing.type: root.toolbarHoverIndex >= 0
-                                        ? Easing.OutBack
-                                        : Easing.OutCubic
+                                    easing.type: Easing.OutCubic
                                 }
                             }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 14
+                                font.pixelSize: root.theme.typeSize(14)
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -645,6 +653,8 @@ Rectangle {
                         }
 
                         Button {
+                            id: refreshLibrariesButton
+
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 28
                             text: LibraryStore.loadingLibraries ? "…" : "↻"
@@ -662,20 +672,20 @@ Rectangle {
                             )
 
                             Behavior on scale {
+                                enabled: !refreshLibrariesButton.down
+
                                 NumberAnimation {
                                     duration: root.toolbarHoverIndex >= 0
                                         ? root.theme.motionHover
                                         : root.theme.motionHoverExit
-                                    easing.type: root.toolbarHoverIndex >= 0
-                                        ? Easing.OutBack
-                                        : Easing.OutCubic
+                                    easing.type: Easing.OutCubic
                                 }
                             }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 15
+                                font.pixelSize: root.theme.typeSize(15)
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -704,7 +714,7 @@ Rectangle {
                         placeholderText: "Filter files"
                         placeholderTextColor: root.theme.mutedText
                         color: root.theme.appText
-                        font.pixelSize: 11
+                        font.pixelSize: root.theme.typeSize(11)
                         leftPadding: 8
                         rightPadding: 8
                         selectByMouse: true
@@ -747,7 +757,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: String(LibraryStore.selectedLibrary.rootPath || "No Library selected")
                             color: root.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: root.theme.typeSize(9)
                             font.weight: Font.DemiBold
                             elide: Text.ElideMiddle
                         }
@@ -762,7 +772,7 @@ Rectangle {
                                 anchors.centerIn: parent
                                 text: String(LibraryStore.files.length)
                                 color: root.theme.mutedText
-                                font.pixelSize: 9
+                                font.pixelSize: root.theme.typeSize(9)
                             }
                         }
 
@@ -771,6 +781,8 @@ Rectangle {
                         }
 
                         Button {
+                            id: rescanLibraryButton
+
                             Layout.preferredWidth: 23
                             Layout.preferredHeight: 23
                             text: LibraryStore.scanning ? "…" : "↻"
@@ -787,16 +799,18 @@ Rectangle {
                                     : 1.0
 
                             Behavior on scale {
+                                enabled: !rescanLibraryButton.down
+
                                 NumberAnimation {
                                     duration: root.theme.motionHover
-                                    easing.type: Easing.OutBack
+                                    easing.type: Easing.OutCubic
                                 }
                             }
 
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: 14
+                                font.pixelSize: root.theme.typeSize(14)
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -883,8 +897,8 @@ Rectangle {
                         color: LibraryStore.errorMessage.length > 0
                             ? root.theme.danger
                             : root.theme.mutedText
-                        font.pixelSize: 10
-                        lineHeight: 1.35
+                        font.pixelSize: root.theme.typeSize(10)
+                        lineHeight: root.theme.typeLineHeightCompact
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.Wrap
                     }
@@ -925,7 +939,7 @@ Rectangle {
                             color: LibraryStore.errorMessage.length > 0
                                 ? root.theme.danger
                                 : root.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: root.theme.typeSize(9)
                             opacity: 0.72
                             elide: Text.ElideRight
                         }
@@ -957,7 +971,7 @@ Rectangle {
                         anchors.centerIn: parent
                         text: root.activeViewIndex === 1 ? "▤" : root.activeViewIndex === 2 ? "⌕" : root.activeViewIndex === 3 ? "◇" : "⚒"
                         color: root.theme.accentBright
-                        font.pixelSize: 20
+                        font.pixelSize: root.theme.typeSize(20)
                     }
                 }
 
@@ -965,7 +979,7 @@ Rectangle {
                     width: parent.width
                     text: root.viewTitles[root.activeViewIndex]
                     color: root.theme.appText
-                    font.pixelSize: 13
+                    font.pixelSize: root.theme.typeBody
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
@@ -975,8 +989,8 @@ Rectangle {
                     width: parent.width
                     text: "This surface is structurally ready and will be connected after the native Workbench is proven."
                     color: root.theme.mutedText
-                    font.pixelSize: 10
-                    lineHeight: 1.35
+                    font.pixelSize: root.theme.typeSize(10)
+                    lineHeight: root.theme.typeLineHeightCompact
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
                 }

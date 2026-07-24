@@ -26,14 +26,16 @@ Rectangle {
 
     readonly property string attachmentId: attachmentIdForFile()
     readonly property bool attachedToChat: attachmentId.length > 0
-    readonly property bool canAttach: ChatStore.selectedChatId.length > 0
-        && file
-        && file.id
-        && !loading
-        && errorMessage.length === 0
-        && !ChatStore.responding
-        && !ChatStore.mutating
-        && !ChatStore.mutatingAttachment
+    readonly property bool canAttach: Boolean(
+        ChatStore.selectedChatId.length > 0
+            && file
+            && file.id
+            && !loading
+            && errorMessage.length === 0
+            && !ChatStore.responding
+            && !ChatStore.mutating
+            && !ChatStore.mutatingAttachment
+    )
 
     function attachmentIdForFile() {
         var attachments = ChatStore.attachments || []
@@ -115,7 +117,7 @@ Rectangle {
                 Text {
                     text: "READ-ONLY"
                     color: root.theme.accentBright
-                    font.pixelSize: 9
+                    font.pixelSize: root.theme.typeSize(9)
                     font.weight: Font.Bold
                     font.letterSpacing: 0.65
                 }
@@ -132,7 +134,7 @@ Rectangle {
                         ? String(root.file.relativePath)
                         : "Library file"
                     color: root.theme.appText
-                    font.pixelSize: 11
+                    font.pixelSize: root.theme.typeSize(11)
                     font.weight: Font.DemiBold
                     elide: Text.ElideMiddle
                 }
@@ -144,12 +146,14 @@ Rectangle {
                         + String(root.lineCount)
                         + (root.lineCount === 1 ? " line" : " lines")
                     color: root.theme.mutedText
-                    font.pixelSize: 9
+                    font.pixelSize: root.theme.typeSize(9)
                     opacity: 0.72
                 }
 
 
                 Button {
+                    id: attachmentButton
+
                     Layout.preferredWidth: root.attachedToChat ? 92 : 108
                     Layout.preferredHeight: 28
                     visible: !root.loading && root.errorMessage.length === 0
@@ -185,9 +189,11 @@ Rectangle {
                             : 1.0
 
                     Behavior on scale {
+                        enabled: !attachmentButton.down
+
                         NumberAnimation {
                             duration: root.theme.motionHover
-                            easing.type: Easing.OutBack
+                            easing.type: Easing.OutCubic
                         }
                     }
 
@@ -198,7 +204,7 @@ Rectangle {
                                 ? root.theme.accentBright
                                 : root.theme.appText
                             : root.theme.mutedText
-                        font.pixelSize: 9
+                        font.pixelSize: root.theme.typeSize(9)
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -250,10 +256,10 @@ Rectangle {
                     wrapMode: TextEdit.NoWrap
                     textFormat: TextEdit.PlainText
                     color: root.theme.appText
-                    selectionColor: "#5a4d8c"
-                    selectedTextColor: "#ffffff"
+                    selectionColor: root.theme.messageSelectionBg
+                    selectedTextColor: root.theme.messageSelectionText
                     font.family: Qt.platform.os === "osx" ? "Menlo" : "monospace"
-                    font.pixelSize: 12
+                    font.pixelSize: root.theme.typeCode
                     leftPadding: 18
                     rightPadding: 18
                     topPadding: 16
@@ -283,7 +289,7 @@ Rectangle {
                     color: root.errorMessage.length > 0
                         ? root.theme.danger
                         : root.theme.appText
-                    font.pixelSize: 16
+                    font.pixelSize: root.theme.typeSize(16)
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                 }
@@ -295,8 +301,8 @@ Rectangle {
                         ? "Archivist is validating and reading the cataloged file."
                         : root.errorMessage
                     color: root.theme.mutedText
-                    font.pixelSize: 11
-                    lineHeight: 1.45
+                    font.pixelSize: root.theme.typeSize(11)
+                    lineHeight: root.theme.typeLineHeightBody
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                 }

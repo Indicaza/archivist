@@ -745,9 +745,11 @@ void ChatStore::sendMessage(const QString &content)
         storedMessages.append(mapMessage(
             result.object.value(QStringLiteral("userMessage")).toObject()
         ));
-        storedMessages.append(mapMessage(
+        QVariantMap assistantMessage = mapMessage(
             result.object.value(QStringLiteral("assistantMessage")).toObject()
-        ));
+        );
+        assistantMessage.insert(QStringLiteral("animateReveal"), true);
+        storedMessages.append(assistantMessage);
         setMessages(storedMessages);
         setCompletionMetadata(
             result.object.value(QStringLiteral("provider")).toString(),
@@ -756,6 +758,31 @@ void ChatStore::sendMessage(const QString &content)
         );
         promoteSelectedChat();
     });
+}
+
+void ChatStore::finishMessageReveal(const QString &messageId)
+{
+    if (messageId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextMessages = m_messages;
+
+    for (qsizetype index = 0; index < nextMessages.size(); ++index) {
+        QVariantMap message = nextMessages.at(index).toMap();
+
+        if (
+            message.value(QStringLiteral("id")).toString() != messageId
+            || !message.value(QStringLiteral("animateReveal")).toBool()
+        ) {
+            continue;
+        }
+
+        message.remove(QStringLiteral("animateReveal"));
+        nextMessages[index] = message;
+        setMessages(nextMessages);
+        return;
+    }
 }
 
 void ChatStore::assignAgentToSelectedChat(const QString &agentId)

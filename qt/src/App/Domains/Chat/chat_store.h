@@ -73,6 +73,7 @@ public:
     Q_INVOKABLE void refreshSelectedAttachments();
     Q_INVOKABLE void loadOlderMessages();
     Q_INVOKABLE void sendMessage(const QString &content);
+    Q_INVOKABLE void finishMessageReveal(const QString &messageId);
     Q_INVOKABLE void assignAgentToSelectedChat(const QString &agentId);
     Q_INVOKABLE void attachFile(const QString &libraryId, const QString &fileId);
     Q_INVOKABLE void removeAttachment(const QString &attachmentId);

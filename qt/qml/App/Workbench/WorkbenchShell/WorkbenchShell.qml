@@ -64,6 +64,10 @@ Rectangle {
     readonly property real workspaceLeftObstruction: explorerEncroachesWorkspace
         ? explorerRight
         : theme.activityRailWidth
+    readonly property real workspacePreviewLeftObstruction: explorerRight
+    readonly property real workspaceBottomObstruction: effectiveDockAttached
+        ? clampedDockHeight
+        : 0
 
     Behavior on explorerExtent {
         enabled: !root.resizingExplorer
@@ -110,11 +114,23 @@ Rectangle {
         x: 0
         y: 0
         width: parent.width
-        height: parent.height - statusBar.height - chatDock.height
+        height: parent.height
+            - statusBar.height
+            - root.workspaceBottomObstruction
         theme: root.theme
         leftObstruction: root.workspaceLeftObstruction
+        previewLeftObstruction: root.workspacePreviewLeftObstruction
         onContextInspectionRequested: function(messageId) {
             artifactDrawer.openForMessage(messageId)
+        }
+
+        Behavior on height {
+            enabled: !root.resizingDock
+
+            NumberAnimation {
+                duration: root.theme.motionPanel
+                easing.type: Easing.OutCubic
+            }
         }
     }
 
@@ -241,6 +257,15 @@ Rectangle {
                 spring: root.theme.motionSpring
                 damping: root.theme.motionDamping
                 epsilon: 0.2
+            }
+        }
+
+        Behavior on height {
+            enabled: !root.resizingDock
+
+            NumberAnimation {
+                duration: root.theme.motionPanel
+                easing.type: Easing.OutCubic
             }
         }
     }

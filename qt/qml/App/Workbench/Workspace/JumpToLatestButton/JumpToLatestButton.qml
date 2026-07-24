@@ -18,7 +18,7 @@ Button {
     contentItem: Text {
         text: "↓"
         color: parent.hovered ? root.theme.appText : root.theme.mutedText
-        font.pixelSize: 15
+        font.pixelSize: root.theme.typeSize(15)
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
@@ -37,9 +37,11 @@ Button {
             : 1.0
 
     Behavior on scale {
+        enabled: !root.down
+
         NumberAnimation {
             duration: root.theme.motionHover
-            easing.type: Easing.OutBack
+            easing.type: Easing.OutCubic
         }
     }
 }

@@ -118,7 +118,7 @@ Popup {
         Text {
             text: field.label
             color: field.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: field.theme.typeSize(9)
             font.weight: Font.DemiBold
         }
 
@@ -131,9 +131,9 @@ Popup {
             placeholderText: field.placeholderText
             placeholderTextColor: field.theme.composerPlaceholder
             color: field.theme.appText
-            selectionColor: "#5a554b"
-            selectedTextColor: "#ffffff"
-            font.pixelSize: 11
+            selectionColor: field.theme.messageSelectionBg
+            selectedTextColor: field.theme.messageSelectionText
+            font.pixelSize: field.theme.typeSize(11)
             leftPadding: 10
             rightPadding: 10
             maximumLength: field.maximumLength
@@ -164,7 +164,7 @@ Popup {
         Text {
             text: field.label
             color: field.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: field.theme.typeSize(9)
             font.weight: Font.DemiBold
         }
 
@@ -177,9 +177,9 @@ Popup {
             placeholderText: field.placeholderText
             placeholderTextColor: field.theme.composerPlaceholder
             color: field.theme.appText
-            selectionColor: "#5a554b"
-            selectedTextColor: "#ffffff"
-            font.pixelSize: 11
+            selectionColor: field.theme.messageSelectionBg
+            selectedTextColor: field.theme.messageSelectionText
+            font.pixelSize: field.theme.typeSize(11)
             wrapMode: TextEdit.Wrap
             leftPadding: 10
             rightPadding: 10
@@ -588,7 +588,7 @@ Popup {
                     color: editorRoot.archived
                         ? editorRoot.theme.warning
                         : editorRoot.theme.accentBright
-                    font.pixelSize: 9
+                    font.pixelSize: editorRoot.theme.typeSize(9)
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
@@ -600,7 +600,7 @@ Popup {
                         : "New Agent"
                     color: editorRoot.theme.appText
                     font.family: editorRoot.theme.titleFontFamily
-                    font.pixelSize: 21
+                    font.pixelSize: editorRoot.theme.typeSize(21)
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -628,7 +628,7 @@ Popup {
                         color: parent.enabled
                             ? editorRoot.theme.appText
                             : editorRoot.theme.mutedText
-                        font.pixelSize: 9
+                        font.pixelSize: editorRoot.theme.typeSize(9)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -663,7 +663,7 @@ Popup {
                         color: editorRoot.confirmingArchive
                             ? editorRoot.theme.warning
                             : editorRoot.theme.appText
-                        font.pixelSize: 9
+                        font.pixelSize: editorRoot.theme.typeSize(9)
                         font.weight: editorRoot.confirmingArchive ? Font.DemiBold : Font.Normal
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -693,7 +693,7 @@ Popup {
                     contentItem: Text {
                         text: parent.text
                         color: editorRoot.theme.appText
-                        font.pixelSize: 9
+                        font.pixelSize: editorRoot.theme.typeSize(9)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -726,7 +726,7 @@ Popup {
                     contentItem: Text {
                         text: parent.text
                         color: editorRoot.theme.danger
-                        font.pixelSize: 9
+                        font.pixelSize: editorRoot.theme.typeSize(9)
                         font.weight: editorRoot.confirmingDelete ? Font.DemiBold : Font.Normal
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -764,7 +764,7 @@ Popup {
                     color: parent.hovered
                         ? editorRoot.theme.appText
                         : editorRoot.theme.mutedText
-                    font.pixelSize: 18
+                    font.pixelSize: editorRoot.theme.typeSize(18)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -815,7 +815,7 @@ Popup {
                         Text {
                             text: "IDENTITY"
                             color: editorRoot.theme.accentBright
-                            font.pixelSize: 9
+                            font.pixelSize: editorRoot.theme.typeSize(9)
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -902,7 +902,7 @@ Popup {
                         Text {
                             text: "PROFESSION AND DOCTRINE"
                             color: editorRoot.theme.accentBright
-                            font.pixelSize: 9
+                            font.pixelSize: editorRoot.theme.typeSize(9)
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -986,7 +986,7 @@ Popup {
                         Text {
                             text: "OUTPUT CONTRACT"
                             color: editorRoot.theme.accentBright
-                            font.pixelSize: 9
+                            font.pixelSize: editorRoot.theme.typeSize(9)
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -1011,7 +1011,7 @@ Popup {
                                 Text {
                                     text: "Verbosity"
                                     color: editorRoot.theme.mutedText
-                                    font.pixelSize: 9
+                                    font.pixelSize: editorRoot.theme.typeSize(9)
                                     font.weight: Font.DemiBold
                                 }
 
@@ -1028,7 +1028,7 @@ Popup {
                                         leftPadding: 10
                                         text: parent.displayText
                                         color: editorRoot.theme.appText
-                                        font.pixelSize: 11
+                                        font.pixelSize: editorRoot.theme.typeSize(11)
                                         verticalAlignment: Text.AlignVCenter
                                     }
 
@@ -1098,7 +1098,7 @@ Popup {
                         Text {
                             text: "SYSTEM INSTRUCTIONS"
                             color: editorRoot.theme.accentBright
-                            font.pixelSize: 9
+                            font.pixelSize: editorRoot.theme.typeSize(9)
                             font.weight: Font.Bold
                             font.letterSpacing: 0.7
                         }
@@ -1119,7 +1119,7 @@ Popup {
                                     ? "Generation model and Context Compiler settings are preserved unchanged in this slice."
                                     : "New Agents use the backend's default generation and Context Compiler settings."
                             color: editorRoot.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: editorRoot.theme.typeSize(9)
                             wrapMode: Text.Wrap
                             opacity: 0.75
                         }
@@ -1153,7 +1153,7 @@ Popup {
                 visible: AgentStore.errorMessage.length > 0
                 text: AgentStore.errorMessage
                 color: editorRoot.theme.danger
-                font.pixelSize: 9
+                font.pixelSize: editorRoot.theme.typeSize(9)
                 elide: Text.ElideRight
             }
 
@@ -1174,7 +1174,7 @@ Popup {
                     contentItem: Text {
                         text: parent.text
                         color: editorRoot.theme.appText
-                        font.pixelSize: 10
+                        font.pixelSize: editorRoot.theme.typeSize(10)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -1208,7 +1208,7 @@ Popup {
                         color: parent.enabled
                             ? editorRoot.theme.appText
                             : editorRoot.theme.mutedText
-                        font.pixelSize: 10
+                        font.pixelSize: editorRoot.theme.typeSize(10)
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
