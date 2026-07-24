@@ -48,11 +48,7 @@ Item {
     }
 
     function buildCollectionOptions() {
-        var options = [{
-            id: "",
-            name: "All Work",
-            path: "All Work"
-        }]
+        var options = []
         var collections = CollectionStore.collections || []
 
         for (var index = 0; index < collections.length; index += 1) {
@@ -71,15 +67,14 @@ Item {
             }
         }
 
-        return 0
+        return -1
     }
 
     function filteredLibraries() {
-        var scope = CollectionStore.scope
         var libraries = LibraryStore.libraries || []
 
         if (CollectionStore.selectedCollectionId.length === 0) {
-            return libraries
+            return []
         }
 
         var filtered = []
@@ -189,7 +184,9 @@ Item {
                             ? collectionSelector.displayText
                             : CollectionStore.loading
                                 ? "Loading Collections…"
-                                : "All Work"
+                                : CollectionStore.collections.length === 0
+                                    ? "Create a Collection"
+                                    : "Select Collection"
                         color: root.theme.appText
                         font.family: root.theme.titleFontFamily
                         font.pixelSize: root.theme.typeSize(11)
@@ -271,7 +268,9 @@ Item {
                             )
                             color: root.theme.appText
                             font.pixelSize: root.theme.typeSize(10)
-                            font.weight: collectionOption.index === 0
+                            font.weight: String(
+                                collectionOption.modelData.id || ""
+                            ) === String(CollectionStore.selectedCollectionId)
                                 ? Font.DemiBold
                                 : Font.Normal
                             verticalAlignment: Text.AlignVCenter

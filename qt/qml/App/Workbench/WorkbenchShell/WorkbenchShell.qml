@@ -20,6 +20,7 @@ Rectangle {
     property real explorerWidth: theme.explorerDefaultWidth
     property real dockHeight: theme.chatDockDefaultHeight
     property bool workspaceStateRestored: false
+    property string workspaceScopeId: ""
 
     readonly property real maximumExplorerWidth: Math.max(
         theme.explorerMinWidth,
@@ -78,8 +79,22 @@ Rectangle {
         }
     }
 
+    function scopeIdForCollection(collectionId) {
+        return String(collectionId || "")
+    }
+
+    function workspaceStateKey(scopeId, suffix) {
+        return "workspace/collections/"
+            + String(scopeId || "")
+            + "/shell/"
+            + String(suffix || "")
+    }
+
     function scheduleWorkspaceStateSave() {
-        if (!workspaceStateRestored) {
+        if (
+            !workspaceStateRestored
+            || workspaceScopeId.length === 0
+        ) {
             return
         }
 
@@ -87,44 +102,146 @@ Rectangle {
     }
 
     function saveWorkspaceState() {
-        if (!workspaceStateRestored) {
+        if (
+            !workspaceStateRestored
+            || workspaceScopeId.length === 0
+        ) {
             return
         }
 
-        WorkspaceState.setValue("workspace/shell/activeViewIndex", activeViewIndex)
-        WorkspaceState.setValue("workspace/shell/explorerOpen", explorerOpen)
-        WorkspaceState.setValue("workspace/shell/explorerWidth", explorerWidth)
-        WorkspaceState.setValue("workspace/shell/dockAttached", dockAttached)
-        WorkspaceState.setValue("workspace/shell/dockHeight", dockHeight)
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "activeViewIndex"),
+            activeViewIndex
+        )
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "explorerOpen"),
+            explorerOpen
+        )
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "explorerWidth"),
+            explorerWidth
+        )
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "dockAttached"),
+            dockAttached
+        )
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "dockHeight"),
+            dockHeight
+        )
     }
 
-    function restoreWorkspaceState() {
+    function restoreWorkspaceState(scopeId) {
+        var targetScopeId = String(scopeId || "")
+
+        if (targetScopeId.length === 0) {
+            return
+        }
+
+        workspaceStateRestored = false
+
+        var missingValue = "__archivist_missing__"
+        var scopedActiveView = WorkspaceState.value(
+            workspaceStateKey(targetScopeId, "activeViewIndex"),
+            missingValue
+        )
+        var migrateLegacyState = String(scopedActiveView) === missingValue
+            && !Boolean(
+                WorkspaceState.value(
+                    "workspace/collectionShellMigrated",
+                    false
+                )
+            )
+
+        function readStateValue(suffix, legacyKey, fallback) {
+            var scopedValue = WorkspaceState.value(
+                workspaceStateKey(targetScopeId, suffix),
+                missingValue
+            )
+
+            if (String(scopedValue) !== missingValue) {
+                return scopedValue
+            }
+
+            if (migrateLegacyState) {
+                return WorkspaceState.value(legacyKey, fallback)
+            }
+
+            return fallback
+        }
+
+        workspaceScopeId = targetScopeId
         activeViewIndex = Math.max(
             0,
             Math.min(
                 4,
-                Number(WorkspaceState.value("workspace/shell/activeViewIndex", 0))
+                Number(
+                    readStateValue(
+                        "activeViewIndex",
+                        "workspace/shell/activeViewIndex",
+                        0
+                    )
+                )
             )
         )
         explorerOpen = Boolean(
-            WorkspaceState.value("workspace/shell/explorerOpen", true)
+            readStateValue(
+                "explorerOpen",
+                "workspace/shell/explorerOpen",
+                true
+            )
         )
         explorerWidth = Number(
-            WorkspaceState.value(
+            readStateValue(
+                "explorerWidth",
                 "workspace/shell/explorerWidth",
                 theme.explorerDefaultWidth
             )
         )
         dockAttached = Boolean(
-            WorkspaceState.value("workspace/shell/dockAttached", true)
+            readStateValue(
+                "dockAttached",
+                "workspace/shell/dockAttached",
+                true
+            )
         )
         dockHeight = Number(
-            WorkspaceState.value(
+            readStateValue(
+                "dockHeight",
                 "workspace/shell/dockHeight",
                 theme.chatDockDefaultHeight
             )
         )
+
         workspaceStateRestored = true
+
+        if (migrateLegacyState) {
+            saveWorkspaceState()
+            WorkspaceState.setValue(
+                "workspace/collectionShellMigrated",
+                true
+            )
+        }
+    }
+
+    function switchCollectionWorkspace() {
+        var nextScopeId = scopeIdForCollection(
+            CollectionStore.selectedCollectionId
+        )
+
+        if (
+            nextScopeId.length === 0
+            || nextScopeId === workspaceScopeId
+        ) {
+            return
+        }
+
+        if (workspaceStateRestored) {
+            workspaceStateSaveTimer.stop()
+            saveWorkspaceState()
+        }
+
+        restoreWorkspaceState(nextScopeId)
     }
 
     function resetExplorerWidth() {
@@ -163,7 +280,9 @@ Rectangle {
         onTriggered: root.saveWorkspaceState()
     }
 
-    Component.onCompleted: restoreWorkspaceState()
+    Component.onCompleted: {
+        switchCollectionWorkspace()
+    }
     Component.onDestruction: {
         workspaceStateSaveTimer.stop()
         saveWorkspaceState()
@@ -178,6 +297,10 @@ Rectangle {
 
     Connections {
         target: CollectionStore
+
+        function onSelectedCollectionIdChanged() {
+            root.switchCollectionWorkspace()
+        }
 
         function onWorkspaceScopeChanged() {
             LibraryStore.refresh()
