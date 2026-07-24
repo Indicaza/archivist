@@ -6,40 +6,40 @@
 
 > A local-first AI workspace for durable project memory, curated context, and inspectable computer work.
 
-Archivist turns folders into long-lived **Libraries** where files, conversations, Agents, decisions, and context stay connected over time.
+Archivist turns projects into persistent **Collection workspaces**. A Collection can bring together multiple Libraries, durable Chats, Agents, open files, and the exact desktop state needed for one task.
 
-Instead of treating every AI session as disposable, Archivist gives each project a persistent home and keeps the user in control of what the model sees, remembers, and does.
+Instead of treating every AI session as disposable, Archivist preserves the working context around the conversation:
 
 ```text
-Choose a Library
-→ scan and index its readable files
-→ ask a normal project question
-→ retrieve relevant evidence automatically
-→ compile a bounded provider request
-→ inspect the exact sources used
-→ reopen the original evidence
+Choose a Collection
+→ restore its tabs, layout, Chats, and active Library
+→ browse code, documentation, assets, and research
+→ retrieve or attach trusted evidence
+→ work through a persistent Agent
+→ inspect the exact context used
+→ return later without reconstructing the session
 ```
 
 Archivist is under active development. The native Qt desktop client is the primary application; the older Electron/React client remains in the repository as a behavioral reference.
 
 ## Core features
 
+- **Collection workspaces** — group multiple Libraries, Chats, and Agents into task-specific environments that can be switched without rebuilding the session.
+- **Persistent editor tabs** — open files and Chats as first-class tabs, reorder them with polished drag-and-drop, and restore their order and active state after restart.
+- **Multi-Library Collections** — attach separate code, documentation, asset, research, or design Libraries to the same Collection.
+- **Persistent Library trees** — remember the selected Library, expanded folders, selected node, filter text, and scroll position independently for every Library.
 - **Local-first Libraries** — register folders, scan their contents, and browse cataloged files without surrendering ownership of the filesystem.
 - **Safe native file preview** — open supported text and source files through a root-constrained, read-only backend boundary.
 - **Deterministic text indexing** — extract supported UTF-8 files, split them into stable chunks, preserve line provenance, and index them with SQLite FTS5.
 - **Incremental rescanning** — reuse unchanged documents, replace changed chunks, remove stale records, and report failed or unavailable files honestly.
-- **Automatic Library retrieval** — search the selected Library for each normal Chat request and provide bounded, relevant excerpts without requiring manual attachments.
-- **Durable Chat** — preserve conversations, selected state, and large histories with cursor-based pagination.
+- **Automatic Library retrieval** — search the active Library for each normal Chat request and provide bounded, relevant excerpts without requiring manual attachments.
+- **Durable Chat** — preserve conversations, selected state, Agent assignments, and large histories with cursor-based pagination.
 - **Explicit file attachments** — attach specific Library files to an individual Chat when the user wants guaranteed evidence.
-- **Evidence priority** — keep explicit attachments stronger than automatically retrieved candidates and avoid retrieving duplicate excerpts from attached files.
 - **Bounded context** — budget recent history, automatic retrieval, and attached evidence through the selected Context Compiler without replacing the user's current intent.
 - **Durable Context Inspector** — inspect the compiler, model, token accounting, warnings, message selection, retrieval mode, and source outcomes behind individual assistant responses.
-- **Reopenable evidence** — jump from an attached or automatically retrieved source back to the authoritative Library file.
-- **Configurable Agents** — create reusable AI identities with personality, profession, doctrine, output rules, generation settings, and Context Compiler configuration.
-- **Chat-to-Agent assignment** — assign different Agents to different conversations and preserve those choices across restarts.
-- **Native management workflows** — create, rename, archive, restore, duplicate, and delete Chats and Agents through the Qt client.
+- **Configurable Agents** — create reusable AI identities and attach Agent rosters to conversations.
+- **Native management workflows** — create, rename, archive, restore, duplicate, and delete Collections, Chats, and Agents through the Qt client.
 - **Provider abstraction** — OpenAI is currently supported behind an adapter boundary so project continuity does not belong to one model vendor.
-- **Inspectable persistence** — SQLite stores structured state, history, attachments, context records, document hashes, chunks, and search indexes while the filesystem remains authoritative for user files.
 - **Managed native development** — build and run the backend and Qt desktop client from the repository root in one supervised terminal session.
 
 ## Product philosophy
@@ -55,13 +55,37 @@ Archivist is designed around a few simple rules:
 7. **Providers are workers, not owners.** Archivist owns memory, sources, permissions, artifacts, and continuity.
 8. **Complexity must pay rent.** Prefer small, complete vertical slices over speculative infrastructure.
 
+## Workspace model
+
+Archivist separates durable project content from the local desktop state used to work with it:
+
+```text
+Collection
+├── Libraries
+│   ├── codebase
+│   ├── documentation
+│   ├── assets
+│   └── research
+├── Chats
+├── Agent roster and defaults
+└── local workspace state
+    ├── open file and Chat tabs
+    ├── active tab
+    ├── Explorer visibility and width
+    ├── Chat dock mode and height
+    ├── active Library
+    └── per-Library tree expansion, filter, selection, and scroll
+```
+
+Switching Collections should feel like switching complete task desktops. Worktrees, split editor groups, dockable panes, and multi-monitor layouts are planned extensions of this same boundary.
+
 ## Architecture
 
 Archivist is a local modular monolith with clear domain boundaries:
 
 ```text
 Qt 6 / QML desktop
-  native Workbench, Explorer, Chat, source controls, Context Inspector
+  Collection workspaces, editor tabs, Explorer, Chat, previews, Context Inspector
         |
 C++ domain stores
   HTTP requests, client state, QML-facing models
@@ -124,7 +148,8 @@ Context records describe what happened during a specific response. They are not 
 
 ```text
 Filesystem  → authoritative user file contents
-SQLite      → Libraries, Chats, messages, Agents, attachments, context records, indexes
+SQLite      → Collections, Libraries, Chats, Agents, messages, attachments, context records, indexes
+QSettings   → local Collection, tab, layout, and Library-tree workspace state
 Providers   → temporary generation workers
 Archivist   → continuity, context, permissions, provenance, outcomes
 ```
@@ -283,43 +308,49 @@ Archivist currently has:
 
 ```text
 native Qt Workbench
-persistent Libraries and Chats
-safe Library file preview
-real provider-backed Agents
-persistent per-Chat file attachments
-deterministic Library text extraction and chunking
-incremental SQLite FTS5 indexing
-automatic selected-Library retrieval
-bounded attached and retrieved evidence
-durable per-response context records
-native source, retrieval-mode, and token inspection
-reopenable authoritative evidence
-one-command native development workflow
+→ Collection-scoped task workspaces
+→ draggable persistent file and Chat tabs
+→ multiple Libraries per Collection
+→ independently restored Library trees and scroll positions
+→ durable Chats and Agent rosters
+→ safe Library file preview
+→ deterministic Library indexing and lexical retrieval
+→ bounded attached and retrieved evidence
+→ durable Context Inspector records
+→ one-command native development workflow
 ```
 
-The core Archivist loop now works:
+The current daily-driver loop is:
 
 ```text
-ask a normal project question
-→ search the selected Library automatically
-→ rank and budget relevant excerpts
-→ answer through the assigned Agent
-→ inspect exactly what was retrieved and included
+select a Collection
+→ resume its exact workspace
+→ switch among code, documentation, assets, or research Libraries
+→ open files and Chats as tabs
+→ ask through the assigned Agent
+→ inspect the evidence and context used
 ```
 
-The next milestone is **retrieval demo hardening**:
+The next milestone is **rich file rendering and a shared icon system**:
 
 ```text
-measure the slow path
-→ distinguish retrieval, compilation, provider, and rendering latency
-→ make index freshness automatic and obvious
-→ reduce noisy or redundant evidence
-→ improve retrieval status feedback
-→ exercise a small repeatable demo prompt set
+central file and language icon registry
+→ rendered Markdown
+→ source / rendered / split modes
+→ image, SVG, JSON, YAML, and fallback renderers
+→ richer Library rows and tab identity
+→ foundation for Git decorations and worktree views
 ```
 
-Automatic retrieval is currently lexical and depends on the selected Library having been scanned. Embeddings remain deferred until deterministic retrieval exposes a concrete semantic-search limitation.
+Current deliberate limits:
+
+- only one Library tree is displayed at a time, even when a Collection references several Libraries;
+- automatic retrieval searches the active Library rather than every Library in the Collection;
+- most files still use a plain text preview;
+- file-type glyphs are temporary and not yet driven by a shared icon registry;
+- tabs and Library contents are not yet worktree-scoped;
+- split editor groups and dockable panes are not implemented yet.
 
 ---
 
-**One workspace. Durable conversation. Curated context. Inspectable memory. Local ownership.**
+**Persistent projects. Swappable workspaces. Curated context. Inspectable memory. Local ownership.**

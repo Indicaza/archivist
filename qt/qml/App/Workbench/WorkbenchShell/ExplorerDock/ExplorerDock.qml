@@ -25,6 +25,18 @@ Rectangle {
     property bool rootDropActive: false
     property var treeView: null
     property int treeViewportRevision: 0
+    property string workspaceCollectionId: ""
+    property string treeStateLibraryId: ""
+    property string pendingSelectedLibraryId: ""
+    property bool collectionLibraryRestorePending: false
+    property bool restoringLibraryTreeState: false
+    property bool treeStateRestorePending: false
+    property var pendingTreeViewport: ({
+        contentY: 0,
+        nodeId: "",
+        offset: 0
+    })
+    property var filterField: null
     readonly property var scopedLibraries: filteredLibraries()
 
     readonly property var viewTitles: [
@@ -38,6 +50,356 @@ Rectangle {
     color: theme.surfaceBg
     border.width: 0
     clip: true
+
+    function collectionExplorerStateKey(
+        collectionId,
+        suffix
+    ) {
+        return "workspace/collections/"
+            + String(collectionId || "")
+            + "/explorer/"
+            + String(suffix || "")
+    }
+
+    function libraryTreeStateKey(
+        collectionId,
+        libraryId
+    ) {
+        return "workspace/collections/"
+            + String(collectionId || "")
+            + "/libraries/"
+            + String(libraryId || "")
+            + "/tree"
+    }
+
+    function cloneExpandedNodes(value) {
+        var result = ({})
+        var sourceValue = value || ({})
+
+        for (var key in sourceValue) {
+            if (sourceValue[key] === true) {
+                result[key] = true
+            }
+        }
+
+        return result
+    }
+
+    function scheduleLibraryTreeStateSave() {
+        if (
+            restoringLibraryTreeState
+            || workspaceCollectionId.length === 0
+            || treeStateLibraryId.length === 0
+        ) {
+            return
+        }
+
+        libraryTreeStateSaveTimer.restart()
+    }
+
+    function saveLibraryTreeState(
+        collectionId,
+        libraryId
+    ) {
+        var targetCollectionId = String(collectionId || "")
+        var targetLibraryId = String(libraryId || "")
+
+        if (
+            restoringLibraryTreeState
+            || targetCollectionId.length === 0
+            || targetLibraryId.length === 0
+        ) {
+            return
+        }
+
+        var state = {
+            expandedNodeIds: cloneExpandedNodes(expandedNodeIds),
+            selectedNodeId: String(selectedNodeId || ""),
+            selectedNodePath: String(selectedNodePath || ""),
+            filterText: String(filterText || ""),
+            viewport: captureTreeViewport()
+        }
+
+        WorkspaceState.setValue(
+            libraryTreeStateKey(
+                targetCollectionId,
+                targetLibraryId
+            ),
+            JSON.stringify(state)
+        )
+        WorkspaceState.setValue(
+            collectionExplorerStateKey(
+                targetCollectionId,
+                "selectedLibraryId"
+            ),
+            targetLibraryId
+        )
+    }
+
+    function saveCurrentLibraryTreeState() {
+        libraryTreeStateSaveTimer.stop()
+        saveLibraryTreeState(
+            workspaceCollectionId,
+            treeStateLibraryId
+        )
+    }
+
+    function readLibraryTreeState(
+        collectionId,
+        libraryId
+    ) {
+        var rawState = String(
+            WorkspaceState.value(
+                libraryTreeStateKey(
+                    collectionId,
+                    libraryId
+                ),
+                "{}"
+            ) || "{}"
+        )
+        var state = ({})
+
+        try {
+            state = JSON.parse(rawState)
+        } catch (error) {
+            state = ({})
+        }
+
+        if (!state || typeof state !== "object") {
+            state = ({})
+        }
+
+        return state
+    }
+
+    function beginLibraryTreeRestore(libraryId) {
+        var targetLibraryId = String(libraryId || "")
+
+        restoringLibraryTreeState = true
+        treeStateLibraryId = targetLibraryId
+        selectedNodeId = ""
+        selectedNodePath = ""
+        expandedNodeIds = ({})
+        filterText = ""
+        pendingTreeViewport = ({
+            contentY: 0,
+            nodeId: "",
+            offset: 0
+        })
+        treeStateRestorePending = targetLibraryId.length > 0
+
+        if (
+            workspaceCollectionId.length > 0
+            && targetLibraryId.length > 0
+        ) {
+            var state = readLibraryTreeState(
+                workspaceCollectionId,
+                targetLibraryId
+            )
+            expandedNodeIds = cloneExpandedNodes(
+                state.expandedNodeIds
+            )
+            selectedNodeId = String(
+                state.selectedNodeId || ""
+            )
+            selectedNodePath = String(
+                state.selectedNodePath || ""
+            )
+            filterText = String(state.filterText || "")
+            pendingTreeViewport = state.viewport || ({
+                contentY: 0,
+                nodeId: "",
+                offset: 0
+            })
+        }
+
+        if (
+            filterField
+            && String(filterField.text || "") !== filterText
+        ) {
+            filterField.text = filterText
+        }
+
+        treeNodes = []
+        childrenByParent = ({})
+        visibleTree.clear()
+        restoringLibraryTreeState = false
+    }
+
+    function finishPendingLibraryTreeRestore() {
+        if (
+            !treeStateRestorePending
+            || restoringLibraryTreeState
+            || LibraryStore.loadingFiles
+            || String(LibraryStore.selectedLibraryId)
+                !== treeStateLibraryId
+        ) {
+            return
+        }
+
+        restoringLibraryTreeState = true
+        rebuildNodesFromFiles(false)
+        var anchor = pendingTreeViewport
+        treeStateRestorePending = false
+        restoreTreeViewport(
+            anchor,
+            treeViewportRevision
+        )
+        restoringLibraryTreeState = false
+        scheduleLibraryTreeStateSave()
+    }
+
+    function savedCollectionLibraryId(collectionId) {
+        return String(
+            WorkspaceState.value(
+                collectionExplorerStateKey(
+                    collectionId,
+                    "selectedLibraryId"
+                ),
+                ""
+            ) || ""
+        )
+    }
+
+    function finishCollectionLibraryRestore(libraryId) {
+        var targetLibraryId = String(libraryId || "")
+
+        if (targetLibraryId.length === 0) {
+            return
+        }
+
+        collectionLibraryRestorePending = false
+        pendingSelectedLibraryId = ""
+
+        WorkspaceState.setValue(
+            collectionExplorerStateKey(
+                workspaceCollectionId,
+                "selectedLibraryId"
+            ),
+            targetLibraryId
+        )
+
+        if (treeStateLibraryId !== targetLibraryId) {
+            beginLibraryTreeRestore(targetLibraryId)
+        }
+
+        Qt.callLater(
+            root.finishPendingLibraryTreeRestore
+        )
+    }
+
+    function tryRestoreCollectionLibrary() {
+        if (
+            !collectionLibraryRestorePending
+            || workspaceCollectionId.length === 0
+            || workspaceCollectionId
+                !== String(
+                    CollectionStore.selectedCollectionId || ""
+                )
+            || CollectionStore.loading
+            || LibraryStore.loadingLibraries
+        ) {
+            return
+        }
+
+        var savedLibraryId = String(
+            pendingSelectedLibraryId || ""
+        )
+
+        if (
+            savedLibraryId.length > 0
+            && CollectionStore.includesLibrary(
+                savedLibraryId
+            )
+        ) {
+            if (
+                String(LibraryStore.selectedLibraryId)
+                    !== savedLibraryId
+            ) {
+                LibraryStore.selectLibrary(savedLibraryId)
+                return
+            }
+
+            finishCollectionLibraryRestore(
+                savedLibraryId
+            )
+            return
+        }
+
+        var currentLibraryId = String(
+            LibraryStore.selectedLibraryId || ""
+        )
+
+        if (
+            currentLibraryId.length > 0
+            && CollectionStore.includesLibrary(
+                currentLibraryId
+            )
+        ) {
+            finishCollectionLibraryRestore(
+                currentLibraryId
+            )
+            return
+        }
+
+        var libraries = scopedLibraries || []
+
+        if (libraries.length > 0) {
+            LibraryStore.selectLibrary(
+                String(libraries[0].id || "")
+            )
+            return
+        }
+
+        collectionLibraryRestorePending = false
+        pendingSelectedLibraryId = ""
+        beginLibraryTreeRestore("")
+    }
+
+    function beginCollectionLibraryRestore() {
+        var nextCollectionId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
+
+        if (
+            workspaceCollectionId.length > 0
+            && workspaceCollectionId
+                !== nextCollectionId
+        ) {
+            saveCurrentLibraryTreeState()
+        }
+
+        workspaceCollectionId = nextCollectionId
+        treeStateLibraryId = ""
+        pendingSelectedLibraryId = nextCollectionId.length > 0
+            ? savedCollectionLibraryId(
+                nextCollectionId
+            )
+            : ""
+        collectionLibraryRestorePending =
+            nextCollectionId.length > 0
+
+        beginLibraryTreeRestore("")
+        tryRestoreCollectionLibrary()
+    }
+
+    function selectLibrary(libraryId) {
+        var targetLibraryId = String(libraryId || "")
+
+        if (
+            targetLibraryId.length === 0
+            || targetLibraryId
+                === String(
+                    LibraryStore.selectedLibraryId || ""
+                )
+        ) {
+            return
+        }
+
+        saveCurrentLibraryTreeState()
+        treeStateLibraryId = ""
+        LibraryStore.selectLibrary(targetLibraryId)
+    }
 
     function glyphForFile(fileName, extension) {
         var suffix = String(extension || "").toLowerCase()
@@ -178,11 +540,10 @@ Rectangle {
     }
 
     function filteredLibraries() {
-        var scope = CollectionStore.scope
         var libraries = LibraryStore.libraries || []
 
         if (CollectionStore.selectedCollectionId.length === 0) {
-            return libraries
+            return []
         }
 
         var filtered = []
@@ -387,7 +748,8 @@ Rectangle {
         for (var index = 0; index < treeNodes.length; index += 1) {
             if (treeNodes[index].id === nodeId) {
                 selectedNodePath = String(
-                    treeNodes[index].relativePath || treeNodes[index].title
+                    treeNodes[index].relativePath
+                        || treeNodes[index].title
                 )
                 break
             }
@@ -401,11 +763,14 @@ Rectangle {
         } else if (fileId.length > 0) {
             LibraryStore.previewFile(fileId)
         }
+
+        scheduleLibraryTreeStateSave()
     }
 
     function collapseAll() {
         expandedNodeIds = ({})
         rebuildTree(true)
+        scheduleLibraryTreeStateSave()
     }
 
     function expandAll() {
@@ -419,6 +784,7 @@ Rectangle {
 
         expandedNodeIds = nextExpanded
         rebuildTree(true)
+        scheduleLibraryTreeStateSave()
     }
 
     function magnifierScale(index, hoveredIndex, pressed) {
@@ -446,24 +812,151 @@ Rectangle {
     }
 
     Component.onCompleted: {
-        rebuildNodesFromFiles(false)
+        workspaceCollectionId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
+        pendingSelectedLibraryId =
+            workspaceCollectionId.length > 0
+                ? savedCollectionLibraryId(
+                    workspaceCollectionId
+                )
+                : ""
+        collectionLibraryRestorePending =
+            workspaceCollectionId.length > 0
+
+        beginLibraryTreeRestore(
+            String(
+                LibraryStore.selectedLibraryId || ""
+            )
+        )
         LibraryStore.refresh()
+        Qt.callLater(
+            root.tryRestoreCollectionLibrary
+        )
+    }
+
+    Component.onDestruction: {
+        saveCurrentLibraryTreeState()
+        WorkspaceState.sync()
+    }
+
+    Connections {
+        target: CollectionStore
+
+        function onSelectedCollectionIdChanged() {
+            root.beginCollectionLibraryRestore()
+        }
+
+        function onWorkspaceScopeChanged() {
+            root.tryRestoreCollectionLibrary()
+        }
+
+        function onCollectionsChanged() {
+            root.tryRestoreCollectionLibrary()
+        }
+
+        function onLoadingChanged() {
+            if (!CollectionStore.loading) {
+                root.tryRestoreCollectionLibrary()
+            }
+        }
     }
 
     Connections {
         target: LibraryStore
 
         function onFilesChanged() {
+            if (
+                LibraryStore.loadingFiles
+                && (LibraryStore.files || []).length === 0
+            ) {
+                root.saveCurrentLibraryTreeState()
+                return
+            }
+
+            if (root.treeStateRestorePending) {
+                Qt.callLater(
+                    root.finishPendingLibraryTreeRestore
+                )
+                return
+            }
+
             root.rebuildNodesFromFiles(true)
+            root.scheduleLibraryTreeStateSave()
         }
 
         function onSelectedLibraryIdChanged() {
-            root.selectedNodeId = ""
-            root.selectedNodePath = ""
-            root.expandedNodeIds = ({})
-            root.rebuildNodesFromFiles(false)
-            root.restoreTreeViewport(({ contentY: 0, nodeId: "", offset: 0 }))
+            var nextLibraryId = String(
+                LibraryStore.selectedLibraryId || ""
+            )
+
+            if (
+                root.treeStateLibraryId.length > 0
+                && root.treeStateLibraryId
+                    !== nextLibraryId
+            ) {
+                root.saveCurrentLibraryTreeState()
+            }
+
+            if (
+                root.workspaceCollectionId.length > 0
+                && nextLibraryId.length > 0
+                && CollectionStore.includesLibrary(
+                    nextLibraryId
+                )
+            ) {
+                WorkspaceState.setValue(
+                    root.collectionExplorerStateKey(
+                        root.workspaceCollectionId,
+                        "selectedLibraryId"
+                    ),
+                    nextLibraryId
+                )
+            }
+
+            root.beginLibraryTreeRestore(
+                nextLibraryId
+            )
+
+            if (
+                root.collectionLibraryRestorePending
+                && (
+                    root.pendingSelectedLibraryId.length === 0
+                    || root.pendingSelectedLibraryId
+                        === nextLibraryId
+                )
+            ) {
+                root.finishCollectionLibraryRestore(
+                    nextLibraryId
+                )
+            }
         }
+
+        function onLibrariesChanged() {
+            root.tryRestoreCollectionLibrary()
+        }
+
+        function onLoadingLibrariesChanged() {
+            if (!LibraryStore.loadingLibraries) {
+                root.tryRestoreCollectionLibrary()
+            }
+        }
+
+        function onLoadingFilesChanged() {
+            if (!LibraryStore.loadingFiles) {
+                Qt.callLater(
+                    root.finishPendingLibraryTreeRestore
+                )
+            }
+        }
+    }
+
+    Timer {
+        id: libraryTreeStateSaveTimer
+
+        interval: 180
+        repeat: false
+        onTriggered: root.saveCurrentLibraryTreeState()
     }
 
     ListModel {
@@ -748,7 +1241,9 @@ Rectangle {
                             onActivated: function(index) {
                                 var library = root.scopedLibraries[index]
                                 if (library) {
-                                    LibraryStore.selectLibrary(String(library.id))
+                                    root.selectLibrary(
+                                        String(library.id)
+                                    )
                                 }
                             }
 
@@ -1009,8 +1504,36 @@ Rectangle {
                         selectByMouse: true
                         onTextChanged: {
                             root.filterText = text
-                            root.rebuildTree(false)
-                            root.restoreTreeViewport(({ contentY: 0, nodeId: "", offset: 0 }))
+
+                            if (
+                                !root.restoringLibraryTreeState
+                            ) {
+                                root.rebuildTree(false)
+                                root.restoreTreeViewport(({
+                                    contentY: 0,
+                                    nodeId: "",
+                                    offset: 0
+                                }))
+                                root.scheduleLibraryTreeStateSave()
+                            }
+                        }
+
+                        Component.onCompleted: {
+                            root.filterField = libraryFilter
+                            if (
+                                String(text || "")
+                                    !== root.filterText
+                            ) {
+                                text = root.filterText
+                            }
+                        }
+                        Component.onDestruction: {
+                            if (
+                                root.filterField
+                                    === libraryFilter
+                            ) {
+                                root.filterField = null
+                            }
                         }
 
                         background: Rectangle {
@@ -1043,9 +1566,13 @@ Rectangle {
                     cacheBuffer: 600
                     reuseItems: true
                     model: visibleTree
+                    onContentYChanged: {
+                        root.scheduleLibraryTreeStateSave()
+                    }
 
                     Component.onCompleted: root.treeView = libraryList
                     Component.onDestruction: {
+                        root.saveCurrentLibraryTreeState()
                         if (root.treeView === libraryList) {
                             root.treeView = null
                         }

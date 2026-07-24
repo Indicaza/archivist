@@ -19,13 +19,7 @@ Item {
     signal expandRequested()
 
     function buildRows() {
-        var result = [{
-            id: "",
-            name: "All Work",
-            path: "All Work",
-            libraryIds: [],
-            chatIds: []
-        }]
+        var result = []
         var collections = CollectionStore.collections || []
 
         for (var index = 0; index < collections.length; index += 1) {
@@ -38,7 +32,7 @@ Item {
     function collectionDepth(collection) {
         var path = String(collection.path || collection.name || "")
 
-        if (path.length === 0 || path === "All Work") {
+        if (path.length === 0) {
             return 0
         }
 

@@ -12,6 +12,7 @@ Item {
     required property bool expanded
 
     property bool archivedOpen: false
+    property int collectionScopeRevision: 0
 
     readonly property var scopedChats: filteredChats()
 
@@ -19,11 +20,15 @@ Item {
     signal expandRequested()
 
     function filteredChats() {
-        var scope = CollectionStore.scope
+        var revision = collectionScopeRevision
+        var scope = CollectionStore.scope || ({})
         var chats = ChatStore.chats || []
+        var selectedCollectionId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
 
-        if (CollectionStore.selectedCollectionId.length === 0) {
-            return chats
+        if (selectedCollectionId.length === 0) {
+            return []
         }
 
         var filtered = []
@@ -111,6 +116,19 @@ Item {
         ChatStore.refresh()
         ChatStore.refreshArchived()
         AgentStore.refresh()
+    }
+
+    Connections {
+        target: CollectionStore
+
+        function onSelectedCollectionIdChanged() {
+            root.collectionScopeRevision += 1
+        }
+
+        function onWorkspaceScopeChanged() {
+            root.collectionScopeRevision += 1
+            Qt.callLater(ChatStore.refresh)
+        }
     }
 
     Connections {
@@ -472,9 +490,9 @@ Item {
                 ? ChatStore.errorMessage
                 : ChatStore.loadingChats
                     ? "Loading Chats…"
-                    : CollectionStore.selectedCollectionId.length > 0
-                        ? "No Chats in this Collection."
-                        : "No active Chats."
+                    : CollectionStore.selectedCollectionId.length === 0
+                        ? "Create or select a Collection."
+                        : "No Chats in this Collection."
             color: ChatStore.errorMessage.length > 0
                 ? root.theme.danger
                 : root.theme.mutedText

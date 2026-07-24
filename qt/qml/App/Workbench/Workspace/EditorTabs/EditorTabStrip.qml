@@ -29,6 +29,9 @@ Item {
     property bool restoreActiveTabPending: false
     property bool libraryCatalogObserved: false
     property bool chatCatalogObserved: false
+    property string workspaceScopeId: ""
+    property bool collectionWorkspaceSwitching: false
+    property bool collectionScopeReady: false
     readonly property color activeContourColor: "#5f5a52"
 
     visible: hasTabs
@@ -79,6 +82,17 @@ Item {
         }
     }
 
+    function scopeIdForCollection(collectionId) {
+        return String(collectionId || "")
+    }
+
+    function workspaceStateKey(scopeId, suffix) {
+        return "workspace/collections/"
+            + String(scopeId || "")
+            + "/"
+            + String(suffix || "")
+    }
+
     function tabStateArray() {
         var state = []
 
@@ -90,7 +104,11 @@ Item {
     }
 
     function scheduleTabStateSave() {
-        if (!tabStateRestored || restoringTabState) {
+        if (
+            !tabStateRestored
+            || restoringTabState
+            || workspaceScopeId.length === 0
+        ) {
             return
         }
 
@@ -98,23 +116,67 @@ Item {
     }
 
     function saveTabState() {
-        if (!tabStateRestored || restoringTabState) {
+        if (
+            !tabStateRestored
+            || restoringTabState
+            || workspaceScopeId.length === 0
+        ) {
             return
         }
 
         WorkspaceState.setValue(
-            "workspace/editorTabs",
+            workspaceStateKey(workspaceScopeId, "editorTabs"),
             JSON.stringify(tabStateArray())
         )
-        WorkspaceState.setValue("workspace/activeTabKey", activeTabKey)
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "activeTabKey"),
+            activeTabKey
+        )
     }
 
-    function restoreTabState() {
+    function restoreTabState(scopeId) {
+        var targetScopeId = String(scopeId || "")
+
+        if (targetScopeId.length === 0) {
+            return
+        }
+
         restoringTabState = true
 
-        var rawState = String(
-            WorkspaceState.value("workspace/editorTabs", "[]") || "[]"
-        )
+        var stateKey = workspaceStateKey(targetScopeId, "editorTabs")
+        var activeKey = workspaceStateKey(targetScopeId, "activeTabKey")
+        var missingValue = "__archivist_missing__"
+        var rawStateValue = WorkspaceState.value(stateKey, missingValue)
+        var savedActiveValue = WorkspaceState.value(activeKey, missingValue)
+        var migrateLegacyState = String(rawStateValue) === missingValue
+            && !Boolean(
+                WorkspaceState.value(
+                    "workspace/collectionTabsMigrated",
+                    false
+                )
+            )
+
+        if (migrateLegacyState) {
+            rawStateValue = WorkspaceState.value(
+                "workspace/editorTabs",
+                "[]"
+            )
+            savedActiveValue = WorkspaceState.value(
+                "workspace/activeTabKey",
+                ""
+            )
+        } else {
+            if (String(rawStateValue) === missingValue) {
+                rawStateValue = "[]"
+            }
+            if (String(savedActiveValue) === missingValue) {
+                savedActiveValue = ""
+            }
+        }
+
+        workspaceScopeId = targetScopeId
+
+        var rawState = String(rawStateValue || "[]")
         var savedTabs = []
 
         try {
@@ -158,9 +220,7 @@ Item {
             })
         }
 
-        var savedActiveKey = String(
-            WorkspaceState.value("workspace/activeTabKey", "") || ""
-        )
+        var savedActiveKey = String(savedActiveValue || "")
 
         if (tabIndexForKey(savedActiveKey) >= 0) {
             activeTabKey = savedActiveKey
@@ -173,6 +233,71 @@ Item {
         restoreActiveTabPending = tabs.count > 0
         restoringTabState = false
         tabStateRestored = true
+
+        if (migrateLegacyState) {
+            saveTabState()
+            WorkspaceState.setValue(
+                "workspace/collectionTabsMigrated",
+                true
+            )
+        }
+    }
+
+    function switchCollectionWorkspace() {
+        var nextScopeId = scopeIdForCollection(
+            CollectionStore.selectedCollectionId
+        )
+
+        if (
+            nextScopeId.length === 0
+            || (
+                tabStateRestored
+                && nextScopeId === workspaceScopeId
+            )
+        ) {
+            return
+        }
+
+        if (tabStateRestored) {
+            tabStateSaveTimer.stop()
+            saveTabState()
+        }
+
+        collectionWorkspaceSwitching = true
+        collectionScopeReady = false
+        libraryCatalogObserved = false
+        chatCatalogObserved = false
+        restoreActiveTabPending = false
+        pendingLibraryId = ""
+        pendingFileId = ""
+        LibraryStore.clearFilePreview()
+        restoreTabState(nextScopeId)
+    }
+
+    function finishCollectionWorkspaceSwitch() {
+        collectionWorkspaceSwitching = false
+    }
+
+    function collectionWorkspaceScopeReady() {
+        var selectedScopeId = scopeIdForCollection(
+            CollectionStore.selectedCollectionId
+        )
+
+        if (
+            selectedScopeId.length === 0
+            || selectedScopeId !== workspaceScopeId
+        ) {
+            return
+        }
+
+        collectionScopeReady = true
+
+        if (tabs.count === 0) {
+            finishCollectionWorkspaceSwitch()
+            return
+        }
+
+        Qt.callLater(root.tryRestoreActiveTab)
     }
 
     function listContainsId(values, id) {
@@ -189,7 +314,7 @@ Item {
     }
 
     function tryRestoreActiveTab() {
-        if (!restoreActiveTabPending) {
+        if (!restoreActiveTabPending || !collectionScopeReady) {
             return
         }
 
@@ -817,16 +942,7 @@ Item {
     }
 
     Component.onCompleted: {
-        restoreTabState()
-
-        if (tabs.count > 0) {
-            Qt.callLater(tryRestoreActiveTab)
-        } else if (LibraryStore.selectedFileId.length > 0) {
-            captureSelectedFile()
-            capturePreviewMetadata()
-        } else if (ChatStore.selectedChatId.length > 0) {
-            captureSelectedChat(true)
-        }
+        switchCollectionWorkspace()
     }
 
     Component.onDestruction: {
@@ -836,11 +952,36 @@ Item {
     }
 
     onActiveTabKeyChanged: scheduleTabStateSave()
+    onRestoreActiveTabPendingChanged: {
+        if (
+            collectionWorkspaceSwitching
+            && collectionScopeReady
+            && !restoreActiveTabPending
+        ) {
+            finishCollectionWorkspaceSwitch()
+        }
+    }
+
+    Connections {
+        target: CollectionStore
+
+        function onSelectedCollectionIdChanged() {
+            root.switchCollectionWorkspace()
+        }
+
+        function onWorkspaceScopeChanged() {
+            root.collectionWorkspaceScopeReady()
+        }
+    }
 
     Connections {
         target: LibraryStore
 
         function onSelectedFileChanged() {
+            if (root.collectionWorkspaceSwitching) {
+                return
+            }
+
             if (root.restoreActiveTabPending) {
                 root.tryRestoreActiveTab()
                 return
@@ -901,6 +1042,10 @@ Item {
         target: ChatStore
 
         function onSelectedChatIdChanged() {
+            if (root.collectionWorkspaceSwitching) {
+                return
+            }
+
             if (root.restoreActiveTabPending) {
                 root.tryRestoreActiveTab()
                 return
@@ -1248,12 +1393,9 @@ Item {
                 id: tabTitle
 
                 parent: tabVisual
-                anchors.left: fileGlyph.right
-                anchors.right: closeTabButton.left
-                anchors.leftMargin: 6
-                anchors.rightMargin: 12
-                anchors.verticalCenter: tabCanvas.verticalCenter
-                anchors.verticalCenterOffset: 1
+                x: 36
+                width: Math.max(0, parent.width - 75)
+                y: Math.round((parent.height - height) / 2) + 1
                 height: 18
                 text: tabItem.title
                 color: root.theme.appText
