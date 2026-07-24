@@ -185,6 +185,42 @@ export function getLibraryFileById(
   return row ? mapLibraryFile(row) : null;
 }
 
+export function updateLibraryFileLocation(
+  libraryId: string,
+  fileId: string,
+  relativePath: string,
+  name: string,
+  extension: string,
+): LibraryFile {
+  const result = database
+    .prepare(
+      `
+        UPDATE library_files
+        SET
+          relative_path = ?,
+          name = ?,
+          extension = ?,
+          status = 'available',
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = ?
+          AND library_id = ?
+      `,
+    )
+    .run(relativePath, name, extension, fileId, libraryId);
+
+  if (result.changes !== 1) {
+    throw new AppError(404, "Library file not found.");
+  }
+
+  const file = getLibraryFileById(libraryId, fileId);
+
+  if (!file) {
+    throw new Error("The moved Library file could not be loaded.");
+  }
+
+  return file;
+}
+
 export function createLibraryScan(libraryId: string): LibraryScan {
   const runningScan = database
     .prepare(

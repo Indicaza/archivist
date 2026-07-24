@@ -24,6 +24,7 @@ class LibraryStore final : public QObject
     Q_PROPERTY(bool loadingFiles READ loadingFiles NOTIFY loadingFilesChanged)
     Q_PROPERTY(bool loadingFilePreview READ loadingFilePreview NOTIFY loadingFilePreviewChanged)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
+    Q_PROPERTY(bool movingFile READ movingFile NOTIFY movingFileChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString filePreviewError READ filePreviewError NOTIFY filePreviewErrorChanged)
 
@@ -42,6 +43,7 @@ public:
     [[nodiscard]] bool loadingFiles() const;
     [[nodiscard]] bool loadingFilePreview() const;
     [[nodiscard]] bool scanning() const;
+    [[nodiscard]] bool movingFile() const;
     [[nodiscard]] QString errorMessage() const;
     [[nodiscard]] QString filePreviewError() const;
 
@@ -49,6 +51,7 @@ public:
     Q_INVOKABLE void selectLibrary(const QString &libraryId);
     Q_INVOKABLE void refreshSelectedFiles();
     Q_INVOKABLE void scanSelectedLibrary();
+    Q_INVOKABLE void moveFile(const QString &fileId, const QString &targetDirectory);
     Q_INVOKABLE void previewFile(const QString &fileId);
     Q_INVOKABLE void clearFilePreview();
 
@@ -65,6 +68,8 @@ signals:
     void loadingFilesChanged();
     void loadingFilePreviewChanged();
     void scanningChanged();
+    void movingFileChanged();
+    void fileMoved(const QString &fileId, const QString &relativePath);
     void errorMessageChanged();
     void filePreviewErrorChanged();
 
@@ -81,6 +86,7 @@ private:
     void setLoadingFiles(bool loading);
     void setLoadingFilePreview(bool loading);
     void setScanning(bool scanning);
+    void setMovingFile(bool moving);
     void setErrorMessage(const QString &message);
     void setFilePreviewError(const QString &message);
     [[nodiscard]] bool containsLibrary(const QString &libraryId) const;
@@ -98,6 +104,7 @@ private:
     bool m_loadingFiles = false;
     bool m_loadingFilePreview = false;
     bool m_scanning = false;
+    bool m_movingFile = false;
     QString m_errorMessage;
     QString m_filePreviewError;
 };

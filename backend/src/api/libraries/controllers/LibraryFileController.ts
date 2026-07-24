@@ -5,7 +5,9 @@ import { getLibraryFileCatalog } from "../models/LibraryFile.js";
 import {
   libraryFileIdParamsSchema,
   libraryIdParamsSchema,
+  moveLibraryFileSchema,
 } from "../schemas/LibrarySchemas.js";
+import { moveLibraryFile } from "../services/LibraryFileMover.js";
 import { readLibraryFilePreview } from "../services/LibraryFileReader.js";
 import { scanLibraryFiles } from "../services/LibraryFileScanner.js";
 
@@ -42,6 +44,31 @@ export const getLibraryFiles: RequestHandler = (request, response) => {
 
   response.json({
     ok: true,
+    ...getLibraryFileCatalog(libraryId),
+  });
+};
+
+
+export const patchLibraryFileLocation: RequestHandler = async (
+  request,
+  response,
+) => {
+  const { libraryId, fileId } = parseLibraryFileIds(request.params);
+  const parsed = moveLibraryFileSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new AppError(400, "Invalid file destination.", parsed.error.flatten());
+  }
+
+  const file = await moveLibraryFile(
+    libraryId,
+    fileId,
+    parsed.data.targetDirectory,
+  );
+
+  response.json({
+    ok: true,
+    file,
     ...getLibraryFileCatalog(libraryId),
   });
 };

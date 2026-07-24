@@ -22,6 +22,7 @@ Rectangle {
     property string selectedNodePath: ""
     property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
+    property bool rootDropActive: false
     readonly property var scopedLibraries: filteredLibraries()
 
     readonly property var viewTitles: [
@@ -146,6 +147,10 @@ Rectangle {
         for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
             if (nodes[nodeIndex].id === selectedNodeId) {
                 selectedStillExists = true
+                selectedNodePath = String(
+                    nodes[nodeIndex].relativePath
+                        || nodes[nodeIndex].title
+                )
                 break
             }
         }
@@ -241,6 +246,7 @@ Rectangle {
                 itemMuted: node.muted === true,
                 itemFolder: node.folder === true,
                 itemFileId: String(node.fileId || ""),
+                itemRelativePath: String(node.relativePath || ""),
                 itemExpanded: node.folder === true && isExpanded(node.id),
                 itemWarning: node.warning === true
             })
@@ -255,6 +261,20 @@ Rectangle {
         visibleTree.clear()
         filterMatchCache = ({})
         appendVisibleChildren("", 0, filterText.trim().toLowerCase())
+    }
+
+    function moveFileToFolder(fileId, targetDirectory) {
+        if (
+            String(fileId || "").length === 0
+            || LibraryStore.movingFile
+        ) {
+            return
+        }
+
+        LibraryStore.moveFile(
+            String(fileId),
+            String(targetDirectory || "")
+        )
     }
 
     function activateNode(nodeId, folder, fileId) {
@@ -450,7 +470,75 @@ Rectangle {
         id: libraryBrowser
 
         Item {
+            id: libraryBrowserRoot
+
             clip: true
+
+            WorkspaceDragSession {
+                id: workspaceDragSession
+            }
+
+            Item {
+                id: fileDragProxy
+
+                parent: Overlay.overlay
+                width: Math.min(
+                    240,
+                    Math.max(154, dragTitle.implicitWidth + 58)
+                )
+                height: 30
+                visible: workspaceDragSession.active
+                z: 100000
+
+                Drag.active: workspaceDragSession.active
+                Drag.source: fileDragProxy
+                Drag.keys: workspaceDragSession.dragKey.length > 0
+                    ? [workspaceDragSession.dragKey]
+                    : []
+                Drag.supportedActions: Qt.MoveAction
+                Drag.proposedAction: Qt.MoveAction
+                Drag.hotSpot.x: 18
+                Drag.hotSpot.y: height / 2
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: root.theme.controlSurfaceBg
+                    border.width: 1
+                    border.color: workspaceDragSession.dropAllowed
+                        ? root.theme.accentBright
+                        : root.theme.panelBorder
+                    opacity: 0.97
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 8
+
+                        Text {
+                            text: String(
+                                workspaceDragSession.payload.glyph || "▤"
+                            )
+                            color: workspaceDragSession.dropAllowed
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(12)
+                        }
+
+                        Text {
+                            id: dragTitle
+
+                            Layout.fillWidth: true
+                            text: workspaceDragSession.sourceLabel
+                            color: root.theme.appText
+                            font.pixelSize: root.theme.typeSize(10)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideMiddle
+                        }
+                    }
+                }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -467,6 +555,56 @@ Rectangle {
                         anchors.bottom: parent.bottom
                         height: 1
                         color: root.theme.quietBorder
+                    }
+
+                    DropArea {
+                        anchors.fill: parent
+                        keys: ["archivist-library-file"]
+                        enabled: workspaceDragSession.active
+                            && !LibraryStore.movingFile
+                        z: 10
+
+                        onEntered: function(drag) {
+                            var allowed = workspaceDragSession.payloadType
+                                    === "library-file"
+                                && String(
+                                    workspaceDragSession.payload.sourceDirectory
+                                        || ""
+                                ).length > 0
+                            drag.accepted = allowed
+                            root.rootDropActive = allowed
+                            workspaceDragSession.setTarget(
+                                "library-root",
+                                "library-root",
+                                String(
+                                    LibraryStore.selectedLibrary.name
+                                        || "Library"
+                                ) + " root",
+                                allowed
+                            )
+                        }
+
+                        onPositionChanged: function(drag) {
+                            drag.accepted = root.rootDropActive
+                        }
+
+                        onExited: {
+                            root.rootDropActive = false
+                            workspaceDragSession.clearTarget("library-root")
+                        }
+
+                        onDropped: function(drop) {
+                            if (!root.rootDropActive) {
+                                return
+                            }
+
+                            root.rootDropActive = false
+                            root.moveFileToFolder(
+                                String(workspaceDragSession.payload.id || ""),
+                                ""
+                            )
+                            drop.acceptProposedAction()
+                        }
                     }
 
                     RowLayout {
@@ -807,6 +945,7 @@ Rectangle {
                         required property bool itemMuted
                         required property bool itemFolder
                         required property string itemFileId
+                        required property string itemRelativePath
                         required property bool itemExpanded
                         required property bool itemWarning
 
@@ -820,6 +959,11 @@ Rectangle {
                         folder: itemFolder
                         expanded: itemExpanded
                         warning: itemWarning
+                        dragSession: workspaceDragSession
+                        dragProxy: fileDragProxy
+                        dragEnabled: !LibraryStore.movingFile
+                        fileId: itemFileId
+                        relativePath: itemRelativePath
                         neighborHovered: root.hoveredTreeIndex >= 0
                             && Math.abs(root.hoveredTreeIndex - index) === 1
                         onHoveredChanged: {
@@ -830,6 +974,9 @@ Rectangle {
                             }
                         }
                         onActivated: root.activateNode(nodeId, itemFolder, itemFileId)
+                        onFileDropRequested: function(fileId, targetDirectory) {
+                            root.moveFileToFolder(fileId, targetDirectory)
+                        }
                     }
 
                     ScrollBar.vertical: ScrollBar {
@@ -883,10 +1030,14 @@ Rectangle {
                             Layout.fillWidth: true
                             text: LibraryStore.errorMessage.length > 0
                                 ? LibraryStore.errorMessage
-                                : root.selectedNodePath.length > 0
-                                    ? "Selected  ·  " + root.selectedNodePath
-                                    : LibraryStore.scanning
-                                        ? "Scanning Library…"
+                                : workspaceDragSession.active
+                                    ? workspaceDragSession.statusText
+                                    : root.selectedNodePath.length > 0
+                                        ? "Selected  ·  " + root.selectedNodePath
+                                        : LibraryStore.movingFile
+                                            ? "Moving file…"
+                                            : LibraryStore.scanning
+                                            ? "Scanning Library…"
                                         : LibraryStore.loadingFiles
                                             ? "Loading file catalog…"
                                             : LibraryStore.latestScan.status
