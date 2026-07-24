@@ -30,16 +30,20 @@ qt_add_qml_module(archivist-qt
         qml/App.qml
         qml/App/Theme/Theme.qml
         qml/App/Topbar/Topbar.qml
-        qml/App/Topbar/CollectionEditor/CollectionEditor.qml
-        qml/App/Topbar/CollectionEditor/CollectionEditorHeader.qml
-        qml/App/Topbar/CollectionEditor/CollectionEditorFooter.qml
-        qml/App/Topbar/CollectionEditor/CollectionMembershipCard.qml
-        qml/App/Topbar/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/WorkspaceNavigator.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/SidebarBandHeader.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionBand.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/ChatBand.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditor.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditorHeader.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditorFooter.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionMembershipCard.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
         qml/App/Workbench/Workspace/Workspace.qml
         qml/App/Workbench/Workspace/FilePreview/FilePreview.qml

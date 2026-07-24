@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "ExplorerItem"
+import "WorkspaceNavigator"
 
 Rectangle {
     id: root
@@ -24,7 +25,7 @@ Rectangle {
     readonly property var scopedLibraries: filteredLibraries()
 
     readonly property var viewTitles: [
-        "Library Explorer",
+        "Workspace Navigator",
         "Archived Libraries",
         "Library Search",
         "Plugins",
@@ -434,6 +435,15 @@ Rectangle {
 
     Component {
         id: libraryView
+
+        WorkspaceNavigator {
+            theme: root.theme
+            libraryContent: libraryBrowser
+        }
+    }
+
+    Component {
+        id: libraryBrowser
 
         Item {
             ColumnLayout {

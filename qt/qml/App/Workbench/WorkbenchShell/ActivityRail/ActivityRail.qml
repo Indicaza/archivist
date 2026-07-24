@@ -34,7 +34,7 @@ Rectangle {
 
         Repeater {
             model: ListModel {
-                ListElement { glyphValue: "▦"; labelValue: "Library Explorer" }
+                ListElement { glyphValue: "▦"; labelValue: "Workspace Navigator" }
                 ListElement { glyphValue: "▤"; labelValue: "Archived Libraries" }
                 ListElement { glyphValue: "⌕"; labelValue: "Library Search" }
                 ListElement { glyphValue: "◇"; labelValue: "Plugins" }
