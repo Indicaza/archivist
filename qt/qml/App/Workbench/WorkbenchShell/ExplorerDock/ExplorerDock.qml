@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "WorkspaceNavigator"
 
@@ -402,22 +403,10 @@ Rectangle {
     }
 
     function glyphForFile(fileName, extension) {
-        var suffix = String(extension || "").toLowerCase()
-        var name = String(fileName || "").toLowerCase()
-
-        if (suffix === ".qml" || name.endsWith(".qml")) {
-            return "◇"
-        }
-
-        if ([".ts", ".tsx", ".js", ".jsx", ".json", ".cpp", ".h", ".hpp"].indexOf(suffix) >= 0) {
-            return "{}"
-        }
-
-        if ([".md", ".txt", ".log", ".css", ".html"].indexOf(suffix) >= 0) {
-            return "▤"
-        }
-
-        return "·"
+        return FileIdentity.glyphFor({
+            fileName: fileName,
+            extension: extension
+        })
     }
 
     function rebuildNodesFromFiles(preserveViewport) {

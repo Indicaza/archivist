@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../../Files/FileIdentity.js" as FileIdentity
+import "../../../Files/RendererRegistry.js" as RendererRegistry
 
 Rectangle {
     id: root
@@ -23,6 +25,16 @@ Rectangle {
     readonly property int sizeBytes: file && file.sizeBytes !== undefined
         ? Number(file.sizeBytes)
         : 0
+
+    readonly property var fileIdentity: FileIdentity.resolve({
+        fileName: file && (file.name || file.relativePath)
+            ? String(file.name || file.relativePath)
+            : "",
+        extension: file && file.extension ? String(file.extension) : "",
+        mimeType: file && file.mimeType ? String(file.mimeType) : "",
+        languageId: file && file.languageId ? String(file.languageId) : ""
+    })
+    readonly property var rendererSelection: RendererRegistry.resolve(fileIdentity)
 
     readonly property string attachmentId: attachmentIdForFile()
     readonly property bool attachedToChat: attachmentId.length > 0
@@ -120,6 +132,31 @@ Rectangle {
                     font.pixelSize: root.theme.typeSize(9)
                     font.weight: Font.Bold
                     font.letterSpacing: 0.65
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 16
+                    color: root.theme.quietBorder
+                }
+
+                Text {
+                    text: root.fileIdentity.displayLabel.toUpperCase()
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(9)
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.45
+                }
+
+                Text {
+                    text: root.rendererSelection.displayLabel.toUpperCase()
+                    color: root.rendererSelection.usedFallback
+                        ? root.theme.mutedText
+                        : root.theme.accentBright
+                    font.pixelSize: root.theme.typeSize(9)
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.45
+                    opacity: root.rendererSelection.usedFallback ? 0.72 : 1
                 }
 
                 Rectangle {

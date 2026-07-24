@@ -31,6 +31,8 @@ qt_add_qml_module(archivist-qt
     QML_FILES
         qml/App.qml
         qml/App/Theme/Theme.qml
+        qml/App/Files/FileIdentity.js
+        qml/App/Files/RendererRegistry.js
         qml/App/Topbar/Topbar.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
