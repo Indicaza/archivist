@@ -10,13 +10,18 @@ Item {
     required property string content
     required property string timestamp
     required property string status
+    required property bool animateReveal
     required property real leftObstruction
 
     signal contextInspectionRequested(string messageId)
+    signal revealProgressed()
+    signal revealFinished(string messageId)
 
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
-    readonly property bool streamingMessage: status === "streaming"
+    readonly property bool providerWaiting: status === "streaming"
+    readonly property bool streamingMessage: providerWaiting
+        || richContent.revealing
     readonly property bool failedMessage: status === "failed"
     readonly property real idealContentZoneWidth: Math.min(
         Math.max(0, width - theme.messageHorizontalInset * 2),
@@ -38,11 +43,16 @@ Item {
         )
     )
     readonly property real desiredFrameWidth: userMessage
-        ? theme.userMessageWidth
+        ? Math.min(
+            theme.userMessageWidth,
+            content.indexOf("\n") >= 0 || content.length > 76
+                ? theme.userMessageWidth
+                : Math.max(104, content.length * 8.4 + 48)
+        )
         : theme.assistantMessageWidth
 
     width: ListView.view ? ListView.view.width : 900
-    height: frame.height + 22
+    height: frame.height
 
     Item {
         id: frame
@@ -52,6 +62,7 @@ Item {
             : root.contentZoneX
         width: Math.min(root.contentZoneWidth, root.desiredFrameWidth)
         height: messageColumn.implicitHeight
+
         Behavior on x {
             SpringAnimation {
                 spring: root.theme.motionSpring
@@ -64,34 +75,29 @@ Item {
             id: messageColumn
 
             width: parent.width
-            spacing: 5
+            spacing: root.userMessage ? 0 : 14
 
             Item {
+                visible: !root.userMessage
                 width: parent.width
-                height: 27
+                height: visible ? 32 : 0
 
                 Row {
-                    anchors.left: root.userMessage ? undefined : parent.left
-                    anchors.right: root.userMessage ? parent.right : undefined
+                    anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    layoutDirection: root.userMessage ? Qt.RightToLeft : Qt.LeftToRight
                     spacing: 7
 
                     Rectangle {
                         width: 22
                         height: 22
-                        radius: 5
-                        color: root.userMessage
-                            ? "#1b1a17"
-                            : root.systemMessage
-                                ? "#1d1c19"
-                                : "#22201c"
+                        radius: 7
+                        color: root.systemMessage ? "#1d1c19" : "#22201c"
 
                         Text {
                             anchors.centerIn: parent
-                            text: root.userMessage ? "Y" : root.systemMessage ? "!" : "✣"
+                            text: root.systemMessage ? "!" : "✣"
                             color: root.theme.appText
-                            font.pixelSize: root.userMessage ? 9 : 11
+                            font.pixelSize: root.theme.typeSize(11)
                             font.weight: Font.Bold
                             opacity: root.streamingMessage ? 0.62 : 1
                         }
@@ -99,19 +105,15 @@ Item {
 
                     Row {
                         anchors.verticalCenter: parent.verticalCenter
-                        layoutDirection: root.userMessage ? Qt.RightToLeft : Qt.LeftToRight
                         spacing: 7
 
                         Text {
-                            text: root.userMessage
-                                ? "YOU"
-                                : root.systemMessage
-                                    ? "SYSTEM"
-                                    : "ARCHIVIST"
+                            text: root.systemMessage ? "SYSTEM" : "ARCHIVIST"
                             color: root.theme.appText
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                            font.letterSpacing: 0.7
+                            font.family: root.theme.chatFontFamily
+                            font.pixelSize: root.theme.typeSize(10)
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0.5
                         }
 
                         Text {
@@ -123,14 +125,17 @@ Item {
                             color: root.failedMessage
                                 ? root.theme.danger
                                 : root.theme.mutedText
-                            font.pixelSize: 9
+                            font.family: root.theme.chatFontFamily
+                            font.pixelSize: root.theme.typeSize(9)
                             opacity: root.failedMessage ? 0.9 : 0.52
                         }
                     }
 
                     Button {
-                        width: 58
-                        height: 20
+                        id: contextButton
+
+                        width: 64
+                        height: 22
                         visible: !root.userMessage
                             && !root.systemMessage
                             && !root.streamingMessage
@@ -146,9 +151,11 @@ Item {
                                 : 1.0
 
                         Behavior on scale {
+                            enabled: !contextButton.down
+
                             NumberAnimation {
                                 duration: root.theme.motionHover
-                                easing.type: Easing.OutBack
+                                easing.type: Easing.OutCubic
                             }
                         }
 
@@ -157,7 +164,7 @@ Item {
                             color: parent.hovered
                                 ? root.theme.accentBright
                                 : root.theme.mutedText
-                            font.pixelSize: 9
+                            font.pixelSize: root.theme.typeSize(9)
                             font.weight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -177,40 +184,93 @@ Item {
                 }
             }
 
-            Rectangle {
-                id: surface
+            Item {
+                id: surfaceFrame
 
                 width: parent.width
-                height: messageText.implicitHeight + 24
-                radius: 4
-                color: root.userMessage
-                    ? root.theme.userBg
-                    : root.systemMessage
-                        ? root.theme.systemBg
-                        : root.theme.assistantBg
-                border.width: 1
-                border.color: root.theme.messageBorder
-                antialiasing: false
-                clip: true
-                opacity: root.streamingMessage ? 0.72 : 1
+                height: richContent.implicitHeight
+                    + (root.userMessage ? 30 : root.systemMessage ? 32 : 4)
 
-                Text {
-                    id: messageText
+                Rectangle {
+                    x: 0
+                    y: 3
+                    width: parent.width
+                    height: parent.height
+                    radius: root.theme.radiusLarge
+                    color: "#30000000"
+                    visible: root.userMessage
+                }
 
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.leftMargin: 16
-                    anchors.rightMargin: 16
-                    anchors.topMargin: 11
-                    text: root.content
-                    color: root.theme.appText
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: 14
-                    lineHeight: 1.52
-                    wrapMode: Text.Wrap
-                    textFormat: Text.PlainText
-                    renderType: Text.NativeRendering
+                Rectangle {
+                    id: surface
+
+                    anchors.fill: parent
+                    radius: root.userMessage
+                        ? root.theme.radiusLarge
+                        : root.systemMessage
+                            ? root.theme.radiusSmall
+                            : 0
+                    color: root.userMessage
+                        ? root.theme.userBg
+                        : root.systemMessage
+                            ? root.theme.systemBg
+                            : root.theme.assistantBg
+                    border.width: root.userMessage || root.systemMessage ? 1 : 0
+                    border.color: root.failedMessage
+                        ? root.theme.danger
+                        : root.userMessage
+                            ? root.theme.quietBorder
+                            : root.systemMessage
+                                ? root.theme.quietBorder
+                                : root.theme.panelBorder
+                    antialiasing: true
+                    clip: root.userMessage || root.systemMessage
+                    opacity: root.providerWaiting ? 0.82 : 1
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.topMargin: 10
+                        anchors.bottomMargin: 10
+                        width: 2
+                        radius: 1
+                        color: root.failedMessage
+                            ? root.theme.danger
+                            : root.theme.accent
+                        opacity: root.failedMessage ? 0.82 : 0
+                    }
+
+                    RichMessageContent {
+                        id: richContent
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: root.userMessage
+                            ? 20
+                            : root.systemMessage
+                                ? 18
+                                : 0
+                        anchors.rightMargin: root.userMessage
+                            ? 20
+                            : root.systemMessage
+                                ? 18
+                                : 0
+                        anchors.topMargin: root.userMessage
+                            ? 14
+                            : root.systemMessage
+                                ? 16
+                                : 0
+                        theme: root.theme
+                        content: root.content
+                        compact: root.userMessage || root.systemMessage
+                        animateReveal: root.animateReveal
+                            && !root.userMessage
+                            && !root.systemMessage
+                        onRevealProgressed: root.revealProgressed()
+                        onRevealFinished: root.revealFinished(root.messageId)
+                    }
                 }
             }
         }

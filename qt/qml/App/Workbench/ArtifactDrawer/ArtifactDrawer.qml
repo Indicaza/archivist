@@ -40,16 +40,18 @@ Item {
                 : 1.0
 
         Behavior on scale {
+            enabled: !toggleButton.down
+
             NumberAnimation {
                 duration: root.theme.motionHover
-                easing.type: Easing.OutBack
+                easing.type: Easing.OutCubic
             }
         }
 
         contentItem: Text {
             text: parent.text
             color: parent.hovered ? root.theme.appText : root.theme.mutedText
-            font.pixelSize: 18
+            font.pixelSize: root.theme.typeSize(18)
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -121,12 +123,14 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "✦  CONTEXT INSPECTOR"
                     color: root.theme.mutedText
-                    font.pixelSize: 10
+                    font.pixelSize: root.theme.typeSize(10)
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
 
                 Button {
+                    id: closeButton
+
                     anchors.right: parent.right
                     anchors.rightMargin: 6
                     anchors.verticalCenter: parent.verticalCenter
@@ -143,9 +147,11 @@ Item {
                             : 1.0
 
                     Behavior on scale {
+                        enabled: !closeButton.down
+
                         NumberAnimation {
                             duration: root.theme.motionHover
-                            easing.type: Easing.OutBack
+                            easing.type: Easing.OutCubic
                         }
                     }
 
@@ -154,7 +160,7 @@ Item {
                         color: parent.hovered
                             ? root.theme.appText
                             : root.theme.mutedText
-                        font.pixelSize: 14
+                        font.pixelSize: root.theme.typeSize(14)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }

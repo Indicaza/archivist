@@ -35,13 +35,13 @@ Rectangle {
         Text {
             text: "Ready"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
 
         Text {
             text: "Local"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
             opacity: 0.72
         }
 
@@ -52,31 +52,31 @@ Rectangle {
         Text {
             text: "▣  Archivist"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
 
         Text {
             text: "▱  Context Compiler Test 1"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
 
         Text {
             text: "♙  Grumpy"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
 
         Text {
             text: root.explorerOpen ? "Explorer open" : "Explorer hidden"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
 
         Text {
             text: root.dockAttached ? "Dock attached" : "Dock centered"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
     }
 }

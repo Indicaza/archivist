@@ -31,7 +31,7 @@ Rectangle {
             text: "Archivist"
             color: root.theme.appText
             font.family: root.theme.titleFontFamily
-            font.pixelSize: 27
+            font.pixelSize: root.theme.typeSize(27)
             font.weight: Font.DemiBold
             verticalAlignment: Text.AlignVCenter
         }

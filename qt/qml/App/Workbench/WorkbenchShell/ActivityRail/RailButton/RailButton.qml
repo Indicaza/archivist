@@ -32,7 +32,7 @@ Button {
     contentItem: Text {
         text: root.glyph
         color: root.active || root.hovered ? root.theme.appText : root.theme.mutedText
-        font.pixelSize: 17
+        font.pixelSize: root.theme.typeSize(17)
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
@@ -57,13 +57,13 @@ Button {
     }
 
     Behavior on scale {
+        enabled: !root.down
+
         NumberAnimation {
             duration: root.hovered || root.neighborHovered
                 ? root.theme.motionHover
                 : root.theme.motionHoverExit
-            easing.type: root.hovered || root.neighborHovered
-                ? Easing.OutBack
-                : Easing.OutCubic
+            easing.type: Easing.OutCubic
         }
     }
 

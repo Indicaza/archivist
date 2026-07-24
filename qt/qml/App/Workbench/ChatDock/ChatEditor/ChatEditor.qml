@@ -266,7 +266,7 @@ Popup {
                     color: editorRoot.archived
                         ? "#d8bd92"
                         : editorRoot.theme.accentBright
-                    font.pixelSize: 9
+                    font.pixelSize: editorRoot.theme.typeSize(9)
                     font.weight: Font.Bold
                     font.letterSpacing: 0.8
                 }
@@ -276,7 +276,7 @@ Popup {
                     text: String(editorRoot.editingChat.title || "Chat")
                     color: editorRoot.theme.appText
                     font.family: editorRoot.theme.titleFontFamily
-                    font.pixelSize: 21
+                    font.pixelSize: editorRoot.theme.typeSize(21)
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -301,7 +301,7 @@ Popup {
                     color: parent.hovered
                         ? editorRoot.theme.appText
                         : editorRoot.theme.mutedText
-                    font.pixelSize: 18
+                    font.pixelSize: editorRoot.theme.typeSize(18)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -339,7 +339,7 @@ Popup {
                     Text {
                         text: "Chat name"
                         color: editorRoot.theme.mutedText
-                        font.pixelSize: 9
+                        font.pixelSize: editorRoot.theme.typeSize(9)
                         font.weight: Font.DemiBold
                     }
 
@@ -351,9 +351,9 @@ Popup {
                         enabled: !editorRoot.archived && !editorRoot.busy
                         maximumLength: 120
                         color: editorRoot.theme.appText
-                        selectionColor: "#5a554b"
-                        selectedTextColor: "#ffffff"
-                        font.pixelSize: 12
+                        selectionColor: editorRoot.theme.messageSelectionBg
+                        selectedTextColor: editorRoot.theme.messageSelectionText
+                        font.pixelSize: editorRoot.theme.typeSize(12)
                         leftPadding: 11
                         rightPadding: 54
                         onTextChanged: editorRoot.clearConfirmations()
@@ -375,7 +375,7 @@ Popup {
                             anchors.verticalCenter: parent.verticalCenter
                             text: titleField.text.length + "/120"
                             color: editorRoot.theme.mutedText
-                            font.pixelSize: 8
+                            font.pixelSize: editorRoot.theme.typeSize(8)
                             opacity: 0.7
                         }
                     }
@@ -391,7 +391,7 @@ Popup {
                     Text {
                         text: "Assigned Agent"
                         color: editorRoot.theme.mutedText
-                        font.pixelSize: 9
+                        font.pixelSize: editorRoot.theme.typeSize(9)
                         font.weight: Font.DemiBold
                     }
 
@@ -411,7 +411,7 @@ Popup {
                             rightPadding: 30
                             text: parent.displayText
                             color: editorRoot.theme.appText
-                            font.pixelSize: 11
+                            font.pixelSize: editorRoot.theme.typeSize(11)
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
                         }
@@ -437,7 +437,7 @@ Popup {
                             contentItem: Text {
                                 text: parent.text
                                 color: editorRoot.theme.appText
-                                font.pixelSize: 10
+                                font.pixelSize: editorRoot.theme.typeSize(10)
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                             }
@@ -464,8 +464,8 @@ Popup {
                         color: editorRoot.selectedAgent
                             ? editorRoot.theme.mutedText
                             : editorRoot.theme.danger
-                        font.pixelSize: 9
-                        lineHeight: 1.35
+                        font.pixelSize: editorRoot.theme.typeSize(9)
+                        lineHeight: editorRoot.theme.typeLineHeightCompact
                         wrapMode: Text.Wrap
                     }
                 }
@@ -496,7 +496,7 @@ Popup {
                             Text {
                                 text: "CREATED"
                                 color: editorRoot.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: editorRoot.theme.typeSize(8)
                                 font.weight: Font.Bold
                                 font.letterSpacing: 0.5
                             }
@@ -504,7 +504,7 @@ Popup {
                             Text {
                                 text: editorRoot.displayDate(editorRoot.editingChat.createdAt)
                                 color: editorRoot.theme.appText
-                                font.pixelSize: 9
+                                font.pixelSize: editorRoot.theme.typeSize(9)
                             }
                         }
 
@@ -515,7 +515,7 @@ Popup {
                             Text {
                                 text: "LAST ACTIVITY"
                                 color: editorRoot.theme.mutedText
-                                font.pixelSize: 8
+                                font.pixelSize: editorRoot.theme.typeSize(8)
                                 font.weight: Font.Bold
                                 font.letterSpacing: 0.5
                             }
@@ -523,7 +523,7 @@ Popup {
                             Text {
                                 text: editorRoot.displayDate(editorRoot.editingChat.updatedAt)
                                 color: editorRoot.theme.appText
-                                font.pixelSize: 9
+                                font.pixelSize: editorRoot.theme.typeSize(9)
                             }
                         }
                     }
@@ -557,8 +557,8 @@ Popup {
                         color: editorRoot.confirmingDelete
                             ? "#e2b5b5"
                             : "#ddc9a7"
-                        font.pixelSize: 9
-                        lineHeight: 1.35
+                        font.pixelSize: editorRoot.theme.typeSize(9)
+                        lineHeight: editorRoot.theme.typeLineHeightCompact
                         wrapMode: Text.Wrap
                     }
                 }
@@ -570,7 +570,7 @@ Popup {
                     visible: ChatStore.errorMessage.length > 0
                     text: ChatStore.errorMessage
                     color: editorRoot.theme.danger
-                    font.pixelSize: 9
+                    font.pixelSize: editorRoot.theme.typeSize(9)
                     wrapMode: Text.Wrap
                 }
 
@@ -622,7 +622,7 @@ Popup {
                         color: editorRoot.archived
                             ? editorRoot.theme.success
                             : "#d8bd92"
-                        font.pixelSize: 10
+                        font.pixelSize: editorRoot.theme.typeSize(10)
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -654,7 +654,7 @@ Popup {
                     contentItem: Text {
                         text: parent.text
                         color: "#e2b5b5"
-                        font.pixelSize: 10
+                        font.pixelSize: editorRoot.theme.typeSize(10)
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -686,7 +686,7 @@ Popup {
                     contentItem: Text {
                         text: parent.text
                         color: editorRoot.theme.appText
-                        font.pixelSize: 10
+                        font.pixelSize: editorRoot.theme.typeSize(10)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -715,7 +715,7 @@ Popup {
                         color: parent.enabled
                             ? editorRoot.theme.appText
                             : editorRoot.theme.mutedText
-                        font.pixelSize: 10
+                        font.pixelSize: editorRoot.theme.typeSize(10)
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter

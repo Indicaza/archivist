@@ -13,6 +13,7 @@ Rectangle {
 
     signal contextInspectionRequested(string messageId)
     property real leftObstruction: 0
+    property real previewLeftObstruction: 0
     property bool historyLoadPending: false
     property int historyAnchorIndex: -1
     property real historyAnchorOffset: 0
@@ -22,6 +23,8 @@ Rectangle {
     property int historyRestorePass: 0
     property bool scrollToEndPending: false
     property int scrollToEndPass: 0
+    property bool revealFollowEnabled: false
+    property real revealFollowTargetY: 0
 
     readonly property real historyPrefetchDistance: Math.max(
         6000,
@@ -38,8 +41,21 @@ Rectangle {
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name
         ? String(LibraryStore.selectedLibrary.name)
         : "Library"
+    readonly property real previewViewportX: root.previewActive
+        ? root.previewLeftObstruction
+        : 0
 
-    color: theme.workspaceBg
+    gradient: Gradient {
+        GradientStop {
+            position: 0.0
+            color: root.theme.workspaceBgTop
+        }
+
+        GradientStop {
+            position: 1.0
+            color: root.theme.workspaceBgBottom
+        }
+    }
     clip: true
 
     function scheduleScrollToEnd() {
@@ -47,6 +63,8 @@ Rectangle {
             return
         }
 
+        revealFollowAnimation.stop()
+        root.revealFollowEnabled = true
         root.scrollToEndPending = true
         root.scrollToEndPass = 0
         scrollToEndTimer.restart()
@@ -79,7 +97,45 @@ Rectangle {
 
     function jumpToLatest() {
         transcript.cancelFlick()
+        root.revealFollowEnabled = true
         root.scheduleScrollToEnd()
+    }
+
+    function transcriptEndY() {
+        return Math.max(
+            transcript.originY - transcript.topMargin,
+            transcript.originY
+                + transcript.contentHeight
+                - transcript.height
+                + transcript.bottomMargin
+        )
+    }
+
+    function stopRevealFollow() {
+        revealFollowAnimation.stop()
+        root.revealFollowEnabled = false
+    }
+
+    function followRevealSmoothly() {
+        if (
+            !root.revealFollowEnabled
+            || transcript.count === 0
+            || transcript.dragging
+            || transcript.flicking
+        ) {
+            return
+        }
+
+        transcript.forceLayout()
+        root.revealFollowTargetY = root.transcriptEndY()
+
+        if (root.revealFollowTargetY <= transcript.contentY + 0.5) {
+            return
+        }
+
+        if (!revealFollowAnimation.running) {
+            revealFollowAnimation.start()
+        }
     }
 
     function canPrefetchHistory() {
@@ -199,6 +255,7 @@ Rectangle {
         function onSelectedChatIdChanged() {
             root.clearHistoryAnchor()
             root.cancelScrollToEnd()
+            root.stopRevealFollow()
         }
 
         function onLoadingMessagesChanged() {
@@ -258,14 +315,42 @@ Rectangle {
         onTriggered: root.positionAtEnd()
     }
 
+    SmoothedAnimation {
+        id: revealFollowAnimation
+
+        target: transcript
+        property: "contentY"
+        to: root.revealFollowTargetY
+        duration: root.theme.chatRevealFollowDuration
+        velocity: -1
+        maximumEasingTime: root.theme.chatRevealFollowMaximumEasingTime
+        reversingMode: SmoothedAnimation.Immediate
+    }
+
     Rectangle {
         id: workspaceHeader
 
         anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
+        x: root.previewViewportX
+        width: Math.max(0, parent.width - root.previewViewportX)
         height: root.theme.workspaceHeaderHeight
         color: theme.controlSurfaceBg
+
+        Behavior on x {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
+
+        Behavior on width {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
 
         Rectangle {
             anchors.left: parent.left
@@ -277,20 +362,22 @@ Rectangle {
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: Math.max(14, root.leftObstruction + 14)
+            anchors.leftMargin: root.previewActive
+                ? 14
+                : Math.max(14, root.leftObstruction + 14)
             anchors.rightMargin: 14
             spacing: 8
 
             Text {
                 text: "Archivist"
                 color: root.theme.mutedText
-                font.pixelSize: 10
+                font.pixelSize: root.theme.typeSize(10)
             }
 
             Text {
                 text: "/"
                 color: root.theme.mutedText
-                font.pixelSize: 10
+                font.pixelSize: root.theme.typeSize(10)
                 opacity: 0.55
             }
 
@@ -300,7 +387,7 @@ Rectangle {
                     ? root.selectedLibraryName + "  /  " + root.previewPath
                     : root.selectedChatTitle
                 color: root.theme.appText
-                font.pixelSize: 11
+                font.pixelSize: root.theme.typeSize(11)
                 font.weight: Font.DemiBold
                 elide: Text.ElideMiddle
             }
@@ -324,12 +411,14 @@ Rectangle {
                     : ChatStore.responding && !root.previewActive
                         ? root.theme.appText
                         : root.theme.mutedText
-                font.pixelSize: 9
+                font.pixelSize: root.theme.typeSize(9)
                 opacity: ChatStore.responding && !root.previewActive ? 0.9 : 0.72
                 elide: Text.ElideRight
             }
 
             Button {
+                id: closePreviewButton
+
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 28
                 visible: root.previewActive
@@ -346,9 +435,11 @@ Rectangle {
                         : 1.0
 
                 Behavior on scale {
+                    enabled: !closePreviewButton.down
+
                     NumberAnimation {
                         duration: root.theme.motionHover
-                        easing.type: Easing.OutBack
+                        easing.type: Easing.OutCubic
                     }
                 }
 
@@ -357,7 +448,7 @@ Rectangle {
                     color: parent.hovered
                         ? root.theme.appText
                         : root.theme.mutedText
-                    font.pixelSize: 15
+                    font.pixelSize: root.theme.typeSize(15)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -372,16 +463,32 @@ Rectangle {
 
     FilePreview {
         anchors.top: workspaceHeader.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
         anchors.bottom: parent.bottom
+        x: root.previewLeftObstruction
+        width: Math.max(0, parent.width - root.previewLeftObstruction)
         visible: root.previewActive
         theme: root.theme
         file: LibraryStore.selectedFile
         preview: LibraryStore.filePreview
         loading: LibraryStore.loadingFilePreview
         errorMessage: LibraryStore.filePreviewError
-        leftObstruction: root.leftObstruction
+        leftObstruction: 0
+
+        Behavior on x {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
+
+        Behavior on width {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
     }
 
     ListView {
@@ -398,8 +505,8 @@ Rectangle {
         visible: !root.previewActive && root.hasSelectedChat && root.hasMessages
         clip: true
         spacing: root.theme.messageVerticalGap
-        topMargin: 28
-        bottomMargin: 28
+        topMargin: 42
+        bottomMargin: 44
         cacheBuffer: Math.max(8000, height * 7)
         displayMarginBeginning: 1200
         displayMarginEnd: 800
@@ -426,14 +533,32 @@ Rectangle {
         }
 
         onMovementStarted: {
-            root.cancelScrollToEnd()
+            if (!revealFollowAnimation.running) {
+                root.cancelScrollToEnd()
+                root.stopRevealFollow()
+            }
             root.scheduleHistoryPrefetch()
+        }
+
+        onDraggingChanged: {
+            if (dragging) {
+                root.cancelScrollToEnd()
+                root.stopRevealFollow()
+            }
+        }
+
+        onFlickingChanged: {
+            if (flicking) {
+                root.cancelScrollToEnd()
+                root.stopRevealFollow()
+            }
         }
 
         onMovementEnded: root.scheduleHistoryPrefetch()
 
         delegate: ChatMessage {
             required property var modelData
+            required property int index
 
             width: transcript.width
             theme: root.theme
@@ -442,9 +567,20 @@ Rectangle {
             content: String(modelData.content || "")
             timestamp: String(modelData.displayTimestamp || "")
             status: String(modelData.status || "complete")
+            animateReveal: Boolean(modelData.animateReveal || false)
             leftObstruction: root.leftObstruction
             onContextInspectionRequested: function(messageId) {
                 root.contextInspectionRequested(messageId)
+            }
+            onRevealProgressed: {
+                if (index !== transcript.count - 1) {
+                    return
+                }
+
+                root.followRevealSmoothly()
+            }
+            onRevealFinished: function(messageId) {
+                ChatStore.finishMessageReveal(messageId)
             }
         }
 
@@ -467,7 +603,7 @@ Rectangle {
             anchors.centerIn: parent
             text: "Loading earlier messages…"
             color: root.theme.mutedText
-            font.pixelSize: 9
+            font.pixelSize: root.theme.typeSize(9)
         }
     }
 
@@ -489,7 +625,7 @@ Rectangle {
                             ? "Select a Chat"
                             : "This conversation is empty"
             color: root.theme.appText
-            font.pixelSize: 16
+            font.pixelSize: root.theme.typeSize(16)
             font.weight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter
         }
@@ -502,8 +638,8 @@ Rectangle {
                     ? "Open Chats from the command dock to choose a conversation."
                     : "Send a message below to begin."
             color: root.theme.mutedText
-            font.pixelSize: 12
-            lineHeight: 1.45
+            font.pixelSize: root.theme.typeSize(12)
+            lineHeight: root.theme.typeLineHeightBody
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
         }

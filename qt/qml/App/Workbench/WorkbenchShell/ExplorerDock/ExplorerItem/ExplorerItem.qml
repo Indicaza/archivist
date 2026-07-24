@@ -44,7 +44,7 @@ Button {
             visible: root.folder
             text: root.expanded ? "⌄" : "›"
             color: root.hovered ? root.theme.appText : root.theme.mutedText
-            font.pixelSize: 13
+            font.pixelSize: root.theme.typeSize(13)
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -55,7 +55,9 @@ Button {
             height: parent.height
             text: root.glyph
             color: root.muted ? "#756e63" : root.theme.mutedText
-            font.pixelSize: root.folder ? 14 : 13
+            font.pixelSize: root.theme.typeSize(
+                root.folder ? 14 : 13
+            )
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -66,7 +68,7 @@ Button {
             height: parent.height
             text: root.title
             color: root.muted ? "#756e63" : root.theme.appText
-            font.pixelSize: 11
+            font.pixelSize: root.theme.typeSize(11)
             font.strikeout: root.muted
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
@@ -79,7 +81,7 @@ Button {
             visible: root.warning
             text: "△"
             color: root.theme.mutedText
-            font.pixelSize: 11
+            font.pixelSize: root.theme.typeSize(11)
         }
     }
 
@@ -118,13 +120,13 @@ Button {
     z: root.hovered ? 3 : root.neighborHovered ? 2 : 1
 
     Behavior on scale {
+        enabled: !root.down
+
         NumberAnimation {
             duration: root.hovered || root.neighborHovered
                 ? root.theme.motionHover
                 : root.theme.motionHoverExit
-            easing.type: root.hovered || root.neighborHovered
-                ? Easing.OutBack
-                : Easing.OutCubic
+            easing.type: Easing.OutCubic
         }
     }
 }
