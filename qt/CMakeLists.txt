@@ -19,6 +19,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Chat/chat_store.h
     src/App/Domains/Collection/collection_store.cpp
     src/App/Domains/Collection/collection_store.h
+    src/App/Domains/Files/markdown_document_bridge.cpp
+    src/App/Domains/Files/markdown_document_bridge.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
     src/App/Services/workspace_state_store.cpp
@@ -31,6 +33,10 @@ qt_add_qml_module(archivist-qt
     QML_FILES
         qml/App.qml
         qml/App/Theme/Theme.qml
+        qml/App/Files/FileIdentity.js
+        qml/App/Files/RendererRegistry.js
+        qml/App/Files/Renderers/PlainTextRenderer.qml
+        qml/App/Files/Renderers/MarkdownRenderer.qml
         qml/App/Topbar/Topbar.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml

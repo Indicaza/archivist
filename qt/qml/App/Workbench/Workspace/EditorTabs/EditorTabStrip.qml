@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import Archivist.Services 1.0
+import "../../../Files/FileIdentity.js" as FileIdentity
 
 Item {
     id: root
@@ -669,26 +670,15 @@ Item {
         return (value / (1024 * 1024)).toFixed(1) + " MB"
     }
 
-    function glyphFor(tabType, extension) {
+    function glyphFor(tabType, fileName, extension) {
         if (tabType === "chat") {
             return "▱"
         }
 
-        var suffix = String(extension || "").toLowerCase()
-
-        if ([".ts", ".tsx", ".js", ".jsx", ".json", ".cpp", ".h", ".hpp", ".qml"].indexOf(suffix) >= 0) {
-            return "{}"
-        }
-
-        if ([".md", ".txt", ".log", ".css", ".html"].indexOf(suffix) >= 0) {
-            return "▤"
-        }
-
-        if ([".fbx", ".obj", ".gltf", ".glb", ".usd", ".usdz"].indexOf(suffix) >= 0) {
-            return "◇"
-        }
-
-        return "·"
+        return FileIdentity.glyphFor({
+            fileName: fileName,
+            extension: extension
+        })
     }
 
     function captureSelectedFile() {
@@ -1378,7 +1368,11 @@ Item {
                 anchors.leftMargin: 14
                 width: 16
                 height: 18
-                text: root.glyphFor(tabItem.tabType, tabItem.extension)
+                text: root.glyphFor(
+                    tabItem.tabType,
+                    tabItem.title,
+                    tabItem.extension
+                )
                 color: tabItem.active || tabItem.hovered
                     ? root.theme.accentBright
                     : root.theme.mutedText
@@ -1581,6 +1575,7 @@ Item {
                                     anchors.centerIn: parent
                                     text: root.glyphFor(
                                         tabItem.tabType,
+                                        tabItem.title,
                                         tabItem.extension
                                     )
                                     color: root.theme.accentBright
@@ -1606,7 +1601,10 @@ Item {
                                     width: parent.width
                                     text: tabItem.tabType === "chat"
                                         ? "Conversation workspace"
-                                        : "Library file"
+                                        : FileIdentity.displayLabelFor({
+                                            fileName: tabItem.title,
+                                            extension: tabItem.extension
+                                        })
                                     color: root.theme.accentBright
                                     font.pixelSize: root.theme.typeSize(8)
                                     font.weight: Font.Bold

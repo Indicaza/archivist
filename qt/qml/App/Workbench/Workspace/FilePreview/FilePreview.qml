@@ -2,6 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../../Files/FileIdentity.js" as FileIdentity
+import "../../../Files/RendererRegistry.js" as RendererRegistry
+import "../../../Files/Renderers"
 
 Rectangle {
     id: root
@@ -23,6 +26,65 @@ Rectangle {
     readonly property int sizeBytes: file && file.sizeBytes !== undefined
         ? Number(file.sizeBytes)
         : 0
+
+    readonly property var fileIdentity: FileIdentity.resolve({
+        fileName: file && (file.name || file.relativePath)
+            ? String(file.name || file.relativePath)
+            : "",
+        extension: file && file.extension ? String(file.extension) : "",
+        mimeType: file && file.mimeType ? String(file.mimeType) : "",
+        languageId: file && file.languageId ? String(file.languageId) : ""
+    })
+    readonly property var rendererSelection: RendererRegistry.resolve(fileIdentity)
+    readonly property bool markdownRenderingAvailable: rendererSelection.id === "markdown"
+        && rendererSelection.available
+    readonly property string currentFileKey: String(file && file.id ? file.id : "")
+        + ":"
+        + String(rendererSelection.id || "plain-text")
+    property string viewMode: "source"
+    property real markdownZoom: 1.0
+
+    function setMarkdownZoom(value) {
+        root.markdownZoom = Math.max(0.65, Math.min(2.0, value))
+    }
+
+    function zoomMarkdownIn() {
+        root.setMarkdownZoom(root.markdownZoom + 0.1)
+    }
+
+    function zoomMarkdownOut() {
+        root.setMarkdownZoom(root.markdownZoom - 0.1)
+    }
+
+    function resetMarkdownZoom() {
+        root.markdownZoom = 1.0
+    }
+
+    function resetViewMode() {
+        root.viewMode = root.markdownRenderingAvailable ? "rendered" : "source"
+    }
+
+    onCurrentFileKeyChanged: Qt.callLater(root.resetViewMode)
+
+    Component.onCompleted: resetViewMode()
+
+    Shortcut {
+        sequence: StandardKey.ZoomIn
+        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomMarkdownIn()
+    }
+
+    Shortcut {
+        sequence: StandardKey.ZoomOut
+        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomMarkdownOut()
+    }
+
+    Shortcut {
+        sequence: Qt.platform.os === "osx" ? "Meta+0" : "Ctrl+0"
+        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.resetMarkdownZoom()
+    }
 
     readonly property string attachmentId: attachmentIdForFile()
     readonly property bool attachedToChat: attachmentId.length > 0
@@ -120,6 +182,31 @@ Rectangle {
                     font.pixelSize: root.theme.typeSize(9)
                     font.weight: Font.Bold
                     font.letterSpacing: 0.65
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 16
+                    color: root.theme.quietBorder
+                }
+
+                Text {
+                    text: root.fileIdentity.displayLabel.toUpperCase()
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(9)
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.45
+                }
+
+                Text {
+                    text: root.rendererSelection.displayLabel.toUpperCase()
+                    color: root.rendererSelection.usedFallback
+                        ? root.theme.mutedText
+                        : root.theme.accentBright
+                    font.pixelSize: root.theme.typeSize(9)
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.45
+                    opacity: root.rendererSelection.usedFallback ? 0.72 : 1
                 }
 
                 Rectangle {
@@ -228,6 +315,162 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
+            Layout.preferredHeight: root.markdownRenderingAvailable ? 36 : 0
+            visible: root.markdownRenderingAvailable
+            color: "transparent"
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                Item { Layout.fillWidth: true }
+
+                Repeater {
+                    model: [
+                        { id: "rendered", label: "Rendered" },
+                        { id: "source", label: "Source" },
+                        { id: "split", label: "Split" }
+                    ]
+
+                    Button {
+                        required property var modelData
+
+                        Layout.preferredWidth: modelData.id === "rendered" ? 84 : 66
+                        Layout.preferredHeight: 30
+                        text: modelData.label
+                        hoverEnabled: true
+                        padding: 0
+                        onClicked: root.viewMode = modelData.id
+
+                        contentItem: Text {
+                            text: parent.text
+                            color: root.viewMode === modelData.id
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(9)
+                            font.weight: root.viewMode === modelData.id
+                                ? Font.Bold
+                                : Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            color: root.viewMode === modelData.id
+                                ? root.theme.activeBg
+                                : parent.hovered
+                                    ? root.theme.hoverBg
+                                    : root.theme.controlSurfaceBg
+                            border.width: 1
+                            border.color: root.viewMode === modelData.id
+                                ? root.theme.accent
+                                : root.theme.quietBorder
+                            radius: 4
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 22
+                    visible: root.viewMode !== "source"
+                    color: root.theme.quietBorder
+                }
+
+                Button {
+                    Layout.preferredWidth: 30
+                    Layout.preferredHeight: 30
+                    visible: root.viewMode !== "source"
+                    text: "−"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.zoomMarkdownOut()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Zoom out"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.theme.appText
+                        font.pixelSize: root.theme.typeSize(12)
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 56
+                    Layout.preferredHeight: 30
+                    visible: root.viewMode !== "source"
+                    text: String(Math.round(root.markdownZoom * 100)) + "%"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.resetMarkdownZoom()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Reset zoom"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 30
+                    Layout.preferredHeight: 30
+                    visible: root.viewMode !== "source"
+                    text: "+"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.zoomMarkdownIn()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Zoom in"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.theme.appText
+                        font.pixelSize: root.theme.typeSize(11)
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
             Layout.fillHeight: true
             color: root.theme.workspaceBgDeep
             border.width: 1
@@ -235,38 +478,67 @@ Rectangle {
             radius: 5
             clip: true
 
-            ScrollView {
-                id: previewScroll
-
+            PlainTextRenderer {
                 anchors.fill: parent
                 visible: !root.loading
                     && root.errorMessage.length === 0
                     && root.content.length > 0
-                clip: true
-                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                    && root.viewMode === "source"
+                theme: root.theme
+                content: root.content
+            }
 
-                TextArea {
-                    id: previewText
+            MarkdownRenderer {
+                anchors.fill: parent
+                visible: !root.loading
+                    && root.errorMessage.length === 0
+                    && root.content.length > 0
+                    && root.markdownRenderingAvailable
+                    && root.viewMode === "rendered"
+                theme: root.theme
+                content: root.content
+                libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                documentRelativePath: String(root.file.relativePath || "")
+                zoomFactor: root.markdownZoom
+                onZoomFactorRequested: function(value) {
+                    root.setMarkdownZoom(value)
+                }
+            }
 
-                    width: Math.max(previewScroll.availableWidth, implicitWidth)
-                    text: root.content
-                    readOnly: true
-                    selectByMouse: true
-                    wrapMode: TextEdit.NoWrap
-                    textFormat: TextEdit.PlainText
-                    color: root.theme.appText
-                    selectionColor: root.theme.messageSelectionBg
-                    selectedTextColor: root.theme.messageSelectionText
-                    font.family: Qt.platform.os === "osx" ? "Menlo" : "monospace"
-                    font.pixelSize: root.theme.typeCode
-                    leftPadding: 18
-                    rightPadding: 18
-                    topPadding: 16
-                    bottomPadding: 16
+            RowLayout {
+                anchors.fill: parent
+                visible: !root.loading
+                    && root.errorMessage.length === 0
+                    && root.content.length > 0
+                    && root.markdownRenderingAvailable
+                    && root.viewMode === "split"
+                spacing: 0
 
-                    background: Rectangle {
-                        color: "transparent"
+                PlainTextRenderer {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 260
+                    theme: root.theme
+                    content: root.content
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: 1
+                    Layout.fillHeight: true
+                    color: root.theme.quietBorder
+                }
+
+                MarkdownRenderer {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 320
+                    theme: root.theme
+                    content: root.content
+                    libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                    documentRelativePath: String(root.file.relativePath || "")
+                    zoomFactor: root.markdownZoom
+                    onZoomFactorRequested: function(value) {
+                        root.setMarkdownZoom(value)
                     }
                 }
             }
