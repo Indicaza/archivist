@@ -23,6 +23,8 @@ Rectangle {
     property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
     property bool rootDropActive: false
+    property var treeView: null
+    property int treeViewportRevision: 0
     readonly property var scopedLibraries: filteredLibraries()
 
     readonly property var viewTitles: [
@@ -56,7 +58,7 @@ Rectangle {
         return "·"
     }
 
-    function rebuildNodesFromFiles() {
+    function rebuildNodesFromFiles(preserveViewport) {
         var nodes = []
         var directories = ({})
         var files = LibraryStore.files || []
@@ -160,7 +162,7 @@ Rectangle {
             selectedNodePath = ""
         }
 
-        rebuildTree()
+        rebuildTree(preserveViewport)
     }
 
     function libraryIndexForId(libraryId) {
@@ -257,10 +259,111 @@ Rectangle {
         }
     }
 
-    function rebuildTree() {
+    function visibleIndexForNode(nodeId) {
+        for (var index = 0; index < visibleTree.count; index += 1) {
+            if (String(visibleTree.get(index).nodeId) === String(nodeId || "")) {
+                return index
+            }
+        }
+
+        return -1
+    }
+
+    function captureTreeViewport() {
+        if (!treeView || visibleTree.count === 0) {
+            return ({ contentY: 0, nodeId: "", offset: 0 })
+        }
+
+        var sampleY = treeView.contentY + 2
+        var index = treeView.indexAt(2, sampleY)
+
+        if (index < 0) {
+            return ({
+                contentY: treeView.contentY,
+                nodeId: "",
+                offset: 0
+            })
+        }
+
+        var item = treeView.itemAtIndex(index)
+        return {
+            contentY: treeView.contentY,
+            nodeId: String(visibleTree.get(index).nodeId || ""),
+            offset: item ? item.y - treeView.contentY : 0
+        }
+    }
+
+    function restoreTreeViewport(anchor, revision) {
+        if (!treeView || !anchor) {
+            return
+        }
+
+        var expectedRevision = revision === undefined
+            ? treeViewportRevision
+            : revision
+
+        Qt.callLater(function() {
+            if (
+                !root.treeView
+                || expectedRevision !== root.treeViewportRevision
+            ) {
+                return
+            }
+
+            var index = root.visibleIndexForNode(anchor.nodeId)
+
+            if (index >= 0) {
+                root.treeView.positionViewAtIndex(index, ListView.Beginning)
+                root.treeView.forceLayout()
+                var item = root.treeView.itemAtIndex(index)
+
+                if (item) {
+                    root.treeView.contentY = item.y - Number(anchor.offset || 0)
+                }
+            } else {
+                var maximumY = Math.max(
+                    root.treeView.originY,
+                    root.treeView.originY
+                        + root.treeView.contentHeight
+                        - root.treeView.height
+                )
+                root.treeView.contentY = Math.max(
+                    root.treeView.originY,
+                    Math.min(maximumY, Number(anchor.contentY || 0))
+                )
+            }
+
+            root.treeView.returnToBounds()
+        })
+    }
+
+    function updateVisibleSelection(previousNodeId, nextNodeId) {
+        var previousIndex = visibleIndexForNode(previousNodeId)
+        var nextIndex = visibleIndexForNode(nextNodeId)
+
+        if (previousIndex >= 0) {
+            visibleTree.setProperty(previousIndex, "itemSelected", false)
+        }
+
+        if (nextIndex >= 0) {
+            visibleTree.setProperty(nextIndex, "itemSelected", true)
+        }
+    }
+
+    function rebuildTree(preserveViewport) {
+        var shouldPreserve = preserveViewport !== false
+        var anchor = shouldPreserve ? captureTreeViewport() : null
+        treeViewportRevision += 1
+        var revision = treeViewportRevision
+
+        hoveredTreeIndex = -1
         visibleTree.clear()
         filterMatchCache = ({})
         appendVisibleChildren("", 0, filterText.trim().toLowerCase())
+
+        if (anchor) {
+            restoreTreeViewport(anchor, revision)
+        }
     }
 
     function moveFileToFolder(fileId, targetDirectory) {
@@ -278,27 +381,31 @@ Rectangle {
     }
 
     function activateNode(nodeId, folder, fileId) {
+        var previousNodeId = selectedNodeId
         selectedNodeId = nodeId
 
         for (var index = 0; index < treeNodes.length; index += 1) {
             if (treeNodes[index].id === nodeId) {
-                selectedNodePath = String(treeNodes[index].relativePath || treeNodes[index].title)
+                selectedNodePath = String(
+                    treeNodes[index].relativePath || treeNodes[index].title
+                )
                 break
             }
         }
 
+        updateVisibleSelection(previousNodeId, nodeId)
+
         if (folder) {
             expandedNodeIds[nodeId] = !isExpanded(nodeId)
+            rebuildTree(true)
         } else if (fileId.length > 0) {
             LibraryStore.previewFile(fileId)
         }
-
-        rebuildTree()
     }
 
     function collapseAll() {
         expandedNodeIds = ({})
-        rebuildTree()
+        rebuildTree(true)
     }
 
     function expandAll() {
@@ -311,7 +418,7 @@ Rectangle {
         }
 
         expandedNodeIds = nextExpanded
-        rebuildTree()
+        rebuildTree(true)
     }
 
     function magnifierScale(index, hoveredIndex, pressed) {
@@ -339,7 +446,7 @@ Rectangle {
     }
 
     Component.onCompleted: {
-        rebuildNodesFromFiles()
+        rebuildNodesFromFiles(false)
         LibraryStore.refresh()
     }
 
@@ -347,14 +454,15 @@ Rectangle {
         target: LibraryStore
 
         function onFilesChanged() {
-            root.rebuildNodesFromFiles()
+            root.rebuildNodesFromFiles(true)
         }
 
         function onSelectedLibraryIdChanged() {
             root.selectedNodeId = ""
             root.selectedNodePath = ""
             root.expandedNodeIds = ({})
-            root.rebuildNodesFromFiles()
+            root.rebuildNodesFromFiles(false)
+            root.restoreTreeViewport(({ contentY: 0, nodeId: "", offset: 0 }))
         }
     }
 
@@ -901,7 +1009,8 @@ Rectangle {
                         selectByMouse: true
                         onTextChanged: {
                             root.filterText = text
-                            root.rebuildTree()
+                            root.rebuildTree(false)
+                            root.restoreTreeViewport(({ contentY: 0, nodeId: "", offset: 0 }))
                         }
 
                         background: Rectangle {
@@ -934,6 +1043,13 @@ Rectangle {
                     cacheBuffer: 600
                     reuseItems: true
                     model: visibleTree
+
+                    Component.onCompleted: root.treeView = libraryList
+                    Component.onDestruction: {
+                        if (root.treeView === libraryList) {
+                            root.treeView = null
+                        }
+                    }
 
                     delegate: ExplorerItem {
                         required property int index

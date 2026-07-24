@@ -24,6 +24,11 @@ Item {
     property int settlingDestinationIndex: -1
     property bool settlingCommitMove: false
     property real settlingTabRootX: 0
+    property bool tabStateRestored: false
+    property bool restoringTabState: false
+    property bool restoreActiveTabPending: false
+    property bool libraryCatalogObserved: false
+    property bool chatCatalogObserved: false
     readonly property color activeContourColor: "#5f5a52"
 
     visible: hasTabs
@@ -72,6 +77,185 @@ Item {
             lineCount: Number(tab.lineCount || 0),
             agentCount: Number(tab.agentCount || 0)
         }
+    }
+
+    function tabStateArray() {
+        var state = []
+
+        for (var index = 0; index < tabs.count; index += 1) {
+            state.push(tabSnapshot(index))
+        }
+
+        return state
+    }
+
+    function scheduleTabStateSave() {
+        if (!tabStateRestored || restoringTabState) {
+            return
+        }
+
+        tabStateSaveTimer.restart()
+    }
+
+    function saveTabState() {
+        if (!tabStateRestored || restoringTabState) {
+            return
+        }
+
+        WorkspaceState.setValue(
+            "workspace/editorTabs",
+            JSON.stringify(tabStateArray())
+        )
+        WorkspaceState.setValue("workspace/activeTabKey", activeTabKey)
+    }
+
+    function restoreTabState() {
+        restoringTabState = true
+
+        var rawState = String(
+            WorkspaceState.value("workspace/editorTabs", "[]") || "[]"
+        )
+        var savedTabs = []
+
+        try {
+            savedTabs = JSON.parse(rawState)
+        } catch (error) {
+            savedTabs = []
+        }
+
+        if (!Array.isArray(savedTabs)) {
+            savedTabs = []
+        }
+
+        tabs.clear()
+
+        for (var index = 0; index < savedTabs.length && index < 100; index += 1) {
+            var savedTab = savedTabs[index] || ({})
+            var tabType = String(savedTab.tabType || "")
+            var tabKey = String(savedTab.tabKey || "")
+
+            if (
+                (tabType !== "file" && tabType !== "chat")
+                || tabKey.length === 0
+                || tabIndexForKey(tabKey) >= 0
+            ) {
+                continue
+            }
+
+            tabs.append({
+                tabKey: tabKey,
+                tabType: tabType,
+                fileId: String(savedTab.fileId || ""),
+                libraryId: String(savedTab.libraryId || ""),
+                chatId: String(savedTab.chatId || ""),
+                title: String(savedTab.title || "Untitled"),
+                relativePath: String(savedTab.relativePath || ""),
+                libraryName: String(savedTab.libraryName || ""),
+                extension: String(savedTab.extension || ""),
+                sizeBytes: Number(savedTab.sizeBytes || 0),
+                lineCount: Number(savedTab.lineCount || 0),
+                agentCount: Number(savedTab.agentCount || 0)
+            })
+        }
+
+        var savedActiveKey = String(
+            WorkspaceState.value("workspace/activeTabKey", "") || ""
+        )
+
+        if (tabIndexForKey(savedActiveKey) >= 0) {
+            activeTabKey = savedActiveKey
+        } else if (tabs.count > 0) {
+            activeTabKey = String(tabs.get(0).tabKey || "")
+        } else {
+            activeTabKey = ""
+        }
+
+        restoreActiveTabPending = tabs.count > 0
+        restoringTabState = false
+        tabStateRestored = true
+    }
+
+    function listContainsId(values, id) {
+        var targetId = String(id || "")
+        var source = values || []
+
+        for (var index = 0; index < source.length; index += 1) {
+            if (String(source[index].id || "") === targetId) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    function tryRestoreActiveTab() {
+        if (!restoreActiveTabPending) {
+            return
+        }
+
+        var index = tabIndexForKey(activeTabKey)
+
+        if (index < 0) {
+            restoreActiveTabPending = false
+            return
+        }
+
+        var tab = tabs.get(index)
+
+        if (String(tab.tabType) === "chat") {
+            if (ChatStore.loadingChats) {
+                return
+            }
+
+            if (!listContainsId(ChatStore.chats, tab.chatId)) {
+                if (chatCatalogObserved) {
+                    restoreActiveTabPending = false
+                }
+                return
+            }
+
+            restoreActiveTabPending = false
+            LibraryStore.clearFilePreview()
+
+            if (String(ChatStore.selectedChatId) !== String(tab.chatId)) {
+                ChatStore.selectChat(String(tab.chatId))
+            }
+        } else {
+            if (LibraryStore.loadingLibraries) {
+                return
+            }
+
+            if (!listContainsId(LibraryStore.libraries, tab.libraryId)) {
+                if (libraryCatalogObserved) {
+                    restoreActiveTabPending = false
+                }
+                return
+            }
+
+            if (String(LibraryStore.selectedLibraryId) !== String(tab.libraryId)) {
+                LibraryStore.selectLibrary(String(tab.libraryId))
+                return
+            }
+
+            if (LibraryStore.loadingFiles) {
+                return
+            }
+
+            if (!listContainsId(LibraryStore.files, tab.fileId)) {
+                restoreActiveTabPending = false
+                return
+            }
+
+            restoreActiveTabPending = false
+            LibraryStore.previewFile(String(tab.fileId))
+        }
+
+        Qt.callLater(function() {
+            var activeIndex = root.tabIndexForKey(root.activeTabKey)
+            if (activeIndex >= 0 && activeIndex < tabList.count) {
+                tabList.positionViewAtIndex(activeIndex, ListView.Contain)
+            }
+        })
     }
 
     function tabContentXFromRootX(rootX) {
@@ -277,6 +461,7 @@ Item {
 
         if (shouldMove) {
             tabs.move(fromIndex, destinationIndex, 1)
+            scheduleTabStateSave()
         }
 
         tabDragActive = false
@@ -426,6 +611,7 @@ Item {
         activeTabKey = key
         pendingLibraryId = ""
         pendingFileId = ""
+        scheduleTabStateSave()
         Qt.callLater(function() {
             if (index >= 0 && index < tabList.count) {
                 tabList.positionViewAtIndex(index, ListView.Contain)
@@ -470,6 +656,7 @@ Item {
         }
 
         if (makeActive === false) {
+            scheduleTabStateSave()
             return
         }
 
@@ -477,6 +664,7 @@ Item {
         pendingLibraryId = ""
         pendingFileId = ""
         LibraryStore.clearFilePreview()
+        scheduleTabStateSave()
         Qt.callLater(function() {
             if (index >= 0 && index < tabList.count) {
                 tabList.positionViewAtIndex(index, ListView.Contain)
@@ -495,6 +683,7 @@ Item {
         tabs.setProperty(index, "title", String(chat.title || "Untitled Chat"))
         tabs.setProperty(index, "libraryName", String(chat.libraryName || "Chat"))
         tabs.setProperty(index, "agentCount", chat.agentIds ? chat.agentIds.length : 0)
+        scheduleTabStateSave()
     }
 
     function updateMovedFile(fileId, relativePath) {
@@ -512,6 +701,7 @@ Item {
 
         tabs.setProperty(index, "title", title)
         tabs.setProperty(index, "relativePath", String(relativePath || title))
+        scheduleTabStateSave()
     }
 
     function capturePreviewMetadata() {
@@ -524,6 +714,7 @@ Item {
 
         if (index >= 0 && preview.lineCount !== undefined) {
             tabs.setProperty(index, "lineCount", Number(preview.lineCount || 0))
+            scheduleTabStateSave()
         }
     }
 
@@ -555,6 +746,7 @@ Item {
 
         var tab = tabs.get(index)
         activeTabKey = String(tab.tabKey)
+        scheduleTabStateSave()
 
         if (String(tab.tabType) === "chat") {
             pendingLibraryId = ""
@@ -595,6 +787,7 @@ Item {
         var closingTab = tabs.get(index)
         var wasActive = String(closingTab.tabKey) === activeTabKey
         tabs.remove(index)
+        scheduleTabStateSave()
 
         if (!wasActive) {
             return
@@ -624,7 +817,11 @@ Item {
     }
 
     Component.onCompleted: {
-        if (LibraryStore.selectedFileId.length > 0) {
+        restoreTabState()
+
+        if (tabs.count > 0) {
+            Qt.callLater(tryRestoreActiveTab)
+        } else if (LibraryStore.selectedFileId.length > 0) {
             captureSelectedFile()
             capturePreviewMetadata()
         } else if (ChatStore.selectedChatId.length > 0) {
@@ -632,10 +829,23 @@ Item {
         }
     }
 
+    Component.onDestruction: {
+        tabStateSaveTimer.stop()
+        saveTabState()
+        WorkspaceState.sync()
+    }
+
+    onActiveTabKeyChanged: scheduleTabStateSave()
+
     Connections {
         target: LibraryStore
 
         function onSelectedFileChanged() {
+            if (root.restoreActiveTabPending) {
+                root.tryRestoreActiveTab()
+                return
+            }
+
             if (LibraryStore.selectedFileId.length > 0) {
                 root.captureSelectedFile()
             } else if (
@@ -660,10 +870,30 @@ Item {
 
         function onFilesChanged() {
             root.tryOpenPending()
+            root.tryRestoreActiveTab()
+        }
+
+        function onLibrariesChanged() {
+            root.libraryCatalogObserved = true
+            Qt.callLater(root.tryRestoreActiveTab)
+        }
+
+        function onLoadingLibrariesChanged() {
+            if (!LibraryStore.loadingLibraries) {
+                root.libraryCatalogObserved = true
+                Qt.callLater(root.tryRestoreActiveTab)
+            }
+        }
+
+        function onLoadingFilesChanged() {
+            if (!LibraryStore.loadingFiles) {
+                Qt.callLater(root.tryRestoreActiveTab)
+            }
         }
 
         function onSelectedLibraryIdChanged() {
             root.tryOpenPending()
+            Qt.callLater(root.tryRestoreActiveTab)
         }
     }
 
@@ -671,14 +901,39 @@ Item {
         target: ChatStore
 
         function onSelectedChatIdChanged() {
+            if (root.restoreActiveTabPending) {
+                root.tryRestoreActiveTab()
+                return
+            }
+
             if (ChatStore.selectedChatId.length > 0) {
                 root.captureSelectedChat(true)
+            }
+        }
+
+        function onChatsChanged() {
+            root.chatCatalogObserved = true
+            Qt.callLater(root.tryRestoreActiveTab)
+        }
+
+        function onLoadingChatsChanged() {
+            if (!ChatStore.loadingChats) {
+                root.chatCatalogObserved = true
+                Qt.callLater(root.tryRestoreActiveTab)
             }
         }
 
         function onChatUpdated(chat) {
             root.updateChatTab(chat)
         }
+    }
+
+    Timer {
+        id: tabStateSaveTimer
+
+        interval: 240
+        repeat: false
+        onTriggered: root.saveTabState()
     }
 
     ListModel {
@@ -786,7 +1041,7 @@ Item {
                 132,
                 Math.min(280, tabTitle.implicitWidth + 74)
             )
-            readonly property real baseVisualHeight: active ? 26 : 22
+            readonly property real baseVisualHeight: active ? 28 : 24
             property real hoverProgress: draggingSource || settlingSource
                 ? 0
                 : hovered
@@ -973,10 +1228,9 @@ Item {
                 id: fileGlyph
 
                 parent: tabVisual
+                y: Math.max(0, Math.min(parent.height - height, tabTitle.y))
                 anchors.left: parent.left
                 anchors.leftMargin: 14
-                anchors.verticalCenter: tabCanvas.verticalCenter
-                anchors.verticalCenterOffset: 0
                 width: 16
                 height: 18
                 text: root.glyphFor(tabItem.tabType, tabItem.extension)
@@ -999,7 +1253,7 @@ Item {
                 anchors.leftMargin: 6
                 anchors.rightMargin: 12
                 anchors.verticalCenter: tabCanvas.verticalCenter
-                anchors.verticalCenterOffset: 0
+                anchors.verticalCenterOffset: 1
                 height: 18
                 text: tabItem.title
                 color: root.theme.appText
@@ -1336,12 +1590,11 @@ Item {
                 id: closeTabButton
 
                 parent: tabVisual
+                y: Math.max(0, Math.min(parent.height - height, tabTitle.y - 1))
                 anchors.right: parent.right
                 anchors.rightMargin: 8
-                anchors.verticalCenter: tabCanvas.verticalCenter
-                anchors.verticalCenterOffset: 0
-                width: 18
-                height: 18
+                width: 19
+                height: 19
                 z: 5
                 text: "×"
                 hoverEnabled: true

@@ -21,6 +21,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Collection/collection_store.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
+    src/App/Services/workspace_state_store.cpp
+    src/App/Services/workspace_state_store.h
 )
 
 qt_add_qml_module(archivist-qt

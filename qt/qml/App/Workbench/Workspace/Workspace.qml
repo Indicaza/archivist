@@ -334,7 +334,7 @@ Rectangle {
         anchors.top: parent.top
         x: root.previewViewportX
         width: Math.max(0, parent.width - root.previewViewportX)
-        height: editorTabStrip.hasTabs ? 31 : root.theme.workspaceHeaderHeight
+        height: editorTabStrip.hasTabs ? 33 : root.theme.workspaceHeaderHeight
         color: theme.controlSurfaceBg
         z: 50
 
