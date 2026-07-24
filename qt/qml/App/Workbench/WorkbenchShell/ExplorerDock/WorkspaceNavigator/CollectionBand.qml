@@ -124,7 +124,9 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                height: 33
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
+                height: 31
                 radius: root.theme.radiusSmall
                 color: collectionTap.pressed
                     ? "#292621"

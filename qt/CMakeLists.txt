@@ -39,6 +39,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/SidebarBandHeader.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionBand.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/ChatBand.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/ChatAgentRow.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditor.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditorHeader.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionEditorFooter.qml
@@ -53,6 +54,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Workspace/ChatMessage/RichMessageContent.qml
         qml/App/Workbench/Workspace/JumpToLatestButton/JumpToLatestButton.qml
         qml/App/Workbench/ChatDock/ChatDock.qml
+        qml/App/Workbench/ChatDock/ChatAgentPicker/ChatAgentPicker.qml
         qml/App/Workbench/ChatDock/ChatEditor/ChatEditor.qml
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml

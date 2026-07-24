@@ -94,39 +94,9 @@ Button {
                 : "transparent"
         border.width: 0
 
-        Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: 2
-            visible: root.selected
-            color: root.theme.accent
-            opacity: 0.72
-        }
-
         Behavior on color {
             ColorAnimation { duration: root.theme.motionFast }
         }
     }
 
-    transformOrigin: Item.Left
-    scale: root.down
-        ? root.theme.pressedScale
-        : root.hovered
-            ? root.theme.hoverScale
-            : root.neighborHovered
-                ? root.theme.hoverNeighborScale
-                : 1.0
-    z: root.hovered ? 3 : root.neighborHovered ? 2 : 1
-
-    Behavior on scale {
-        enabled: !root.down
-
-        NumberAnimation {
-            duration: root.hovered || root.neighborHovered
-                ? root.theme.motionHover
-                : root.theme.motionHoverExit
-            easing.type: Easing.OutCubic
-        }
-    }
 }

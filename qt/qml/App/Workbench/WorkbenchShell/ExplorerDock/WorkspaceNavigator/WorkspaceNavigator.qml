@@ -1,5 +1,8 @@
 import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 import Archivist.Services 1.0
+import "CollectionEditor"
 import "."
 
 Item {
@@ -8,73 +11,71 @@ Item {
     required property var theme
     required property Component libraryContent
 
-    property bool collectionsExpanded: true
-    property bool chatsExpanded: true
-    property bool librariesExpanded: true
-    property bool resizingCollections: false
-    property bool resizingChats: false
-    property real preferredCollectionContentHeight: 112
-    property real preferredChatContentHeight: 174
+    signal closeRequested()
 
-    readonly property real headerHeight: 36
-    readonly property real dividerHeight: 7
-    readonly property real minimumContentHeight: 68
-    readonly property real bodyBudget: Math.max(
-        0,
-        height - headerHeight * 3 - dividerHeight * 2
-    )
-    readonly property real minimumChatReserve: chatsExpanded
-        ? minimumContentHeight
-        : 0
-    readonly property real minimumLibraryReserve: librariesExpanded
-        ? minimumContentHeight
-        : 0
-    readonly property real collectionContentMaximum: Math.max(
-        0,
-        bodyBudget - minimumChatReserve - minimumLibraryReserve
-    )
-    readonly property real collectionContentHeight: !collectionsExpanded
-        ? 0
-        : !chatsExpanded && !librariesExpanded
-            ? bodyBudget
-            : Math.min(
-                collectionContentMaximum,
-                Math.max(
-                    Math.min(minimumContentHeight, collectionContentMaximum),
-                    preferredCollectionContentHeight
-                )
-            )
-    readonly property real chatContentMaximum: Math.max(
-        0,
-        bodyBudget
-            - collectionContentHeight
-            - minimumLibraryReserve
-    )
-    readonly property real chatContentHeight: !chatsExpanded
-        ? 0
-        : !librariesExpanded
-            ? Math.max(0, bodyBudget - collectionContentHeight)
-            : Math.min(
-                chatContentMaximum,
-                Math.max(
-                    Math.min(minimumContentHeight, chatContentMaximum),
-                    preferredChatContentHeight
-                )
-            )
-    readonly property real libraryContentHeight: librariesExpanded
-        ? Math.max(
-            0,
-            bodyBudget - collectionContentHeight - chatContentHeight
-        )
-        : 0
-    readonly property real collectionSectionHeight: headerHeight
-        + collectionContentHeight
-    readonly property real chatSectionHeight: headerHeight + chatContentHeight
-    readonly property real librarySectionHeight: headerHeight
-        + libraryContentHeight
+    property bool chatsExpanded: true
+    property bool worktreesExpanded: false
+    property bool resizingChats: false
+    property bool resizingWorktrees: false
+    property real preferredChatHeight: 170
+    property real preferredWorktreeHeight: 92
+    property real chatSectionHeight: chatsExpanded ? preferredChatHeight : 36
+    property real worktreeSectionHeight: worktreesExpanded ? preferredWorktreeHeight : 34
+    property real chatDragStartY: 0
+    property real chatDragStartHeight: 0
+    property real worktreeDragStartY: 0
+    property real worktreeDragStartHeight: 0
+
+    readonly property var collectionOptions: buildCollectionOptions()
     readonly property var scopedLibraries: filteredLibraries()
+    readonly property real sectionHandleHeight: 6
+    readonly property real minimumLibraryHeight: 180
+
+    Behavior on chatSectionHeight {
+        enabled: !root.resizingChats
+        NumberAnimation {
+            duration: root.theme.motionPanel
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    Behavior on worktreeSectionHeight {
+        enabled: !root.resizingWorktrees
+        NumberAnimation {
+            duration: root.theme.motionPanel
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    function buildCollectionOptions() {
+        var options = [{
+            id: "",
+            name: "All Work",
+            path: "All Work"
+        }]
+        var collections = CollectionStore.collections || []
+
+        for (var index = 0; index < collections.length; index += 1) {
+            options.push(collections[index])
+        }
+
+        return options
+    }
+
+    function collectionIndexForId(collectionId) {
+        var options = collectionOptions || []
+
+        for (var index = 0; index < options.length; index += 1) {
+            if (String(options[index].id || "") === String(collectionId || "")) {
+                return index
+            }
+        }
+
+        return 0
+    }
 
     function filteredLibraries() {
+        var scope = CollectionStore.scope
         var libraries = LibraryStore.libraries || []
 
         if (CollectionStore.selectedCollectionId.length === 0) {
@@ -91,221 +92,443 @@ Item {
         return filtered
     }
 
-    function resizeCollectionsTo(pointerY) {
-        preferredCollectionContentHeight = Math.min(
-            collectionContentMaximum,
-            Math.max(
-                Math.min(minimumContentHeight, collectionContentMaximum),
-                pointerY - headerHeight
-            )
+    function clampSectionHeight(value, otherHeight, minimumHeight) {
+        var maximum = Math.max(
+            minimumHeight,
+            height - 38 - minimumLibraryHeight - sectionHandleHeight * 2 - otherHeight
+        )
+        return Math.min(maximum, Math.max(minimumHeight, value))
+    }
+
+    function resizeWorktrees(pointerY) {
+        worktreesExpanded = true
+        preferredWorktreeHeight = clampSectionHeight(
+            worktreeDragStartHeight + worktreeDragStartY - pointerY,
+            chatSectionHeight,
+            68
         )
     }
 
-    function resizeChatsTo(pointerY) {
-        preferredChatContentHeight = Math.min(
-            chatContentMaximum,
-            Math.max(
-                Math.min(minimumContentHeight, chatContentMaximum),
-                pointerY - chatSection.y - headerHeight
-            )
+    function resizeChats(pointerY) {
+        chatsExpanded = true
+        preferredChatHeight = clampSectionHeight(
+            chatDragStartHeight + chatDragStartY - pointerY,
+            worktreeSectionHeight,
+            96
         )
     }
 
-    function resetCollectionHeight() {
-        preferredCollectionContentHeight = 112
-    }
+    Component.onCompleted: CollectionStore.refresh()
 
-    function resetChatHeight() {
-        preferredChatContentHeight = 174
-    }
-
-    CollectionBand {
-        id: collectionSection
-
-        x: 0
-        y: 0
-        width: parent.width
-        height: root.collectionSectionHeight
-        theme: root.theme
-        expanded: root.collectionsExpanded
-        clip: true
-        onToggleRequested: root.collectionsExpanded = !root.collectionsExpanded
-        onExpandRequested: root.collectionsExpanded = true
-
-        Behavior on height {
-            enabled: !root.resizingCollections
-
-            NumberAnimation {
-                duration: root.theme.motionPanel
-                easing.type: Easing.OutCubic
-            }
-        }
-    }
-
-    Item {
-        id: collectionDivider
-
-        x: 0
-        y: collectionSection.y + collectionSection.height
-        width: parent.width
-        height: root.dividerHeight
-        z: 20
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 0
 
         Rectangle {
-            anchors.centerIn: parent
-            width: parent.width
-            height: collectionResizeArea.containsMouse
-                || collectionResizeArea.pressed
-                    ? 2
-                    : 1
-            color: collectionResizeArea.containsMouse
-                || collectionResizeArea.pressed
+            Layout.fillWidth: true
+            Layout.preferredHeight: 38
+            color: root.theme.controlSurfaceBg
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: root.theme.quietBorder
+                opacity: 0.72
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 5
+                spacing: 4
+
+                Text {
+                    text: "COLLECTION"
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(8)
+                    font.weight: Font.Bold
+                    font.letterSpacing: 0.65
+                }
+
+                ComboBox {
+                    id: collectionSelector
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
+                    model: root.collectionOptions
+                    textRole: "path"
+                    valueRole: "id"
+                    enabled: !CollectionStore.loading
+                        && !CollectionStore.mutating
+                        && count > 0
+                    hoverEnabled: true
+                    leftPadding: 8
+                    rightPadding: 22
+
+                    Binding {
+                        target: collectionSelector
+                        property: "currentIndex"
+                        value: root.collectionIndexForId(
+                            CollectionStore.selectedCollectionId
+                        )
+                    }
+
+                    onActivated: function(index) {
+                        var collection = root.collectionOptions[index]
+                        if (collection) {
+                            CollectionStore.selectCollection(
+                                String(collection.id || "")
+                            )
+                        }
+                    }
+
+                    contentItem: Text {
+                        text: collectionSelector.displayText.length > 0
+                            ? collectionSelector.displayText
+                            : CollectionStore.loading
+                                ? "Loading Collections…"
+                                : "All Work"
+                        color: root.theme.appText
+                        font.family: root.theme.titleFontFamily
+                        font.pixelSize: root.theme.typeSize(11)
+                        font.weight: Font.DemiBold
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideMiddle
+                    }
+
+                    indicator: Text {
+                        x: parent.width - width - 7
+                        y: (parent.height - height) / 2
+                        text: "⌄"
+                        color: root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(12)
+                    }
+
+                    background: Rectangle {
+                        radius: 5
+                        color: collectionSelector.hovered
+                            || collectionSelector.popup.visible
+                                ? root.theme.hoverBg
+                                : root.theme.surfaceBg
+                        border.width: 1
+                        border.color: collectionSelector.popup.visible
+                            ? "#554a7b"
+                            : root.theme.quietBorder
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: root.theme.motionFast
+                            }
+                        }
+                    }
+
+                    popup: Popup {
+                        y: collectionSelector.height + 3
+                        width: collectionSelector.width
+                        implicitHeight: Math.min(
+                            contentItem.implicitHeight + 8,
+                            300
+                        )
+                        padding: 4
+
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: collectionSelector.popup.visible
+                                ? collectionSelector.delegateModel
+                                : null
+                            currentIndex: collectionSelector.highlightedIndex
+                            ScrollIndicator.vertical: ScrollIndicator {}
+                        }
+
+                        background: Rectangle {
+                            radius: 6
+                            color: root.theme.controlSurfaceBg
+                            border.width: 1
+                            border.color: root.theme.panelBorder
+                        }
+                    }
+
+                    delegate: ItemDelegate {
+                        id: collectionOption
+
+                        required property int index
+                        required property var modelData
+
+                        width: collectionSelector.width - 8
+                        height: 34
+                        highlighted: collectionSelector.highlightedIndex === index
+                        leftPadding: 9
+                        rightPadding: 9
+
+                        contentItem: Text {
+                            text: String(
+                                collectionOption.modelData.path
+                                    || collectionOption.modelData.name
+                                    || "Collection"
+                            )
+                            color: root.theme.appText
+                            font.pixelSize: root.theme.typeSize(10)
+                            font.weight: collectionOption.index === 0
+                                ? Font.DemiBold
+                                : Font.Normal
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideMiddle
+                        }
+
+                        background: Rectangle {
+                            radius: 4
+                            color: collectionOption.highlighted
+                                ? root.theme.hoverBg
+                                : "transparent"
+                        }
+                    }
+                }
+
+                Button {
+                    id: createCollectionButton
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    text: "+"
+                    enabled: !CollectionStore.mutating
+                    hoverEnabled: true
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Create Collection"
+                    onClicked: collectionEditor.openForCreate()
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(13)
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered ? root.theme.hoverBg : "transparent"
+                    }
+                }
+
+                Button {
+                    id: manageCollectionButton
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    text: "•••"
+                    visible: CollectionStore.selectedCollectionId.length > 0
+                    enabled: !CollectionStore.mutating
+                    hoverEnabled: true
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Manage Collection"
+                    onClicked: collectionEditor.openForEdit(CollectionStore.selectedCollection)
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(8)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered ? root.theme.hoverBg : "transparent"
+                    }
+                }
+
+                Button {
+                    id: closeExplorerButton
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    text: "‹"
+                    hoverEnabled: true
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Close Explorer"
+                    onClicked: root.closeRequested()
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(16)
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered ? root.theme.hoverBg : "transparent"
+                    }
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: root.minimumLibraryHeight
+            clip: true
+
+            Loader {
+                anchors.fill: parent
+                sourceComponent: root.libraryContent
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.sectionHandleHeight
+            z: 20
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: parent.width
+                height: worktreeResizeArea.containsMouse || worktreeResizeArea.pressed ? 2 : 1
+                color: worktreeResizeArea.containsMouse || worktreeResizeArea.pressed
                     ? root.theme.accent
-                    : root.theme.panelBorder
-            opacity: collectionResizeArea.containsMouse
-                || collectionResizeArea.pressed
-                    ? 0.92
-                    : 0.58
-        }
+                    : root.theme.quietBorder
+                opacity: worktreeResizeArea.containsMouse || worktreeResizeArea.pressed ? 0.9 : 0.55
+            }
 
-        MouseArea {
-            id: collectionResizeArea
-
-            anchors.fill: parent
-            enabled: root.collectionsExpanded
-                && (root.chatsExpanded || root.librariesExpanded)
-            hoverEnabled: true
-            cursorShape: enabled ? Qt.SplitVCursor : Qt.ArrowCursor
-            onPressed: root.resizingCollections = true
-            onReleased: root.resizingCollections = false
-            onCanceled: root.resizingCollections = false
-            onPositionChanged: function(mouse) {
-                if (!pressed) {
-                    return
+            MouseArea {
+                id: worktreeResizeArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.SplitVCursor
+                onPressed: function(mouse) {
+                    root.resizingWorktrees = true
+                    root.worktreeDragStartHeight = root.worktreeSectionHeight
+                    root.worktreeDragStartY = mapToItem(root, mouse.x, mouse.y).y
                 }
-
-                var point = mapToItem(root, mouse.x, mouse.y)
-                root.resizeCollectionsTo(point.y)
-            }
-            onDoubleClicked: root.resetCollectionHeight()
-        }
-    }
-
-    ChatBand {
-        id: chatSection
-
-        x: 0
-        y: collectionDivider.y + collectionDivider.height
-        width: parent.width
-        height: root.chatSectionHeight
-        theme: root.theme
-        expanded: root.chatsExpanded
-        clip: true
-        onToggleRequested: root.chatsExpanded = !root.chatsExpanded
-        onExpandRequested: root.chatsExpanded = true
-
-        Behavior on height {
-            enabled: !root.resizingCollections && !root.resizingChats
-
-            NumberAnimation {
-                duration: root.theme.motionPanel
-                easing.type: Easing.OutCubic
+                onReleased: root.resizingWorktrees = false
+                onCanceled: root.resizingWorktrees = false
+                onPositionChanged: function(mouse) {
+                    if (pressed) {
+                        root.resizeWorktrees(mapToItem(root, mouse.x, mouse.y).y)
+                    }
+                }
+                onDoubleClicked: root.preferredWorktreeHeight = 92
             }
         }
-    }
-
-    Item {
-        id: chatDivider
-
-        x: 0
-        y: chatSection.y + chatSection.height
-        width: parent.width
-        height: root.dividerHeight
-        z: 20
 
         Rectangle {
-            anchors.centerIn: parent
-            width: parent.width
-            height: chatResizeArea.containsMouse || chatResizeArea.pressed
-                ? 2
-                : 1
-            color: chatResizeArea.containsMouse || chatResizeArea.pressed
-                ? root.theme.accent
-                : root.theme.panelBorder
-            opacity: chatResizeArea.containsMouse || chatResizeArea.pressed
-                ? 0.92
-                : 0.58
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.worktreeSectionHeight
+            Layout.minimumHeight: 34
+            color: root.theme.surfaceBg
+            clip: true
+
+            Button {
+                id: worktreeHeader
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 34
+                hoverEnabled: true
+                padding: 0
+                onClicked: root.worktreesExpanded = !root.worktreesExpanded
+                contentItem: RowLayout {
+                    spacing: 7
+                    Text {
+                        Layout.leftMargin: 10
+                        text: root.worktreesExpanded ? "⌄" : "›"
+                        color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(12)
+                    }
+                    Text {
+                        text: "⑂"
+                        color: root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(11)
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "WORKTREES"
+                        color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        font.letterSpacing: 0.55
+                    }
+                    Text {
+                        Layout.rightMargin: 9
+                        text: "COMING NEXT"
+                        color: root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(7)
+                        font.weight: Font.Bold
+                        font.letterSpacing: 0.4
+                        opacity: 0.55
+                    }
+                }
+                background: Rectangle {
+                    color: worktreeHeader.hovered ? root.theme.hoverBg : "transparent"
+                    Behavior on color { ColorAnimation { duration: root.theme.motionFast } }
+                }
+            }
+
+            Text {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: worktreeHeader.bottom
+                anchors.leftMargin: 32
+                anchors.rightMargin: 10
+                anchors.topMargin: 7
+                visible: root.worktreesExpanded
+                text: "Feature worktrees and swarm status will live here."
+                color: root.theme.mutedText
+                font.pixelSize: root.theme.typeSize(8)
+                opacity: 0.68
+                wrapMode: Text.Wrap
+            }
         }
 
-        MouseArea {
-            id: chatResizeArea
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.sectionHandleHeight
+            z: 20
 
-            anchors.fill: parent
-            enabled: root.chatsExpanded && root.librariesExpanded
-            hoverEnabled: true
-            cursorShape: enabled ? Qt.SplitVCursor : Qt.ArrowCursor
-            onPressed: root.resizingChats = true
-            onReleased: root.resizingChats = false
-            onCanceled: root.resizingChats = false
-            onPositionChanged: function(mouse) {
-                if (!pressed) {
-                    return
-                }
-
-                var point = mapToItem(root, mouse.x, mouse.y)
-                root.resizeChatsTo(point.y)
+            Rectangle {
+                anchors.centerIn: parent
+                width: parent.width
+                height: chatResizeArea.containsMouse || chatResizeArea.pressed ? 2 : 1
+                color: chatResizeArea.containsMouse || chatResizeArea.pressed
+                    ? root.theme.accent
+                    : root.theme.quietBorder
+                opacity: chatResizeArea.containsMouse || chatResizeArea.pressed ? 0.9 : 0.55
             }
-            onDoubleClicked: root.resetChatHeight()
+
+            MouseArea {
+                id: chatResizeArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.SplitVCursor
+                onPressed: function(mouse) {
+                    root.resizingChats = true
+                    root.chatDragStartHeight = root.chatSectionHeight
+                    root.chatDragStartY = mapToItem(root, mouse.x, mouse.y).y
+                }
+                onReleased: root.resizingChats = false
+                onCanceled: root.resizingChats = false
+                onPositionChanged: function(mouse) {
+                    if (pressed) {
+                        root.resizeChats(mapToItem(root, mouse.x, mouse.y).y)
+                    }
+                }
+                onDoubleClicked: root.preferredChatHeight = 170
+            }
+        }
+
+        ChatBand {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.chatSectionHeight
+            Layout.minimumHeight: 36
+            theme: root.theme
+            expanded: root.chatsExpanded
+            clip: true
+            onToggleRequested: root.chatsExpanded = !root.chatsExpanded
+            onExpandRequested: root.chatsExpanded = true
         }
     }
 
-    Item {
-        id: librarySection
-
-        x: 0
-        y: chatDivider.y + chatDivider.height
-        width: parent.width
-        height: root.librarySectionHeight
-        clip: true
-
-        Behavior on height {
-            enabled: !root.resizingCollections && !root.resizingChats
-
-            NumberAnimation {
-                duration: root.theme.motionPanel
-                easing.type: Easing.OutCubic
-            }
-        }
-
-        SidebarBandHeader {
-            id: libraryHeader
-
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: root.headerHeight
-            theme: root.theme
-            title: "LIBRARIES"
-            glyph: "▣"
-            count: LibraryStore.loadingLibraries
-                ? 0
-                : root.scopedLibraries.length
-            expanded: root.librariesExpanded
-            primaryVisible: true
-            primaryText: LibraryStore.loadingLibraries ? "…" : "↻"
-            primaryEnabled: !LibraryStore.loadingLibraries
-            primaryToolTip: "Refresh Libraries"
-            onToggleRequested: root.librariesExpanded = !root.librariesExpanded
-            onPrimaryRequested: LibraryStore.refresh()
-        }
-
-        Loader {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: libraryHeader.bottom
-            anchors.bottom: parent.bottom
-            visible: root.librariesExpanded
-            sourceComponent: root.libraryContent
-        }
+    CollectionEditor {
+        id: collectionEditor
+        theme: root.theme
     }
 }

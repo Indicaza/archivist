@@ -112,6 +112,11 @@ Popup {
         property string placeholderText: ""
         property int maximumLength: 32767
 
+        function focusAndSelectAll() {
+            control.forceActiveFocus()
+            control.selectAll()
+        }
+
         Layout.fillWidth: true
         spacing: 4
 
@@ -269,8 +274,9 @@ Popup {
         resetFields()
         nameField.text = "New Agent"
         open()
-        nameField.forceActiveFocus()
-        nameField.selectAll()
+        Qt.callLater(function() {
+            nameField.focusAndSelectAll()
+        })
     }
 
     function openForEdit(agent) {

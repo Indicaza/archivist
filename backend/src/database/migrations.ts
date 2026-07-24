@@ -829,6 +829,48 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 15,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE chat_agents (
+          chat_id TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0 CHECK (
+            position >= 0
+          ),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          PRIMARY KEY (chat_id, agent_id),
+          FOREIGN KEY (chat_id)
+            REFERENCES chats(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (agent_id)
+            REFERENCES agents(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX chat_agents_chat_position_index
+          ON chat_agents(chat_id, position);
+
+        CREATE INDEX chat_agents_agent_index
+          ON chat_agents(agent_id);
+
+        INSERT INTO chat_agents (
+          chat_id,
+          agent_id,
+          position
+        )
+        SELECT
+          id,
+          agent_id,
+          0
+        FROM chats
+        WHERE agent_id IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

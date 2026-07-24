@@ -821,7 +821,7 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
         QJsonDocument(body).toJson(QJsonDocument::Compact)
     );
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId, agentId]() {
         const JsonReplyResult result = consumeJsonReply(reply);
         reply->deleteLater();
         setAssigningAgent(false);
@@ -838,6 +838,108 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
 
         if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
             setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat assignment."));
+            return;
+        }
+
+        replaceChat(updatedChat);
+        emit agentAssigned(agentId);
+    });
+}
+
+void ChatStore::attachAgentToSelectedChat(const QString &agentId)
+{
+    if (
+        m_selectedChatId.isEmpty()
+        || agentId.isEmpty()
+        || m_responding
+        || m_assigningAgent
+        || m_mutating
+        || m_mutatingAttachment
+    ) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+
+    setErrorMessage({});
+    setAssigningAgent(true);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("agentId"), agentId);
+
+    const QString path = QStringLiteral("/chats/%1/agents")
+        .arg(encodedPathSegment(requestedChatId));
+    QNetworkReply *reply = m_network.post(
+        requestFor(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setAssigningAgent(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap updatedChat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+
+        if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
+            setErrorMessage(QStringLiteral("Archivist API returned an invalid Agent roster."));
+            return;
+        }
+
+        replaceChat(updatedChat);
+    });
+}
+
+void ChatStore::detachAgentFromSelectedChat(const QString &agentId)
+{
+    if (
+        m_selectedChatId.isEmpty()
+        || agentId.isEmpty()
+        || m_responding
+        || m_assigningAgent
+        || m_mutating
+        || m_mutatingAttachment
+    ) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+    const QString path = QStringLiteral("/chats/%1/agents/%2")
+        .arg(
+            encodedPathSegment(requestedChatId),
+            encodedPathSegment(agentId)
+        );
+
+    setErrorMessage({});
+    setAssigningAgent(true);
+
+    QNetworkReply *reply = m_network.deleteResource(requestFor(path));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setAssigningAgent(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap updatedChat = result.object
+            .value(QStringLiteral("chat"))
+            .toObject()
+            .toVariantMap();
+
+        if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
+            setErrorMessage(QStringLiteral("Archivist API returned an invalid Agent roster."));
             return;
         }
 

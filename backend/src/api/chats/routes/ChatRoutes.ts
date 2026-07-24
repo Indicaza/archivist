@@ -9,12 +9,14 @@ import {
   patchChat,
   patchSelectedChat,
   postArchiveChat,
+  postChatAgent,
   postChatAttachment,
   postChat,
   postChatMessage,
   postChatResponse,
   postRestoreChat,
   removeChat,
+  removeChatAgent,
   removeChatAttachment,
 } from "../controllers/ChatController.js";
 
@@ -36,6 +38,9 @@ chatRouter.patch("/selected", patchSelectedChat);
 
 chatRouter.post("/:chatId/archive", postArchiveChat);
 chatRouter.post("/:chatId/restore", postRestoreChat);
+
+chatRouter.post("/:chatId/agents", postChatAgent);
+chatRouter.delete("/:chatId/agents/:agentId", removeChatAgent);
 
 chatRouter.get("/:chatId/attachments", getChatAttachmentList);
 chatRouter.post("/:chatId/attachments", postChatAttachment);

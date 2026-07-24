@@ -36,9 +36,9 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 5
-        anchors.rightMargin: 5
-        spacing: 3
+        anchors.leftMargin: 6
+        anchors.rightMargin: 6
+        spacing: 4
 
         Button {
             id: toggleButton
@@ -117,8 +117,8 @@ Rectangle {
             id: primaryButton
 
             visible: root.primaryVisible
-            Layout.preferredWidth: visible ? 27 : 0
-            Layout.preferredHeight: 27
+            Layout.preferredWidth: visible ? 24 : 0
+            Layout.preferredHeight: 24
             text: root.primaryText
             enabled: root.primaryEnabled
             hoverEnabled: true
@@ -132,7 +132,7 @@ Rectangle {
                 color: parent.enabled && parent.hovered
                     ? root.theme.appText
                     : root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(13)
+                font.pixelSize: root.theme.typeSize(12)
                 font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -151,8 +151,8 @@ Rectangle {
             id: secondaryButton
 
             visible: root.secondaryVisible
-            Layout.preferredWidth: visible ? 27 : 0
-            Layout.preferredHeight: 27
+            Layout.preferredWidth: visible ? 24 : 0
+            Layout.preferredHeight: 24
             text: root.secondaryText
             enabled: root.secondaryEnabled
             hoverEnabled: true

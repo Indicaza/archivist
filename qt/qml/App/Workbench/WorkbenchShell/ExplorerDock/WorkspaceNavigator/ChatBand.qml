@@ -12,7 +12,6 @@ Item {
     required property bool expanded
 
     property bool archivedOpen: false
-    property int hoveredIndex: -1
 
     readonly property var scopedChats: filteredChats()
 
@@ -20,6 +19,7 @@ Item {
     signal expandRequested()
 
     function filteredChats() {
+        var scope = CollectionStore.scope
         var chats = ChatStore.chats || []
 
         if (CollectionStore.selectedCollectionId.length === 0) {
@@ -34,6 +34,45 @@ Item {
         }
 
         return filtered
+    }
+
+    function agentForId(agentId) {
+        var agents = AgentStore.agents || []
+
+        for (var index = 0; index < agents.length; index += 1) {
+            if (String(agents[index].id) === String(agentId || "")) {
+                return agents[index]
+            }
+        }
+
+        return null
+    }
+
+    function agentsForChat(chat) {
+        var ids = chat && chat.agentIds ? chat.agentIds : []
+        var attached = []
+
+        for (var index = 0; index < ids.length; index += 1) {
+            var agent = agentForId(ids[index])
+            if (agent) {
+                attached.push(agent)
+            }
+        }
+
+        return attached
+    }
+
+    function agentNames(agents) {
+        if (!agents || agents.length === 0) {
+            return "No Agents attached"
+        }
+
+        var names = []
+        for (var index = 0; index < agents.length; index += 1) {
+            names.push(String(agents[index].name || "Unnamed Agent"))
+        }
+
+        return names.join(", ")
     }
 
     function selectChat(chat) {
@@ -70,6 +109,7 @@ Item {
     Component.onCompleted: {
         ChatStore.refresh()
         ChatStore.refreshArchived()
+        AgentStore.refresh()
     }
 
     Connections {
@@ -126,8 +166,8 @@ Item {
         anchors.right: parent.right
         anchors.top: header.bottom
         anchors.bottom: parent.bottom
-        anchors.leftMargin: 6
-        anchors.rightMargin: 6
+        anchors.leftMargin: 7
+        anchors.rightMargin: 7
         anchors.topMargin: 4
         anchors.bottomMargin: 4
         visible: root.expanded
@@ -140,7 +180,7 @@ Item {
             Layout.fillHeight: true
             visible: root.scopedChats.length > 0
             clip: true
-            spacing: 1
+            spacing: 2
             boundsBehavior: Flickable.StopAtBounds
             model: root.scopedChats
 
@@ -150,24 +190,23 @@ Item {
                 required property int index
                 required property var modelData
 
-                width: chatList.width
-                height: 43
-                z: chatHover.hovered
-                    ? 3
-                    : chatDelegate.neighborHovered
-                        ? 2
-                        : 1
-
                 readonly property bool selected: String(modelData.id)
                     === String(ChatStore.selectedChatId)
-                readonly property bool neighborHovered: root.hoveredIndex >= 0
-                    && Math.abs(root.hoveredIndex - index) === 1
+                readonly property var attachedAgents: root.agentsForChat(
+                    modelData
+                )
+                width: chatList.width
+                height: 43
 
                 Rectangle {
+                    id: chatRow
+
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    height: 39
+                    anchors.top: parent.top
+                    anchors.leftMargin: 1
+                    anchors.rightMargin: 1
+                    height: 41
                     radius: root.theme.radiusSmall
                     color: chatTap.pressed
                         ? "#292621"
@@ -178,33 +217,23 @@ Item {
                                 : "transparent"
                     border.width: chatDelegate.selected ? 1 : 0
                     border.color: "#554a7b"
-                    scale: chatTap.pressed
-                        ? root.theme.pressedScale
-                        : chatHover.hovered
-                            ? root.theme.hoverScale
-                            : chatDelegate.neighborHovered
-                                ? root.theme.hoverNeighborScale
-                                : 1.0
-
-                    Behavior on scale {
-                        enabled: !chatTap.pressed
-
-                        NumberAnimation {
-                            duration: chatHover.hovered
-                                || chatDelegate.neighborHovered
-                                    ? root.theme.motionHover
-                                    : root.theme.motionHoverExit
-                            easing.type: Easing.OutCubic
-                        }
-                    }
 
                     Column {
                         anchors.left: parent.left
-                        anchors.right: manageChatButton.left
+                        anchors.right: agentCount.left
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 11
-                        anchors.rightMargin: 5
+                        anchors.leftMargin: chatHover.hovered ? 12 : 10
+                        anchors.rightMargin: 7
                         spacing: 1
+
+                        Behavior on anchors.leftMargin {
+                            NumberAnimation {
+                                duration: chatHover.hovered
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
+                                easing.type: Easing.OutCubic
+                            }
+                        }
 
                         Text {
                             width: parent.width
@@ -234,13 +263,61 @@ Item {
                     }
 
                     Button {
+                        id: agentCount
+
+                        anchors.right: manageChatButton.left
+                        anchors.rightMargin: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: agentCountLabel.implicitWidth + 12
+                        height: 22
+                        hoverEnabled: true
+                        padding: 0
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 350
+                        ToolTip.text: root.agentNames(
+                            chatDelegate.attachedAgents
+                        )
+                        onClicked: chatEditor.openForChat(
+                            chatDelegate.modelData
+                        )
+
+                        contentItem: Text {
+                            id: agentCountLabel
+
+                            text: "♙ " + String(
+                                chatDelegate.attachedAgents.length
+                            )
+                            color: chatDelegate.selected || parent.hovered
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(7)
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: 11
+                            color: parent.hovered
+                                ? root.theme.hoverBg
+                                : chatDelegate.selected
+                                    ? "#2a2535"
+                                    : root.theme.surfaceBg
+                            border.width: 1
+                            border.color: chatDelegate.selected
+                                ? "#554a7b"
+                                : root.theme.quietBorder
+                        }
+                    }
+
+                    Button {
                         id: manageChatButton
 
                         anchors.right: parent.right
-                        anchors.rightMargin: 6
+                        anchors.rightMargin: 5
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 28
-                        height: 26
+                        width: 24
+                        height: 24
                         text: "•••"
                         enabled: !ChatStore.mutating
                             && !ChatStore.responding
@@ -257,7 +334,7 @@ Item {
                             color: parent.hovered
                                 ? root.theme.appText
                                 : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(8)
+                            font.pixelSize: root.theme.typeSize(7)
                             font.weight: Font.Bold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -272,25 +349,17 @@ Item {
                             border.color: root.theme.panelBorder
                         }
                     }
-                }
 
-                HoverHandler {
-                    id: chatHover
-
-                    onHoveredChanged: {
-                        if (hovered) {
-                            root.hoveredIndex = chatDelegate.index
-                        } else if (root.hoveredIndex === chatDelegate.index) {
-                            root.hoveredIndex = -1
-                        }
+                    HoverHandler {
+                        id: chatHover
                     }
-                }
 
-                TapHandler {
-                    id: chatTap
+                    TapHandler {
+                        id: chatTap
 
-                    enabled: !ChatStore.responding
-                    onTapped: root.selectChat(chatDelegate.modelData)
+                        enabled: !ChatStore.responding
+                        onTapped: root.selectChat(chatDelegate.modelData)
+                    }
                 }
             }
 

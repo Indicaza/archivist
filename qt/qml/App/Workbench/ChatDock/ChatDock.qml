@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "AgentEditor"
+import "ChatAgentPicker"
 
 Rectangle {
     id: root
@@ -11,13 +12,17 @@ Rectangle {
     property bool attached: true
     property string activePanel: "none"
     property bool archivedAgentsOpen: false
+    property bool attachNextCreatedAgent: false
+    property string pendingCreatedChatId: ""
     property string attachmentNotice: ""
+    property string agentSwitchNotice: ""
+    property real agentSwitchPulse: 0
     property int headerHoverIndex: -1
     property int composerHoverIndex: -1
     property int hoveredAgentIndex: -1
     property bool resizingPanel: false
     property real panelWidth: theme.chatDockPanelDefaultWidth
-    readonly property var orderedAgents: collectionOrderedAgents()
+    readonly property var attachedAgents: chatAttachedAgents()
 
     readonly property int attachmentCount: ChatStore.attachments.length
     readonly property real panelMaximumWidth: Math.max(
@@ -56,35 +61,21 @@ Rectangle {
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
 
-    function collectionOrderedAgents() {
-        var scope = CollectionStore.scope
+    function chatAttachedAgents() {
         var agents = AgentStore.agents || []
-
-        if (CollectionStore.selectedCollectionId.length === 0) {
-            return agents
-        }
-
-        var rosterIds = scope.agentIds || []
-        var ordered = []
-        var used = ({})
+        var rosterIds = ChatStore.selectedChat.agentIds || []
+        var attached = []
 
         for (var rosterIndex = 0; rosterIndex < rosterIds.length; rosterIndex += 1) {
             for (var agentIndex = 0; agentIndex < agents.length; agentIndex += 1) {
                 if (String(agents[agentIndex].id) === String(rosterIds[rosterIndex])) {
-                    ordered.push(agents[agentIndex])
-                    used[String(agents[agentIndex].id)] = true
+                    attached.push(agents[agentIndex])
                     break
                 }
             }
         }
 
-        for (var index = 0; index < agents.length; index += 1) {
-            if (used[String(agents[index].id)] !== true) {
-                ordered.push(agents[index])
-            }
-        }
-
-        return ordered
+        return attached
     }
 
     function agentForId(agentId) {
@@ -99,6 +90,18 @@ Rectangle {
         return null
     }
 
+    function attachedAgentIndex(agentId) {
+        var agents = attachedAgents || []
+
+        for (var index = 0; index < agents.length; index += 1) {
+            if (String(agents[index].id) === String(agentId || "")) {
+                return index
+            }
+        }
+
+        return -1
+    }
+
     function sourceWasIncluded(attachmentId) {
         var sources = ChatStore.lastSources || []
 
@@ -109,6 +112,22 @@ Rectangle {
         }
 
         return false
+    }
+
+    function openAgentPicker() {
+        if (ChatStore.selectedChatId.length > 0) {
+            agentPicker.openPicker()
+        }
+    }
+
+    function createAttachedAgent() {
+        if (ChatStore.selectedChatId.length === 0) {
+            return
+        }
+
+        attachNextCreatedAgent = true
+        pendingCreatedChatId = String(ChatStore.selectedChatId)
+        agentEditor.openForCreate()
     }
 
     function submitDraft() {
@@ -166,7 +185,6 @@ Rectangle {
 
     Component.onCompleted: {
         AgentStore.refresh()
-        AgentStore.refreshArchived()
     }
 
     Connections {
@@ -188,6 +206,22 @@ Rectangle {
         function onChatCreated(chat) {
             composer.forceActiveFocus()
         }
+
+        function onAgentAssigned(agentId) {
+            root.agentSwitchNotice = "Now speaking with "
+                + root.selectedAgentName
+            agentSwitchNoticeTimer.restart()
+            agentSwitchAnimation.restart()
+            Qt.callLater(function() {
+                var index = root.attachedAgentIndex(agentId)
+                if (index >= 0 && agentList.count > 0) {
+                    agentList.positionViewAtIndex(
+                        index,
+                        ListView.Contain
+                    )
+                }
+            })
+        }
     }
 
     Timer {
@@ -195,6 +229,39 @@ Rectangle {
         interval: 3000
         repeat: false
         onTriggered: root.attachmentNotice = ""
+    }
+
+    Timer {
+        id: agentSwitchNoticeTimer
+        interval: 2600
+        repeat: false
+        onTriggered: root.agentSwitchNotice = ""
+    }
+
+    SequentialAnimation {
+        id: agentSwitchAnimation
+
+        PropertyAction {
+            target: root
+            property: "agentSwitchPulse"
+            value: 0
+        }
+
+        NumberAnimation {
+            target: root
+            property: "agentSwitchPulse"
+            to: 1
+            duration: 170
+            easing.type: Easing.OutCubic
+        }
+
+        NumberAnimation {
+            target: root
+            property: "agentSwitchPulse"
+            to: 0
+            duration: 720
+            easing.type: Easing.OutCubic
+        }
     }
 
     color: theme.surfaceBg
@@ -262,12 +329,42 @@ Rectangle {
                             color: root.theme.quietBorder
                         }
 
-                        Text {
-                            text: "♙  AGENT  " + root.selectedAgentName
-                            color: root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.letterSpacing: 0.25
-                            elide: Text.ElideRight
+                        Rectangle {
+                            width: Math.min(
+                                220,
+                                activeAgentLabel.implicitWidth + 10
+                            )
+                            height: 18
+                            radius: 9
+                            color: Qt.rgba(
+                                0.44,
+                                0.36,
+                                0.75,
+                                0.08 + root.agentSwitchPulse * 0.34
+                            )
+                            scale: 1 + root.agentSwitchPulse * 0.055
+
+                            Behavior on width {
+                                NumberAnimation {
+                                    duration: root.theme.motionPanel
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
+
+                            Text {
+                                id: activeAgentLabel
+
+                                anchors.centerIn: parent
+                                width: parent.width - 10
+                                text: "♙  AGENT  " + root.selectedAgentName
+                                horizontalAlignment: Text.AlignHCenter
+                                color: root.agentSwitchPulse > 0.05
+                                    ? root.theme.accentBright
+                                    : root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(9)
+                                font.letterSpacing: 0.25
+                                elide: Text.ElideRight
+                            }
                         }
 
                         Rectangle {
@@ -416,6 +513,15 @@ Rectangle {
 
                 Behavior on color {
                     ColorAnimation { duration: 140 }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    border.width: root.agentSwitchPulse > 0.01 ? 2 : 0
+                    border.color: root.theme.accent
+                    opacity: root.agentSwitchPulse * 0.72
+                    z: 4
                 }
 
                 ColumnLayout {
@@ -688,6 +794,8 @@ Rectangle {
                                 Layout.fillWidth: true
                                 text: ChatStore.errorMessage.length > 0
                                     ? ChatStore.errorMessage
+                                    : root.agentSwitchNotice.length > 0
+                                        ? root.agentSwitchNotice
                                     : root.attachmentNotice.length > 0
                                         ? root.attachmentNotice
                                         : ChatStore.mutatingAttachment
@@ -714,6 +822,8 @@ Rectangle {
                                                     : "Enter to send  ·  Shift+Enter for newline"
                                 color: ChatStore.errorMessage.length > 0
                                     ? root.theme.danger
+                                    : root.agentSwitchNotice.length > 0
+                                        ? root.theme.accentBright
                                     : root.attachmentNotice.length > 0
                                         ? root.theme.success
                                         : root.theme.mutedText
@@ -909,7 +1019,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     text: AgentStore.loading
                                         ? "…"
-                                        : String(root.orderedAgents.length)
+                                        : String(root.attachedAgents.length)
                                     color: root.theme.mutedText
                                     font.pixelSize: root.theme.typeSize(8)
                                     font.weight: Font.DemiBold
@@ -920,12 +1030,16 @@ Rectangle {
                                 Layout.preferredWidth: 24
                                 Layout.preferredHeight: 24
                                 text: "+"
-                                enabled: !AgentStore.mutating
+                                enabled: ChatStore.selectedChatId.length > 0
+                                    && !AgentStore.mutating
+                                    && !ChatStore.assigningAgent
                                 hoverEnabled: true
                                 padding: 0
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Create Agent"
-                                onClicked: agentEditor.openForCreate()
+                                ToolTip.text: ChatStore.selectedChatId.length > 0
+                                    ? "Add or create Agent"
+                                    : "Select a Chat first"
+                                onClicked: root.openAgentPicker()
 
                                 contentItem: Text {
                                     text: parent.text
@@ -992,12 +1106,12 @@ Rectangle {
 
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                visible: root.orderedAgents.length > 0
+                                visible: root.attachedAgents.length > 0
                                 spacing: 1
                                 topMargin: 4
                                 bottomMargin: 4
                                 clip: true
-                                model: root.orderedAgents
+                                model: root.attachedAgents
 
                                 delegate: Item {
                                     id: agentDelegate
@@ -1075,7 +1189,7 @@ Rectangle {
                                             id: assignmentArea
 
                                             anchors.left: parent.left
-                                            anchors.right: editAgentButton.left
+                                            anchors.right: detachAgentButton.left
                                             anchors.top: parent.top
                                             anchors.bottom: parent.bottom
 
@@ -1119,6 +1233,49 @@ Rectangle {
                                                 onTapped: ChatStore.assignAgentToSelectedChat(
                                                     String(agentItem.modelData.id)
                                                 )
+                                            }
+                                        }
+
+                                        Button {
+                                            id: detachAgentButton
+
+                                            anchors.right: editAgentButton.left
+                                            anchors.rightMargin: 5
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 25
+                                            height: 28
+                                            visible: !agentItem.assigned
+                                                && root.attachedAgents.length > 1
+                                            text: "×"
+                                            enabled: !ChatStore.responding
+                                                && !ChatStore.assigningAgent
+                                                && !ChatStore.mutating
+                                                && !AgentStore.mutating
+                                            hoverEnabled: true
+                                            padding: 0
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: "Detach from this Chat"
+                                            onClicked: ChatStore.detachAgentFromSelectedChat(
+                                                String(agentItem.modelData.id)
+                                            )
+
+                                            contentItem: Text {
+                                                text: parent.text
+                                                color: parent.enabled && parent.hovered
+                                                    ? root.theme.danger
+                                                    : root.theme.mutedText
+                                                font.pixelSize: root.theme.typeSize(13)
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
+
+                                            background: Rectangle {
+                                                color: parent.hovered
+                                                    ? "#2d211f"
+                                                    : "transparent"
+                                                border.width: parent.hovered ? 1 : 0
+                                                border.color: "#6c413d"
+                                                radius: root.theme.radiusSmall
                                             }
                                         }
 
@@ -1177,8 +1334,9 @@ Rectangle {
                             }
 
                             Button {
+                                visible: false
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 28
+                                Layout.preferredHeight: 0
                                 text: (root.archivedAgentsOpen ? "▾" : "▸")
                                     + "  Archived  "
                                     + String(AgentStore.archivedAgents.length)
@@ -1217,8 +1375,8 @@ Rectangle {
                                 id: archivedAgentList
 
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: root.archivedAgentsOpen ? 116 : 0
-                                visible: root.archivedAgentsOpen
+                                Layout.preferredHeight: 0
+                                visible: false
                                 spacing: 2
                                 clip: true
                                 model: AgentStore.archivedAgents
@@ -1280,8 +1438,10 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                visible: !AgentStore.loading && root.orderedAgents.length === 0
-                                text: "No active Agents found."
+                                visible: !AgentStore.loading && root.attachedAgents.length === 0
+                                text: ChatStore.selectedChatId.length > 0
+                                    ? "No Agents are attached to this Chat."
+                                    : "Select a Chat to view its Agents."
                                 color: root.theme.mutedText
                                 font.pixelSize: root.theme.typeSize(8)
                                 horizontalAlignment: Text.AlignHCenter
@@ -1298,15 +1458,45 @@ Rectangle {
         target: AgentStore
 
         function onAgentDeleted(agentId, reassignedChatCount) {
-            if (reassignedChatCount > 0) {
-                ChatStore.refresh()
-            }
+            ChatStore.refresh()
         }
+
+        function onAgentCreated(agent) {
+            if (
+                root.attachNextCreatedAgent
+                && root.pendingCreatedChatId === String(ChatStore.selectedChatId)
+            ) {
+                ChatStore.attachAgentToSelectedChat(String(agent.id || ""))
+            }
+
+            root.attachNextCreatedAgent = false
+            root.pendingCreatedChatId = ""
+        }
+    }
+
+    ChatAgentPicker {
+        id: agentPicker
+
+        theme: root.theme
+        attachedAgentIds: ChatStore.selectedChat.agentIds || []
+        chatTitle: String(ChatStore.selectedChat.title || "")
+        onAgentSelected: function(agentId) {
+            ChatStore.attachAgentToSelectedChat(agentId)
+        }
+        onCreateRequested: root.createAttachedAgent()
     }
 
     AgentEditor {
         id: agentEditor
 
         theme: root.theme
+        onClosed: {
+            Qt.callLater(function() {
+                if (!AgentStore.mutating) {
+                    root.attachNextCreatedAgent = false
+                    root.pendingCreatedChatId = ""
+                }
+            })
+        }
     }
 }

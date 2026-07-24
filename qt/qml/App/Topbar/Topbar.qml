@@ -8,11 +8,6 @@ Rectangle {
 
     required property var theme
 
-    readonly property string activeCollectionPath:
-        CollectionStore.selectedCollection.path
-            ? String(CollectionStore.selectedCollection.path)
-            : "All Work"
-
     height: theme.topbarHeight
     color: theme.topbarBg
     border.width: 0
@@ -42,48 +37,8 @@ Rectangle {
             verticalAlignment: Text.AlignVCenter
         }
 
-        Rectangle {
-            Layout.preferredWidth: 1
-            Layout.preferredHeight: 24
-            color: root.theme.quietBorder
-        }
-
-        Column {
-            Layout.preferredWidth: Math.min(
-                420,
-                Math.max(220, root.width * 0.36)
-            )
-            spacing: 1
-
-            Text {
-                text: "WORKSPACE"
-                color: root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(8)
-                font.weight: Font.Bold
-                font.letterSpacing: 0.7
-            }
-
-            Text {
-                width: parent.width
-                text: root.activeCollectionPath
-                color: root.theme.appText
-                font.pixelSize: root.theme.typeSize(10)
-                font.weight: Font.DemiBold
-                elide: Text.ElideMiddle
-            }
-        }
-
         Item {
             Layout.fillWidth: true
-        }
-
-        Text {
-            visible: CollectionStore.errorMessage.length > 0
-            Layout.maximumWidth: 260
-            text: CollectionStore.errorMessage
-            color: root.theme.danger
-            font.pixelSize: root.theme.typeSize(8)
-            elide: Text.ElideRight
         }
 
         Rectangle {
