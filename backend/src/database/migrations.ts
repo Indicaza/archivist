@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 
 type Migration = {
   version: number;
+  requiresForeignKeysDisabled?: boolean;
   migrate: (database: Database.Database) => void;
 };
 
@@ -871,6 +872,152 @@ const migrations: Migration[] = [
       `);
     },
   },
+
+  {
+    version: 16,
+    requiresForeignKeysDisabled: true,
+    migrate(database) {
+      database.exec(`
+        DROP TRIGGER IF EXISTS library_chunk_search_after_insert;
+        DROP TRIGGER IF EXISTS library_chunk_search_after_update;
+
+        CREATE TABLE library_files_v16 (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          relative_path TEXT NOT NULL CHECK (
+            length(trim(relative_path)) > 0
+          ),
+          name TEXT NOT NULL CHECK (
+            length(trim(name)) > 0
+          ),
+          extension TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL CHECK (
+            size_bytes >= 0
+          ),
+          modified_at TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'available' CHECK (
+            status IN ('available', 'unreadable', 'missing')
+          ),
+          last_seen_scan_id TEXT,
+          last_seen_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (last_seen_scan_id)
+            REFERENCES library_scans(id)
+            ON DELETE SET NULL,
+          UNIQUE (library_id, relative_path)
+        );
+
+        INSERT INTO library_files_v16 (
+          id,
+          library_id,
+          relative_path,
+          name,
+          extension,
+          size_bytes,
+          modified_at,
+          status,
+          last_seen_scan_id,
+          last_seen_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          id,
+          library_id,
+          relative_path,
+          name,
+          extension,
+          size_bytes,
+          modified_at,
+          status,
+          last_seen_scan_id,
+          last_seen_at,
+          created_at,
+          updated_at
+        FROM library_files;
+
+        DROP TABLE library_files;
+
+        ALTER TABLE library_files_v16
+        RENAME TO library_files;
+
+        CREATE INDEX library_files_library_path_index
+          ON library_files(library_id, relative_path);
+
+        CREATE INDEX library_files_library_status_index
+          ON library_files(library_id, status);
+
+        CREATE TRIGGER library_chunk_search_after_insert
+        AFTER INSERT ON library_chunks
+        BEGIN
+          INSERT INTO library_chunk_search (
+            chunk_id,
+            library_id,
+            library_file_id,
+            relative_path,
+            file_name,
+            content
+          )
+          SELECT
+            new.id,
+            new.library_id,
+            new.library_file_id,
+            library_files.relative_path,
+            library_files.name,
+            new.content
+          FROM library_files
+          WHERE library_files.id = new.library_file_id;
+        END;
+
+        CREATE TRIGGER library_chunk_search_after_update
+        AFTER UPDATE OF
+          library_id,
+          library_file_id,
+          content
+        ON library_chunks
+        BEGIN
+          DELETE FROM library_chunk_search
+          WHERE chunk_id = old.id;
+
+          INSERT INTO library_chunk_search (
+            chunk_id,
+            library_id,
+            library_file_id,
+            relative_path,
+            file_name,
+            content
+          )
+          SELECT
+            new.id,
+            new.library_id,
+            new.library_file_id,
+            library_files.relative_path,
+            library_files.name,
+            new.content
+          FROM library_files
+          WHERE library_files.id = new.library_file_id;
+        END;
+      `);
+
+      const foreignKeyViolations = database.pragma(
+        "foreign_key_check",
+      ) as unknown[];
+
+      if (foreignKeyViolations.length > 0) {
+        throw new Error(
+          `Library file migration produced ${foreignKeyViolations.length} foreign-key violation(s).`,
+        );
+      }
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {
@@ -888,6 +1035,25 @@ export function runMigrations(database: Database.Database): void {
       database.pragma(`user_version = ${migration.version}`);
     });
 
-    migrate();
+    const foreignKeysWereEnabled =
+      database.pragma("foreign_keys", { simple: true }) === 1;
+
+    if (
+      migration.requiresForeignKeysDisabled &&
+      foreignKeysWereEnabled
+    ) {
+      database.pragma("foreign_keys = OFF");
+    }
+
+    try {
+      migrate();
+    } finally {
+      if (
+        migration.requiresForeignKeysDisabled &&
+        foreignKeysWereEnabled
+      ) {
+        database.pragma("foreign_keys = ON");
+      }
+    }
   }
 }

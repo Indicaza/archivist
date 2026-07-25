@@ -25,6 +25,7 @@ class LibraryStore final : public QObject
     Q_PROPERTY(bool loadingFilePreview READ loadingFilePreview NOTIFY loadingFilePreviewChanged)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(bool movingFile READ movingFile NOTIFY movingFileChanged)
+    Q_PROPERTY(bool creatingLibrary READ creatingLibrary NOTIFY creatingLibraryChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString filePreviewError READ filePreviewError NOTIFY filePreviewErrorChanged)
 
@@ -44,11 +45,14 @@ public:
     [[nodiscard]] bool loadingFilePreview() const;
     [[nodiscard]] bool scanning() const;
     [[nodiscard]] bool movingFile() const;
+    [[nodiscard]] bool creatingLibrary() const;
     [[nodiscard]] QString errorMessage() const;
     [[nodiscard]] QString filePreviewError() const;
 
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE void createLibrary(const QUrl &folderUrl);
     Q_INVOKABLE void selectLibrary(const QString &libraryId);
+    Q_INVOKABLE void selectLibraryAndScan(const QString &libraryId);
     Q_INVOKABLE void refreshSelectedFiles();
     Q_INVOKABLE void scanSelectedLibrary();
     Q_INVOKABLE void moveFile(const QString &fileId, const QString &targetDirectory);
@@ -69,6 +73,8 @@ signals:
     void loadingFilePreviewChanged();
     void scanningChanged();
     void movingFileChanged();
+    void creatingLibraryChanged();
+    void libraryCreated(const QVariantMap &library);
     void fileMoved(const QString &fileId, const QString &relativePath);
     void errorMessageChanged();
     void filePreviewErrorChanged();
@@ -76,6 +82,7 @@ signals:
 private:
     [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
     void fetchAppState();
+    void startLibrarySelection(const QString &libraryId);
     void setLibraries(const QVariantList &libraries);
     void setSelectedLibraryId(const QString &libraryId);
     void setFiles(const QVariantList &files);
@@ -87,8 +94,10 @@ private:
     void setLoadingFilePreview(bool loading);
     void setScanning(bool scanning);
     void setMovingFile(bool moving);
+    void setCreatingLibrary(bool creating);
     void setErrorMessage(const QString &message);
     void setFilePreviewError(const QString &message);
+    void upsertLibrary(const QVariantMap &library);
     [[nodiscard]] bool containsLibrary(const QString &libraryId) const;
     [[nodiscard]] bool containsFile(const QString &fileId) const;
 
@@ -96,6 +105,10 @@ private:
     QUrl m_baseUrl;
     QVariantList m_libraries;
     QString m_selectedLibraryId;
+    QString m_pendingScanLibraryId;
+    QString m_pendingLibrarySelectionId;
+    QString m_queuedLibrarySelectionId;
+    quint64 m_fileRequestRevision = 0;
     QVariantList m_files;
     QVariantMap m_latestScan;
     QString m_selectedFileId;
@@ -105,6 +118,7 @@ private:
     bool m_loadingFilePreview = false;
     bool m_scanning = false;
     bool m_movingFile = false;
+    bool m_creatingLibrary = false;
     QString m_errorMessage;
     QString m_filePreviewError;
 };

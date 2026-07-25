@@ -16,6 +16,7 @@ import {
   hashLibraryText,
   normalizeLibraryText,
 } from "./LibraryTextChunker.js";
+import { isSupportedLibraryTextFile } from "./LibraryFilePolicy.js";
 
 const maximumReportedIssues = 100;
 
@@ -43,6 +44,7 @@ export async function indexLibraryTextCatalog(
   const startedAt = performance.now();
   const issues: LibraryTextIndexIssue[] = [];
 
+  let processedFileCount = 0;
   let unchangedFileCount = 0;
   let indexedFileCount = 0;
   let emptyFileCount = 0;
@@ -51,6 +53,12 @@ export async function indexLibraryTextCatalog(
   let chunkCount = 0;
 
   for (const file of catalog.files) {
+    if (!isSupportedLibraryTextFile(file.name, file.extension)) {
+      continue;
+    }
+
+    processedFileCount += 1;
+
     const existingDocument = getLibraryTextDocument(file.id);
 
     if (file.status !== "available") {
@@ -148,7 +156,7 @@ export async function indexLibraryTextCatalog(
 
   return {
     libraryId,
-    processedFileCount: catalog.files.length,
+    processedFileCount,
     unchangedFileCount,
     indexedFileCount,
     emptyFileCount,

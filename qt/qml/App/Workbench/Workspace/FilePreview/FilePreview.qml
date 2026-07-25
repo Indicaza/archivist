@@ -38,11 +38,24 @@ Rectangle {
     readonly property var rendererSelection: RendererRegistry.resolve(fileIdentity)
     readonly property bool markdownRenderingAvailable: rendererSelection.id === "markdown"
         && rendererSelection.available
+    readonly property bool imageRenderingAvailable: rendererSelection.id === "image"
+        && rendererSelection.available
+    readonly property bool directRenderingAvailable: markdownRenderingAvailable
+        || imageRenderingAvailable
+    readonly property bool displayLoading: loading && !imageRenderingAvailable
+    readonly property string displayErrorMessage: imageRenderingAvailable
+        ? ""
+        : errorMessage
+    readonly property bool displayContentAvailable: imageRenderingAvailable
+        || content.length > 0
     readonly property string currentFileKey: String(file && file.id ? file.id : "")
         + ":"
         + String(rendererSelection.id || "plain-text")
     property string viewMode: "source"
     property real markdownZoom: 1.0
+    property real imageZoom: 1.0
+    property bool imageFitToView: true
+    property bool imageCheckerboardVisible: true
 
     function setMarkdownZoom(value) {
         root.markdownZoom = Math.max(0.65, Math.min(2.0, value))
@@ -60,8 +73,60 @@ Rectangle {
         root.markdownZoom = 1.0
     }
 
+    function setImageZoom(value) {
+        root.imageZoom = Math.max(0.05, Math.min(8.0, value))
+    }
+
+    function zoomImageIn() {
+        root.setImageZoom(root.imageZoom + (root.imageZoom < 0.5 ? 0.05 : 0.1))
+    }
+
+    function zoomImageOut() {
+        root.setImageZoom(root.imageZoom - (root.imageZoom <= 0.5 ? 0.05 : 0.1))
+    }
+
+    function fitImage() {
+        root.imageFitToView = true
+        root.imageZoom = 1.0
+    }
+
+    function showImageActualSize() {
+        root.imageFitToView = false
+        root.imageZoom = 1.0
+    }
+
+    function zoomActiveRendererIn() {
+        if (root.imageRenderingAvailable) {
+            root.zoomImageIn()
+            return
+        }
+
+        root.zoomMarkdownIn()
+    }
+
+    function zoomActiveRendererOut() {
+        if (root.imageRenderingAvailable) {
+            root.zoomImageOut()
+            return
+        }
+
+        root.zoomMarkdownOut()
+    }
+
+    function resetActiveRendererZoom() {
+        if (root.imageRenderingAvailable) {
+            root.showImageActualSize()
+            return
+        }
+
+        root.resetMarkdownZoom()
+    }
+
     function resetViewMode() {
-        root.viewMode = root.markdownRenderingAvailable ? "rendered" : "source"
+        root.viewMode = root.directRenderingAvailable ? "rendered" : "source"
+        root.markdownZoom = 1.0
+        root.imageZoom = 1.0
+        root.imageFitToView = true
     }
 
     onCurrentFileKeyChanged: Qt.callLater(root.resetViewMode)
@@ -70,20 +135,20 @@ Rectangle {
 
     Shortcut {
         sequence: StandardKey.ZoomIn
-        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
-        onActivated: root.zoomMarkdownIn()
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomActiveRendererIn()
     }
 
     Shortcut {
         sequence: StandardKey.ZoomOut
-        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
-        onActivated: root.zoomMarkdownOut()
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomActiveRendererOut()
     }
 
     Shortcut {
         sequence: Qt.platform.os === "osx" ? "Meta+0" : "Ctrl+0"
-        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
-        onActivated: root.resetMarkdownZoom()
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.resetActiveRendererZoom()
     }
 
     readonly property string attachmentId: attachmentIdForFile()
@@ -227,11 +292,14 @@ Rectangle {
                 }
 
                 Text {
-                    visible: !root.loading && root.errorMessage.length === 0
-                    text: root.formattedSize(root.sizeBytes)
-                        + "  ·  "
-                        + String(root.lineCount)
-                        + (root.lineCount === 1 ? " line" : " lines")
+                    visible: !root.displayLoading
+                        && root.displayErrorMessage.length === 0
+                    text: root.imageRenderingAvailable
+                        ? root.formattedSize(root.sizeBytes)
+                        : root.formattedSize(root.sizeBytes)
+                            + "  ·  "
+                            + String(root.lineCount)
+                            + (root.lineCount === 1 ? " line" : " lines")
                     color: root.theme.mutedText
                     font.pixelSize: root.theme.typeSize(9)
                     opacity: 0.72
@@ -315,8 +383,8 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.markdownRenderingAvailable ? 36 : 0
-            visible: root.markdownRenderingAvailable
+            Layout.preferredHeight: root.directRenderingAvailable ? 36 : 0
+            visible: root.directRenderingAvailable
             color: "transparent"
 
             RowLayout {
@@ -326,11 +394,12 @@ Rectangle {
                 Item { Layout.fillWidth: true }
 
                 Repeater {
-                    model: [
+                    visible: root.markdownRenderingAvailable
+                    model: root.markdownRenderingAvailable ? [
                         { id: "rendered", label: "Rendered" },
                         { id: "source", label: "Source" },
                         { id: "split", label: "Split" }
-                    ]
+                    ] : []
 
                     Button {
                         required property var modelData
@@ -370,6 +439,116 @@ Rectangle {
                     }
                 }
 
+                Button {
+                    Layout.preferredWidth: 54
+                    Layout.preferredHeight: 30
+                    visible: root.imageRenderingAvailable
+                    text: "Fit"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.fitImage()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Fit image to viewport"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.imageFitToView
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: root.imageFitToView
+                            ? root.theme.activeBg
+                            : parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.imageFitToView
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 54
+                    Layout.preferredHeight: 30
+                    visible: root.imageRenderingAvailable
+                    text: "1:1"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.showImageActualSize()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Show actual pixel size"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: !root.imageFitToView && root.imageZoom === 1.0
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: !root.imageFitToView && root.imageZoom === 1.0
+                            ? root.theme.activeBg
+                            : parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: !root.imageFitToView && root.imageZoom === 1.0
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 78
+                    Layout.preferredHeight: 30
+                    visible: root.imageRenderingAvailable
+                    text: "Grid"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.imageCheckerboardVisible = !root.imageCheckerboardVisible
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.imageCheckerboardVisible
+                        ? "Hide transparency grid"
+                        : "Show transparency grid"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.imageCheckerboardVisible
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: root.imageCheckerboardVisible
+                            ? root.theme.activeBg
+                            : parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.imageCheckerboardVisible
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
                 Rectangle {
                     Layout.preferredWidth: 1
                     Layout.preferredHeight: 22
@@ -384,7 +563,7 @@ Rectangle {
                     text: "−"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.zoomMarkdownOut()
+                    onClicked: root.zoomActiveRendererOut()
                     ToolTip.visible: hovered
                     ToolTip.text: "Zoom out"
 
@@ -411,10 +590,12 @@ Rectangle {
                     Layout.preferredWidth: 56
                     Layout.preferredHeight: 30
                     visible: root.viewMode !== "source"
-                    text: String(Math.round(root.markdownZoom * 100)) + "%"
+                    text: root.imageRenderingAvailable
+                        ? String(imageRenderer.effectivePercent) + "%"
+                        : String(Math.round(root.markdownZoom * 100)) + "%"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.resetMarkdownZoom()
+                    onClicked: root.resetActiveRendererZoom()
                     ToolTip.visible: hovered
                     ToolTip.text: "Reset zoom"
 
@@ -444,7 +625,7 @@ Rectangle {
                     text: "+"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.zoomMarkdownIn()
+                    onClicked: root.zoomActiveRendererIn()
                     ToolTip.visible: hovered
                     ToolTip.text: "Zoom in"
 
@@ -505,6 +686,26 @@ Rectangle {
                 }
             }
 
+            ImageRenderer {
+                id: imageRenderer
+
+                anchors.fill: parent
+                visible: root.imageRenderingAvailable
+                theme: root.theme
+                libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                relativePath: String(root.file && root.file.relativePath
+                    ? root.file.relativePath
+                    : "")
+                zoomFactor: root.imageZoom
+                fitToView: root.imageFitToView
+                checkerboardVisible: root.imageCheckerboardVisible
+                onZoomFactorRequested: function(value) {
+                    root.setImageZoom(value)
+                }
+                onFitRequested: root.fitImage()
+                onActualSizeRequested: root.showImageActualSize()
+            }
+
             RowLayout {
                 anchors.fill: parent
                 visible: !root.loading
@@ -547,18 +748,18 @@ Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(460, parent.width - 60)
                 spacing: 8
-                visible: root.loading
-                    || root.errorMessage.length > 0
-                    || root.content.length === 0
+                visible: root.displayLoading
+                    || root.displayErrorMessage.length > 0
+                    || !root.displayContentAvailable
 
                 Text {
                     width: parent.width
-                    text: root.loading
+                    text: root.displayLoading
                         ? "Opening file…"
-                        : root.errorMessage.length > 0
+                        : root.displayErrorMessage.length > 0
                             ? "File preview unavailable"
                             : "This file is empty"
-                    color: root.errorMessage.length > 0
+                    color: root.displayErrorMessage.length > 0
                         ? root.theme.danger
                         : root.theme.appText
                     font.pixelSize: root.theme.typeSize(16)
@@ -568,10 +769,11 @@ Rectangle {
 
                 Text {
                     width: parent.width
-                    visible: root.loading || root.errorMessage.length > 0
-                    text: root.loading
+                    visible: root.displayLoading
+                        || root.displayErrorMessage.length > 0
+                    text: root.displayLoading
                         ? "Archivist is validating and reading the cataloged file."
-                        : root.errorMessage
+                        : root.displayErrorMessage
                     color: root.theme.mutedText
                     font.pixelSize: root.theme.typeSize(11)
                     lineHeight: root.theme.typeLineHeightBody

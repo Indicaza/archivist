@@ -183,8 +183,8 @@ ScrollView {
     Item {
         id: documentCanvas
 
-        width: Math.max(root.availableWidth, paper.width + root.outerMargin * 2)
-        height: Math.max(root.availableHeight, paper.height + root.outerMargin * 2)
+        width: Math.max(root.width, paper.width + root.outerMargin * 2)
+        height: Math.max(root.height, paper.height + root.outerMargin * 2)
 
         Rectangle {
             x: paper.x + 6
@@ -204,7 +204,7 @@ ScrollView {
             anchors.horizontalCenter: parent.horizontalCenter
             width: root.paperWidth * root.zoomFactor
             height: Math.max(
-                root.availableHeight - root.outerMargin * 2,
+                root.height - root.outerMargin * 2,
                 markdownText.contentHeight + root.pageVerticalPadding * 2 * root.zoomFactor
             )
             color: root.theme.controlSurfaceBg

@@ -3,7 +3,11 @@ import { access, lstat, opendir } from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../../../errors/app-error.js";
 import { getLibraryById } from "../models/Library.js";
-import { supportedLibraryTextExtensions } from "./LibraryFilePolicy.js";
+import {
+  isCatalogableLibraryDirectory,
+  isCatalogableLibraryFile,
+  isManagedPhotoLibraryDirectory,
+} from "./LibraryFilePolicy.js";
 import { indexLibraryTextCatalog } from "./LibraryTextIndexer.js";
 import {
   completeLibraryScan,
@@ -17,6 +21,7 @@ import type {
   ScanLibraryResult,
   ScannedLibraryFile,
 } from "../types/LibraryFileTypes.js";
+import type { LibraryTextIndexSummary } from "../types/LibraryTextIndexTypes.js";
 
 const ignoredDirectoryNames = new Set([
   ".git",
@@ -27,7 +32,7 @@ const ignoredDirectoryNames = new Set([
   "coverage",
 ]);
 
-const ignoredFileNames = new Set([".DS_Store"]);
+const ignoredFileNames = new Set([".DS_Store", ".localized"]);
 const maxReportedIssues = 100;
 
 type ScanAccumulator = {
@@ -80,6 +85,30 @@ function getErrorMessage(error: unknown): string {
   return "An unknown filesystem error occurred.";
 }
 
+function failedTextIndexSummary(
+  libraryId: string,
+  message: string,
+): LibraryTextIndexSummary {
+  return {
+    libraryId,
+    processedFileCount: 0,
+    unchangedFileCount: 0,
+    indexedFileCount: 0,
+    emptyFileCount: 0,
+    unavailableFileCount: 0,
+    failedFileCount: 1,
+    chunkCount: 0,
+    durationMs: 0,
+    issues: [
+      {
+        fileId: "",
+        relativePath: "",
+        message,
+      },
+    ],
+  };
+}
+
 async function validateLibraryRoot(rootPath: string): Promise<void> {
   let stats;
 
@@ -98,6 +127,32 @@ async function validateLibraryRoot(rootPath: string): Promise<void> {
   } catch {
     throw new AppError(403, "Archivist cannot read the Library folder.");
   }
+}
+
+async function scanManagedPhotoLibrary(
+  rootPath: string,
+  relativePackagePath: string,
+  accumulator: ScanAccumulator,
+): Promise<void> {
+  const originalDirectoryNames = ["originals", "Originals", "Masters"];
+
+  for (const directoryName of originalDirectoryNames) {
+    const relativeOriginalsPath = path.join(relativePackagePath, directoryName);
+    const absoluteOriginalsPath = resolveInsideRoot(rootPath, relativeOriginalsPath);
+
+    try {
+      const stats = await lstat(absoluteOriginalsPath);
+
+      if (stats.isDirectory() && !stats.isSymbolicLink()) {
+        await scanDirectory(rootPath, relativeOriginalsPath, accumulator);
+        return;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  accumulator.ignoredEntryCount += 1;
 }
 
 async function scanDirectory(
@@ -132,7 +187,19 @@ async function scanDirectory(
       }
 
       if (entry.isDirectory()) {
-        if (ignoredDirectoryNames.has(entry.name.toLowerCase())) {
+        if (isManagedPhotoLibraryDirectory(entry.name)) {
+          await scanManagedPhotoLibrary(
+            rootPath,
+            relativeEntryPath,
+            accumulator,
+          );
+          continue;
+        }
+
+        if (
+          ignoredDirectoryNames.has(entry.name.toLowerCase()) ||
+          !isCatalogableLibraryDirectory(entry.name)
+        ) {
           accumulator.ignoredEntryCount += 1;
           continue;
         }
@@ -146,18 +213,12 @@ async function scanDirectory(
         continue;
       }
 
-      if (ignoredFileNames.has(entry.name)) {
+      if (ignoredFileNames.has(entry.name) || !isCatalogableLibraryFile(entry.name)) {
         accumulator.ignoredEntryCount += 1;
         continue;
       }
 
       const extension = path.extname(entry.name).toLowerCase();
-
-      if (!supportedLibraryTextExtensions.has(extension)) {
-        accumulator.ignoredEntryCount += 1;
-        continue;
-      }
-
       accumulator.discoveredFileCount += 1;
 
       const absoluteFilePath = resolveInsideRoot(rootPath, relativeEntryPath);
@@ -243,6 +304,9 @@ export async function scanLibraryFiles(
   } catch (error) {
     const message = getErrorMessage(error);
 
+    console.error(
+      `[Library scan] ${library.rootPath}: ${message}`,
+    );
     failLibraryScan(scan.id, libraryId, message);
 
     if (error instanceof AppError) {
@@ -255,7 +319,18 @@ export async function scanLibraryFiles(
   }
 
   const catalog = getLibraryFileCatalog(libraryId);
-  const index = await indexLibraryTextCatalog(libraryId, catalog);
+  let index: LibraryTextIndexSummary;
+
+  try {
+    index = await indexLibraryTextCatalog(libraryId, catalog);
+  } catch (error) {
+    const message = getErrorMessage(error);
+
+    console.error(
+      `[Library index] ${library.rootPath}: ${message}`,
+    );
+    index = failedTextIndexSummary(libraryId, message);
+  }
 
   return {
     ...catalog,

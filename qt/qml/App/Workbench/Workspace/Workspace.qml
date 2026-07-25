@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../Files/FileIdentity.js" as FileIdentity
 import "ChatMessage"
 import "JumpToLatestButton"
 import "FilePreview"
@@ -42,6 +43,14 @@ Rectangle {
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name
         ? String(LibraryStore.selectedLibrary.name)
         : "Library"
+    readonly property var previewFileIdentity: FileIdentity.resolve({
+        fileName: LibraryStore.selectedFile.name
+            || LibraryStore.selectedFile.relativePath
+            || "",
+        extension: LibraryStore.selectedFile.extension || ""
+    })
+    readonly property bool imagePreviewActive: root.previewActive
+        && root.previewFileIdentity.preferredRendererId === "image"
     readonly property real previewViewportX: (
         root.previewActive || editorTabStrip.hasTabs
     ) ? root.previewLeftObstruction : 0
@@ -400,11 +409,13 @@ Rectangle {
 
             Text {
                 text: root.previewActive
-                    ? LibraryStore.loadingFilePreview
-                        ? "Opening file"
-                        : LibraryStore.filePreviewError.length > 0
-                            ? "Preview unavailable"
-                            : "Read-only preview"
+                    ? root.imagePreviewActive
+                        ? "Image preview"
+                        : LibraryStore.loadingFilePreview
+                            ? "Opening file"
+                            : LibraryStore.filePreviewError.length > 0
+                                ? "Preview unavailable"
+                                : "Read-only preview"
                     : ChatStore.responding
                         ? "Archivist is thinking"
                         : ChatStore.lastModel.length > 0
@@ -412,7 +423,9 @@ Rectangle {
                             : root.hasSelectedChat
                                 ? "Ready"
                                 : "Select a Chat"
-                color: root.previewActive && LibraryStore.filePreviewError.length > 0
+                color: root.previewActive
+                    && !root.imagePreviewActive
+                    && LibraryStore.filePreviewError.length > 0
                     ? root.theme.danger
                     : ChatStore.responding && !root.previewActive
                         ? root.theme.appText

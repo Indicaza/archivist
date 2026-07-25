@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Network Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Network Quick QuickControls2 QuickDialogs2)
 
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
@@ -37,6 +37,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Files/RendererRegistry.js
         qml/App/Files/Renderers/PlainTextRenderer.qml
         qml/App/Files/Renderers/MarkdownRenderer.qml
+        qml/App/Files/Renderers/ImageRenderer.qml
         qml/App/Topbar/Topbar.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
@@ -69,6 +70,8 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml
         qml/App/Workbench/ArtifactDrawer/ContextInspector/ContextInspector.qml
+    RESOURCES
+        qml/App/Files/Renderers/Assets/checkerboard.svg
 )
 
 target_link_libraries(archivist-qt
@@ -76,6 +79,7 @@ target_link_libraries(archivist-qt
         Qt6::Network
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::QuickDialogs2
 )
 
 set_target_properties(archivist-qt PROPERTIES

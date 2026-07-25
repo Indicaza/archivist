@@ -4,6 +4,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QMimeDatabase>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 
@@ -60,6 +61,17 @@ JsonReplyResult consumeJsonReply(QNetworkReply *reply)
 QString encodedPathSegment(const QString &value)
 {
     return QString::fromUtf8(QUrl::toPercentEncoding(value));
+}
+
+bool usesDirectImageRenderer(const QVariantMap &file)
+{
+    const QString fileName = file.value(QStringLiteral("name")).toString();
+    const QString mimeType = QMimeDatabase()
+        .mimeTypeForFile(fileName, QMimeDatabase::MatchExtension)
+        .name();
+
+    return mimeType.startsWith(QStringLiteral("image/"))
+        && mimeType != QStringLiteral("image/svg+xml");
 }
 }
 
@@ -148,6 +160,11 @@ bool LibraryStore::movingFile() const
     return m_movingFile;
 }
 
+bool LibraryStore::creatingLibrary() const
+{
+    return m_creatingLibrary;
+}
+
 QString LibraryStore::errorMessage() const
 {
     return m_errorMessage;
@@ -191,6 +208,81 @@ void LibraryStore::refresh()
     });
 }
 
+void LibraryStore::createLibrary(const QUrl &folderUrl)
+{
+    if (m_creatingLibrary || !folderUrl.isValid()) {
+        return;
+    }
+
+    const QString rootPath = folderUrl.isLocalFile()
+        ? folderUrl.toLocalFile()
+        : folderUrl.toString();
+
+    if (rootPath.trimmed().isEmpty()) {
+        setErrorMessage(QStringLiteral("Select a folder to create a Library."));
+        return;
+    }
+
+    setErrorMessage({});
+    setCreatingLibrary(true);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("rootPath"), rootPath);
+
+    QNetworkReply *reply = m_network.post(
+        requestFor(QStringLiteral("/libraries")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setCreatingLibrary(false);
+
+        if (!result.ok) {
+            const QJsonObject error =
+                result.object.value(QStringLiteral("error")).toObject();
+            const QJsonObject details =
+                error.value(QStringLiteral("details")).toObject();
+
+            if (
+                details.value(QStringLiteral("code")).toString()
+                    == QStringLiteral("LIBRARY_EXISTS")
+            ) {
+                const QString existingLibraryId =
+                    details.value(QStringLiteral("libraryId")).toString();
+
+                for (const QVariant &value : m_libraries) {
+                    const QVariantMap library = value.toMap();
+
+                    if (
+                        library.value(QStringLiteral("id")).toString()
+                        == existingLibraryId
+                    ) {
+                        setErrorMessage({});
+                        emit libraryCreated(library);
+                        return;
+                    }
+                }
+            }
+
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QVariantMap library =
+            result.object.value(QStringLiteral("library")).toObject().toVariantMap();
+
+        if (library.isEmpty()) {
+            setErrorMessage(QStringLiteral("Archivist created the Library but returned no Library data."));
+            return;
+        }
+
+        upsertLibrary(library);
+        emit libraryCreated(library);
+    });
+}
+
 void LibraryStore::fetchAppState()
 {
     QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/app-state")));
@@ -230,10 +322,34 @@ void LibraryStore::selectLibrary(const QString &libraryId)
         return;
     }
 
+    if (!m_pendingLibrarySelectionId.isEmpty()) {
+        if (libraryId == m_pendingLibrarySelectionId) {
+            m_queuedLibrarySelectionId.clear();
+        } else {
+            m_queuedLibrarySelectionId = libraryId;
+        }
+        return;
+    }
+
     if (libraryId == m_selectedLibraryId) {
+        if (m_pendingScanLibraryId == libraryId) {
+            m_pendingScanLibraryId.clear();
+            scanSelectedLibrary();
+            return;
+        }
+
         refreshSelectedFiles();
         return;
     }
+
+    startLibrarySelection(libraryId);
+}
+
+void LibraryStore::startLibrarySelection(const QString &libraryId)
+{
+    m_pendingLibrarySelectionId = libraryId;
+    m_queuedLibrarySelectionId.clear();
+    ++m_fileRequestRevision;
 
     clearFilePreview();
     setErrorMessage({});
@@ -250,26 +366,83 @@ void LibraryStore::selectLibrary(const QString &libraryId)
         QJsonDocument(body).toJson(QJsonDocument::Compact)
     );
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, libraryId]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
 
-        if (!result.ok) {
-            setLoadingFiles(false);
-            setErrorMessage(result.errorMessage);
-            return;
+            if (m_pendingLibrarySelectionId != libraryId) {
+                return;
+            }
+
+            m_pendingLibrarySelectionId.clear();
+
+            if (!result.ok) {
+                m_queuedLibrarySelectionId.clear();
+                m_pendingScanLibraryId.clear();
+                setLoadingFiles(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QJsonObject appState =
+                result.object.value(QStringLiteral("appState")).toObject();
+            const QString selectedLibraryId =
+                appState.value(QStringLiteral("selectedLibraryId")).toString();
+
+            if (selectedLibraryId != libraryId) {
+                m_queuedLibrarySelectionId.clear();
+                m_pendingScanLibraryId.clear();
+                setLoadingFiles(false);
+                setErrorMessage(
+                    QStringLiteral("Archivist selected an unexpected Library.")
+                );
+                return;
+            }
+
+            setSelectedLibraryId(selectedLibraryId);
+
+            if (
+                !m_queuedLibrarySelectionId.isEmpty()
+                && m_queuedLibrarySelectionId != selectedLibraryId
+            ) {
+                const QString queuedLibraryId = m_queuedLibrarySelectionId;
+                m_queuedLibrarySelectionId.clear();
+                startLibrarySelection(queuedLibraryId);
+                return;
+            }
+
+            m_queuedLibrarySelectionId.clear();
+
+            if (m_pendingScanLibraryId == selectedLibraryId) {
+                m_pendingScanLibraryId.clear();
+                setLoadingFiles(false);
+                scanSelectedLibrary();
+                return;
+            }
+
+            refreshSelectedFiles();
         }
+    );
+}
 
-        const QJsonObject appState = result.object.value(QStringLiteral("appState")).toObject();
-        setSelectedLibraryId(appState.value(QStringLiteral("selectedLibraryId")).toString());
-        setLoadingFiles(false);
-        refreshSelectedFiles();
-    });
+void LibraryStore::selectLibraryAndScan(const QString &libraryId)
+{
+    if (libraryId.isEmpty() || !containsLibrary(libraryId)) {
+        return;
+    }
+
+    m_pendingScanLibraryId = libraryId;
+    selectLibrary(libraryId);
 }
 
 void LibraryStore::refreshSelectedFiles()
 {
     if (m_selectedLibraryId.isEmpty()) {
+        ++m_fileRequestRevision;
         clearFilePreview();
         setFiles({});
         setLatestScan({});
@@ -277,26 +450,46 @@ void LibraryStore::refreshSelectedFiles()
         return;
     }
 
+    const QString requestedLibraryId = m_selectedLibraryId;
+    const quint64 requestRevision = ++m_fileRequestRevision;
+
     setErrorMessage({});
     setLoadingFiles(true);
 
     const QString path = QStringLiteral("/libraries/%1/files")
-        .arg(encodedPathSegment(m_selectedLibraryId));
+        .arg(encodedPathSegment(requestedLibraryId));
     QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setLoadingFiles(false);
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, requestedLibraryId, requestRevision]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            if (
+                requestRevision != m_fileRequestRevision
+                || requestedLibraryId != m_selectedLibraryId
+            ) {
+                return;
+            }
+
+            if (!result.ok) {
+                setLoadingFiles(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            setFiles(
+                result.object.value(QStringLiteral("files")).toArray().toVariantList()
+            );
+            setLatestScan(
+                result.object.value(QStringLiteral("latestScan")).toObject().toVariantMap()
+            );
+            setLoadingFiles(false);
         }
-
-        setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
-        setLatestScan(result.object.value(QStringLiteral("latestScan")).toObject().toVariantMap());
-    });
+    );
 }
 
 void LibraryStore::scanSelectedLibrary()
@@ -305,32 +498,50 @@ void LibraryStore::scanSelectedLibrary()
         return;
     }
 
+    const QString requestedLibraryId = m_selectedLibraryId;
+    const quint64 requestRevision = ++m_fileRequestRevision;
+
     clearFilePreview();
     setErrorMessage({});
     setScanning(true);
 
     const QString path = QStringLiteral("/libraries/%1/scan")
-        .arg(encodedPathSegment(m_selectedLibraryId));
+        .arg(encodedPathSegment(requestedLibraryId));
     QNetworkReply *reply = m_network.post(requestFor(path), QByteArrayLiteral("{}"));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setScanning(false);
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, requestedLibraryId, requestRevision]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+            setScanning(false);
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            if (
+                requestRevision != m_fileRequestRevision
+                || requestedLibraryId != m_selectedLibraryId
+            ) {
+                return;
+            }
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            setFiles(
+                result.object.value(QStringLiteral("files")).toArray().toVariantList()
+            );
+
+            QVariantMap scan =
+                result.object.value(QStringLiteral("latestScan")).toObject().toVariantMap();
+            if (scan.isEmpty()) {
+                scan = result.object.value(QStringLiteral("scan")).toObject().toVariantMap();
+            }
+            setLatestScan(scan);
         }
-
-        setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
-
-        QVariantMap scan = result.object.value(QStringLiteral("latestScan")).toObject().toVariantMap();
-        if (scan.isEmpty()) {
-            scan = result.object.value(QStringLiteral("scan")).toObject().toVariantMap();
-        }
-        setLatestScan(scan);
-    });
+    );
 }
 
 void LibraryStore::moveFile(const QString &fileId, const QString &targetDirectory)
@@ -408,6 +619,11 @@ void LibraryStore::previewFile(const QString &fileId)
         setFilePreviewError(
             QStringLiteral("This file is not currently available. Rescan the Library and try again.")
         );
+        return;
+    }
+
+    if (usesDirectImageRenderer(file)) {
+        setLoadingFilePreview(false);
         return;
     }
 
@@ -571,6 +787,16 @@ void LibraryStore::setMovingFile(bool moving)
     emit movingFileChanged();
 }
 
+void LibraryStore::setCreatingLibrary(bool creating)
+{
+    if (m_creatingLibrary == creating) {
+        return;
+    }
+
+    m_creatingLibrary = creating;
+    emit creatingLibraryChanged();
+}
+
 void LibraryStore::setErrorMessage(const QString &message)
 {
     if (m_errorMessage == message) {
@@ -589,6 +815,35 @@ void LibraryStore::setFilePreviewError(const QString &message)
 
     m_filePreviewError = message;
     emit filePreviewErrorChanged();
+}
+
+void LibraryStore::upsertLibrary(const QVariantMap &library)
+{
+    const QString libraryId = library.value(QStringLiteral("id")).toString();
+
+    if (libraryId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextLibraries = m_libraries;
+    bool replaced = false;
+
+    for (qsizetype index = 0; index < nextLibraries.size(); ++index) {
+        if (
+            nextLibraries.at(index).toMap().value(QStringLiteral("id")).toString()
+            == libraryId
+        ) {
+            nextLibraries[index] = library;
+            replaced = true;
+            break;
+        }
+    }
+
+    if (!replaced) {
+        nextLibraries.prepend(library);
+    }
+
+    setLibraries(nextLibraries);
 }
 
 bool LibraryStore::containsLibrary(const QString &libraryId) const
