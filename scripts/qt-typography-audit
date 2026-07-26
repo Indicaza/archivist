@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+check_baseline=false
+paths=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check)
+      check_baseline=true
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: scripts/qt-typography-audit [--check] [path ...]"
+      echo
+      echo "Without paths, audits qt/qml/App."
+      echo "--check rejects new legacy typeSize(number) calls and literal font sizes."
+      exit 0
+      ;;
+    *)
+      paths+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if (( ${#paths[@]} == 0 )); then
+  paths=("qt/qml/App")
+fi
+
+python3 - "$check_baseline" "${paths[@]}" <<'PY'
+from __future__ import annotations
+
+from collections import Counter
+from pathlib import Path
+import re
+import sys
+
+repo_root = Path.cwd()
+check_baseline = sys.argv[1].lower() == "true"
+requested_paths = [Path(value) for value in sys.argv[2:]]
+baseline_path = repo_root / "scripts/typography-legacy-baseline.txt"
+
+legacy_pattern = re.compile(r"\btypeSize\(\s*([0-9]+(?:\.[0-9]+)?)\s*\)")
+literal_pattern = re.compile(
+    r"font\.(?:pixelSize|pointSize)\s*:\s*([0-9]+(?:\.[0-9]+)?)\b"
+)
+font_size_pattern = re.compile(r"font\.(?:pixelSize|pointSize)\s*:")
+semantic_pattern = re.compile(r"\btext[A-Z][A-Za-z0-9]*Size\b")
+primitive_pattern = re.compile(
+    r"\btype(?:Micro|Caption|Label|Control|Body|Title|Display)\b"
+)
+weight_pattern = re.compile(r"font\.weight\s*:")
+tracking_pattern = re.compile(r"font\.letterSpacing\s*:")
+line_height_pattern = re.compile(r"\blineHeight\s*:")
+family_pattern = re.compile(r"font\.family\s*:")
+
+files: list[Path] = []
+for requested_path in requested_paths:
+    absolute_path = requested_path if requested_path.is_absolute() else repo_root / requested_path
+    if absolute_path.is_file() and absolute_path.suffix == ".qml":
+        files.append(absolute_path)
+    elif absolute_path.is_dir():
+        files.extend(absolute_path.rglob("*.qml"))
+    else:
+        raise SystemExit(f"Typography audit path not found: {requested_path}")
+
+files = sorted(set(files))
+legacy_counts: Counter[tuple[str, str]] = Counter()
+legacy_locations: list[tuple[str, int, str]] = []
+literal_locations: list[tuple[str, int, str]] = []
+font_size_declarations = 0
+semantic_references = 0
+primitive_references = 0
+weight_declarations = 0
+tracking_declarations = 0
+line_height_declarations = 0
+family_declarations = 0
+
+for file_path in files:
+    relative_path = file_path.relative_to(repo_root).as_posix()
+    for line_number, line in enumerate(file_path.read_text().splitlines(), start=1):
+        font_size_declarations += len(font_size_pattern.findall(line))
+        semantic_references += len(semantic_pattern.findall(line))
+        primitive_references += len(primitive_pattern.findall(line))
+        weight_declarations += len(weight_pattern.findall(line))
+        tracking_declarations += len(tracking_pattern.findall(line))
+        line_height_declarations += len(line_height_pattern.findall(line))
+        family_declarations += len(family_pattern.findall(line))
+
+        for match in legacy_pattern.finditer(line):
+            requested_size = match.group(1)
+            legacy_counts[(relative_path, requested_size)] += 1
+            legacy_locations.append((relative_path, line_number, requested_size))
+
+        for match in literal_pattern.finditer(line):
+            literal_locations.append((relative_path, line_number, match.group(1)))
+
+print("Archivist typography audit")
+print(f"Scope: {', '.join(str(path) for path in requested_paths)}")
+print(f"QML files: {len(files)}")
+print(f"Font-size declarations: {font_size_declarations}")
+print(f"Semantic size-token references: {semantic_references}")
+print(f"Primitive scale references: {primitive_references}")
+print(f"Legacy typeSize(number) calls: {len(legacy_locations)}")
+print(f"Literal pixel/point sizes: {len(literal_locations)}")
+print(f"Weight declarations: {weight_declarations}")
+print(f"Tracking declarations: {tracking_declarations}")
+print(f"Line-height declarations: {line_height_declarations}")
+print(f"Font-family declarations: {family_declarations}")
+
+if legacy_locations:
+    print("\nLegacy size calls by requested value:")
+    requested_counts = Counter(size for _, _, size in legacy_locations)
+    for requested_size, count in sorted(
+        requested_counts.items(),
+        key=lambda item: float(item[0]),
+    ):
+        print(f"  {requested_size}: {count}")
+
+if literal_locations:
+    print("\nLiteral font sizes:")
+    for relative_path, line_number, value in literal_locations:
+        print(f"  {relative_path}:{line_number}  {value}")
+
+if not check_baseline:
+    raise SystemExit(0)
+
+if not baseline_path.exists():
+    raise SystemExit(f"Missing typography baseline: {baseline_path}")
+
+baseline_counts: Counter[tuple[str, str]] = Counter()
+for raw_line in baseline_path.read_text().splitlines():
+    line = raw_line.strip()
+    if not line:
+        continue
+    relative_path, requested_size, count = line.split("|", 2)
+    baseline_counts[(relative_path, requested_size)] = int(count)
+
+regressions: list[tuple[str, str, int, int]] = []
+for key, current_count in sorted(legacy_counts.items()):
+    baseline_count = baseline_counts.get(key, 0)
+    if current_count > baseline_count:
+        regressions.append((key[0], key[1], baseline_count, current_count))
+
+if literal_locations or regressions:
+    print("\nTypography check failed.")
+
+    if regressions:
+        print("New or increased legacy typeSize(number) calls:")
+        for relative_path, requested_size, baseline_count, current_count in regressions:
+            print(
+                f"  {relative_path}  typeSize({requested_size})  "
+                f"{baseline_count} -> {current_count}"
+            )
+
+    raise SystemExit(1)
+
+print("\nTypography check passed: no new legacy or literal font sizes.")
+PY

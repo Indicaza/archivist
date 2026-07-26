@@ -13,16 +13,11 @@ Item {
 
     signal closeRequested()
 
-    property bool chatsExpanded: true
     property bool worktreesExpanded: false
-    property bool resizingChats: false
     property bool resizingWorktrees: false
-    property real preferredChatHeight: 170
     property real preferredWorktreeHeight: 92
-    property real chatSectionHeight: chatsExpanded ? preferredChatHeight : 36
-    property real worktreeSectionHeight: worktreesExpanded ? preferredWorktreeHeight : 34
-    property real chatDragStartY: 0
-    property real chatDragStartHeight: 0
+    property real worktreeSectionHeight:
+        worktreesExpanded ? preferredWorktreeHeight : 28
     property real worktreeDragStartY: 0
     property real worktreeDragStartHeight: 0
 
@@ -30,14 +25,6 @@ Item {
     readonly property var scopedLibraries: filteredLibraries()
     readonly property real sectionHandleHeight: 6
     readonly property real minimumLibraryHeight: 180
-
-    Behavior on chatSectionHeight {
-        enabled: !root.resizingChats
-        NumberAnimation {
-            duration: root.theme.motionPanel
-            easing.type: Easing.OutCubic
-        }
-    }
 
     Behavior on worktreeSectionHeight {
         enabled: !root.resizingWorktrees
@@ -87,29 +74,28 @@ Item {
         return filtered
     }
 
-    function clampSectionHeight(value, otherHeight, minimumHeight) {
+    function clampSectionHeight(value, minimumHeight) {
         var maximum = Math.max(
             minimumHeight,
-            height - 38 - minimumLibraryHeight - sectionHandleHeight * 2 - otherHeight
+            height
+                - 38
+                - minimumLibraryHeight
+                - sectionHandleHeight
         )
-        return Math.min(maximum, Math.max(minimumHeight, value))
+
+        return Math.min(
+            maximum,
+            Math.max(minimumHeight, value)
+        )
     }
 
     function resizeWorktrees(pointerY) {
         worktreesExpanded = true
         preferredWorktreeHeight = clampSectionHeight(
-            worktreeDragStartHeight + worktreeDragStartY - pointerY,
-            chatSectionHeight,
+            worktreeDragStartHeight
+                + worktreeDragStartY
+                - pointerY,
             68
-        )
-    }
-
-    function resizeChats(pointerY) {
-        chatsExpanded = true
-        preferredChatHeight = clampSectionHeight(
-            chatDragStartHeight + chatDragStartY - pointerY,
-            worktreeSectionHeight,
-            96
         )
     }
 
@@ -189,7 +175,7 @@ Item {
                                     : "Select Collection"
                         color: root.theme.appText
                         font.family: root.theme.titleFontFamily
-                        font.pixelSize: root.theme.typeSize(11)
+                        font.pixelSize: root.theme.typeSize(9)
                         font.weight: Font.DemiBold
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideMiddle
@@ -200,7 +186,7 @@ Item {
                         y: (parent.height - height) / 2
                         text: "⌄"
                         color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(12)
+                        font.pixelSize: root.theme.typeSize(10)
                     }
 
                     background: Rectangle {
@@ -255,7 +241,7 @@ Item {
                         required property var modelData
 
                         width: collectionSelector.width - 8
-                        height: 34
+                        height: 28
                         highlighted: collectionSelector.highlightedIndex === index
                         leftPadding: 9
                         rightPadding: 9
@@ -412,7 +398,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: root.worktreeSectionHeight
-            Layout.minimumHeight: 34
+            Layout.minimumHeight: 28
             color: root.theme.surfaceBg
             clip: true
 
@@ -426,9 +412,9 @@ Item {
                 padding: 0
                 onClicked: root.worktreesExpanded = !root.worktreesExpanded
                 contentItem: RowLayout {
-                    spacing: 7
+                    spacing: 5
                     Text {
-                        Layout.leftMargin: 10
+                        Layout.leftMargin: 8
                         text: root.worktreesExpanded ? "⌄" : "›"
                         color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
                         font.pixelSize: root.theme.typeSize(12)
@@ -442,15 +428,15 @@ Item {
                         Layout.fillWidth: true
                         text: "WORKTREES"
                         color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
+                        font.pixelSize: root.theme.typeSize(8)
                         font.weight: Font.Bold
-                        font.letterSpacing: 0.55
+                        font.letterSpacing: 0.5
                     }
                     Text {
-                        Layout.rightMargin: 9
+                        Layout.rightMargin: 7
                         text: "COMING NEXT"
                         color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(7)
+                        font.pixelSize: root.theme.typeSize(6)
                         font.weight: Font.Bold
                         font.letterSpacing: 0.4
                         opacity: 0.55
@@ -478,52 +464,6 @@ Item {
             }
         }
 
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.sectionHandleHeight
-            z: 20
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width
-                height: chatResizeArea.containsMouse || chatResizeArea.pressed ? 2 : 1
-                color: chatResizeArea.containsMouse || chatResizeArea.pressed
-                    ? root.theme.accent
-                    : root.theme.quietBorder
-                opacity: chatResizeArea.containsMouse || chatResizeArea.pressed ? 0.9 : 0.55
-            }
-
-            MouseArea {
-                id: chatResizeArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.SplitVCursor
-                onPressed: function(mouse) {
-                    root.resizingChats = true
-                    root.chatDragStartHeight = root.chatSectionHeight
-                    root.chatDragStartY = mapToItem(root, mouse.x, mouse.y).y
-                }
-                onReleased: root.resizingChats = false
-                onCanceled: root.resizingChats = false
-                onPositionChanged: function(mouse) {
-                    if (pressed) {
-                        root.resizeChats(mapToItem(root, mouse.x, mouse.y).y)
-                    }
-                }
-                onDoubleClicked: root.preferredChatHeight = 170
-            }
-        }
-
-        ChatBand {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.chatSectionHeight
-            Layout.minimumHeight: 36
-            theme: root.theme
-            expanded: root.chatsExpanded
-            clip: true
-            onToggleRequested: root.chatsExpanded = !root.chatsExpanded
-            onExpandRequested: root.chatsExpanded = true
-        }
     }
 
     CollectionEditor {

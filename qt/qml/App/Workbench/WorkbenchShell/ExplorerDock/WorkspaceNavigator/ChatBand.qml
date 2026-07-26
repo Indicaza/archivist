@@ -154,7 +154,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: 36
+        height: 28
         theme: root.theme
         title: "CHATS"
         glyph: "▱"

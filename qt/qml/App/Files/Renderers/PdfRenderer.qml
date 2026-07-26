@@ -60,13 +60,13 @@ Item {
     property real pinchAnchorY: 0
 
     readonly property bool documentReady:
-        document.status === PdfDocument.Ready
+        pdfDocument.status === PdfDocument.Ready
     readonly property bool singlePageDocument:
-        root.documentReady && document.pageCount === 1
+        root.documentReady && pdfDocument.pageCount === 1
 
     readonly property size singlePagePointSize:
         root.singlePageDocument
-            ? document.pagePointSize(0)
+            ? pdfDocument.pagePointSize(0)
             : Qt.size(1, 1)
     readonly property real singlePageWidth: Math.max(
         1,
@@ -515,7 +515,7 @@ Item {
     function rebuildMultiLayout(scale) {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
         ) {
             return
         }
@@ -530,11 +530,11 @@ Item {
 
         for (
             var pageIndex = 0;
-            pageIndex < document.pageCount;
+            pageIndex < pdfDocument.pageCount;
             pageIndex += 1
         ) {
             var pageSize =
-                document.pagePointSize(pageIndex)
+                pdfDocument.pagePointSize(pageIndex)
             var pageWidth = Math.max(
                 1,
                 pageSize.width * nextScale
@@ -556,7 +556,7 @@ Item {
 
             if (
                 pageIndex
-                < document.pageCount - 1
+                < pdfDocument.pageCount - 1
             ) {
                 documentHeight +=
                     root.multiPageGap
@@ -682,9 +682,9 @@ Item {
     ) {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
             || root.multiPageHeights.length
-                !== document.pageCount
+                !== pdfDocument.pageCount
         ) {
             return {
                 page: 0,
@@ -850,7 +850,7 @@ Item {
     function updateMultiCurrentPage() {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
             || root.adjustingMultiViewport
         ) {
             return
@@ -885,7 +885,7 @@ Item {
 
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
         ) {
             return
         }
@@ -954,7 +954,7 @@ Item {
     function multiFitScale() {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
         ) {
             return 1.0
         }
@@ -963,12 +963,12 @@ Item {
 
         for (
             var index = 0;
-            index < document.pageCount;
+            index < pdfDocument.pageCount;
             index += 1
         ) {
             maximumWidth = Math.max(
                 maximumWidth,
-                document.pagePointSize(
+                pdfDocument.pagePointSize(
                     index
                 ).width
             )
@@ -985,7 +985,7 @@ Item {
     function preserveMultiAcrossResize() {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
             || !root.multiInitialized
         ) {
             root.lastMultiViewportWidth =
@@ -1228,7 +1228,7 @@ Item {
     function updateMultiCenterTarget() {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
         ) {
             return
         }
@@ -1238,7 +1238,7 @@ Item {
             0,
             Math.max(
                 0,
-                document.pageCount - 1
+                pdfDocument.pageCount - 1
             )
         )
         var centered =
@@ -1347,7 +1347,7 @@ Item {
         if (
             !root.multiCenterAnimating
             || !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
         ) {
             root.cancelMultiCenterAnimation()
             return
@@ -1433,7 +1433,7 @@ Item {
     function settleMultiResizeCenter() {
         if (
             !root.documentReady
-            || document.pageCount <= 1
+            || pdfDocument.pageCount <= 1
             || root.freePanEnabled
         ) {
             return
@@ -1593,7 +1593,7 @@ Item {
             return
         }
 
-        if (document.pageCount <= 1) {
+        if (pdfDocument.pageCount <= 1) {
             return
         }
 
@@ -1734,7 +1734,7 @@ Item {
                     0,
                     Math.max(
                         0,
-                        document.pageCount - 1
+                        pdfDocument.pageCount - 1
                     )
                 ),
                 x: root.freePanEnabled
@@ -1753,7 +1753,7 @@ Item {
                 0,
                 Math.max(
                     0,
-                    document.pageCount - 1
+                    pdfDocument.pageCount - 1
                 )
             )
         root.adjustingMultiViewport = false
@@ -1936,7 +1936,7 @@ Item {
         root.resetTransientState()
 
     PdfDocument {
-        id: document
+        id: pdfDocument
         source: root.source
 
         onStatusChanged: {
@@ -1947,7 +1947,7 @@ Item {
                 return
             }
 
-            if (document.pageCount === 1) {
+            if (pdfDocument.pageCount === 1) {
                 root.singleRenderScale =
                     root.pendingFitToWidth
                         ? root.singleFitScale()
@@ -2140,7 +2140,7 @@ Item {
                     id: singlePageImage
 
                     anchors.fill: parent
-                    document: document
+                    document: pdfDocument
                     currentFrame: 0
                     sourceSize: Qt.size(
                         Math.max(
@@ -2208,7 +2208,7 @@ Item {
         anchors.fill: parent
         visible:
             root.documentReady
-            && document.pageCount > 1
+            && pdfDocument.pageCount > 1
         clip: true
         interactive:
             root.freePanEnabled
@@ -2320,7 +2320,7 @@ Item {
             Repeater {
                 model:
                     root.documentReady
-                        ? document.pageCount
+                        ? pdfDocument.pageCount
                         : 0
 
                 delegate: Item {
@@ -2391,7 +2391,7 @@ Item {
                                 status === Loader.Ready
 
                             property var renderDocument:
-                                document
+                                pdfDocument
                             property int renderPageIndex:
                                 pageContainer.pageIndex
                             property real renderPageWidth:
@@ -2595,7 +2595,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible:
-            document.status
+            pdfDocument.status
                 === PdfDocument.Error
             || (
                 root.singlePageDocument
@@ -2613,10 +2613,10 @@ Item {
                     parent.width - 60
                 )
             text:
-                document.status
+                pdfDocument.status
                     === PdfDocument.Error
-                && document.error.length > 0
-                    ? document.error
+                && pdfDocument.error.length > 0
+                    ? pdfDocument.error
                     : "Qt could not render this PDF."
             color: root.theme.danger
             wrapMode: Text.Wrap

@@ -66,6 +66,19 @@ Rectangle {
     })
     readonly property bool imagePreviewActive: root.previewActive
         && root.previewFileIdentity.preferredRendererId === "image"
+    readonly property bool filePreviewStatusVisible: root.previewActive
+    readonly property string filePreviewAccessLabel:
+        filePreview.statusAccessLabel
+    readonly property string filePreviewTypeLabel:
+        filePreview.statusTypeLabel
+    readonly property string filePreviewRendererLabel:
+        filePreview.statusRendererLabel
+    readonly property string filePreviewPath:
+        filePreview.statusPath
+    readonly property string filePreviewMetrics:
+        filePreview.statusMetrics
+    readonly property bool filePreviewAttached:
+        filePreview.attachedToChat
     readonly property real previewViewportX: (
         root.previewActive || editorTabStrip.hasTabs
     ) ? root.previewLeftObstruction : 0
@@ -768,6 +781,8 @@ Rectangle {
     }
 
     FilePreview {
+        id: filePreview
+
         anchors.top: workspaceHeader.bottom
         anchors.bottom: parent.bottom
         x: root.previewLeftObstruction

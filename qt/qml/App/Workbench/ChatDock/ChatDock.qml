@@ -2,8 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../Files/FileIdentity.js" as FileIdentity
 import "AgentEditor"
 import "ChatAgentPicker"
+import "ChatEditor"
 
 Rectangle {
     id: root
@@ -12,6 +14,8 @@ Rectangle {
     property bool attached: true
     property string activePanel: "none"
     property bool archivedAgentsOpen: false
+    property bool archivedChatsOpen: false
+    property int collectionScopeRevision: 0
     property bool attachNextCreatedAgent: false
     property string pendingCreatedChatId: ""
     property string attachmentNotice: ""
@@ -19,10 +23,10 @@ Rectangle {
     property real agentSwitchPulse: 0
     property int headerHoverIndex: -1
     property int composerHoverIndex: -1
-    property int hoveredAgentIndex: -1
     property bool resizingPanel: false
     property real panelWidth: theme.chatDockPanelDefaultWidth
     readonly property var attachedAgents: chatAttachedAgents()
+    readonly property var scopedChats: filteredChats()
 
     readonly property int attachmentCount: ChatStore.attachments.length
     readonly property real panelMaximumWidth: Math.max(
@@ -41,10 +45,6 @@ Rectangle {
         Math.max(panelMinimumWidth, panelWidth)
     )
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
-    readonly property string selectedLibraryName: ChatStore.selectedChat.libraryName
-        || (ChatStore.selectedChatId.length > 0
-            ? "Standalone"
-            : LibraryStore.selectedLibrary.name || "No Library")
     readonly property var selectedAgent: agentForId(ChatStore.selectedChat.agentId)
     readonly property string selectedAgentName: selectedAgent && selectedAgent.name
         ? String(selectedAgent.name)
@@ -60,6 +60,83 @@ Rectangle {
 
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
+
+    function filteredChats() {
+        var revision = collectionScopeRevision
+        var chats = ChatStore.chats || []
+
+        if (
+            String(
+                CollectionStore.selectedCollectionId || ""
+            ).length === 0
+        ) {
+            return []
+        }
+
+        var filtered = []
+
+        for (
+            var index = 0;
+            index < chats.length;
+            index += 1
+        ) {
+            if (
+                CollectionStore.includesChat(
+                    String(chats[index].id || "")
+                )
+            ) {
+                filtered.push(chats[index])
+            }
+        }
+
+        return filtered
+    }
+
+    function chatAgentCount(chat) {
+        return chat && chat.agentIds
+            ? chat.agentIds.length
+            : 0
+    }
+
+    function selectChat(chat) {
+        if (
+            !chat
+            || !chat.id
+            || ChatStore.responding
+        ) {
+            return
+        }
+
+        var libraryId = String(chat.libraryId || "")
+
+        if (
+            libraryId.length > 0
+            && libraryId
+                !== String(LibraryStore.selectedLibraryId)
+        ) {
+            LibraryStore.selectLibrary(libraryId)
+        }
+
+        LibraryStore.clearFilePreview()
+        ChatStore.selectChat(String(chat.id))
+    }
+
+    function createChat() {
+        if (
+            LibraryStore.selectedLibraryId.length === 0
+            || ChatStore.mutating
+            || ChatStore.responding
+        ) {
+            return
+        }
+
+        ChatStore.createChat(
+            LibraryStore.selectedLibraryId,
+            String(
+                CollectionStore.scope.defaultAgentId || ""
+            )
+        )
+    }
 
     function chatAttachedAgents() {
         var agents = AgentStore.agents || []
@@ -185,6 +262,21 @@ Rectangle {
 
     Component.onCompleted: {
         AgentStore.refresh()
+        ChatStore.refresh()
+        ChatStore.refreshArchived()
+    }
+
+    Connections {
+        target: CollectionStore
+
+        function onSelectedCollectionIdChanged() {
+            root.collectionScopeRevision += 1
+        }
+
+        function onWorkspaceScopeChanged() {
+            root.collectionScopeRevision += 1
+            Qt.callLater(ChatStore.refresh)
+        }
     }
 
     Connections {
@@ -204,7 +296,22 @@ Rectangle {
         }
 
         function onChatCreated(chat) {
+            root.activePanel = "chats"
             composer.forceActiveFocus()
+
+            if (
+                CollectionStore.selectedCollectionId.length > 0
+            ) {
+                CollectionStore.refresh()
+            }
+        }
+
+        function onChatRestored(chat) {
+            if (
+                CollectionStore.selectedCollectionId.length > 0
+            ) {
+                CollectionStore.refresh()
+            }
         }
 
         function onAgentAssigned(agentId) {
@@ -283,7 +390,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.theme.chatDockHeaderHeight
+            Layout.preferredHeight: 36
             color: root.theme.controlSurfaceBg
 
             Rectangle {
@@ -296,104 +403,424 @@ Rectangle {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 11
+                anchors.leftMargin: 9
                 anchors.rightMargin: 6
-                spacing: 8
+                spacing: 6
 
-                Column {
+                Text {
                     Layout.fillWidth: true
-                    spacing: 3
+                    Layout.minimumWidth: 90
+                    text: root.selectedChatTitle
+                    color: root.theme.appText
+                    font.family: root.theme.chatFontFamily
+                    font.pixelSize: root.theme.textWorkbenchTitleSize
+                    font.weight: root.theme.textWeightEmphasis
+                    font.letterSpacing: root.theme.textTrackingNormal
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
 
-                    Text {
-                        width: parent.width
-                        text: root.selectedChatTitle
-                        color: root.theme.appText
-                        font.pixelSize: root.theme.typeSize(14)
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                    }
+                ListView {
+                    id: attachmentList
 
-                    Row {
-                        spacing: 8
+                    visible: root.attachmentCount > 0
+                    Layout.preferredWidth: visible
+                        ? Math.min(260, contentWidth)
+                        : 0
+                    Layout.maximumWidth: 260
+                    Layout.preferredHeight: 28
+                    orientation: ListView.Horizontal
+                    spacing: 4
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: ChatStore.attachments
 
-                        Text {
-                            text: "▣  LIBRARY  " + root.selectedLibraryName
-                            color: root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.letterSpacing: 0.25
-                        }
+                    delegate: Item {
+                        id: sourceItem
+
+                        required property int index
+                        required property var modelData
+
+                        readonly property string sourceName: String(
+                            modelData.fileName
+                                || modelData.relativePath
+                                || "Library file"
+                        ).split("/").pop()
+                        readonly property string sourceRelativePath:
+                            String(
+                                modelData.relativePath
+                                    || modelData.fileName
+                                    || sourceName
+                            )
+                        readonly property string sourceLibrary:
+                            String(modelData.libraryName || "Library")
+                        readonly property string sourceGlyph:
+                            FileIdentity.glyphFor({
+                                fileName: sourceName,
+                                extension:
+                                    modelData.extension || ""
+                            })
+                        readonly property string sourceType:
+                            FileIdentity.displayLabelFor({
+                                fileName: sourceName,
+                                extension:
+                                    modelData.extension || ""
+                            })
+                        readonly property bool includedInLastResponse:
+                            root.sourceWasIncluded(modelData.id)
+
+                        width: 30
+                        height: 28
 
                         Rectangle {
-                            width: 1
-                            height: 10
-                            color: root.theme.quietBorder
-                        }
+                            id: sourceTile
 
-                        Rectangle {
-                            width: Math.min(
-                                220,
-                                activeAgentLabel.implicitWidth + 10
-                            )
-                            height: 18
-                            radius: 9
-                            color: Qt.rgba(
-                                0.44,
-                                0.36,
-                                0.75,
-                                0.08 + root.agentSwitchPulse * 0.34
-                            )
-                            scale: 1 + root.agentSwitchPulse * 0.055
+                            anchors.centerIn: parent
+                            width: 26
+                            height: 26
+                            radius: 6
+                            color:
+                                sourceItem.includedInLastResponse
+                                    ? root.theme.activeBg
+                                    : sourceHover.hovered
+                                        ? root.theme.hoverBg
+                                        : root.theme.surfaceBg
+                            border.width: 1
+                            border.color:
+                                sourceItem.includedInLastResponse
+                                    ? root.theme.accent
+                                    : sourceHover.hovered
+                                        ? root.theme.panelBorder
+                                        : root.theme.quietBorder
 
-                            Behavior on width {
-                                NumberAnimation {
-                                    duration: root.theme.motionPanel
-                                    easing.type: Easing.OutCubic
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration:
+                                        root.theme.motionFast
                                 }
                             }
 
                             Text {
-                                id: activeAgentLabel
-
                                 anchors.centerIn: parent
-                                width: parent.width - 10
-                                text: "♙  AGENT  " + root.selectedAgentName
-                                horizontalAlignment: Text.AlignHCenter
-                                color: root.agentSwitchPulse > 0.05
-                                    ? root.theme.accentBright
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                font.letterSpacing: 0.25
-                                elide: Text.ElideRight
+                                text: sourceItem.sourceGlyph
+                                color:
+                                    sourceItem.includedInLastResponse
+                                        ? root.theme.accentBright
+                                        : sourceHover.hovered
+                                            ? root.theme.appText
+                                            : root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.typeSize(10)
+                                font.weight: Font.DemiBold
                             }
                         }
 
-                        Rectangle {
-                            width: 1
-                            height: 10
-                            color: root.theme.quietBorder
+                        HoverHandler {
+                            id: sourceHover
                         }
 
-                        Text {
-                            text: "▤  SOURCES  " + String(root.attachmentCount)
-                            color: root.attachmentCount > 0
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.letterSpacing: 0.25
+                        Button {
+                            id: removeSourceButton
+
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            width: 14
+                            height: 14
+                            visible: sourceHover.hovered
+                            enabled: !ChatStore.responding
+                                && !ChatStore.mutating
+                                && !ChatStore.mutatingAttachment
+                            text: "×"
+                            hoverEnabled: true
+                            padding: 0
+                            z: 3
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Remove source"
+                            onClicked:
+                                ChatStore.removeAttachment(
+                                    String(
+                                        sourceItem.modelData.id
+                                    )
+                                )
+
+                            contentItem: Text {
+                                text: parent.text
+                                color:
+                                    parent.enabled
+                                    && parent.hovered
+                                        ? root.theme.appText
+                                        : root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.typeSize(9)
+                                font.weight: Font.Bold
+                                horizontalAlignment:
+                                    Text.AlignHCenter
+                                verticalAlignment:
+                                    Text.AlignVCenter
+                                opacity:
+                                    parent.enabled ? 1 : 0.45
+                            }
+
+                            background: Rectangle {
+                                radius: 7
+                                color: parent.hovered
+                                    ? root.theme.hoverBg
+                                    : root.theme.surfaceBg
+                                border.width: 1
+                                border.color:
+                                    root.theme.quietBorder
+                            }
+                        }
+
+                        ToolTip {
+                            id: sourceInfo
+
+                            visible: sourceHover.hovered
+                                && !removeSourceButton.hovered
+                            delay: 700
+                            timeout: 7000
+                            y: sourceItem.height + 7
+                            padding: 0
+
+                            enter: Transition {
+                                ParallelAnimation {
+                                    NumberAnimation {
+                                        property: "opacity"
+                                        from: 0
+                                        to: 1
+                                        duration:
+                                            root.theme.motionFast
+                                        easing.type:
+                                            Easing.OutCubic
+                                    }
+
+                                    NumberAnimation {
+                                        property: "scale"
+                                        from: 0.96
+                                        to: 1
+                                        duration:
+                                            root.theme.motionHover
+                                        easing.type:
+                                            Easing.OutBack
+                                    }
+                                }
+                            }
+
+                            exit: Transition {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 1
+                                    to: 0
+                                    duration:
+                                        root.theme.motionFast
+                                    easing.type:
+                                        Easing.InCubic
+                                }
+                            }
+
+                            contentItem: Item {
+                                implicitWidth: 310
+                                implicitHeight:
+                                    sourceInfoColumn.implicitHeight
+                                        + 26
+
+                                Column {
+                                    id: sourceInfoColumn
+
+                                    anchors.left:
+                                        parent.left
+                                    anchors.right:
+                                        parent.right
+                                    anchors.top:
+                                        parent.top
+                                    anchors.margins: 13
+                                    spacing: 9
+
+                                    Row {
+                                        spacing: 9
+
+                                        Rectangle {
+                                            width: 30
+                                            height: 30
+                                            radius: 9
+                                            color:
+                                                root.theme.accentSoft
+                                            border.width: 1
+                                            border.color:
+                                                root.theme.quietBorder
+
+                                            Text {
+                                                anchors.centerIn:
+                                                    parent
+                                                text:
+                                                    sourceItem.sourceGlyph
+                                                color:
+                                                    root.theme.accentBright
+                                                font.pixelSize:
+                                                    root.theme.typeSize(
+                                                        10
+                                                    )
+                                                font.weight:
+                                                    Font.DemiBold
+                                            }
+                                        }
+
+                                        Column {
+                                            width: 245
+                                            spacing: 3
+
+                                            Text {
+                                                width:
+                                                    parent.width
+                                                text:
+                                                    sourceItem.sourceName
+                                                color:
+                                                    root.theme.appText
+                                                font.pixelSize:
+                                                    root.theme.typeSize(
+                                                        12
+                                                    )
+                                                font.weight:
+                                                    Font.DemiBold
+                                                elide:
+                                                    Text.ElideRight
+                                            }
+
+                                            Text {
+                                                width:
+                                                    parent.width
+                                                text:
+                                                    sourceItem.sourceType
+                                                color:
+                                                    root.theme.accentBright
+                                                font.pixelSize:
+                                                    root.theme.typeSize(
+                                                        8
+                                                    )
+                                                font.weight:
+                                                    Font.Bold
+                                                font.letterSpacing:
+                                                    0.4
+                                                elide:
+                                                    Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: parent.width
+                                        implicitHeight:
+                                            sourcePathText.implicitHeight
+                                                + 16
+                                        radius: 7
+                                        color:
+                                            root.theme.controlSurfaceBg
+                                        border.width: 1
+                                        border.color:
+                                            root.theme.quietBorder
+
+                                        Text {
+                                            id: sourcePathText
+
+                                            anchors.left:
+                                                parent.left
+                                            anchors.right:
+                                                parent.right
+                                            anchors.top:
+                                                parent.top
+                                            anchors.margins: 8
+                                            text:
+                                                sourceItem.sourceRelativePath
+                                            color:
+                                                root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    9
+                                                )
+                                            wrapMode:
+                                                Text.WrapAnywhere
+                                            maximumLineCount: 3
+                                            elide:
+                                                Text.ElideRight
+                                        }
+                                    }
+
+                                    Row {
+                                        spacing: 7
+
+                                        Text {
+                                            text:
+                                                sourceItem.sourceLibrary
+                                            color:
+                                                root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    8
+                                                )
+                                            font.weight:
+                                                Font.DemiBold
+                                        }
+
+                                        Text {
+                                            text: "·"
+                                            color:
+                                                root.theme.quietBorder
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    8
+                                                )
+                                        }
+
+                                        Text {
+                                            text:
+                                                sourceItem.includedInLastResponse
+                                                    ? "Used in last response"
+                                                    : "Attached source"
+                                            color:
+                                                sourceItem.includedInLastResponse
+                                                    ? root.theme.accentBright
+                                                    : root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    8
+                                                )
+                                            font.weight:
+                                                Font.DemiBold
+                                        }
+                                    }
+                                }
+                            }
+
+                            background: Rectangle {
+                                color: root.theme.surfaceBg
+                                border.width: 1
+                                border.color:
+                                    root.theme.panelBorder
+                                radius: 12
+                            }
                         }
                     }
+                }
+
+                Text {
+                    visible: ChatStore.loadingAttachments
+                    text: "…"
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(10)
                 }
 
                 Button {
                     id: dockModeButton
 
-                    Layout.preferredWidth: 31
-                    Layout.preferredHeight: 31
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
                     text: root.attached ? "↙" : "↗"
                     hoverEnabled: true
                     padding: 0
                     ToolTip.visible: hovered
-                    ToolTip.text: root.attached ? "Center Chat Dock" : "Attach Chat Dock"
+                    ToolTip.text: root.attached
+                        ? "Center Chat Dock"
+                        : "Attach Chat Dock"
                     onClicked: root.dockModeToggleRequested()
                     onHoveredChanged: root.updateHoverIndex(
                         "header",
@@ -410,39 +837,50 @@ Rectangle {
                         enabled: !dockModeButton.down
 
                         NumberAnimation {
-                            duration: root.headerHoverIndex >= 0
-                                ? root.theme.motionHover
-                                : root.theme.motionHoverExit
+                            duration:
+                                root.headerHoverIndex >= 0
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
                             easing.type: Easing.OutCubic
                         }
                     }
 
                     contentItem: Text {
                         text: parent.text
-                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(15)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        color: parent.hovered
+                            ? root.theme.appText
+                            : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(14)
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
                     }
 
                     background: Rectangle {
-                        radius: 4
-                        color: parent.hovered ? root.theme.hoverBg : "transparent"
-                        border.width: 0
+                        radius: 5
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : "transparent"
                     }
                 }
 
                 Button {
-                    id: agentsTabButton
+                    id: chatsTabButton
 
-                    Layout.preferredWidth: 66
-                    Layout.preferredHeight: 31
-                    text: "♙  Agents"
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    text: "▱"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.activePanel = root.activePanel === "agents"
-                        ? "none"
-                        : "agents"
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Chats"
+                    onClicked:
+                        root.activePanel =
+                            root.activePanel === "chats"
+                                ? "none"
+                                : "chats"
                     onHoveredChanged: root.updateHoverIndex(
                         "header",
                         1,
@@ -451,23 +889,28 @@ Rectangle {
 
                     contentItem: Text {
                         text: parent.text
-                        color: root.activePanel === "agents" || parent.hovered
-                            ? root.theme.appText
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(10)
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        color:
+                            root.activePanel === "chats"
+                            || parent.hovered
+                                ? root.theme.appText
+                                : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.textControlSize
+                        font.weight:
+                            root.theme.textWeightEmphasis
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
                     }
 
                     background: Item {
                         Rectangle {
                             anchors.fill: parent
-                            color: root.activePanel === "agents"
-                                ? "#211f1c"
-                                : agentsTabButton.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
+                            radius: 3
+                            color: chatsTabButton.hovered
+                                ? root.theme.hoverBg
+                                : "transparent"
                         }
 
                         Rectangle {
@@ -475,9 +918,10 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
                             height: 1
-                            visible: root.activePanel === "agents"
+                            visible:
+                                root.activePanel === "chats"
                             color: root.theme.appText
-                            opacity: 0.52
+                            opacity: 0.62
                         }
                     }
 
@@ -488,12 +932,90 @@ Rectangle {
                     )
 
                     Behavior on scale {
+                        enabled: !chatsTabButton.down
+
+                        NumberAnimation {
+                            duration:
+                                root.headerHoverIndex >= 0
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+                }
+
+                Button {
+                    id: agentsTabButton
+
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    text: "♙"
+                    hoverEnabled: true
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Agents"
+                    onClicked:
+                        root.activePanel =
+                            root.activePanel === "agents"
+                                ? "none"
+                                : "agents"
+                    onHoveredChanged: root.updateHoverIndex(
+                        "header",
+                        2,
+                        hovered
+                    )
+
+                    contentItem: Text {
+                        text: parent.text
+                        color:
+                            root.activePanel === "agents"
+                            || parent.hovered
+                                ? root.theme.appText
+                                : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(13)
+                        font.weight: Font.DemiBold
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Item {
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 3
+                            color: agentsTabButton.hovered
+                                ? root.theme.hoverBg
+                                : "transparent"
+                        }
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            visible:
+                                root.activePanel === "agents"
+                            color: root.theme.appText
+                            opacity: 0.62
+                        }
+                    }
+
+                    scale: root.magnifierScale(
+                        2,
+                        root.headerHoverIndex,
+                        down
+                    )
+
+                    Behavior on scale {
                         enabled: !agentsTabButton.down
 
                         NumberAnimation {
-                            duration: root.headerHoverIndex >= 0
-                                ? root.theme.motionHover
-                                : root.theme.motionHoverExit
+                            duration:
+                                root.headerHoverIndex >= 0
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
                             easing.type: Easing.OutCubic
                         }
                     }
@@ -528,151 +1050,6 @@ Rectangle {
                     anchors.fill: parent
                     spacing: 0
 
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: ChatStore.selectedChatId.length > 0 ? 38 : 0
-                        visible: ChatStore.selectedChatId.length > 0
-                        color: root.theme.sidebarBg
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 1
-                            color: root.theme.quietBorder
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 8
-                            spacing: 8
-
-                            Text {
-                                text: "SOURCES  " + String(root.attachmentCount) + " ATTACHED"
-                                color: root.attachmentCount > 0
-                                    ? root.theme.accentBright
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(8)
-                                font.weight: Font.Bold
-                                font.letterSpacing: 0.55
-                                opacity: 0.82
-                            }
-
-                            Text {
-                                visible: !ChatStore.loadingAttachments
-                                    && root.attachmentCount === 0
-                                Layout.fillWidth: true
-                                text: "No files attached — preview a Library file to add one."
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                opacity: 0.66
-                                elide: Text.ElideRight
-                            }
-
-                            ListView {
-                                id: attachmentList
-
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 26
-                                visible: root.attachmentCount > 0
-                                orientation: ListView.Horizontal
-                                spacing: 6
-                                clip: true
-                                model: ChatStore.attachments
-
-                                delegate: Rectangle {
-                                    id: attachmentChip
-
-                                    required property var modelData
-
-                                    readonly property string sourcePath: String(
-                                        modelData.libraryName || "Library"
-                                    ) + " / " + String(
-                                        modelData.relativePath || modelData.fileName || "Library file"
-                                    )
-                                    readonly property bool includedInLastResponse: root.sourceWasIncluded(
-                                        modelData.id
-                                    )
-
-                                    width: Math.min(
-                                        190,
-                                        Math.max(90, attachmentLabel.implicitWidth + 30)
-                                    )
-                                    height: 24
-                                    color: root.theme.controlSurfaceBg
-                                    border.width: 1
-                                    border.color: attachmentChip.includedInLastResponse
-                                        ? root.theme.accentBright
-                                        : root.theme.quietBorder
-                                    radius: 4
-
-                                    Text {
-                                        id: attachmentLabel
-
-                                        anchors.left: parent.left
-                                        anchors.right: removeAttachmentButton.left
-                                        anchors.leftMargin: 8
-                                        anchors.rightMargin: 4
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: (attachmentChip.includedInLastResponse ? "✓  " : "▤  ")
-                                            + attachmentChip.sourcePath
-                                        color: root.theme.appText
-                                        font.pixelSize: root.theme.typeSize(9)
-                                        elide: Text.ElideMiddle
-                                    }
-
-                                    Button {
-                                        id: removeAttachmentButton
-
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 3
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 20
-                                        height: 20
-                                        text: "×"
-                                        enabled: !ChatStore.responding
-                                            && !ChatStore.mutating
-                                            && !ChatStore.mutatingAttachment
-                                        hoverEnabled: true
-                                        padding: 0
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: "Remove attached source"
-                                        onClicked: ChatStore.removeAttachment(
-                                            String(attachmentChip.modelData.id)
-                                        )
-
-                                        contentItem: Text {
-                                            text: parent.text
-                                            color: parent.enabled && parent.hovered
-                                                ? root.theme.appText
-                                                : root.theme.mutedText
-                                            font.pixelSize: root.theme.typeSize(11)
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            opacity: parent.enabled ? 1 : 0.45
-                                        }
-
-                                        background: Rectangle {
-                                            color: parent.enabled && parent.hovered
-                                                ? root.theme.hoverBg
-                                                : "transparent"
-                                            radius: 3
-                                        }
-                                    }
-                                }
-                            }
-
-                            Text {
-                                visible: ChatStore.loadingAttachments
-                                text: "Loading…"
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                opacity: 0.7
-                            }
-                        }
-                    }
-
                     TextArea {
                         id: composer
 
@@ -691,8 +1068,10 @@ Rectangle {
                         color: root.theme.appText
                         selectionColor: root.theme.messageSelectionBg
                         selectedTextColor: root.theme.messageSelectionText
-                        font.family: root.theme.bodyFontFamily
-                        font.pixelSize: root.theme.typeSize(14)
+                        font.family: root.theme.chatFontFamily
+                        font.pixelSize: root.theme.textComposerSize
+                        font.weight: root.theme.textWeightRegular
+                        font.letterSpacing: root.theme.textTrackingNormal
                         wrapMode: TextEdit.Wrap
                         leftPadding: 15
                         rightPadding: 15
@@ -976,92 +1355,525 @@ Rectangle {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 10
-                    anchors.rightMargin: 10
-                    anchors.topMargin: 8
-                    anchors.bottomMargin: 8
-                    spacing: 7
+                    anchors.leftMargin: 4
+                    anchors.rightMargin: 4
+                    anchors.topMargin: 3
+                    anchors.bottomMargin: 3
+                    spacing: 0
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 34
-                        color: root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: root.theme.quietBorder
-                        radius: root.theme.radiusSmall
+                        Layout.preferredHeight: 28
+                        color: "transparent"
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: root.theme.quietBorder
+                            opacity: 0.72
+                        }
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 21
-                            anchors.rightMargin: 5
-                            spacing: 8
+                            anchors.leftMargin: 7
+                            anchors.rightMargin: 3
+                            spacing: 7
+
+                            Text {
+                                text:
+                                    root.activePanel === "chats"
+                                        ? "CHATS"
+                                        : "AGENTS"
+                                color: root.theme.appText
+                                font.pixelSize:
+                                    root.theme.textSidebarLabelSize
+                                font.weight:
+                                    root.theme.textWeightStrong
+                                font.letterSpacing:
+                                    root.theme.textTrackingLabel
+                            }
 
                             Text {
                                 Layout.fillWidth: true
-                                text: "AGENTS"
-                                color: root.theme.appText
-                                font.pixelSize: root.theme.typeSize(9)
-                                font.weight: Font.Bold
-                                font.letterSpacing: 0.9
+                                text:
+                                    root.activePanel === "chats"
+                                        ? ChatStore.loadingChats
+                                            ? "…"
+                                            : String(
+                                                root.scopedChats.length
+                                            )
+                                        : AgentStore.loading
+                                            ? "…"
+                                            : String(
+                                                root.attachedAgents.length
+                                            )
+                                color: root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.textMetadataSize
+                                opacity: 0.76
                             }
 
-                            Rectangle {
-                                Layout.preferredWidth: panelCountLabel.implicitWidth + 12
-                                Layout.preferredHeight: 20
-                                color: root.theme.activeBg
-                                border.width: 1
-                                border.color: root.theme.quietBorder
-                                radius: 10
+                            Button {
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                                text: "+"
+                                enabled:
+                                    root.activePanel === "chats"
+                                        ? LibraryStore
+                                            .selectedLibraryId
+                                            .length > 0
+                                            && !ChatStore.mutating
+                                            && !ChatStore.responding
+                                        : ChatStore
+                                            .selectedChatId
+                                            .length > 0
+                                            && !AgentStore.mutating
+                                            && !ChatStore
+                                                .assigningAgent
+                                hoverEnabled: true
+                                padding: 0
+                                ToolTip.visible: hovered
+                                ToolTip.text:
+                                    root.activePanel === "chats"
+                                        ? LibraryStore
+                                            .selectedLibraryId
+                                            .length > 0
+                                            ? "Create Chat"
+                                            : "Select a Library first"
+                                        : ChatStore
+                                            .selectedChatId
+                                            .length > 0
+                                            ? "Add or create Agent"
+                                            : "Select a Chat first"
+                                onClicked: {
+                                    if (
+                                        root.activePanel === "chats"
+                                    ) {
+                                        root.createChat()
+                                    } else {
+                                        root.openAgentPicker()
+                                    }
+                                }
 
-                                Text {
-                                    id: panelCountLabel
+                                contentItem: Text {
+                                    text: parent.text
+                                    color:
+                                        parent.enabled
+                                        && parent.hovered
+                                            ? root.theme.appText
+                                            : root.theme.mutedText
+                                    font.pixelSize:
+                                        root.theme.textControlSize
+                                    horizontalAlignment:
+                                        Text.AlignHCenter
+                                    verticalAlignment:
+                                        Text.AlignVCenter
+                                    opacity:
+                                        parent.enabled ? 1 : 0.42
+                                }
 
-                                    anchors.centerIn: parent
-                                    text: AgentStore.loading
-                                        ? "…"
-                                        : String(root.attachedAgents.length)
-                                    color: root.theme.mutedText
-                                    font.pixelSize: root.theme.typeSize(8)
-                                    font.weight: Font.DemiBold
+                                background: Rectangle {
+                                    radius: 3
+                                    color: parent.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
+                                }
+                            }
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: root.activePanel === "chats"
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 6
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible:
+                                    ChatStore.errorMessage.length > 0
+                                text: ChatStore.errorMessage
+                                color: root.theme.danger
+                                font.pixelSize:
+                                    root.theme.textMetadataSize
+                                wrapMode: Text.Wrap
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: ChatStore.loadingChats
+                                text: "Loading Chats…"
+                                color: root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.textMetadataSize
+                            }
+
+                            ListView {
+                                id: chatList
+
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible:
+                                    root.scopedChats.length > 0
+                                spacing: 1
+                                topMargin: 4
+                                bottomMargin: 4
+                                clip: true
+                                boundsBehavior:
+                                    Flickable.StopAtBounds
+                                model: root.scopedChats
+
+                                delegate: Rectangle {
+                                    id: chatRow
+
+                                    required property int index
+                                    required property var modelData
+
+                                    readonly property bool selected:
+                                        String(modelData.id)
+                                            === String(
+                                                ChatStore.selectedChatId
+                                            )
+                                    readonly property int agentCount:
+                                        root.chatAgentCount(modelData)
+
+                                    width: chatList.width
+                                    height: 30
+                                    radius: 0
+                                    color: chatTap.pressed
+                                        ? root.theme.controlPressedBg
+                                        : chatHover.hovered
+                                            ? root.theme.hoverBg
+                                            : selected
+                                                ? root.theme.activeBg
+                                                : "transparent"
+
+                                    Behavior on color {
+                                        ColorAnimation {
+                                            duration:
+                                                root.theme.motionFast
+                                        }
+                                    }
+
+                                    Text {
+                                        id: chatGlyph
+
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 8
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        width: 16
+                                        text: "▱"
+                                        color: chatRow.selected
+                                            ? root.theme.accentBright
+                                            : root.theme.mutedText
+                                        font.pixelSize:
+                                            root.theme.textCaptionSize
+                                        horizontalAlignment:
+                                            Text.AlignHCenter
+                                    }
+
+                                    Text {
+                                        anchors.left: chatGlyph.right
+                                        anchors.right:
+                                            chatMeta.left
+                                        anchors.leftMargin: 5
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        text: String(
+                                            chatRow.modelData.title
+                                                || "Untitled Chat"
+                                        )
+                                        color: chatRow.selected
+                                            || chatHover.hovered
+                                            ? root.theme.appText
+                                            : root.theme.mutedText
+                                        font.pixelSize:
+                                            root.theme.textControlSize
+                                        font.weight: chatRow.selected
+                                            ? root.theme
+                                                .textWeightEmphasis
+                                            : root.theme
+                                                .textWeightRegular
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        id: chatMeta
+
+                                        anchors.right:
+                                            manageChatButton.left
+                                        anchors.rightMargin: 4
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        visible:
+                                            chatRow.agentCount > 0
+                                        text: String(
+                                            chatRow.agentCount
+                                        )
+                                        color: root.theme.mutedText
+                                        font.pixelSize:
+                                            root.theme.textMetadataSize
+                                        opacity: 0.66
+                                    }
+
+                                    Button {
+                                        id: manageChatButton
+
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 3
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        width: 24
+                                        height: 24
+                                        text: "•••"
+                                        enabled:
+                                            !ChatStore.mutating
+                                            && !ChatStore.responding
+                                        hoverEnabled: true
+                                        padding: 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Open Chat settings"
+                                        onClicked:
+                                            chatEditor.openForChat(
+                                                chatRow.modelData
+                                            )
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color:
+                                                parent.enabled
+                                                && parent.hovered
+                                                    ? root.theme.appText
+                                                    : root.theme
+                                                        .mutedText
+                                            font.pixelSize:
+                                                root.theme
+                                                    .textMetadataSize
+                                            font.weight:
+                                                root.theme
+                                                    .textWeightStrong
+                                            horizontalAlignment:
+                                                Text.AlignHCenter
+                                            verticalAlignment:
+                                                Text.AlignVCenter
+                                            opacity:
+                                                parent.enabled ? 1 : 0.42
+                                        }
+
+                                        background: Rectangle {
+                                            radius: 3
+                                            color: parent.hovered
+                                                ? root.theme.surfaceBg
+                                                : "transparent"
+                                        }
+                                    }
+
+                                    Item {
+                                        anchors.left: parent.left
+                                        anchors.right:
+                                            manageChatButton.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+
+                                        TapHandler {
+                                            id: chatTap
+
+                                            enabled:
+                                                !ChatStore.responding
+                                            onTapped:
+                                                root.selectChat(
+                                                    chatRow.modelData
+                                                )
+                                        }
+                                    }
+
+                                    HoverHandler {
+                                        id: chatHover
+                                    }
+                                }
+
+                                ScrollBar.vertical: ScrollBar {
+                                    policy:
+                                        ScrollBar.AsNeeded
                                 }
                             }
 
                             Button {
-                                Layout.preferredWidth: 24
+                                Layout.fillWidth: true
                                 Layout.preferredHeight: 24
-                                text: "+"
-                                enabled: ChatStore.selectedChatId.length > 0
-                                    && !AgentStore.mutating
-                                    && !ChatStore.assigningAgent
+                                text: (
+                                    root.archivedChatsOpen
+                                        ? "▾"
+                                        : "▸"
+                                ) + "  Archived  "
+                                    + String(
+                                        ChatStore.archivedChats.length
+                                    )
+                                enabled: !ChatStore.mutating
                                 hoverEnabled: true
                                 padding: 0
-                                ToolTip.visible: hovered
-                                ToolTip.text: ChatStore.selectedChatId.length > 0
-                                    ? "Add or create Agent"
-                                    : "Select a Chat first"
-                                onClicked: root.openAgentPicker()
+                                onClicked: {
+                                    root.archivedChatsOpen =
+                                        !root.archivedChatsOpen
+
+                                    if (
+                                        root.archivedChatsOpen
+                                    ) {
+                                        ChatStore.refreshArchived()
+                                    }
+                                }
 
                                 contentItem: Text {
                                     text: parent.text
-                                    color: parent.enabled && parent.hovered
+                                    color: parent.hovered
                                         ? root.theme.appText
                                         : root.theme.mutedText
-                                    font.pixelSize: root.theme.typeSize(14)
-                                    font.weight: Font.DemiBold
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize:
+                                        root.theme.textMetadataSize
+                                    font.weight:
+                                        root.theme
+                                            .textWeightEmphasis
+                                    verticalAlignment:
+                                        Text.AlignVCenter
+                                    leftPadding: 7
                                 }
 
                                 background: Rectangle {
                                     color: parent.hovered
                                         ? root.theme.hoverBg
                                         : "transparent"
-                                    border.width: 1
-                                    border.color: parent.hovered
-                                        ? root.theme.panelBorder
-                                        : "transparent"
-                                    radius: 4
+                                    radius: 0
                                 }
+                            }
+
+                            ListView {
+                                id: archivedChatList
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight:
+                                    root.archivedChatsOpen
+                                        ? Math.min(
+                                            112,
+                                            contentHeight
+                                        )
+                                        : 0
+                                visible: root.archivedChatsOpen
+                                clip: true
+                                spacing: 1
+                                model: ChatStore.archivedChats
+
+                                delegate: Rectangle {
+                                    id: archivedChatRow
+
+                                    required property var modelData
+
+                                    width: archivedChatList.width
+                                    height: 28
+                                    color:
+                                        archivedChatHover.hovered
+                                            ? root.theme.hoverBg
+                                            : "transparent"
+
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 8
+                                        anchors.right:
+                                            archivedChatManage.left
+                                        anchors.rightMargin: 5
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        text: String(
+                                            archivedChatRow.modelData.title
+                                                || "Untitled Chat"
+                                        )
+                                        color:
+                                            root.theme.mutedText
+                                        font.pixelSize:
+                                            root.theme.textMetadataSize
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Button {
+                                        id: archivedChatManage
+
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 3
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        width: 24
+                                        height: 24
+                                        text: "•••"
+                                        enabled:
+                                            !ChatStore.mutating
+                                            && !ChatStore.responding
+                                        hoverEnabled: true
+                                        padding: 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text:
+                                            "Open Chat settings"
+                                        onClicked:
+                                            chatEditor.openForChat(
+                                                archivedChatRow.modelData
+                                            )
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color:
+                                                parent.hovered
+                                                    ? root.theme.appText
+                                                    : root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme
+                                                    .textMetadataSize
+                                            font.weight:
+                                                root.theme
+                                                    .textWeightStrong
+                                            horizontalAlignment:
+                                                Text.AlignHCenter
+                                            verticalAlignment:
+                                                Text.AlignVCenter
+                                        }
+
+                                        background: Rectangle {
+                                            radius: 3
+                                            color: parent.hovered
+                                                ? root.theme.surfaceBg
+                                                : "transparent"
+                                        }
+                                    }
+
+                                    HoverHandler {
+                                        id: archivedChatHover
+                                    }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible:
+                                    !ChatStore.loadingChats
+                                    && root.scopedChats.length === 0
+                                text:
+                                    CollectionStore
+                                        .selectedCollectionId
+                                        .length === 0
+                                        ? "Select a Collection to view Chats."
+                                        : "No Chats in this Collection."
+                                color: root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.textMetadataSize
+                                horizontalAlignment:
+                                    Text.AlignHCenter
+                                verticalAlignment:
+                                    Text.AlignVCenter
                             }
                         }
                     }
@@ -1113,222 +1925,168 @@ Rectangle {
                                 clip: true
                                 model: root.attachedAgents
 
-                                delegate: Item {
-                                    id: agentDelegate
+                                delegate: Rectangle {
+                                    id: agentRow
 
                                     required property int index
                                     required property var modelData
 
-                                    width: agentList.width
-                                    height: 66
-                                    z: agentHover.hovered
-                                        ? 3
-                                        : agentDelegate.neighborHovered
-                                            ? 2
-                                            : 1
-
-                                    readonly property bool assigned: String(modelData.id)
-                                        === String(ChatStore.selectedChat.agentId || "")
-                                    readonly property bool neighborHovered: root.hoveredAgentIndex >= 0
-                                        && Math.abs(root.hoveredAgentIndex - index) === 1
-
-                                    Rectangle {
-                                        id: agentItem
-
-                                        readonly property int index: agentDelegate.index
-                                        readonly property var modelData: agentDelegate.modelData
-                                        readonly property bool assigned: agentDelegate.assigned
-                                        readonly property bool neighborHovered: agentDelegate.neighborHovered
-
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.leftMargin: 11
-                                        anchors.rightMargin: 11
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        height: 56
-                                        radius: root.theme.radiusMedium
-                                        color: agentTap.pressed
-                                            ? "#292621"
-                                            : agentHover.hovered
-                                                ? root.theme.hoverBg
-                                                : agentItem.assigned
-                                                    ? "#211f1c"
-                                                    : root.theme.controlSurfaceBg
-                                        border.width: 1
-                                        border.color: agentHover.hovered
-                                            ? root.theme.panelBorder
-                                            : agentItem.assigned
-                                                ? "#554a7b"
-                                                : root.theme.quietBorder
-                                        transformOrigin: Item.Center
-                                        scale: agentTap.pressed
-                                            ? root.theme.pressedScale
-                                            : agentHover.hovered
-                                                ? root.theme.hoverScale
-                                                : agentItem.neighborHovered
-                                                    ? root.theme.hoverNeighborScale
-                                                    : 1.0
-
-                                        Behavior on scale {
-                                            enabled: !agentTap.pressed
-
-                                            NumberAnimation {
-                                                duration: agentHover.hovered || agentItem.neighborHovered
-                                                    ? root.theme.motionHover
-                                                    : root.theme.motionHoverExit
-                                                easing.type: Easing.OutCubic
-                                            }
-                                        }
-
-                                        Behavior on color {
-                                            enabled: !agentTap.pressed
-                                            ColorAnimation { duration: root.theme.motionFast }
-                                        }
-
-                                        Item {
-                                            id: assignmentArea
-
-                                            anchors.left: parent.left
-                                            anchors.right: detachAgentButton.left
-                                            anchors.top: parent.top
-                                            anchors.bottom: parent.bottom
-
-                                            Column {
-                                                anchors.left: parent.left
-                                                anchors.right: parent.right
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                anchors.leftMargin: 14
-                                                anchors.rightMargin: 8
-                                                spacing: 3
-
-                                                Text {
-                                                    width: parent.width
-                                                    text: String(agentItem.modelData.name || "Unnamed Agent")
-                                                        + (agentItem.assigned ? "  ✓" : "")
-                                                    color: root.theme.appText
-                                                    font.pixelSize: root.theme.typeSize(10)
-                                                    font.weight: Font.DemiBold
-                                                    elide: Text.ElideRight
-                                                }
-
-                                                Text {
-                                                    width: parent.width
-                                                    text: agentItem.modelData.description
-                                                        || (agentItem.modelData.generation
-                                                            ? String(agentItem.modelData.generation.model || "")
-                                                            : "")
-                                                    color: root.theme.mutedText
-                                                    font.pixelSize: root.theme.typeSize(9)
-                                                    opacity: 0.72
-                                                    elide: Text.ElideRight
-                                                }
-                                            }
-                                            TapHandler {
-                                                id: agentTap
-                                                enabled: ChatStore.selectedChatId.length > 0
-                                                    && !ChatStore.responding
-                                                    && !ChatStore.assigningAgent
-                                                    && !ChatStore.mutating
-                                                    && !agentItem.assigned
-                                                onTapped: ChatStore.assignAgentToSelectedChat(
-                                                    String(agentItem.modelData.id)
-                                                )
-                                            }
-                                        }
-
-                                        Button {
-                                            id: detachAgentButton
-
-                                            anchors.right: editAgentButton.left
-                                            anchors.rightMargin: 5
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 25
-                                            height: 28
-                                            visible: !agentItem.assigned
-                                                && root.attachedAgents.length > 1
-                                            text: "×"
-                                            enabled: !ChatStore.responding
-                                                && !ChatStore.assigningAgent
-                                                && !ChatStore.mutating
-                                                && !AgentStore.mutating
-                                            hoverEnabled: true
-                                            padding: 0
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: "Detach from this Chat"
-                                            onClicked: ChatStore.detachAgentFromSelectedChat(
-                                                String(agentItem.modelData.id)
+                                    readonly property bool assigned:
+                                        String(modelData.id)
+                                            === String(
+                                                ChatStore
+                                                    .selectedChat
+                                                    .agentId
+                                                || ""
                                             )
 
-                                            contentItem: Text {
-                                                text: parent.text
-                                                color: parent.enabled && parent.hovered
-                                                    ? root.theme.danger
-                                                    : root.theme.mutedText
-                                                font.pixelSize: root.theme.typeSize(13)
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                            }
+                                    width: agentList.width
+                                    height: 30
+                                    radius: 0
+                                    color: agentTap.pressed
+                                        ? root.theme.controlPressedBg
+                                        : agentHover.hovered
+                                            ? root.theme.hoverBg
+                                            : assigned
+                                                ? root.theme.activeBg
+                                                : "transparent"
 
-                                            background: Rectangle {
-                                                color: parent.hovered
-                                                    ? "#2d211f"
-                                                    : "transparent"
-                                                border.width: parent.hovered ? 1 : 0
-                                                border.color: "#6c413d"
-                                                radius: root.theme.radiusSmall
-                                            }
+                                    Behavior on color {
+                                        ColorAnimation {
+                                            duration:
+                                                root.theme.motionFast
                                         }
+                                    }
 
-                                        Button {
-                                            id: editAgentButton
+                                    Text {
+                                        id: agentGlyph
 
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: 8
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 46
-                                            height: 28
-                                            text: "Edit"
-                                            enabled: !AgentStore.mutating
-                                            hoverEnabled: true
-                                            padding: 0
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: "Edit Agent"
-                                            onClicked: agentEditor.openForEdit(agentItem.modelData)
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 8
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        width: 16
+                                        text: "♙"
+                                        color: agentRow.assigned
+                                            ? root.theme.accentBright
+                                            : root.theme.mutedText
+                                        font.pixelSize:
+                                            root.theme.textCaptionSize
+                                        horizontalAlignment:
+                                            Text.AlignHCenter
+                                    }
 
-                                            contentItem: Text {
-                                                text: parent.text
-                                                color: parent.enabled && parent.hovered
+                                    Text {
+                                        anchors.left: agentGlyph.right
+                                        anchors.right:
+                                            manageAgentButton.left
+                                        anchors.leftMargin: 5
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        text: String(
+                                            agentRow.modelData.name
+                                                || "Unnamed Agent"
+                                        )
+                                        color: agentRow.assigned
+                                            || agentHover.hovered
+                                            ? root.theme.appText
+                                            : root.theme.mutedText
+                                        font.pixelSize:
+                                            root.theme.textControlSize
+                                        font.weight: agentRow.assigned
+                                            ? root.theme
+                                                .textWeightEmphasis
+                                            : root.theme
+                                                .textWeightRegular
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Button {
+                                        id: manageAgentButton
+
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 3
+                                        anchors.verticalCenter:
+                                            parent.verticalCenter
+                                        width: 24
+                                        height: 24
+                                        text: "•••"
+                                        enabled:
+                                            !AgentStore.mutating
+                                        hoverEnabled: true
+                                        padding: 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text:
+                                            "Open Agent settings"
+                                        onClicked:
+                                            agentEditor.openForEdit(
+                                                agentRow.modelData
+                                            )
+
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color:
+                                                parent.enabled
+                                                && parent.hovered
                                                     ? root.theme.appText
-                                                    : root.theme.mutedText
-                                                font.pixelSize: root.theme.typeSize(8)
-                                                font.weight: Font.DemiBold
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                            }
-
-                                            background: Rectangle {
-                                                color: parent.hovered
-                                                    ? root.theme.hoverBg
-                                                    : root.theme.surfaceBg
-                                                border.width: 1
-                                                border.color: parent.hovered
-                                                    ? "#6557a0"
-                                                    : root.theme.panelBorder
-                                                radius: root.theme.radiusSmall
-                                            }
+                                                    : root.theme
+                                                        .mutedText
+                                            font.pixelSize:
+                                                root.theme
+                                                    .textMetadataSize
+                                            font.weight:
+                                                root.theme
+                                                    .textWeightStrong
+                                            horizontalAlignment:
+                                                Text.AlignHCenter
+                                            verticalAlignment:
+                                                Text.AlignVCenter
+                                            opacity:
+                                                parent.enabled ? 1 : 0.42
                                         }
 
-                                        HoverHandler {
-                                            id: agentHover
-
-                                            onHoveredChanged: {
-                                                if (hovered) {
-                                                    root.hoveredAgentIndex = agentItem.index
-                                                } else if (root.hoveredAgentIndex === agentItem.index) {
-                                                    root.hoveredAgentIndex = -1
-                                                }
-                                            }
+                                        background: Rectangle {
+                                            radius: 3
+                                            color: parent.hovered
+                                                ? root.theme.surfaceBg
+                                                : "transparent"
                                         }
+                                    }
+
+                                    Item {
+                                        anchors.left: parent.left
+                                        anchors.right:
+                                            manageAgentButton.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+
+                                        TapHandler {
+                                            id: agentTap
+
+                                            enabled:
+                                                ChatStore
+                                                    .selectedChatId
+                                                    .length > 0
+                                                && !ChatStore.responding
+                                                && !ChatStore
+                                                    .assigningAgent
+                                                && !ChatStore.mutating
+                                                && !agentRow.assigned
+                                            onTapped:
+                                                ChatStore
+                                                    .assignAgentToSelectedChat(
+                                                        String(
+                                                            agentRow
+                                                                .modelData
+                                                                .id
+                                                        )
+                                                    )
+                                        }
+                                    }
+
+                                    HoverHandler {
+                                        id: agentHover
                                     }
                                 }
                             }
@@ -1452,6 +2210,12 @@ Rectangle {
                 }
             }
         }
+    }
+
+    ChatEditor {
+        id: chatEditor
+
+        theme: root.theme
     }
 
     Connections {
