@@ -6,10 +6,12 @@ import {
   libraryFileIdParamsSchema,
   libraryIdParamsSchema,
   moveLibraryFileSchema,
+  saveLibraryFileSchema,
 } from "../schemas/LibrarySchemas.js";
 import { moveLibraryFile } from "../services/LibraryFileMover.js";
 import { readLibraryFilePreview } from "../services/LibraryFileReader.js";
 import { scanLibraryFiles } from "../services/LibraryFileScanner.js";
+import { writeLibraryFileText } from "../services/LibraryFileWriter.js";
 
 function parseLibraryId(params: unknown): string {
   const parsed = libraryIdParamsSchema.safeParse(params);
@@ -82,6 +84,31 @@ export const getLibraryFileContent: RequestHandler = async (
   response.json({
     ok: true,
     preview: await readLibraryFilePreview(libraryId, fileId),
+  });
+};
+
+export const putLibraryFileContent: RequestHandler = async (
+  request,
+  response,
+) => {
+  const { libraryId, fileId } = parseLibraryFileIds(request.params);
+  const parsed = saveLibraryFileSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid file content.",
+      parsed.error.flatten(),
+    );
+  }
+
+  response.json({
+    ok: true,
+    preview: await writeLibraryFileText(
+      libraryId,
+      fileId,
+      parsed.data,
+    ),
   });
 };
 

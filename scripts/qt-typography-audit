@@ -17,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: scripts/qt-typography-audit [--check] [path ...]"
       echo
-      echo "Without paths, audits qt/qml/App."
+      echo "Without paths, audits frontend/qml/App."
       echo "--check rejects new legacy typeSize(number) calls and literal font sizes."
       exit 0
       ;;
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if (( ${#paths[@]} == 0 )); then
-  paths=("qt/qml/App")
+  paths=("frontend/qml/App")
 fi
 
 python3 - "$check_baseline" "${paths[@]}" <<'PY'

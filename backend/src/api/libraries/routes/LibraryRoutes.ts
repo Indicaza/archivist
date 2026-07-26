@@ -13,6 +13,7 @@ import {
   getLibraryFiles,
   patchLibraryFileLocation,
   postLibraryScan,
+  putLibraryFileContent,
 } from "../controllers/LibraryFileController.js";
 
 export const libraryRouter = Router();
@@ -28,6 +29,10 @@ libraryRouter.patch(
 libraryRouter.get(
   "/:libraryId/files/:fileId/content",
   getLibraryFileContent,
+);
+libraryRouter.put(
+  "/:libraryId/files/:fileId/content",
+  putLibraryFileContent,
 );
 libraryRouter.post("/:libraryId/scan", postLibraryScan);
 libraryRouter.get("/:libraryId", getLibrary);

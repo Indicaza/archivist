@@ -2,10 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="$ROOT/build/qt-debug"
+BUILD_DIR="$ROOT/build/frontend-debug"
 
-if [[ ! -f "$BUILD_DIR/build.ninja" ]]; then
-  "$ROOT/scripts/qt-configure"
-fi
-
+"$ROOT/scripts/qt-configure"
 cmake --build "$BUILD_DIR"

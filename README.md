@@ -20,7 +20,7 @@ Choose a Collection
 → return later without reconstructing the session
 ```
 
-Archivist is under active development. The native Qt desktop client is the primary application; the older Electron/React client remains in the repository as a behavioral reference.
+Archivist is under active development. The native Qt/QML application in `frontend/` is the product frontend. The retired Electron/React prototype is kept outside this repository as a historical reference.
 
 ## Core features
 
@@ -160,10 +160,11 @@ Archivist   → continuity, context, permissions, provenance, outcomes
 Archivist/
 ├── assets/               README artwork and project media
 ├── backend/              Express 5, TypeScript, SQLite, AI and cognition domains
-├── qt/                   Primary Qt 6 / QML desktop client
+├── frontend/             Primary Qt 6 / QML desktop frontend
 │   ├── qml/App/          Workbench, Explorer, Chat, previews, inspectors and editors
+│   ├── qml/App/Workbench/IdeHost/Web/
+│   │                     Embedded Monaco and xterm.js feature
 │   └── src/App/Domains/  C++ Library, Chat and Agent stores
-├── frontend/             Legacy Electron/React reference client
 ├── scripts/              Native build, runtime, cleanup, smoke-test and context helpers
 ├── devHandoff.md          Current development state and coding-chat handoff
 └── README.md
@@ -207,6 +208,7 @@ validate Node and better-sqlite3
 → clean up stale Archivist listeners
 → start one backend
 → wait for API health
+→ build the embedded IDE assets
 → build the Qt client
 → launch Archivist
 → clean up the backend when Archivist exits
@@ -245,13 +247,6 @@ npm run dev:qt
 npm run build:qt
 npm run qt:configure
 npm run qt:run
-```
-
-The legacy Electron/React client remains available as a reference:
-
-```bash
-npm run dev:legacy
-npm run build:legacy
 ```
 
 Useful checks:

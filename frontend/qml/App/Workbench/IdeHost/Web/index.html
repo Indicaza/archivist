@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' qrc:; script-src 'self' qrc: 'unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data:; connect-src 'self';"
+    />
+    <title>Archivist IDE</title>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  </head>
+  <body>
+    <main id="ide-host">
+      <section
+        id="monaco-editor"
+        aria-label="Code editor"
+        hidden
+      ></section>
+      <section
+        id="terminal"
+        aria-label="Terminal"
+        hidden
+      ></section>
+    </main>
+    <script type="module" src="./IdeHost.ts"></script>
+  </body>
+</html>

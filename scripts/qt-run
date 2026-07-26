@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="$ROOT/build/qt-debug"
+BUILD_DIR="$ROOT/build/frontend-debug"
 APP_BUNDLE="$BUILD_DIR/archivist-qt.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/archivist-qt"
 PLAIN_BINARY="$BUILD_DIR/archivist-qt"

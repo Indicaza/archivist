@@ -1,4 +1,6 @@
 import cors from "cors";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { agentRouter } from "./api/agents/routes/AgentRoutes.js";
 import { aiModelRouter } from "./api/ai/routes/AIModelRoutes.js";
@@ -10,6 +12,14 @@ import { contextRetrievalRouter } from "./api/cognition/contextRetrieval/routes/
 import { libraryRouter } from "./api/libraries/routes/LibraryRoutes.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
+const currentDirectory = path.dirname(
+  fileURLToPath(import.meta.url),
+);
+const ideDistributionPath = path.resolve(
+  currentDirectory,
+  "../../frontend/dist/ide",
+);
+
 export const app = express();
 
 app.use(
@@ -19,6 +29,13 @@ app.use(
 );
 
 app.use(express.json());
+app.use(
+  "/ide",
+  express.static(ideDistributionPath, {
+    index: "index.html",
+    fallthrough: true,
+  }),
+);
 
 app.get("/api/health", (_request, response) => {
   response.json({

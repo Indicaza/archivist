@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="$ROOT/build/qt-debug"
+SOURCE_DIR="$ROOT/frontend"
+BUILD_DIR="$ROOT/build/frontend-debug"
+CACHE_FILE="$BUILD_DIR/CMakeCache.txt"
 
 if command -v brew >/dev/null 2>&1; then
   QT_PREFIX="$(brew --prefix)"
@@ -10,8 +12,19 @@ else
   QT_PREFIX=""
 fi
 
+if [[ -f "$CACHE_FILE" ]]; then
+  CACHED_SOURCE="$(
+    sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$CACHE_FILE"
+  )"
+
+  if [[ "$CACHED_SOURCE" != "$SOURCE_DIR" ]]; then
+    printf 'Resetting stale frontend CMake cache...\n'
+    rm -rf "$BUILD_DIR"
+  fi
+fi
+
 cmake \
-  -S "$ROOT/qt" \
+  -S "$SOURCE_DIR" \
   -B "$BUILD_DIR" \
   -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \

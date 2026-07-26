@@ -30,3 +30,8 @@ export const libraryFileIdParamsSchema = libraryIdParamsSchema.extend({
 export const moveLibraryFileSchema = z.object({
   targetDirectory: z.string().trim().max(2000),
 });
+
+export const saveLibraryFileSchema = z.object({
+  content: z.string(),
+  expectedModifiedAt: z.string().datetime({ offset: true }),
+});
