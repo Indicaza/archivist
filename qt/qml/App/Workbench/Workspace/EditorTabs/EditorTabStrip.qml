@@ -1095,15 +1095,6 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: root.theme.controlSurfaceBg
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 0.8
-            color: root.activeContourColor
-            opacity: 0.72
-        }
     }
 
     NumberAnimation {
@@ -1151,10 +1142,10 @@ Item {
         id: tabList
 
         anchors.fill: parent
-        anchors.leftMargin: -1
+        anchors.leftMargin: 0
         anchors.rightMargin: 0
         orientation: ListView.Horizontal
-        spacing: -2
+        spacing: 0
         clip: true
         interactive: !root.tabDragActive
 
@@ -1180,8 +1171,6 @@ Item {
 
             readonly property bool active: tabKey === root.activeTabKey
             readonly property bool hovered: tabHover.containsMouse
-            readonly property bool neighborHovered: root.hoveredTabIndex >= 0
-                && Math.abs(root.hoveredTabIndex - index) === 1
             readonly property bool draggingSource: root.tabDragActive
                 && root.draggedTabKey === tabKey
             readonly property bool settlingSource: root.tabDropSettling
@@ -1189,41 +1178,25 @@ Item {
             readonly property real shuffleOffset: root.tabShuffleOffsetForIndex(index)
 
             width: Math.max(
-                132,
-                Math.min(280, tabTitle.implicitWidth + 74)
+                root.theme.editorTabMinWidth,
+                Math.min(
+                    root.theme.editorTabMaxWidth,
+                    tabTitle.implicitWidth + 62
+                )
             )
-            readonly property real baseVisualHeight: active ? 28 : 24
-            property real hoverProgress: draggingSource || settlingSource
-                ? 0
-                : hovered
-                    ? 1
-                    : neighborHovered
-                        ? 0.34
-                        : 0
 
             height: tabList.height
             y: 0
-            transformOrigin: Item.Bottom
+            transformOrigin: Item.Center
             scale: 1.0
-
-            Behavior on hoverProgress {
-                enabled: !tabItem.draggingSource && !tabItem.settlingSource
-
-                NumberAnimation {
-                    duration: 220
-                    easing.type: Easing.OutCubic
-                }
-            }
             z: draggingSource
                 ? 6000
                 : settlingSource
                     ? 5500
                     : active
-                    ? 1000
-                    : hovered
-                        ? 800
-                        : neighborHovered
-                            ? 600
+                        ? 1000
+                        : hovered
+                            ? 800
                             : tabs.count - index
             opacity: 1
             transform: Translate {
@@ -1254,134 +1227,56 @@ Item {
             Item {
                 id: tabVisual
 
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: Math.min(tabItem.baseVisualHeight, tabList.height)
+                anchors.fill: parent
                 z: 3
-
-                transform: Scale {
-                    origin.x: tabVisual.width / 2
-                    origin.y: tabVisual.height
-                    xScale: 1 + tabItem.hoverProgress * (
-                        tabItem.active ? 0.018 : 0.022
-                    )
-                    yScale: 1 + tabItem.hoverProgress * (
-                        tabItem.active ? 0.075 : 0.13
-                    )
-                }
             }
 
-            Canvas {
-                id: tabCanvas
+            Rectangle {
+                id: tabSurface
 
                 parent: tabVisual
                 anchors.fill: parent
-                property color fillColor: tabItem.active
+                color: tabItem.active
                     ? root.theme.workspaceBg
                     : tabItem.hovered
-                        ? "#302c25"
-                        : "#292620"
-                property color outlineColor: tabItem.active
-                    ? root.activeContourColor
-                    : tabItem.hovered
-                        ? "#746c60"
-                        : "#665f54"
-                property real outlineOpacity: tabItem.active
-                    ? 1.0
-                    : tabItem.hovered
-                        ? 1.0
-                        : 0.96
-                property real topInset: 0
+                        ? root.theme.hoverBg
+                        : root.theme.controlSurfaceBg
 
-                onFillColorChanged: requestPaint()
-                onOutlineColorChanged: requestPaint()
-                onOutlineOpacityChanged: requestPaint()
-                onTopInsetChanged: requestPaint()
-                onWidthChanged: requestPaint()
-                onHeightChanged: requestPaint()
-
-                Behavior on fillColor {
+                Behavior on color {
                     ColorAnimation {
-                        duration: 170
+                        duration: root.theme.motionFast
                         easing.type: Easing.OutCubic
                     }
                 }
 
-                Behavior on outlineColor {
-                    ColorAnimation {
-                        duration: 170
-                        easing.type: Easing.OutCubic
-                    }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 2
+                    visible: tabItem.active
+                    color: root.theme.accentBright
+                    opacity: 0.82
                 }
 
-                onPaint: {
-                    var context = getContext("2d")
-                    var left = 1
-                    var right = width - 1
-                    var top = topInset
-                    var bottom = height
-                    var shoulder = 2
-                    var corner = 3
-
-                    context.reset()
-                    context.beginPath()
-                    context.moveTo(left, bottom)
-                    context.lineTo(left + shoulder, top + corner)
-                    context.quadraticCurveTo(
-                        left + shoulder + 1,
-                        top,
-                        left + shoulder + corner,
-                        top
-                    )
-                    context.lineTo(right - shoulder - corner, top)
-                    context.quadraticCurveTo(
-                        right - shoulder - 1,
-                        top,
-                        right - shoulder,
-                        top + corner
-                    )
-                    context.lineTo(right, bottom)
-                    context.closePath()
-                    context.fillStyle = fillColor
-                    context.fill()
-
-                    context.globalAlpha = outlineOpacity
-                    context.strokeStyle = outlineColor
-                    context.lineWidth = tabItem.active ? 1.25 : 0.85
-                    context.lineJoin = "round"
-                    context.beginPath()
-                    context.moveTo(left, bottom)
-                    context.lineTo(left + shoulder, top + corner)
-                    context.quadraticCurveTo(
-                        left + shoulder + 1,
-                        top,
-                        left + shoulder + corner,
-                        top
-                    )
-                    context.lineTo(right - shoulder - corner, top)
-                    context.quadraticCurveTo(
-                        right - shoulder - 1,
-                        top,
-                        right - shoulder,
-                        top + corner
-                    )
-                    context.lineTo(right, bottom)
-                    if (!tabItem.active) {
-                        context.lineTo(left, bottom)
-                    }
-                    context.stroke()
-                    context.globalAlpha = 1
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: 1
+                    color: root.theme.quietBorder
+                    opacity: 0.9
                 }
+
             }
 
             Text {
                 id: fileGlyph
 
                 parent: tabVisual
-                y: Math.max(0, Math.min(parent.height - height, tabTitle.y))
                 anchors.left: parent.left
-                anchors.leftMargin: 14
+                anchors.leftMargin: 9
+                anchors.verticalCenter: parent.verticalCenter
                 width: 16
                 height: 18
                 text: root.glyphFor(
@@ -1393,7 +1288,7 @@ Item {
                     ? root.theme.accentBright
                     : root.theme.mutedText
                 opacity: tabItem.active || tabItem.hovered ? 1 : 0.92
-                font.pixelSize: root.theme.typeSize(9)
+                font.pixelSize: root.theme.textCaptionSize
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 z: 3
@@ -1403,9 +1298,9 @@ Item {
                 id: tabTitle
 
                 parent: tabVisual
-                x: 36
-                width: Math.max(0, parent.width - 75)
-                y: Math.round((parent.height - height) / 2) + 1
+                x: 31
+                width: Math.max(0, parent.width - 62)
+                anchors.verticalCenter: parent.verticalCenter
                 height: 18
                 text: tabItem.title
                 color: root.theme.appText
@@ -1414,8 +1309,10 @@ Item {
                     : tabItem.hovered
                         ? 1
                         : 0.88
-                font.pixelSize: root.theme.typeSize(10)
-                font.weight: tabItem.active ? Font.DemiBold : Font.Medium
+                font.pixelSize: root.theme.textTabSize
+                font.weight: tabItem.active
+                    ? root.theme.textWeightEmphasis
+                    : root.theme.textWeightRegular
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
                 z: 3
@@ -1608,7 +1505,7 @@ Item {
                                     width: parent.width
                                     text: tabItem.title
                                     color: root.theme.appText
-                                    font.pixelSize: root.theme.typeSize(12)
+                                    font.pixelSize: root.theme.textCaptionSize
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                 }
@@ -1746,11 +1643,11 @@ Item {
                 id: closeTabButton
 
                 parent: tabVisual
-                y: Math.max(0, Math.min(parent.height - height, tabTitle.y - 1))
                 anchors.right: parent.right
-                anchors.rightMargin: 8
-                width: 19
-                height: 19
+                anchors.rightMargin: 5
+                anchors.verticalCenter: parent.verticalCenter
+                width: 22
+                height: 22
                 z: 5
                 text: "×"
                 hoverEnabled: true
@@ -1773,12 +1670,10 @@ Item {
                 }
 
                 background: Rectangle {
-                    radius: width / 2
+                    radius: 3
                     color: parent.hovered
-                        ? root.theme.controlSurfaceBg
+                        ? root.theme.surfaceBg
                         : "transparent"
-                    border.width: parent.hovered ? 1 : 0
-                    border.color: root.theme.quietBorder
                 }
             }
         }

@@ -636,7 +636,9 @@ Rectangle {
         anchors.top: parent.top
         x: root.previewViewportX
         width: Math.max(0, parent.width - root.previewViewportX)
-        height: editorTabStrip.hasTabs ? 33 : root.theme.workspaceHeaderHeight
+        height: editorTabStrip.hasTabs
+            ? root.theme.editorTabHeight
+            : root.theme.workspaceHeaderHeight
         color: theme.controlSurfaceBg
         z: 50
 
@@ -660,11 +662,9 @@ Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: editorTabStrip.hasTabs ? 0.8 : 1
-            color: editorTabStrip.hasTabs
-                ? editorTabStrip.activeContourColor
-                : root.theme.quietBorder
-            opacity: editorTabStrip.hasTabs ? 0.72 : 1
+            height: 1
+            visible: !editorTabStrip.hasTabs
+            color: root.theme.quietBorder
         }
 
         RowLayout {

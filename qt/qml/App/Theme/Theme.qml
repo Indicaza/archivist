@@ -72,6 +72,7 @@ QtObject {
     readonly property int textComposerSize: typeControl
     readonly property int textBodySize: typeBody
     readonly property int textWorkbenchTitleSize: typeBody
+    readonly property int textTopbarBrandSize: typeTitle
     readonly property int textPanelTitleSize: typeTitle
     readonly property int textDisplaySize: typeDisplay
 
@@ -119,19 +120,23 @@ QtObject {
         return typeDisplay
     }
 
-    readonly property int topbarHeight: 52
+    readonly property int topbarHeight: 40
+    readonly property int topbarAvatarSize: 28
     readonly property int activityRailWidth: 44
     readonly property int statusBarHeight: 26
     readonly property int explorerHeaderHeight: 40
-    readonly property int explorerMinWidth: 244
+    readonly property int explorerMinWidth: 200
     readonly property int explorerDefaultWidth: 310
-    readonly property int explorerMaxWidth: 520
+    readonly property int explorerMaxWidth: 720
     readonly property int workspaceHeaderHeight: 42
-    readonly property int workspaceMinHeight: 220
+    readonly property int editorTabHeight: 32
+    readonly property int editorTabMinWidth: 120
+    readonly property int editorTabMaxWidth: 240
+    readonly property int workspaceMinHeight: editorTabHeight
     readonly property int chatDockHeaderHeight: 50
     readonly property int chatDockDefaultHeight: 256
     readonly property int chatDockMinHeight: 198
-    readonly property int chatDockPanelMinWidth: 260
+    readonly property int chatDockPanelMinWidth: 180
     readonly property int chatDockPanelDefaultWidth: 320
     readonly property int chatDockPanelMaxWidth: 520
     readonly property int chatDockComposerMinWidth: 420

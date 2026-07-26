@@ -23,17 +23,17 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 40
-        anchors.rightMargin: 39
-        spacing: 11
+        anchors.leftMargin: 32
+        anchors.rightMargin: 31
+        spacing: 8
 
         Text {
-            Layout.preferredWidth: 176
+            Layout.preferredWidth: 146
             text: "Archivist"
             color: root.theme.appText
             font.family: root.theme.titleFontFamily
-            font.pixelSize: root.theme.typeSize(27)
-            font.weight: Font.DemiBold
+            font.pixelSize: root.theme.textTopbarBrandSize
+            font.weight: root.theme.textWeightEmphasis
             verticalAlignment: Text.AlignVCenter
         }
 
@@ -42,8 +42,8 @@ Rectangle {
         }
 
         Rectangle {
-            Layout.preferredWidth: 35
-            Layout.preferredHeight: 35
+            Layout.preferredWidth: root.theme.topbarAvatarSize
+            Layout.preferredHeight: root.theme.topbarAvatarSize
             radius: width / 2
             border.width: 1
             border.color: "#3c3656"
@@ -54,10 +54,10 @@ Rectangle {
             }
 
             Rectangle {
-                x: 8
-                y: 5
-                width: 9
-                height: 6
+                x: 6
+                y: 4
+                width: 7
+                height: 5
                 radius: 4
                 color: "#70ffffff"
                 rotation: -18
