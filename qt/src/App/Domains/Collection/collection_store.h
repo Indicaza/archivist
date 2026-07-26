@@ -46,6 +46,10 @@ public:
         const QVariantList &agentIds,
         const QString &defaultAgentId
     );
+    Q_INVOKABLE void addLibraryToCollection(
+        const QString &collectionId,
+        const QString &libraryId
+    );
     Q_INVOKABLE void updateCollection(
         const QString &collectionId,
         const QString &name,

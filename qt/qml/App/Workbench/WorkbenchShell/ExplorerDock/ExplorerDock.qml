@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../../Files/FileIdentity.js" as FileIdentity
@@ -32,13 +33,27 @@ Rectangle {
     property bool collectionLibraryRestorePending: false
     property bool restoringLibraryTreeState: false
     property bool treeStateRestorePending: false
+    property string pendingCreatedLibraryId: ""
+    property string pendingCreatedCollectionId: ""
     property var pendingTreeViewport: ({
         contentY: 0,
         nodeId: "",
         offset: 0
     })
     property var filterField: null
-    readonly property var scopedLibraries: filteredLibraries()
+    readonly property var selectedCollectionScope: CollectionStore.scope || ({})
+    readonly property var selectedCollectionLibraryIds:
+        selectedCollectionScope.libraryIds || []
+    readonly property var scopedLibraries: filteredLibraries(
+        LibraryStore.libraries,
+        selectedCollectionLibraryIds,
+        CollectionStore.selectedCollectionId
+    )
+    readonly property string libraryFlowError: LibraryStore.errorMessage.length > 0
+        ? LibraryStore.errorMessage
+        : pendingCreatedLibraryId.length > 0
+            ? CollectionStore.errorMessage
+            : ""
 
     readonly property var viewTitles: [
         "Workspace Navigator",
@@ -397,8 +412,17 @@ Rectangle {
             return
         }
 
+        collectionLibraryRestorePending = false
+        pendingSelectedLibraryId = ""
         saveCurrentLibraryTreeState()
         treeStateLibraryId = ""
+        WorkspaceState.setValue(
+            collectionExplorerStateKey(
+                workspaceCollectionId,
+                "selectedLibraryId"
+            ),
+            targetLibraryId
+        )
         LibraryStore.selectLibrary(targetLibraryId)
     }
 
@@ -528,17 +552,31 @@ Rectangle {
         return -1
     }
 
-    function filteredLibraries() {
-        var libraries = LibraryStore.libraries || []
-
-        if (CollectionStore.selectedCollectionId.length === 0) {
+    function filteredLibraries(catalog, scopedLibraryIds, collectionId) {
+        if (String(collectionId || "").length === 0) {
             return []
         }
 
+        var libraries = catalog || []
+        var libraryIds = scopedLibraryIds || []
+        var librariesById = ({})
         var filtered = []
-        for (var index = 0; index < libraries.length; index += 1) {
-            if (CollectionStore.includesLibrary(String(libraries[index].id))) {
-                filtered.push(libraries[index])
+
+        for (var catalogIndex = 0; catalogIndex < libraries.length; catalogIndex += 1) {
+            var library = libraries[catalogIndex]
+            var libraryId = String(library.id || "")
+
+            if (libraryId.length > 0) {
+                librariesById[libraryId] = library
+            }
+        }
+
+        for (var scopeIndex = 0; scopeIndex < libraryIds.length; scopeIndex += 1) {
+            var scopedLibraryId = String(libraryIds[scopeIndex] || "")
+            var scopedLibrary = librariesById[scopedLibraryId]
+
+            if (scopedLibrary) {
+                filtered.push(scopedLibrary)
             }
         }
 
@@ -800,6 +838,44 @@ Rectangle {
         }
     }
 
+    function openLibraryFolderDialog() {
+        var collectionId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
+
+        if (
+            collectionId.length === 0
+            || LibraryStore.creatingLibrary
+            || CollectionStore.mutating
+        ) {
+            return
+        }
+
+        pendingCreatedCollectionId = collectionId
+        libraryFolderDialog.open()
+    }
+
+    function activatePendingCreatedLibrary() {
+        var libraryId = String(pendingCreatedLibraryId || "")
+        var collectionId = String(pendingCreatedCollectionId || "")
+
+        if (
+            libraryId.length === 0
+            || collectionId.length === 0
+            || collectionId !== String(
+                CollectionStore.selectedCollectionId || ""
+            )
+            || !CollectionStore.includesLibrary(libraryId)
+        ) {
+            return false
+        }
+
+        LibraryStore.selectLibraryAndScan(libraryId)
+        pendingCreatedLibraryId = ""
+        pendingCreatedCollectionId = ""
+        return true
+    }
+
     Component.onCompleted: {
         workspaceCollectionId = String(
             CollectionStore.selectedCollectionId || ""
@@ -829,6 +905,19 @@ Rectangle {
         WorkspaceState.sync()
     }
 
+    FolderDialog {
+        id: libraryFolderDialog
+
+        title: "Add Library Folder"
+        acceptLabel: "Add Library"
+        onAccepted: LibraryStore.createLibrary(selectedFolder)
+        onRejected: {
+            if (root.pendingCreatedLibraryId.length === 0) {
+                root.pendingCreatedCollectionId = ""
+            }
+        }
+    }
+
     Connections {
         target: CollectionStore
 
@@ -837,6 +926,10 @@ Rectangle {
         }
 
         function onWorkspaceScopeChanged() {
+            if (root.activatePendingCreatedLibrary()) {
+                return
+            }
+
             root.tryRestoreCollectionLibrary()
         }
 
@@ -923,6 +1016,29 @@ Rectangle {
 
         function onLibrariesChanged() {
             root.tryRestoreCollectionLibrary()
+        }
+
+        function onLibraryCreated(library) {
+            var libraryId = String(library.id || "")
+            var collectionId = String(
+                root.pendingCreatedCollectionId
+                    || CollectionStore.selectedCollectionId
+                    || ""
+            )
+
+            if (
+                libraryId.length === 0
+                || collectionId.length === 0
+            ) {
+                return
+            }
+
+            root.pendingCreatedLibraryId = libraryId
+            root.pendingCreatedCollectionId = collectionId
+            CollectionStore.addLibraryToCollection(
+                collectionId,
+                libraryId
+            )
         }
 
         function onLoadingLibrariesChanged() {
@@ -1207,19 +1323,14 @@ Rectangle {
                             id: librarySelector
 
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 26
+                            Layout.preferredHeight: 24
                             model: root.scopedLibraries
                             textRole: "name"
                             valueRole: "id"
                             enabled: !LibraryStore.loadingLibraries && count > 0
                             hoverEnabled: true
-                            ToolTip.visible: hovered
-                            ToolTip.text: String(
-                                LibraryStore.selectedLibrary.rootPath
-                                    || "Select Library"
-                            )
                             leftPadding: 7
-                            rightPadding: 24
+                            rightPadding: 22
 
                             Binding {
                                 target: librarySelector
@@ -1230,9 +1341,7 @@ Rectangle {
                             onActivated: function(index) {
                                 var library = root.scopedLibraries[index]
                                 if (library) {
-                                    root.selectLibrary(
-                                        String(library.id)
-                                    )
+                                    root.selectLibrary(String(library.id))
                                 }
                             }
 
@@ -1243,7 +1352,7 @@ Rectangle {
                                         ? "Loading Libraries…"
                                         : "No Libraries"
                                 color: root.theme.appText
-                                font.pixelSize: root.theme.typeSize(12)
+                                font.pixelSize: root.theme.typeSize(10)
                                 font.weight: Font.DemiBold
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
@@ -1252,30 +1361,66 @@ Rectangle {
                             indicator: Text {
                                 x: parent.width - width - 7
                                 y: (parent.height - height) / 2
-                                text: "⌄"
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(12)
+                                text: librarySelector.popup.visible ? "⌃" : "⌄"
+                                color: librarySelector.popup.visible
+                                    ? root.theme.accentBright
+                                    : root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(10)
                             }
 
                             background: Rectangle {
                                 radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
+                                color: parent.popup.visible
+                                    ? root.theme.activeBg
+                                    : parent.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
                                 border.width: parent.popup.visible ? 1 : 0
                                 border.color: root.theme.panelBorder
                             }
 
                             popup: Popup {
+                                id: libraryPopup
+
                                 y: librarySelector.height + 3
-                                width: librarySelector.width
-                                implicitHeight: Math.min(contentItem.implicitHeight + 8, 260)
+                                width: Math.min(
+                                    Math.max(librarySelector.width + 96, 260),
+                                    root.width - 18
+                                )
+                                height: Math.min(
+                                    Math.max(1, librarySelector.count) * 28 + 8,
+                                    232
+                                )
                                 padding: 4
+                                closePolicy: Popup.CloseOnEscape
+                                    | Popup.CloseOnPressOutsideParent
+
+                                onOpened: Qt.callLater(function() {
+                                    if (librarySelector.currentIndex >= 0) {
+                                        libraryPopupList.positionViewAtIndex(
+                                            librarySelector.currentIndex,
+                                            ListView.Contain
+                                        )
+                                    }
+                                })
 
                                 contentItem: ListView {
+                                    id: libraryPopupList
+
                                     clip: true
-                                    implicitHeight: contentHeight
-                                    model: librarySelector.popup.visible ? librarySelector.delegateModel : null
+                                    model: librarySelector.popup.visible
+                                        ? librarySelector.delegateModel
+                                        : null
                                     currentIndex: librarySelector.highlightedIndex
-                                    ScrollIndicator.vertical: ScrollIndicator {}
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    flickableDirection: Flickable.VerticalFlick
+                                    interactive: contentHeight > height
+                                    highlightMoveDuration: root.theme.motionFast
+
+                                    ScrollBar.vertical: ScrollBar {
+                                        policy: ScrollBar.AsNeeded
+                                        interactive: true
+                                    }
                                 }
 
                                 background: Rectangle {
@@ -1290,36 +1435,93 @@ Rectangle {
                                 required property int index
                                 required property var modelData
 
-                                width: librarySelector.width - 8
-                                height: 36
+                                width: ListView.view
+                                    ? ListView.view.width
+                                    : libraryPopup.width - 8
+                                height: 28
+                                hoverEnabled: true
                                 highlighted: librarySelector.highlightedIndex === index
+                                leftPadding: 8
+                                rightPadding: 8
+                                topPadding: 0
+                                bottomPadding: 0
 
-                                contentItem: Column {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 1
+                                contentItem: RowLayout {
+                                    spacing: 8
 
                                     Text {
-                                        width: parent.width
+                                        Layout.fillWidth: true
                                         text: String(modelData.name || "Library")
                                         color: root.theme.appText
-                                        font.pixelSize: root.theme.typeSize(11)
+                                        font.pixelSize: root.theme.typeSize(10)
                                         font.weight: Font.DemiBold
+                                        verticalAlignment: Text.AlignVCenter
                                         elide: Text.ElideRight
                                     }
 
                                     Text {
-                                        width: parent.width
+                                        Layout.preferredWidth: Math.min(
+                                            150,
+                                            Math.max(72, libraryPopup.width * 0.42)
+                                        )
                                         text: String(modelData.rootPath || "")
                                         color: root.theme.mutedText
-                                        font.pixelSize: root.theme.typeSize(9)
+                                        font.pixelSize: root.theme.typeSize(8)
+                                        horizontalAlignment: Text.AlignRight
+                                        verticalAlignment: Text.AlignVCenter
                                         elide: Text.ElideMiddle
+                                        opacity: 0.76
                                     }
                                 }
 
                                 background: Rectangle {
                                     radius: 4
-                                    color: parent.highlighted ? root.theme.hoverBg : "transparent"
+                                    color: parent.highlighted || parent.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
                                 }
+                            }
+                        }
+
+                        Button {
+                            id: addLibraryButton
+
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            text: LibraryStore.creatingLibrary ? "…" : "+"
+                            enabled: CollectionStore.selectedCollectionId.length > 0
+                                && !LibraryStore.creatingLibrary
+                                && !CollectionStore.mutating
+                            hoverEnabled: true
+                            padding: 0
+                            onClicked: root.openLibraryFolderDialog()
+                            ToolTip.visible: hovered
+                            ToolTip.text: CollectionStore.selectedCollectionId.length === 0
+                                ? "Select a Collection before adding a Library"
+                                : "Add a folder as a Library"
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled
+                                    ? parent.hovered
+                                        ? root.theme.accentBright
+                                        : root.theme.appText
+                                    : root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(14)
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered
+                                    ? root.theme.activeBg
+                                    : "transparent"
+                                border.width: 1
+                                border.color: parent.hovered
+                                    ? root.theme.accent
+                                    : root.theme.quietBorder
                             }
                         }
 
@@ -1616,26 +1818,77 @@ Rectangle {
                     }
                     }
 
-                    Text {
+                    Column {
                         anchors.centerIn: parent
                         width: Math.max(120, parent.width - 28)
+                        spacing: 10
                         visible: visibleTree.count === 0
-                        text: LibraryStore.errorMessage.length > 0
-                            ? LibraryStore.errorMessage + "\n\nRun npm run dev:backend if the local API is offline."
-                            : LibraryStore.loadingLibraries
-                                ? "Loading Libraries…"
-                                : LibraryStore.loadingFiles
-                                    ? "Loading files…"
-                                    : LibraryStore.selectedLibraryId.length === 0
-                                        ? "No Library selected"
-                                        : "No cataloged files yet.\nUse Rescan Library to refresh the catalog."
-                        color: LibraryStore.errorMessage.length > 0
-                            ? root.theme.danger
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(10)
-                        lineHeight: root.theme.typeLineHeightCompact
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.Wrap
+
+                        Text {
+                            width: parent.width
+                            text: root.libraryFlowError.length > 0
+                                ? root.libraryFlowError
+                                    + "\n\nRun npm run dev:backend if the local API is offline."
+                                : LibraryStore.creatingLibrary
+                                    ? "Adding Library…"
+                                    : LibraryStore.loadingLibraries
+                                        ? "Loading Libraries…"
+                                        : LibraryStore.loadingFiles
+                                            ? "Loading files…"
+                                            : CollectionStore.selectedCollectionId.length === 0
+                                                ? "Create or select a Collection first."
+                                                : root.scopedLibraries.length === 0
+                                                    ? "No Libraries in this Collection."
+                                                    : LibraryStore.selectedLibraryId.length === 0
+                                                        ? "Choose a Library to continue."
+                                                        : "No cataloged files yet.\nUse Rescan Library to refresh the catalog."
+                            color: root.libraryFlowError.length > 0
+                                ? root.theme.danger
+                                : root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(10)
+                            lineHeight: root.theme.typeLineHeightCompact
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                        }
+
+                        Button {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: Math.min(174, parent.width)
+                            height: 32
+                            visible: root.libraryFlowError.length === 0
+                                && CollectionStore.selectedCollectionId.length > 0
+                                && root.scopedLibraries.length === 0
+                            enabled: !LibraryStore.creatingLibrary
+                                && !CollectionStore.mutating
+                            text: LibraryStore.creatingLibrary
+                                ? "Adding Library…"
+                                : "Add Library Folder"
+                            hoverEnabled: true
+                            padding: 0
+                            onClicked: root.openLibraryFolderDialog()
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled
+                                    ? root.theme.appText
+                                    : root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(10)
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 5
+                                color: parent.hovered
+                                    ? root.theme.activeBg
+                                    : root.theme.controlSurfaceBg
+                                border.width: 1
+                                border.color: parent.hovered
+                                    ? root.theme.accent
+                                    : root.theme.panelBorder
+                            }
+                        }
                     }
                 }
 
@@ -1660,14 +1913,16 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: LibraryStore.errorMessage.length > 0
-                                ? LibraryStore.errorMessage
+                            text: root.libraryFlowError.length > 0
+                                ? root.libraryFlowError
                                 : workspaceDragSession.active
                                     ? workspaceDragSession.statusText
                                     : root.selectedNodePath.length > 0
                                         ? "Selected  ·  " + root.selectedNodePath
                                         : LibraryStore.movingFile
                                             ? "Moving file…"
+                                            : LibraryStore.creatingLibrary
+                                                ? "Adding Library…"
                                             : LibraryStore.scanning
                                             ? "Scanning Library…"
                                         : LibraryStore.loadingFiles
@@ -1675,7 +1930,7 @@ Rectangle {
                                             : LibraryStore.latestScan.status
                                                 ? "Catalog  ·  " + String(LibraryStore.latestScan.status)
                                                 : "Ready  ·  API connected"
-                            color: LibraryStore.errorMessage.length > 0
+                            color: root.libraryFlowError.length > 0
                                 ? root.theme.danger
                                 : root.theme.mutedText
                             font.pixelSize: root.theme.typeSize(9)

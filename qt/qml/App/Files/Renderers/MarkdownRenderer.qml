@@ -11,7 +11,36 @@ ScrollView {
     property string documentRelativePath: ""
     property real zoomFactor: 1.0
     property real pinchStartZoom: 1.0
+    property real pendingContentX: 0
+    property real pendingContentY: 0
+    property real pendingXRatio: -1
+    property real pendingYRatio: -1
+    property int viewportRestorePass: 0
+    property bool restoringViewport: false
 
+    readonly property var flickable: root.contentItem
+    readonly property real viewportContentX: root.flickable
+        && root.flickable.contentX !== undefined
+        ? Number(root.flickable.contentX)
+        : 0
+    readonly property real viewportContentY: root.flickable
+        && root.flickable.contentY !== undefined
+        ? Number(root.flickable.contentY)
+        : 0
+    readonly property real viewportMaximumX: root.flickable
+        && root.flickable.contentWidth !== undefined
+        ? Math.max(0, Number(root.flickable.contentWidth) - Number(root.flickable.width))
+        : 0
+    readonly property real viewportMaximumY: root.flickable
+        && root.flickable.contentHeight !== undefined
+        ? Math.max(0, Number(root.flickable.contentHeight) - Number(root.flickable.height))
+        : 0
+    readonly property real viewportXRatio: root.viewportMaximumX > 0
+        ? Math.max(0, Math.min(1, root.viewportContentX / root.viewportMaximumX))
+        : 0
+    readonly property real viewportYRatio: root.viewportMaximumY > 0
+        ? Math.max(0, Math.min(1, root.viewportContentY / root.viewportMaximumY))
+        : 0
     readonly property real minimumZoom: 0.65
     readonly property real maximumZoom: 2.0
     readonly property real paperWidth: 816
@@ -20,6 +49,12 @@ ScrollView {
     readonly property real pageVerticalPadding: 64
 
     signal zoomFactorRequested(real value)
+    signal viewportChanged(
+        real contentX,
+        real contentY,
+        real xRatio,
+        real yRatio
+    )
 
     clip: true
     contentWidth: documentCanvas.width
@@ -33,6 +68,65 @@ ScrollView {
 
     function requestZoom(value) {
         root.zoomFactorRequested(root.clampedZoom(value))
+    }
+
+    function emitViewportChanged() {
+        root.viewportChanged(
+            root.viewportContentX,
+            root.viewportContentY,
+            root.viewportXRatio,
+            root.viewportYRatio
+        )
+    }
+
+    function restoreViewport(contentX, contentY, xRatio, yRatio) {
+        root.pendingContentX = Math.max(0, Number(contentX || 0))
+        root.pendingContentY = Math.max(0, Number(contentY || 0))
+        root.pendingXRatio = Number(xRatio)
+        root.pendingYRatio = Number(yRatio)
+        root.viewportRestorePass = 0
+        root.restoringViewport = true
+        viewportRestoreTimer.restart()
+    }
+
+    function applyPendingViewport() {
+        var target = root.flickable
+
+        if (
+            !target
+            || target.contentX === undefined
+            || target.contentY === undefined
+        ) {
+            root.viewportRestorePass += 1
+
+            if (root.viewportRestorePass < 36) {
+                viewportRestoreTimer.restart()
+            } else {
+                root.restoringViewport = false
+            }
+            return
+        }
+
+        var maximumX = root.viewportMaximumX
+        var maximumY = root.viewportMaximumY
+        var targetX = root.pendingXRatio >= 0 && maximumX > 0
+            ? root.pendingXRatio * maximumX
+            : root.pendingContentX
+        var targetY = root.pendingYRatio >= 0 && maximumY > 0
+            ? root.pendingYRatio * maximumY
+            : root.pendingContentY
+
+        target.contentX = Math.max(0, Math.min(maximumX, targetX))
+        target.contentY = Math.max(0, Math.min(maximumY, targetY))
+
+        root.viewportRestorePass += 1
+
+        if (root.viewportRestorePass < 22) {
+            viewportRestoreTimer.restart()
+        } else {
+            root.restoringViewport = false
+            root.emitViewportChanged()
+        }
     }
 
     function extractImageTarget(value) {
@@ -139,6 +233,71 @@ ScrollView {
     onZoomFactorChanged: scheduleImageLayout()
     Component.onCompleted: scheduleImageLayout()
 
+    Connections {
+        target: root.flickable
+        ignoreUnknownSignals: true
+
+        function onContentXChanged() {
+            if (!root.restoringViewport) {
+                viewportSaveTimer.restart()
+            }
+        }
+
+        function onContentYChanged() {
+            if (!root.restoringViewport) {
+                viewportSaveTimer.restart()
+            }
+        }
+
+        function onContentWidthChanged() {
+            if (root.restoringViewport) {
+                viewportRestoreTimer.restart()
+            }
+        }
+
+        function onContentHeightChanged() {
+            if (root.restoringViewport) {
+                viewportRestoreTimer.restart()
+            }
+        }
+
+        function onWidthChanged() {
+            if (root.restoringViewport) {
+                viewportRestoreTimer.restart()
+            }
+        }
+
+        function onHeightChanged() {
+            if (root.restoringViewport) {
+                viewportRestoreTimer.restart()
+            }
+        }
+
+        function onMovementStarted() {
+            root.restoringViewport = false
+        }
+
+        function onMovementEnded() {
+            root.emitViewportChanged()
+        }
+    }
+
+    Timer {
+        id: viewportSaveTimer
+
+        interval: 36
+        repeat: false
+        onTriggered: root.emitViewportChanged()
+    }
+
+    Timer {
+        id: viewportRestoreTimer
+
+        interval: 42
+        repeat: false
+        onTriggered: root.applyPendingViewport()
+    }
+
     PinchHandler {
         id: pinchHandler
 
@@ -183,8 +342,8 @@ ScrollView {
     Item {
         id: documentCanvas
 
-        width: Math.max(root.availableWidth, paper.width + root.outerMargin * 2)
-        height: Math.max(root.availableHeight, paper.height + root.outerMargin * 2)
+        width: Math.max(root.width, paper.width + root.outerMargin * 2)
+        height: Math.max(root.height, paper.height + root.outerMargin * 2)
 
         Rectangle {
             x: paper.x + 6
@@ -204,7 +363,7 @@ ScrollView {
             anchors.horizontalCenter: parent.horizontalCenter
             width: root.paperWidth * root.zoomFactor
             height: Math.max(
-                root.availableHeight - root.outerMargin * 2,
+                root.height - root.outerMargin * 2,
                 markdownText.contentHeight + root.pageVerticalPadding * 2 * root.zoomFactor
             )
             color: root.theme.controlSurfaceBg

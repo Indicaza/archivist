@@ -7,8 +7,8 @@ import { getLibraryById } from "../models/Library.js";
 import { getLibraryFileById } from "../models/LibraryFile.js";
 import type { LibraryFilePreview } from "../types/LibraryFileTypes.js";
 import {
+  isSupportedLibraryTextFile,
   maxLibraryTextPreviewBytes,
-  supportedLibraryTextExtensions,
 } from "./LibraryFilePolicy.js";
 
 function pathIsInsideRoot(rootPath: string, candidatePath: string): boolean {
@@ -56,7 +56,7 @@ export async function readLibraryFileText(
     );
   }
 
-  if (!supportedLibraryTextExtensions.has(file.extension.toLowerCase())) {
+  if (!isSupportedLibraryTextFile(file.name, file.extension)) {
     throw new AppError(415, "This file type is not supported for text preview.");
   }
 

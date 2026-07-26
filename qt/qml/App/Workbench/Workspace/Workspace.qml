@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../Files/FileIdentity.js" as FileIdentity
+import "../../Files/Renderers"
 import "ChatMessage"
 import "JumpToLatestButton"
 import "FilePreview"
@@ -26,6 +28,11 @@ Rectangle {
     property int scrollToEndPass: 0
     property bool revealFollowEnabled: false
     property real revealFollowTargetY: 0
+    property string trackedChatViewportKey: ""
+    property var pendingChatViewportState: ({})
+    property bool chatViewportRestorePending: false
+    property bool restoringChatViewport: false
+    property int chatViewportRestorePass: 0
 
     readonly property real historyPrefetchDistance: Math.max(
         6000,
@@ -36,12 +43,29 @@ Rectangle {
     readonly property bool hasSelectedChat: ChatStore.selectedChatId.length > 0
     readonly property bool hasMessages: ChatStore.messages.length > 0
     readonly property bool previewActive: LibraryStore.selectedFileId.length > 0
+    readonly property bool fileTransitionActive: (
+        editorTabStrip.pendingFileId.length > 0
+        || (
+            editorTabStrip.activeTabKind === "file"
+            && !root.previewActive
+        )
+    )
+    readonly property bool fileSurfaceActive: root.previewActive
+        || root.fileTransitionActive
     readonly property string previewPath: LibraryStore.selectedFile.relativePath
         ? String(LibraryStore.selectedFile.relativePath)
         : "Library file"
     readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name
         ? String(LibraryStore.selectedLibrary.name)
         : "Library"
+    readonly property var previewFileIdentity: FileIdentity.resolve({
+        fileName: LibraryStore.selectedFile.name
+            || LibraryStore.selectedFile.relativePath
+            || "",
+        extension: LibraryStore.selectedFile.extension || ""
+    })
+    readonly property bool imagePreviewActive: root.previewActive
+        && root.previewFileIdentity.preferredRendererId === "image"
     readonly property real previewViewportX: (
         root.previewActive || editorTabStrip.hasTabs
     ) ? root.previewLeftObstruction : 0
@@ -58,6 +82,228 @@ Rectangle {
         }
     }
     clip: true
+
+    function chatViewportStateKey(chatId) {
+        var collectionId = String(CollectionStore.selectedCollectionId || "")
+        var targetChatId = String(chatId || "")
+
+        if (collectionId.length === 0 || targetChatId.length === 0) {
+            return ""
+        }
+
+        return "workspace/collections/"
+            + collectionId
+            + "/viewports/chats/"
+            + targetChatId
+    }
+
+    function messageIndexForId(messageId) {
+        var targetId = String(messageId || "")
+        var messages = ChatStore.messages || []
+
+        for (var index = 0; index < messages.length; index += 1) {
+            if (String(messages[index].id || "") === targetId) {
+                return index
+            }
+        }
+
+        return -1
+    }
+
+    function transcriptAnchor() {
+        if (transcript.count === 0) {
+            return {
+                messageId: "",
+                offset: 0
+            }
+        }
+
+        transcript.forceLayout()
+
+        var sampleY = transcript.contentY + Math.min(
+            48,
+            Math.max(4, transcript.height * 0.08)
+        )
+        var index = transcript.indexAt(
+            Math.max(1, transcript.width / 2),
+            sampleY
+        )
+
+        if (index < 0) {
+            index = Math.max(0, transcript.indexAt(
+                Math.max(1, transcript.width / 2),
+                transcript.contentY + transcript.height / 2
+            ))
+        }
+
+        var item = transcript.itemAtIndex(index)
+        var message = index >= 0 && index < ChatStore.messages.length
+            ? ChatStore.messages[index]
+            : ({})
+
+        return {
+            messageId: String(message.id || ""),
+            offset: item ? item.y - transcript.contentY : 0
+        }
+    }
+
+    function scheduleChatViewportSave() {
+        if (
+            root.restoringChatViewport
+            || root.trackedChatViewportKey.length === 0
+            || !root.hasSelectedChat
+        ) {
+            return
+        }
+
+        chatViewportSaveTimer.restart()
+    }
+
+    function saveChatViewportState(stateKey) {
+        var key = String(stateKey || root.trackedChatViewportKey || "")
+
+        if (
+            key.length === 0
+            || root.restoringChatViewport
+            || transcript.count === 0
+        ) {
+            return
+        }
+
+        var anchor = root.transcriptAnchor()
+        var endY = root.transcriptEndY()
+
+        WorkspaceState.setValue(
+            key,
+            JSON.stringify({
+                version: 1,
+                atEnd: transcript.nearEnd,
+                contentY: transcript.contentY,
+                distanceFromEnd: Math.max(0, endY - transcript.contentY),
+                anchorMessageId: anchor.messageId,
+                anchorOffset: anchor.offset
+            })
+        )
+    }
+
+    function switchChatViewportState() {
+        chatViewportSaveTimer.stop()
+
+        if (root.trackedChatViewportKey.length > 0) {
+            root.saveChatViewportState(root.trackedChatViewportKey)
+        }
+
+        root.trackedChatViewportKey = root.chatViewportStateKey(
+            ChatStore.selectedChatId
+        )
+        root.pendingChatViewportState = {
+            version: 1,
+            atEnd: true,
+            contentY: 0,
+            distanceFromEnd: 0,
+            anchorMessageId: "",
+            anchorOffset: 0
+        }
+
+        if (root.trackedChatViewportKey.length > 0) {
+            var raw = String(
+                WorkspaceState.value(
+                    root.trackedChatViewportKey,
+                    ""
+                ) || ""
+            )
+
+            if (raw.length > 0) {
+                try {
+                    var parsed = JSON.parse(raw)
+                    if (parsed && typeof parsed === "object") {
+                        root.pendingChatViewportState = parsed
+                    }
+                } catch (error) {
+                    root.pendingChatViewportState = {
+                        version: 1,
+                        atEnd: true,
+                        contentY: 0,
+                        distanceFromEnd: 0,
+                        anchorMessageId: "",
+                        anchorOffset: 0
+                    }
+                }
+            }
+        }
+
+        root.chatViewportRestorePending =
+            root.trackedChatViewportKey.length > 0
+        root.restoringChatViewport = root.chatViewportRestorePending
+        root.chatViewportRestorePass = 0
+
+        if (root.chatViewportRestorePending) {
+            chatViewportRestoreTimer.restart()
+        }
+    }
+
+    function restoreChatViewport() {
+        if (!root.chatViewportRestorePending) {
+            return
+        }
+
+        if (ChatStore.loadingMessages) {
+            chatViewportRestoreTimer.restart()
+            return
+        }
+
+        if (transcript.count === 0) {
+            root.chatViewportRestorePending = false
+            root.restoringChatViewport = false
+            return
+        }
+
+        var state = root.pendingChatViewportState || ({})
+        var shouldFollowEnd = state.atEnd === undefined
+            ? true
+            : Boolean(state.atEnd)
+
+        if (shouldFollowEnd) {
+            root.chatViewportRestorePending = false
+            root.restoringChatViewport = false
+            root.scheduleScrollToEnd()
+            return
+        }
+
+        root.cancelScrollToEnd()
+        root.stopRevealFollow()
+        transcript.cancelFlick()
+        transcript.forceLayout()
+
+        var anchorIndex = root.messageIndexForId(state.anchorMessageId)
+
+        if (anchorIndex >= 0) {
+            transcript.positionViewAtIndex(anchorIndex, ListView.Beginning)
+            transcript.forceLayout()
+
+            var anchorItem = transcript.itemAtIndex(anchorIndex)
+            if (anchorItem) {
+                transcript.contentY = anchorItem.y
+                    - Number(state.anchorOffset || 0)
+            }
+        } else {
+            var distanceFromEnd = Math.max(
+                0,
+                Number(state.distanceFromEnd || 0)
+            )
+            transcript.contentY = root.transcriptEndY() - distanceFromEnd
+        }
+
+        transcript.returnToBounds()
+        root.chatViewportRestorePass += 1
+
+        if (root.chatViewportRestorePass < 4) {
+            chatViewportRestoreTimer.restart()
+        } else {
+            root.chatViewportRestorePending = false
+            root.restoringChatViewport = false
+        }
+    }
 
     function scheduleScrollToEnd() {
         if (ChatStore.messages.length === 0) {
@@ -240,13 +486,27 @@ Rectangle {
         root.historyRestorePass = 0
     }
 
-    Component.onCompleted: ChatStore.refresh()
+    Component.onCompleted: {
+        ChatStore.refresh()
+        root.switchChatViewportState()
+    }
+
+    Component.onDestruction: {
+        chatViewportSaveTimer.stop()
+        root.saveChatViewportState(root.trackedChatViewportKey)
+        WorkspaceState.sync()
+    }
 
     Connections {
         target: ChatStore
 
         function onMessagesChanged() {
             if (root.historyLoadPending) {
+                return
+            }
+
+            if (root.chatViewportRestorePending) {
+                chatViewportRestoreTimer.restart()
                 return
             }
 
@@ -257,11 +517,16 @@ Rectangle {
             root.clearHistoryAnchor()
             root.cancelScrollToEnd()
             root.stopRevealFollow()
+            root.switchChatViewportState()
         }
 
         function onLoadingMessagesChanged() {
             if (!ChatStore.loadingMessages && ChatStore.messages.length > 0) {
-                root.scheduleScrollToEnd()
+                if (root.chatViewportRestorePending) {
+                    chatViewportRestoreTimer.restart()
+                } else {
+                    root.scheduleScrollToEnd()
+                }
             }
         }
 
@@ -290,6 +555,30 @@ Rectangle {
                 })
             }
         }
+    }
+
+    Connections {
+        target: CollectionStore
+
+        function onSelectedCollectionIdChanged() {
+            root.switchChatViewportState()
+        }
+    }
+
+    Timer {
+        id: chatViewportSaveTimer
+
+        interval: 180
+        repeat: false
+        onTriggered: root.saveChatViewportState()
+    }
+
+    Timer {
+        id: chatViewportRestoreTimer
+
+        interval: 24
+        repeat: false
+        onTriggered: root.restoreChatViewport()
     }
 
     Timer {
@@ -400,11 +689,13 @@ Rectangle {
 
             Text {
                 text: root.previewActive
-                    ? LibraryStore.loadingFilePreview
-                        ? "Opening file"
-                        : LibraryStore.filePreviewError.length > 0
-                            ? "Preview unavailable"
-                            : "Read-only preview"
+                    ? root.imagePreviewActive
+                        ? "Image preview"
+                        : LibraryStore.loadingFilePreview
+                            ? "Opening file"
+                            : LibraryStore.filePreviewError.length > 0
+                                ? "Preview unavailable"
+                                : "Read-only preview"
                     : ChatStore.responding
                         ? "Archivist is thinking"
                         : ChatStore.lastModel.length > 0
@@ -412,7 +703,9 @@ Rectangle {
                             : root.hasSelectedChat
                                 ? "Ready"
                                 : "Select a Chat"
-                color: root.previewActive && LibraryStore.filePreviewError.length > 0
+                color: root.previewActive
+                    && !root.imagePreviewActive
+                    && LibraryStore.filePreviewError.length > 0
                     ? root.theme.danger
                     : ChatStore.responding && !root.previewActive
                         ? root.theme.appText
@@ -504,6 +797,44 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        anchors.top: workspaceHeader.bottom
+        anchors.bottom: parent.bottom
+        x: root.previewLeftObstruction
+        width: Math.max(0, parent.width - root.previewLeftObstruction)
+        visible: root.fileTransitionActive && !root.previewActive
+        color: root.theme.workspaceBgDeep
+        z: 30
+        clip: true
+
+        DocumentLoadingState {
+            anchors.centerIn: parent
+            width: Math.min(460, parent.width - 56)
+            theme: root.theme
+            title: "Restoring file workspace"
+            detail: "Opening the renderer and restoring your zoom and reading position."
+            fileLabel: editorTabStrip.activeTabPath.length > 0
+                ? editorTabStrip.activeTabPath
+                : editorTabStrip.activeTabTitle
+        }
+
+        Behavior on x {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
+
+        Behavior on width {
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
+    }
+
     ListView {
         id: transcript
 
@@ -515,7 +846,9 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        visible: !root.previewActive && root.hasSelectedChat && root.hasMessages
+        visible: !root.fileSurfaceActive
+            && root.hasSelectedChat
+            && root.hasMessages
         clip: true
         spacing: root.theme.messageVerticalGap
         topMargin: 42
@@ -543,6 +876,8 @@ Rectangle {
             if (nearBeginning) {
                 root.scheduleHistoryPrefetch()
             }
+
+            root.scheduleChatViewportSave()
         }
 
         onMovementStarted: {
@@ -567,7 +902,10 @@ Rectangle {
             }
         }
 
-        onMovementEnded: root.scheduleHistoryPrefetch()
+        onMovementEnded: {
+            root.scheduleHistoryPrefetch()
+            root.scheduleChatViewportSave()
+        }
 
         delegate: ChatMessage {
             required property var modelData
@@ -605,7 +943,7 @@ Rectangle {
         anchors.topMargin: 7
         width: historyStatusText.implicitWidth + 18
         height: 22
-        visible: !root.previewActive && ChatStore.loadingOlderMessages
+        visible: !root.fileSurfaceActive && ChatStore.loadingOlderMessages
         color: root.theme.controlSurfaceBg
         radius: 4
         z: 12
@@ -624,7 +962,7 @@ Rectangle {
         anchors.centerIn: parent
         width: Math.min(460, parent.width - 80)
         spacing: 8
-        visible: !root.previewActive && !transcript.visible
+        visible: !root.fileSurfaceActive && !transcript.visible
 
         Text {
             width: parent.width

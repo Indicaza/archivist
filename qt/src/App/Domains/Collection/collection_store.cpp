@@ -383,6 +383,55 @@ void CollectionStore::createCollection(
     });
 }
 
+void CollectionStore::addLibraryToCollection(
+    const QString &collectionId,
+    const QString &libraryId
+)
+{
+    if (m_mutating || collectionId.isEmpty() || libraryId.isEmpty()) {
+        return;
+    }
+
+    QVariantMap collection;
+
+    for (const QVariant &value : m_collections) {
+        const QVariantMap candidate = value.toMap();
+
+        if (candidate.value(QStringLiteral("id")).toString() == collectionId) {
+            collection = candidate;
+            break;
+        }
+    }
+
+    if (collection.isEmpty()) {
+        setErrorMessage(QStringLiteral("The target Collection is no longer available."));
+        return;
+    }
+
+    QVariantList libraryIds = collection.value(QStringLiteral("libraryIds")).toList();
+
+    for (const QVariant &value : libraryIds) {
+        if (value.toString() == libraryId) {
+            if (collectionId == m_selectedCollectionId) {
+                fetchSelectedScope();
+            }
+            return;
+        }
+    }
+
+    libraryIds.append(libraryId);
+
+    updateCollection(
+        collectionId,
+        collection.value(QStringLiteral("name")).toString(),
+        collection.value(QStringLiteral("parentCollectionId")).toString(),
+        libraryIds,
+        collection.value(QStringLiteral("chatIds")).toList(),
+        collection.value(QStringLiteral("agentIds")).toList(),
+        collection.value(QStringLiteral("defaultAgentId")).toString()
+    );
+}
+
 void CollectionStore::updateCollection(
     const QString &collectionId,
     const QString &name,
@@ -564,6 +613,12 @@ void CollectionStore::setSelectedCollectionId(const QString &collectionId)
     }
 
     m_selectedCollectionId = collectionId;
+
+    if (!m_scope.isEmpty()) {
+        m_scope.clear();
+        emit scopeChanged();
+    }
+
     emit selectedCollectionIdChanged();
     emit selectedCollectionChanged();
 }

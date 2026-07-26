@@ -221,6 +221,24 @@ export function updateLibraryFileLocation(
   return file;
 }
 
+export function recoverInterruptedLibraryScans(): number {
+  const result = database
+    .prepare(
+      `
+        UPDATE library_scans
+        SET
+          status = 'failed',
+          completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          error_count = 1,
+          error_message = 'The backend stopped before this scan completed.'
+        WHERE status = 'running'
+      `,
+    )
+    .run();
+
+  return result.changes;
+}
+
 export function createLibraryScan(libraryId: string): LibraryScan {
   const runningScan = database
     .prepare(

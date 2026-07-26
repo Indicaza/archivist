@@ -9,6 +9,22 @@ Item {
     required property var theme
 
     readonly property bool hasTabs: tabs.count > 0
+    readonly property string activeTabKind: {
+        var index = tabIndexForKey(activeTabKey)
+        return index >= 0 ? String(tabs.get(index).tabType || "") : ""
+    }
+    readonly property string activeTabTitle: {
+        var index = tabIndexForKey(activeTabKey)
+        return index >= 0
+            ? String(tabs.get(index).title || "Opening file")
+            : "Opening file"
+    }
+    readonly property string activeTabPath: {
+        var index = tabIndexForKey(activeTabKey)
+        return index >= 0
+            ? String(tabs.get(index).relativePath || "")
+            : ""
+    }
     property string activeTabKey: ""
     property string pendingLibraryId: ""
     property string pendingFileId: ""

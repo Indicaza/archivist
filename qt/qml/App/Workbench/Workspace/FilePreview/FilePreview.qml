@@ -38,14 +38,353 @@ Rectangle {
     readonly property var rendererSelection: RendererRegistry.resolve(fileIdentity)
     readonly property bool markdownRenderingAvailable: rendererSelection.id === "markdown"
         && rendererSelection.available
-    readonly property string currentFileKey: String(file && file.id ? file.id : "")
-        + ":"
-        + String(rendererSelection.id || "plain-text")
+    readonly property bool imageRenderingAvailable: rendererSelection.id === "image"
+        && rendererSelection.available
+    readonly property bool documentRenderingAvailable: rendererSelection.id === "pdf"
+        && rendererSelection.available
+    readonly property bool directRenderingAvailable: markdownRenderingAvailable
+        || imageRenderingAvailable
+        || documentRenderingAvailable
+    readonly property bool displayLoading: documentRenderingAvailable
+        ? documentPreview.state === "loading"
+        : loading && !imageRenderingAvailable
+    readonly property string displayErrorMessage: documentRenderingAvailable
+        ? documentPreview.errorMessage
+        : imageRenderingAvailable
+            ? ""
+            : errorMessage
+    readonly property bool displayContentAvailable: imageRenderingAvailable
+        || (documentRenderingAvailable && documentPreview.state === "ready")
+        || content.length > 0
     property string viewMode: "source"
     property real markdownZoom: 1.0
+    property real imageZoom: 1.0
+    property bool imageFitToView: false
+    property bool imageCheckerboardVisible: true
+    property real documentZoom: 1.0
+    property bool documentFitToWidth: false
+    property bool documentFreePanEnabled: false
+    property string activeViewportStateKey: ""
+    property var cachedViewportState: ({})
+    property bool restoringViewportState: false
+    property int viewportRestorePass: 0
+
+    readonly property string viewportStateKey: (
+        String(CollectionStore.selectedCollectionId || "").length > 0
+        && String(LibraryStore.selectedLibraryId || "").length > 0
+        && String(file && file.id ? file.id : "").length > 0
+    )
+        ? "workspace/collections/"
+            + String(CollectionStore.selectedCollectionId)
+            + "/viewports/files/"
+            + String(LibraryStore.selectedLibraryId)
+            + "/"
+            + String(file.id)
+        : ""
+
+    function numberValue(value, fallback) {
+        var number = Number(value)
+        return isFinite(number) ? number : Number(fallback || 0)
+    }
+
+    function defaultViewportState() {
+        return {
+            version: 2,
+            viewMode: root.directRenderingAvailable ? "rendered" : "source",
+            markdownZoom: 1.0,
+            imageZoom: 1.0,
+            imageFitToView: false,
+            imageCheckerboardVisible: true,
+            documentZoom: 1.0,
+            documentFitToWidth: false,
+            documentFreePanEnabled: false,
+            sourceX: 0,
+            sourceY: 0,
+            sourceXRatio: 0,
+            sourceYRatio: 0,
+            markdownX: 0,
+            markdownY: 0,
+            markdownXRatio: 0,
+            markdownYRatio: 0,
+            imageViewportVersion: 1,
+            imageX: 0,
+            imageY: 0,
+            imageFocusX: 0.5,
+            imageFocusY: 0.5,
+            documentPage: 0,
+            documentViewportVersion: 5,
+            documentX: 0,
+            documentY: 0,
+            documentFocusX: 0.5,
+            documentFocusY: 0.5,
+            splitSourceX: 0,
+            splitSourceY: 0,
+            splitSourceXRatio: 0,
+            splitSourceYRatio: 0,
+            splitMarkdownX: 0,
+            splitMarkdownY: 0,
+            splitMarkdownXRatio: 0,
+            splitMarkdownYRatio: 0
+        }
+    }
+
+    function mergedViewportState(patch) {
+        var next = ({})
+        var source = root.cachedViewportState
+            && typeof root.cachedViewportState === "object"
+            ? root.cachedViewportState
+            : root.defaultViewportState()
+
+        for (var sourceKey in source) {
+            next[sourceKey] = source[sourceKey]
+        }
+
+        var changes = patch || ({})
+        for (var changeKey in changes) {
+            next[changeKey] = changes[changeKey]
+        }
+
+        next.version = 2
+        return next
+    }
+
+    function updateViewportState(patch) {
+        if (
+            root.restoringViewportState
+            || root.activeViewportStateKey.length === 0
+        ) {
+            return
+        }
+
+        root.cachedViewportState = root.mergedViewportState(patch)
+        viewportStateSaveTimer.restart()
+    }
+
+    function saveViewportState(stateKey) {
+        var key = String(stateKey || root.activeViewportStateKey || "")
+
+        if (key.length === 0) {
+            return
+        }
+
+        var state = root.cachedViewportState
+
+        if (!state || typeof state !== "object") {
+            state = root.defaultViewportState()
+        }
+
+        WorkspaceState.setValue(
+            key,
+            JSON.stringify(state)
+        )
+    }
+
+    function restoreViewportState(stateKey) {
+        viewportStateSaveTimer.stop()
+
+        if (root.activeViewportStateKey.length > 0) {
+            root.saveViewportState(root.activeViewportStateKey)
+        }
+
+        root.activeViewportStateKey = String(stateKey || "")
+        root.restoringViewportState = true
+        root.viewportRestorePass = 0
+
+        var state = root.defaultViewportState()
+
+        if (root.activeViewportStateKey.length > 0) {
+            var raw = String(
+                WorkspaceState.value(
+                    root.activeViewportStateKey,
+                    ""
+                ) || ""
+            )
+
+            if (raw.length > 0) {
+                try {
+                    var parsed = JSON.parse(raw)
+                    if (parsed && typeof parsed === "object") {
+                        for (var key in parsed) {
+                            state[key] = parsed[key]
+                        }
+                    }
+                } catch (error) {
+                    state = root.defaultViewportState()
+                }
+            }
+        }
+
+        root.cachedViewportState = state
+        root.viewMode = String(
+            state.viewMode || root.defaultViewportState().viewMode
+        )
+        root.markdownZoom = Math.max(
+            0.65,
+            Math.min(2.0, root.numberValue(state.markdownZoom, 1.0))
+        )
+        root.imageZoom = Math.max(
+            0.05,
+            Math.min(8.0, root.numberValue(state.imageZoom, 1.0))
+        )
+        root.imageFitToView = Boolean(state.imageFitToView)
+        root.imageCheckerboardVisible =
+            state.imageCheckerboardVisible === undefined
+                ? true
+                : Boolean(state.imageCheckerboardVisible)
+        root.documentZoom = Math.max(
+            0.2,
+            Math.min(6.0, root.numberValue(state.documentZoom, 1.0))
+        )
+        root.documentFitToWidth = Boolean(state.documentFitToWidth)
+        root.documentFreePanEnabled = Boolean(
+            state.documentFreePanEnabled
+        )
+
+        viewportStateRestoreTimer.restart()
+    }
+
+    function restoreDocumentViewport() {
+        if (!root.documentRenderingAvailable) {
+            return
+        }
+
+        var state =
+            root.cachedViewportState
+            || root.defaultViewportState()
+        var documentViewportVersion = Math.max(
+            0,
+            Math.round(
+                root.numberValue(
+                    state.documentViewportVersion,
+                    0
+                )
+            )
+        )
+
+        pdfRenderer.restoreViewport(
+            Math.max(
+                0,
+                Math.round(
+                    root.numberValue(
+                        state.documentPage,
+                        0
+                    )
+                )
+            ),
+            root.numberValue(
+                state.documentZoom,
+                1.0
+            ),
+            Boolean(
+                state.documentFitToWidth
+            ),
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentX,
+                    0
+                )
+                : 0,
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentY,
+                    0
+                )
+                : 0,
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentFocusX,
+                    0.5
+                )
+                : 0.5,
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentFocusY,
+                    0.5
+                )
+                : 0.5
+        )
+    }
+
+    function restoreVisibleViewport() {
+        var state = root.cachedViewportState || root.defaultViewportState()
+
+        if (root.viewMode === "source") {
+            sourceRenderer.restoreViewport(
+                root.numberValue(state.sourceX, 0),
+                root.numberValue(state.sourceY, 0),
+                root.numberValue(state.sourceXRatio, 0),
+                root.numberValue(state.sourceYRatio, 0)
+            )
+            return
+        }
+
+        if (root.viewMode === "split") {
+            splitSourceRenderer.restoreViewport(
+                root.numberValue(state.splitSourceX, 0),
+                root.numberValue(state.splitSourceY, 0),
+                root.numberValue(state.splitSourceXRatio, 0),
+                root.numberValue(state.splitSourceYRatio, 0)
+            )
+            splitMarkdownRenderer.restoreViewport(
+                root.numberValue(state.splitMarkdownX, 0),
+                root.numberValue(state.splitMarkdownY, 0),
+                root.numberValue(state.splitMarkdownXRatio, 0),
+                root.numberValue(state.splitMarkdownYRatio, 0)
+            )
+            return
+        }
+
+        if (root.markdownRenderingAvailable) {
+            markdownRenderer.restoreViewport(
+                root.numberValue(state.markdownX, 0),
+                root.numberValue(state.markdownY, 0),
+                root.numberValue(state.markdownXRatio, 0),
+                root.numberValue(state.markdownYRatio, 0)
+            )
+        }
+
+        if (root.imageRenderingAvailable) {
+            var imageViewportVersion = Math.max(
+                0,
+                Math.round(
+                    root.numberValue(
+                        state.imageViewportVersion,
+                        0
+                    )
+                )
+            )
+
+            imageRenderer.restoreViewport(
+                root.numberValue(state.imageX, 0),
+                root.numberValue(state.imageY, 0),
+                imageViewportVersion >= 1
+                    ? root.numberValue(state.imageFocusX, 0.5)
+                    : 0.5,
+                imageViewportVersion >= 1
+                    ? root.numberValue(state.imageFocusY, 0.5)
+                    : 0.5
+            )
+        }
+
+        root.restoreDocumentViewport()
+    }
+
+    function applyPendingViewportState() {
+        root.restoreVisibleViewport()
+        root.viewportRestorePass += 1
+
+        if (root.viewportRestorePass < 5) {
+            viewportStateRestoreTimer.restart()
+        } else {
+            root.restoringViewportState = false
+        }
+    }
 
     function setMarkdownZoom(value) {
         root.markdownZoom = Math.max(0.65, Math.min(2.0, value))
+        root.updateViewportState({
+            markdownZoom: root.markdownZoom
+        })
     }
 
     function zoomMarkdownIn() {
@@ -57,33 +396,238 @@ Rectangle {
     }
 
     function resetMarkdownZoom() {
-        root.markdownZoom = 1.0
+        root.setMarkdownZoom(1.0)
     }
 
-    function resetViewMode() {
-        root.viewMode = root.markdownRenderingAvailable ? "rendered" : "source"
+    function setImageZoom(value, focusX, focusY) {
+        root.imageZoom = Math.max(0.05, Math.min(8.0, value))
+        root.updateViewportState({
+            imageZoom: root.imageZoom,
+            imageFocusX: root.numberValue(focusX, 0.5),
+            imageFocusY: root.numberValue(focusY, 0.5)
+        })
     }
 
-    onCurrentFileKeyChanged: Qt.callLater(root.resetViewMode)
+    function zoomImageIn() {
+        var currentZoom = imageRenderer.effectiveScale
+        imageRenderer.requestZoom(
+            currentZoom + (currentZoom < 0.5 ? 0.05 : 0.1)
+        )
+    }
 
-    Component.onCompleted: resetViewMode()
+    function zoomImageOut() {
+        var currentZoom = imageRenderer.effectiveScale
+        imageRenderer.requestZoom(
+            currentZoom - (currentZoom <= 0.5 ? 0.05 : 0.1)
+        )
+    }
+
+    function fitImage() {
+        root.imageFitToView = true
+        root.imageZoom = 1.0
+        root.updateViewportState({
+            imageFitToView: true,
+            imageZoom: 1.0,
+            imageFocusX: 0.5,
+            imageFocusY: 0.5
+        })
+        Qt.callLater(function() {
+            imageRenderer.restoreViewport(0, 0, 0.5, 0.5)
+        })
+    }
+
+    function showImageActualSize() {
+        root.imageFitToView = false
+        root.imageZoom = 1.0
+        root.updateViewportState({
+            imageFitToView: false,
+            imageZoom: 1.0,
+            imageFocusX: 0.5,
+            imageFocusY: 0.5
+        })
+        Qt.callLater(function() {
+            imageRenderer.restoreViewport(0, 0, 0.5, 0.5)
+        })
+    }
+
+    function zoomActiveRendererIn() {
+        if (root.documentRenderingAvailable) {
+            pdfRenderer.requestZoom(
+                Math.min(6.0, root.documentZoom + 0.1)
+            )
+            return
+        }
+
+        if (root.imageRenderingAvailable) {
+            root.zoomImageIn()
+            return
+        }
+
+        root.zoomMarkdownIn()
+    }
+
+    function zoomActiveRendererOut() {
+        if (root.documentRenderingAvailable) {
+            pdfRenderer.requestZoom(
+                Math.max(0.2, root.documentZoom - 0.1)
+            )
+            return
+        }
+
+        if (root.imageRenderingAvailable) {
+            root.zoomImageOut()
+            return
+        }
+
+        root.zoomMarkdownOut()
+    }
+
+    function resetActiveRendererZoom() {
+        if (root.documentRenderingAvailable) {
+            pdfRenderer.requestZoom(1.0)
+            return
+        }
+
+        if (root.imageRenderingAvailable) {
+            root.showImageActualSize()
+            return
+        }
+
+        root.resetMarkdownZoom()
+    }
+
+    function prepareDocument() {
+        if (!root.documentRenderingAvailable) {
+            return
+        }
+
+        documentPreview.openDocument(
+            String(LibraryStore.selectedLibrary.rootPath || ""),
+            String(root.file && root.file.relativePath ? root.file.relativePath : "")
+        )
+    }
+
+    onViewportStateKeyChanged: Qt.callLater(function() {
+        root.restoreViewportState(root.viewportStateKey)
+        root.prepareDocument()
+    })
+
+    onViewModeChanged: {
+        if (!root.restoringViewportState) {
+            root.updateViewportState({
+                viewMode: root.viewMode
+            })
+            Qt.callLater(root.restoreVisibleViewport)
+        }
+    }
+
+    onImageFitToViewChanged: {
+        root.updateViewportState({
+            imageFitToView: root.imageFitToView
+        })
+    }
+
+    onImageCheckerboardVisibleChanged: {
+        root.updateViewportState({
+            imageCheckerboardVisible: root.imageCheckerboardVisible
+        })
+    }
+
+    onDocumentFitToWidthChanged: {
+        root.updateViewportState({
+            documentFitToWidth: root.documentFitToWidth
+        })
+    }
+
+    onDocumentFreePanEnabledChanged: {
+        root.updateViewportState({
+            documentFreePanEnabled:
+                root.documentFreePanEnabled
+        })
+    }
+
+    DocumentPreviewService {
+        id: documentPreview
+    }
+
+    Connections {
+        target: documentPreview
+
+        function onStateChanged() {
+            if (
+                documentPreview.state !== "ready"
+                || !root.documentRenderingAvailable
+            ) {
+                return
+            }
+
+            Qt.callLater(
+                root.restoreDocumentViewport
+            )
+        }
+    }
+
+    Connections {
+        target: LibraryStore
+
+        function onSelectedLibraryChanged() {
+            if (root.documentRenderingAvailable) {
+                Qt.callLater(root.prepareDocument)
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        restoreViewportState(root.viewportStateKey)
+        prepareDocument()
+    }
+
+    Component.onDestruction: {
+        viewportStateSaveTimer.stop()
+        viewportStateRestoreTimer.stop()
+        saveViewportState(root.activeViewportStateKey)
+        WorkspaceState.sync()
+        documentPreview.clear()
+    }
+
+    Timer {
+        id: viewportStateSaveTimer
+
+        interval: 180
+        repeat: false
+        onTriggered: root.saveViewportState(root.activeViewportStateKey)
+    }
+
+    Timer {
+        id: viewportStateRestoreTimer
+
+        interval: 36
+        repeat: false
+        onTriggered: root.applyPendingViewportState()
+    }
 
     Shortcut {
         sequence: StandardKey.ZoomIn
-        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
-        onActivated: root.zoomMarkdownIn()
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomActiveRendererIn()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+="
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomActiveRendererIn()
     }
 
     Shortcut {
         sequence: StandardKey.ZoomOut
-        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
-        onActivated: root.zoomMarkdownOut()
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.zoomActiveRendererOut()
     }
 
     Shortcut {
-        sequence: Qt.platform.os === "osx" ? "Meta+0" : "Ctrl+0"
-        enabled: root.markdownRenderingAvailable && root.viewMode !== "source"
-        onActivated: root.resetMarkdownZoom()
+        sequence: "Ctrl+0"
+        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        onActivated: root.resetActiveRendererZoom()
     }
 
     readonly property string attachmentId: attachmentIdForFile()
@@ -227,11 +771,14 @@ Rectangle {
                 }
 
                 Text {
-                    visible: !root.loading && root.errorMessage.length === 0
-                    text: root.formattedSize(root.sizeBytes)
-                        + "  ·  "
-                        + String(root.lineCount)
-                        + (root.lineCount === 1 ? " line" : " lines")
+                    visible: !root.displayLoading
+                        && root.displayErrorMessage.length === 0
+                    text: root.imageRenderingAvailable
+                        ? root.formattedSize(root.sizeBytes)
+                        : root.formattedSize(root.sizeBytes)
+                            + "  ·  "
+                            + String(root.lineCount)
+                            + (root.lineCount === 1 ? " line" : " lines")
                     color: root.theme.mutedText
                     font.pixelSize: root.theme.typeSize(9)
                     opacity: 0.72
@@ -315,8 +862,8 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.markdownRenderingAvailable ? 36 : 0
-            visible: root.markdownRenderingAvailable
+            Layout.preferredHeight: root.directRenderingAvailable ? 36 : 0
+            visible: root.directRenderingAvailable
             color: "transparent"
 
             RowLayout {
@@ -326,11 +873,12 @@ Rectangle {
                 Item { Layout.fillWidth: true }
 
                 Repeater {
-                    model: [
+                    visible: root.markdownRenderingAvailable
+                    model: root.markdownRenderingAvailable ? [
                         { id: "rendered", label: "Rendered" },
                         { id: "source", label: "Source" },
                         { id: "split", label: "Split" }
-                    ]
+                    ] : []
 
                     Button {
                         required property var modelData
@@ -370,6 +918,213 @@ Rectangle {
                     }
                 }
 
+                Button {
+                    Layout.preferredWidth: 68
+                    Layout.preferredHeight: 30
+                    visible: root.documentRenderingAvailable
+                    text: "Center"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: pdfRenderer.recenter()
+                    ToolTip.visible: hovered
+                    ToolTip.text:
+                        "Recenter the current document view"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color:
+                            root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 60
+                    Layout.preferredHeight: 30
+                    visible: root.documentRenderingAvailable
+                    text: "Pan"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked:
+                        root.documentFreePanEnabled =
+                            !root.documentFreePanEnabled
+                    ToolTip.visible: hovered
+                    ToolTip.text:
+                        root.documentFreePanEnabled
+                            ? "Return to vertical reading mode"
+                            : "Enable two-dimensional free panning"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color:
+                            root.documentFreePanEnabled
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color:
+                            root.documentFreePanEnabled
+                                ? root.theme.activeBg
+                                : parent.hovered
+                                    ? root.theme.hoverBg
+                                    : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color:
+                            root.documentFreePanEnabled
+                                ? root.theme.accent
+                                : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 54
+                    Layout.preferredHeight: 30
+                    visible: root.imageRenderingAvailable || root.documentRenderingAvailable
+                    text: "Fit"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: {
+                        if (root.documentRenderingAvailable) {
+                            if (root.documentFitToWidth) {
+                                pdfRenderer.fitWidth()
+                            } else {
+                                root.documentFitToWidth = true
+                            }
+                        } else {
+                            root.fitImage()
+                        }
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.documentRenderingAvailable
+                        ? "Fit document to width"
+                        : "Fit image to viewport"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: (root.documentRenderingAvailable && root.documentFitToWidth)
+                            || (root.imageRenderingAvailable && root.imageFitToView)
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: (root.documentRenderingAvailable && root.documentFitToWidth)
+                            || (root.imageRenderingAvailable && root.imageFitToView)
+                            ? root.theme.activeBg
+                            : parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: (root.documentRenderingAvailable && root.documentFitToWidth)
+                            || (root.imageRenderingAvailable && root.imageFitToView)
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 54
+                    Layout.preferredHeight: 30
+                    visible: root.imageRenderingAvailable
+                    text: "1:1"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.showImageActualSize()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Show actual pixel size"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: !root.imageFitToView && root.imageZoom === 1.0
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: !root.imageFitToView && root.imageZoom === 1.0
+                            ? root.theme.activeBg
+                            : parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: !root.imageFitToView && root.imageZoom === 1.0
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 78
+                    Layout.preferredHeight: 30
+                    visible: root.imageRenderingAvailable
+                    text: "Grid"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.imageCheckerboardVisible = !root.imageCheckerboardVisible
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.imageCheckerboardVisible
+                        ? "Hide transparency grid"
+                        : "Show transparency grid"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.imageCheckerboardVisible
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        font.pixelSize: root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: root.imageCheckerboardVisible
+                            ? root.theme.activeBg
+                            : parent.hovered
+                                ? root.theme.hoverBg
+                                : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: root.imageCheckerboardVisible
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
                 Rectangle {
                     Layout.preferredWidth: 1
                     Layout.preferredHeight: 22
@@ -384,7 +1139,7 @@ Rectangle {
                     text: "−"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.zoomMarkdownOut()
+                    onClicked: root.zoomActiveRendererOut()
                     ToolTip.visible: hovered
                     ToolTip.text: "Zoom out"
 
@@ -411,10 +1166,14 @@ Rectangle {
                     Layout.preferredWidth: 56
                     Layout.preferredHeight: 30
                     visible: root.viewMode !== "source"
-                    text: String(Math.round(root.markdownZoom * 100)) + "%"
+                    text: root.documentRenderingAvailable
+                        ? String(pdfRenderer.effectivePercent) + "%"
+                        : root.imageRenderingAvailable
+                            ? String(imageRenderer.effectivePercent) + "%"
+                            : String(Math.round(root.markdownZoom * 100)) + "%"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.resetMarkdownZoom()
+                    onClicked: root.resetActiveRendererZoom()
                     ToolTip.visible: hovered
                     ToolTip.text: "Reset zoom"
 
@@ -444,7 +1203,7 @@ Rectangle {
                     text: "+"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.zoomMarkdownIn()
+                    onClicked: root.zoomActiveRendererIn()
                     ToolTip.visible: hovered
                     ToolTip.text: "Zoom in"
 
@@ -479,6 +1238,8 @@ Rectangle {
             clip: true
 
             PlainTextRenderer {
+                id: sourceRenderer
+
                 anchors.fill: parent
                 visible: !root.loading
                     && root.errorMessage.length === 0
@@ -486,9 +1247,23 @@ Rectangle {
                     && root.viewMode === "source"
                 theme: root.theme
                 content: root.content
+                onViewportChanged: function(contentX, contentY, xRatio, yRatio) {
+                    if (!visible) {
+                        return
+                    }
+
+                    root.updateViewportState({
+                        sourceX: contentX,
+                        sourceY: contentY,
+                        sourceXRatio: xRatio,
+                        sourceYRatio: yRatio
+                    })
+                }
             }
 
             MarkdownRenderer {
+                id: markdownRenderer
+
                 anchors.fill: parent
                 visible: !root.loading
                     && root.errorMessage.length === 0
@@ -503,6 +1278,100 @@ Rectangle {
                 onZoomFactorRequested: function(value) {
                     root.setMarkdownZoom(value)
                 }
+                onViewportChanged: function(contentX, contentY, xRatio, yRatio) {
+                    if (!visible) {
+                        return
+                    }
+
+                    root.updateViewportState({
+                        markdownX: contentX,
+                        markdownY: contentY,
+                        markdownXRatio: xRatio,
+                        markdownYRatio: yRatio
+                    })
+                }
+            }
+
+            ImageRenderer {
+                id: imageRenderer
+
+                anchors.fill: parent
+                visible: root.imageRenderingAvailable
+                theme: root.theme
+                libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                relativePath: String(root.file && root.file.relativePath
+                    ? root.file.relativePath
+                    : "")
+                zoomFactor: root.imageZoom
+                fitToView: root.imageFitToView
+                checkerboardVisible: root.imageCheckerboardVisible
+                onZoomFactorRequested: function(value, focusX, focusY) {
+                    root.imageFitToView = false
+                    root.setImageZoom(value, focusX, focusY)
+                }
+                onFitRequested: root.fitImage()
+                onActualSizeRequested: root.showImageActualSize()
+                onViewportChanged: function(contentX, contentY, focusX, focusY) {
+                    if (!visible) {
+                        return
+                    }
+
+                    root.updateViewportState({
+                        imageViewportVersion: 1,
+                        imageX: contentX,
+                        imageY: contentY,
+                        imageFocusX: focusX,
+                        imageFocusY: focusY
+                    })
+                }
+            }
+
+            PdfRenderer {
+                id: pdfRenderer
+
+                anchors.fill: parent
+                visible: root.documentRenderingAvailable
+                    && documentPreview.state === "ready"
+                theme: root.theme
+                source: documentPreview.previewUrl
+                zoomFactor: root.documentZoom
+                fitToWidth: root.documentFitToWidth
+                freePanEnabled:
+                    root.documentFreePanEnabled
+                onZoomFactorRequested: function(value) {
+                    root.documentFitToWidth = false
+                    root.documentZoom = value
+                    root.updateViewportState({
+                        documentFitToWidth: false,
+                        documentZoom: value
+                    })
+                }
+                onViewportChanged: function(
+                    page,
+                    zoomFactor,
+                    fitToWidth,
+                    contentX,
+                    contentY,
+                    focusX,
+                    focusY
+                ) {
+                    if (!visible) {
+                        return
+                    }
+
+                    root.documentZoom = zoomFactor
+                    root.documentFitToWidth = fitToWidth
+                    root.updateViewportState({
+                        documentPage: page,
+                        documentViewportVersion: 5,
+                        documentZoom: zoomFactor,
+                        documentFitToWidth: fitToWidth,
+                        documentX: contentX,
+                        documentY: contentY,
+                        documentFocusX: focusX,
+                        documentFocusY: focusY
+                    })
+                }
             }
 
             RowLayout {
@@ -515,11 +1384,25 @@ Rectangle {
                 spacing: 0
 
                 PlainTextRenderer {
+                    id: splitSourceRenderer
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumWidth: 260
                     theme: root.theme
                     content: root.content
+                    onViewportChanged: function(contentX, contentY, xRatio, yRatio) {
+                        if (!visible) {
+                            return
+                        }
+
+                        root.updateViewportState({
+                            splitSourceX: contentX,
+                            splitSourceY: contentY,
+                            splitSourceXRatio: xRatio,
+                            splitSourceYRatio: yRatio
+                        })
+                    }
                 }
 
                 Rectangle {
@@ -529,6 +1412,8 @@ Rectangle {
                 }
 
                 MarkdownRenderer {
+                    id: splitMarkdownRenderer
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumWidth: 320
@@ -540,25 +1425,53 @@ Rectangle {
                     onZoomFactorRequested: function(value) {
                         root.setMarkdownZoom(value)
                     }
+                    onViewportChanged: function(contentX, contentY, xRatio, yRatio) {
+                        if (!visible) {
+                            return
+                        }
+
+                        root.updateViewportState({
+                            splitMarkdownX: contentX,
+                            splitMarkdownY: contentY,
+                            splitMarkdownXRatio: xRatio,
+                            splitMarkdownYRatio: yRatio
+                        })
+                    }
                 }
+            }
+
+            DocumentLoadingState {
+                anchors.centerIn: parent
+                width: Math.min(440, parent.width - 48)
+                visible: root.documentRenderingAvailable && root.displayLoading
+                theme: root.theme
+                title: documentPreview.converterLabel === "LibreOffice"
+                    ? "Preparing Office preview"
+                    : "Opening document"
+                detail: documentPreview.converterLabel === "LibreOffice"
+                    ? "Converting a private local preview. The original file stays untouched."
+                    : "Resolving the document and preparing its pages."
+                fileLabel: root.file && root.file.name
+                    ? String(root.file.name)
+                    : ""
             }
 
             Column {
                 anchors.centerIn: parent
                 width: Math.min(460, parent.width - 60)
                 spacing: 8
-                visible: root.loading
-                    || root.errorMessage.length > 0
-                    || root.content.length === 0
+                visible: (!root.documentRenderingAvailable && root.displayLoading)
+                    || root.displayErrorMessage.length > 0
+                    || (!root.displayContentAvailable && !root.documentRenderingAvailable)
 
                 Text {
                     width: parent.width
-                    text: root.loading
+                    text: root.displayLoading
                         ? "Opening file…"
-                        : root.errorMessage.length > 0
+                        : root.displayErrorMessage.length > 0
                             ? "File preview unavailable"
                             : "This file is empty"
-                    color: root.errorMessage.length > 0
+                    color: root.displayErrorMessage.length > 0
                         ? root.theme.danger
                         : root.theme.appText
                     font.pixelSize: root.theme.typeSize(16)
@@ -568,10 +1481,11 @@ Rectangle {
 
                 Text {
                     width: parent.width
-                    visible: root.loading || root.errorMessage.length > 0
-                    text: root.loading
+                    visible: root.displayLoading
+                        || root.displayErrorMessage.length > 0
+                    text: root.displayLoading
                         ? "Archivist is validating and reading the cataloged file."
-                        : root.errorMessage
+                        : root.displayErrorMessage
                     color: root.theme.mutedText
                     font.pixelSize: root.theme.typeSize(11)
                     lineHeight: root.theme.typeLineHeightBody
