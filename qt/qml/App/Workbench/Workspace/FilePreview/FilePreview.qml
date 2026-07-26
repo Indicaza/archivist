@@ -114,7 +114,7 @@ Rectangle {
             imageFocusX: 0.5,
             imageFocusY: 0.5,
             documentPage: 0,
-            documentViewportVersion: 4,
+            documentViewportVersion: 5,
             documentX: 0,
             documentY: 0,
             documentFocusX: 0.5,
@@ -322,16 +322,16 @@ Rectangle {
                 ),
                 root.numberValue(state.documentZoom, 1.0),
                 Boolean(state.documentFitToWidth),
-                documentViewportVersion >= 4
+                documentViewportVersion >= 5
                     ? root.numberValue(state.documentX, 0)
                     : 0,
-                documentViewportVersion >= 4
+                documentViewportVersion >= 5
                     ? root.numberValue(state.documentY, 0)
                     : 0,
-                documentViewportVersion >= 4
+                documentViewportVersion >= 5
                     ? root.numberValue(state.documentFocusX, 0.5)
                     : 0.5,
-                documentViewportVersion >= 4
+                documentViewportVersion >= 5
                     ? root.numberValue(state.documentFocusY, 0.5)
                     : 0.5
             )
@@ -871,8 +871,11 @@ Rectangle {
                     padding: 0
                     onClicked: {
                         if (root.documentRenderingAvailable) {
-                            root.documentFitToWidth = true
-                            pdfRenderer.fitWidth()
+                            if (root.documentFitToWidth) {
+                                pdfRenderer.fitWidth()
+                            } else {
+                                root.documentFitToWidth = true
+                            }
                         } else {
                             root.fitImage()
                         }
@@ -1220,7 +1223,7 @@ Rectangle {
                     root.documentFitToWidth = fitToWidth
                     root.updateViewportState({
                         documentPage: page,
-                        documentViewportVersion: 4,
+                        documentViewportVersion: 5,
                         documentZoom: zoomFactor,
                         documentFitToWidth: fitToWidth,
                         documentX: contentX,

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import Archivist.Services 1.0
 
 Item {
@@ -20,6 +21,10 @@ Item {
     property bool imageInitialized: false
     property bool adjustingViewport: false
     property bool requestingZoom: false
+    property bool visualTransitionActive: false
+    property bool imageHasRendered: false
+    property real sourcePixelWidth: 1
+    property real sourcePixelHeight: 1
     property real pinchStartZoom: 1.0
     property real pinchAnchorX: 0
     property real pinchAnchorY: 0
@@ -31,13 +36,18 @@ Item {
         "",
         "/" + String(root.relativePath || "")
     )
-    readonly property bool imageReady: image.status === Image.Ready
-    readonly property real naturalWidth: root.imageReady
-        ? Math.max(1, image.sourceSize.width)
-        : 1
-    readonly property real naturalHeight: root.imageReady
-        ? Math.max(1, image.sourceSize.height)
-        : 1
+    readonly property bool decoderReady:
+        image.status === Image.Ready
+    readonly property bool imageReady:
+        root.imageHasRendered
+    readonly property real naturalWidth: Math.max(
+        1,
+        root.sourcePixelWidth
+    )
+    readonly property real naturalHeight: Math.max(
+        1,
+        root.sourcePixelHeight
+    )
     readonly property real fitScale: root.imageReady
         ? Math.min(
             1.0,
@@ -185,6 +195,15 @@ Item {
         )
     }
 
+    function beginVisualTransition() {
+        if (!root.imageHasRendered) {
+            return
+        }
+
+        root.visualTransitionActive = true
+        visualTransitionTimer.restart()
+    }
+
     function centerImage() {
         if (!root.imageReady) {
             return
@@ -244,6 +263,8 @@ Item {
             resolvedAnchorX = viewport.width / 2
             resolvedAnchorY = viewport.height / 2
         }
+
+        root.beginVisualTransition()
 
         var focus = root.focusAt(
             resolvedAnchorX,
@@ -335,6 +356,8 @@ Item {
             return
         }
 
+        root.beginVisualTransition()
+
         var oldWidth = Math.max(1, root.lastViewportWidth)
         var oldHeight = Math.max(1, root.lastViewportHeight)
         var focusX = root.clamp(
@@ -418,6 +441,10 @@ Item {
 
     onSourceUrlChanged: {
         root.imageInitialized = false
+        root.imageHasRendered = false
+        root.sourcePixelWidth = 1
+        root.sourcePixelHeight = 1
+        root.visualTransitionActive = false
     }
 
     onWidthChanged: root.preserveAcrossResize()
@@ -500,6 +527,14 @@ Item {
                 radius: 2
                 clip: true
 
+                layer.enabled: root.visualTransitionActive
+                layer.effect: MultiEffect {
+                    autoPaddingEnabled: false
+                    blurEnabled: true
+                    blurMax: 8
+                    blur: root.visualTransitionActive ? 0.18 : 0
+                }
+
                 Image {
                     anchors.fill: parent
                     visible: root.checkerboardVisible
@@ -516,18 +551,45 @@ Item {
                     anchors.fill: parent
                     source: root.sourceUrl
                     asynchronous: true
+                    retainWhileLoading: true
                     cache: true
                     smooth: true
-                    mipmap: root.effectiveScale < 1.0
+                    mipmap: true
                     fillMode: Image.PreserveAspectFit
                     autoTransform: true
 
                     onStatusChanged: {
+                        if (status === Image.Loading) {
+                            if (root.imageHasRendered) {
+                                root.beginVisualTransition()
+                            }
+                            return
+                        }
+
                         if (status === Image.Ready) {
-                            root.renderZoom = root.clampedZoom(
-                                root.zoomFactor
+                            root.sourcePixelWidth = Math.max(
+                                1,
+                                sourceSize.width
                             )
-                            root.centerImage()
+                            root.sourcePixelHeight = Math.max(
+                                1,
+                                sourceSize.height
+                            )
+
+                            if (!root.imageHasRendered) {
+                                root.imageHasRendered = true
+                                root.renderZoom = root.clampedZoom(
+                                    root.zoomFactor
+                                )
+                                root.centerImage()
+                            } else {
+                                visualTransitionTimer.restart()
+                            }
+                            return
+                        }
+
+                        if (status === Image.Error) {
+                            root.visualTransitionActive = false
                         }
                     }
                 }
@@ -592,6 +654,14 @@ Item {
     }
 
     Timer {
+        id: visualTransitionTimer
+
+        interval: 85
+        repeat: false
+        onTriggered: root.visualTransitionActive = false
+    }
+
+    Timer {
         id: viewportSaveTimer
 
         interval: 80
@@ -632,13 +702,17 @@ Item {
         anchors.centerIn: parent
         width: Math.min(420, parent.width - 64)
         spacing: 9
-        visible: image.status === Image.Loading
+        visible: (
+                !root.imageHasRendered
+                && image.status === Image.Loading
+            )
             || image.status === Image.Error
             || String(root.sourceUrl).length === 0
 
         BusyIndicator {
             anchors.horizontalCenter: parent.horizontalCenter
-            visible: image.status === Image.Loading
+            visible: !root.imageHasRendered
+                && image.status === Image.Loading
             running: visible
         }
 
