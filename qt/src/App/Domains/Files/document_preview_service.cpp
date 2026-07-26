@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QStandardPaths>
+#include <QUuid>
 
 namespace
 {
@@ -67,9 +68,6 @@ DocumentPreviewService::DocumentPreviewService(QObject *parent)
 DocumentPreviewService::~DocumentPreviewService()
 {
     clear();
-    if (m_process.state() != QProcess::NotRunning) {
-        m_process.waitForFinished(1000);
-    }
 }
 
 QUrl DocumentPreviewService::previewUrl() const
@@ -104,6 +102,9 @@ void DocumentPreviewService::openDocument(
         m_process.kill();
         m_process.waitForFinished(1000);
     }
+    QObject::disconnect(&m_process, nullptr, this, nullptr);
+    cleanupJobDirectory();
+    m_cachePath.clear();
 
     setPreviewUrl({});
     setErrorMessage({});
@@ -182,17 +183,18 @@ void DocumentPreviewService::openDocument(
         return;
     }
 
+    const QString jobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_jobDirectory = QDir(cacheRoot).absoluteFilePath(
-        QStringLiteral("job-") + fingerprint
+        QStringLiteral("job-%1-%2").arg(fingerprint.left(12), jobId)
     );
-    QDir(m_jobDirectory).removeRecursively();
-    QDir().mkpath(m_jobDirectory);
+    if (!QDir().mkpath(m_jobDirectory)) {
+        fail(QStringLiteral("The document preview workspace could not be created."));
+        return;
+    }
 
     const QString generatedPath = QDir(m_jobDirectory).absoluteFilePath(
         sourceInfo.completeBaseName() + QStringLiteral(".pdf")
     );
-
-    QObject::disconnect(&m_process, nullptr, this, nullptr);
 
     connect(
         &m_process,
@@ -247,7 +249,7 @@ void DocumentPreviewService::openDocument(
                 return;
             }
 
-            QDir(m_jobDirectory).removeRecursively();
+            cleanupJobDirectory();
             setPreviewUrl(QUrl::fromLocalFile(m_cachePath));
             setState(QStringLiteral("ready"));
         }
@@ -271,7 +273,11 @@ void DocumentPreviewService::clear()
     ++m_requestRevision;
     if (m_process.state() != QProcess::NotRunning) {
         m_process.kill();
+        m_process.waitForFinished(1000);
     }
+    QObject::disconnect(&m_process, nullptr, this, nullptr);
+    cleanupJobDirectory();
+    m_cachePath.clear();
     setPreviewUrl({});
     setErrorMessage({});
     setConverterLabel({});
@@ -314,8 +320,19 @@ void DocumentPreviewService::setConverterLabel(const QString &label)
     emit converterLabelChanged();
 }
 
+void DocumentPreviewService::cleanupJobDirectory()
+{
+    if (m_jobDirectory.isEmpty()) {
+        return;
+    }
+
+    QDir(m_jobDirectory).removeRecursively();
+    m_jobDirectory.clear();
+}
+
 void DocumentPreviewService::fail(const QString &message)
 {
+    cleanupJobDirectory();
     setPreviewUrl({});
     setErrorMessage(message);
     setState(QStringLiteral("error"));

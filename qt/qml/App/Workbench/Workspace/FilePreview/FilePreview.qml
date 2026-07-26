@@ -56,9 +56,6 @@ Rectangle {
     readonly property bool displayContentAvailable: imageRenderingAvailable
         || (documentRenderingAvailable && documentPreview.state === "ready")
         || content.length > 0
-    readonly property string currentFileKey: String(file && file.id ? file.id : "")
-        + ":"
-        + String(rendererSelection.id || "plain-text")
     property string viewMode: "source"
     property real markdownZoom: 1.0
     property real imageZoom: 1.0
@@ -66,8 +63,8 @@ Rectangle {
     property bool imageCheckerboardVisible: true
     property real documentZoom: 1.0
     property bool documentFitToWidth: false
+    property bool documentFreePanEnabled: false
     property string activeViewportStateKey: ""
-    property var pendingViewportState: ({})
     property var cachedViewportState: ({})
     property bool restoringViewportState: false
     property int viewportRestorePass: 0
@@ -100,6 +97,7 @@ Rectangle {
             imageCheckerboardVisible: true,
             documentZoom: 1.0,
             documentFitToWidth: false,
+            documentFreePanEnabled: false,
             sourceX: 0,
             sourceY: 0,
             sourceXRatio: 0,
@@ -216,7 +214,6 @@ Rectangle {
             }
         }
 
-        root.pendingViewportState = state
         root.cachedViewportState = state
         root.viewMode = String(
             state.viewMode || root.defaultViewportState().viewMode
@@ -239,8 +236,73 @@ Rectangle {
             Math.min(6.0, root.numberValue(state.documentZoom, 1.0))
         )
         root.documentFitToWidth = Boolean(state.documentFitToWidth)
+        root.documentFreePanEnabled = Boolean(
+            state.documentFreePanEnabled
+        )
 
         viewportStateRestoreTimer.restart()
+    }
+
+    function restoreDocumentViewport() {
+        if (!root.documentRenderingAvailable) {
+            return
+        }
+
+        var state =
+            root.cachedViewportState
+            || root.defaultViewportState()
+        var documentViewportVersion = Math.max(
+            0,
+            Math.round(
+                root.numberValue(
+                    state.documentViewportVersion,
+                    0
+                )
+            )
+        )
+
+        pdfRenderer.restoreViewport(
+            Math.max(
+                0,
+                Math.round(
+                    root.numberValue(
+                        state.documentPage,
+                        0
+                    )
+                )
+            ),
+            root.numberValue(
+                state.documentZoom,
+                1.0
+            ),
+            Boolean(
+                state.documentFitToWidth
+            ),
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentX,
+                    0
+                )
+                : 0,
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentY,
+                    0
+                )
+                : 0,
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentFocusX,
+                    0.5
+                )
+                : 0.5,
+            documentViewportVersion >= 5
+                ? root.numberValue(
+                    state.documentFocusY,
+                    0.5
+                )
+                : 0.5
+        )
     }
 
     function restoreVisibleViewport() {
@@ -304,38 +366,7 @@ Rectangle {
             )
         }
 
-        if (root.documentRenderingAvailable) {
-            var documentViewportVersion = Math.max(
-                0,
-                Math.round(
-                    root.numberValue(
-                        state.documentViewportVersion,
-                        0
-                    )
-                )
-            )
-
-            pdfRenderer.restoreViewport(
-                Math.max(
-                    0,
-                    Math.round(root.numberValue(state.documentPage, 0))
-                ),
-                root.numberValue(state.documentZoom, 1.0),
-                Boolean(state.documentFitToWidth),
-                documentViewportVersion >= 5
-                    ? root.numberValue(state.documentX, 0)
-                    : 0,
-                documentViewportVersion >= 5
-                    ? root.numberValue(state.documentY, 0)
-                    : 0,
-                documentViewportVersion >= 5
-                    ? root.numberValue(state.documentFocusX, 0.5)
-                    : 0.5,
-                documentViewportVersion >= 5
-                    ? root.numberValue(state.documentFocusY, 0.5)
-                    : 0.5
-            )
-        }
+        root.restoreDocumentViewport()
     }
 
     function applyPendingViewportState() {
@@ -508,8 +539,32 @@ Rectangle {
         })
     }
 
+    onDocumentFreePanEnabledChanged: {
+        root.updateViewportState({
+            documentFreePanEnabled:
+                root.documentFreePanEnabled
+        })
+    }
+
     DocumentPreviewService {
         id: documentPreview
+    }
+
+    Connections {
+        target: documentPreview
+
+        function onStateChanged() {
+            if (
+                documentPreview.state !== "ready"
+                || !root.documentRenderingAvailable
+            ) {
+                return
+            }
+
+            Qt.callLater(
+                root.restoreDocumentViewport
+            )
+        }
     }
 
     Connections {
@@ -529,6 +584,7 @@ Rectangle {
 
     Component.onDestruction: {
         viewportStateSaveTimer.stop()
+        viewportStateRestoreTimer.stop()
         saveViewportState(root.activeViewportStateKey)
         WorkspaceState.sync()
         documentPreview.clear()
@@ -859,6 +915,88 @@ Rectangle {
                                 : root.theme.quietBorder
                             radius: 4
                         }
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 68
+                    Layout.preferredHeight: 30
+                    visible: root.documentRenderingAvailable
+                    text: "Center"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: pdfRenderer.recenter()
+                    ToolTip.visible: hovered
+                    ToolTip.text:
+                        "Recenter the current document view"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color:
+                            root.theme.quietBorder
+                        radius: 4
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 60
+                    Layout.preferredHeight: 30
+                    visible: root.documentRenderingAvailable
+                    text: "Pan"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked:
+                        root.documentFreePanEnabled =
+                            !root.documentFreePanEnabled
+                    ToolTip.visible: hovered
+                    ToolTip.text:
+                        root.documentFreePanEnabled
+                            ? "Return to vertical reading mode"
+                            : "Enable two-dimensional free panning"
+
+                    contentItem: Text {
+                        text: parent.text
+                        color:
+                            root.documentFreePanEnabled
+                                ? root.theme.accentBright
+                                : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(9)
+                        font.weight: Font.Bold
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color:
+                            root.documentFreePanEnabled
+                                ? root.theme.activeBg
+                                : parent.hovered
+                                    ? root.theme.hoverBg
+                                    : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color:
+                            root.documentFreePanEnabled
+                                ? root.theme.accent
+                                : root.theme.quietBorder
+                        radius: 4
                     }
                 }
 
@@ -1198,6 +1336,8 @@ Rectangle {
                 source: documentPreview.previewUrl
                 zoomFactor: root.documentZoom
                 fitToWidth: root.documentFitToWidth
+                freePanEnabled:
+                    root.documentFreePanEnabled
                 onZoomFactorRequested: function(value) {
                     root.documentFitToWidth = false
                     root.documentZoom = value

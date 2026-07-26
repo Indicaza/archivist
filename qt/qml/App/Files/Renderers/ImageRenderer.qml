@@ -23,6 +23,9 @@ Item {
     property bool requestingZoom: false
     property bool visualTransitionActive: false
     property bool imageHasRendered: false
+    property bool pendingViewportRestore: false
+    property real pendingFocusX: 0.5
+    property real pendingFocusY: 0.5
     property real sourcePixelWidth: 1
     property real sourcePixelHeight: 1
     property real pinchStartZoom: 1.0
@@ -326,8 +329,22 @@ Item {
         focusX,
         focusY
     ) {
-        if (!root.imageReady) {
-            return
+        root.pendingFocusX = isFinite(Number(focusX))
+            ? root.clamp(Number(focusX), 0, 1)
+            : 0.5
+        root.pendingFocusY = isFinite(Number(focusY))
+            ? root.clamp(Number(focusY), 0, 1)
+            : 0.5
+        root.pendingViewportRestore = true
+        root.applyPendingViewport()
+    }
+
+    function applyPendingViewport() {
+        if (
+            !root.imageReady
+            || !root.pendingViewportRestore
+        ) {
+            return false
         }
 
         root.adjustingViewport = true
@@ -337,8 +354,8 @@ Item {
             root.renderedHeight
         )
         root.placeFocus(
-            isFinite(Number(focusX)) ? Number(focusX) : 0.5,
-            isFinite(Number(focusY)) ? Number(focusY) : 0.5,
+            root.pendingFocusX,
+            root.pendingFocusY,
             viewport.width / 2,
             viewport.height / 2,
             root.renderedWidth,
@@ -346,7 +363,17 @@ Item {
         )
         root.adjustingViewport = false
         root.imageInitialized = true
+        root.pendingViewportRestore = false
         viewportSaveTimer.restart()
+        return true
+    }
+
+    function resetTransientState() {
+        visualTransitionTimer.stop()
+        viewportSaveTimer.stop()
+        root.adjustingViewport = false
+        root.requestingZoom = false
+        root.visualTransitionActive = false
     }
 
     function preserveAcrossResize() {
@@ -357,6 +384,29 @@ Item {
         }
 
         root.beginVisualTransition()
+
+        if (root.fitToView) {
+            root.lastViewportWidth =
+                Math.max(1, viewport.width)
+            root.lastViewportHeight =
+                Math.max(1, viewport.height)
+            root.adjustingViewport = true
+            root.updateCanvas(
+                root.renderedWidth,
+                root.renderedHeight
+            )
+            root.placeFocus(
+                0.5,
+                0.5,
+                viewport.width / 2,
+                viewport.height / 2,
+                root.renderedWidth,
+                root.renderedHeight
+            )
+            root.adjustingViewport = false
+            viewportSaveTimer.restart()
+            return
+        }
 
         var oldWidth = Math.max(1, root.lastViewportWidth)
         var oldHeight = Math.max(1, root.lastViewportHeight)
@@ -440,11 +490,15 @@ Item {
     }
 
     onSourceUrlChanged: {
+        root.resetTransientState()
         root.imageInitialized = false
         root.imageHasRendered = false
+        root.pendingViewportRestore = false
+        root.pendingFocusX = 0.5
+        root.pendingFocusY = 0.5
         root.sourcePixelWidth = 1
         root.sourcePixelHeight = 1
-        root.visualTransitionActive = false
+        root.renderZoom = root.clampedZoom(root.zoomFactor)
     }
 
     onWidthChanged: root.preserveAcrossResize()
@@ -455,6 +509,9 @@ Item {
         root.lastViewportHeight = Math.max(1, viewport.height)
         root.renderZoom = root.clampedZoom(root.zoomFactor)
     }
+
+    Component.onDestruction:
+        root.resetTransientState()
 
     Rectangle {
         anchors.fill: parent
@@ -581,7 +638,10 @@ Item {
                                 root.renderZoom = root.clampedZoom(
                                     root.zoomFactor
                                 )
-                                root.centerImage()
+
+                                if (!root.applyPendingViewport()) {
+                                    root.centerImage()
+                                }
                             } else {
                                 visualTransitionTimer.restart()
                             }
@@ -702,29 +762,13 @@ Item {
         anchors.centerIn: parent
         width: Math.min(420, parent.width - 64)
         spacing: 9
-        visible: (
-                !root.imageHasRendered
-                && image.status === Image.Loading
-            )
-            || image.status === Image.Error
+        visible: image.status === Image.Error
             || String(root.sourceUrl).length === 0
-
-        BusyIndicator {
-            anchors.horizontalCenter: parent.horizontalCenter
-            visible: !root.imageHasRendered
-                && image.status === Image.Loading
-            running: visible
-        }
 
         Text {
             width: parent.width
-            text: image.status === Image.Loading
-                ? "Loading image…"
-                : "Image unavailable"
-            color: image.status === Image.Error
-                || String(root.sourceUrl).length === 0
-                ? root.theme.danger
-                : root.theme.appText
+            text: "Image unavailable"
+            color: root.theme.danger
             font.pixelSize: root.theme.typeSize(15)
             font.weight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter

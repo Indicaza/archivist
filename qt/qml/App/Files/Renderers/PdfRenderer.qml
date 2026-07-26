@@ -10,6 +10,7 @@ Item {
     property url source
     property real zoomFactor: 1.0
     property bool fitToWidth: false
+    property bool freePanEnabled: false
 
     property bool requestingZoom: false
     property bool documentSurfaceHasRendered: false
@@ -23,6 +24,12 @@ Item {
     property bool adjustingSingleViewport: false
     property bool singlePageHasRendered: false
     property bool singlePageRefining: false
+    property bool singleCenterAnimating: false
+    property bool singleCenterChaseY: false
+    property real singleCenterTargetX: 0
+    property real singleCenterTargetY: 0
+    property real singleCenterVelocityX: 0
+    property real singleCenterVelocityY: 0
 
     property real multiRenderScale: 1.0
     property real multiCanvasWidth: 1
@@ -38,6 +45,9 @@ Item {
     property bool multiInitialized: false
     property bool adjustingMultiViewport: false
     property bool multiVisualTransitionActive: false
+    property bool multiCenterAnimating: false
+    property real multiCenterTargetX: 0
+    property real multiCenterVelocityX: 0
 
     property int pendingPage: 0
     property real pendingZoom: 1.0
@@ -88,6 +98,17 @@ Item {
     )
 
     readonly property real multiPageGap: 28
+    readonly property real readingEdgeInset: 32
+    readonly property int centerFrameInterval: 16
+    readonly property int centerDelayInterval: 28
+    readonly property int resizeSettleInterval: 96
+    readonly property int singleRefineInterval: 70
+    readonly property int multiTransitionInterval: 115
+    readonly property int viewportSaveInterval: 90
+    readonly property real centerSpringStrength: 0.08
+    readonly property real centerDamping: 0.68
+    readonly property real centerPositionEpsilon: 0.18
+    readonly property real centerVelocityEpsilon: 0.08
     readonly property real multiPanMarginX: Math.max(
         1,
         multiViewport.width
@@ -234,6 +255,40 @@ Item {
         )
     }
 
+    function singleFocusPosition(
+        focusX,
+        focusY,
+        anchorX,
+        anchorY,
+        pageWidth,
+        pageHeight
+    ) {
+        return {
+            x: root.clamp(
+                root.singlePanMarginX
+                    + root.clamp(
+                        Number(focusX),
+                        0,
+                        1
+                    ) * pageWidth
+                    - anchorX,
+                0,
+                root.singleMaximumX
+            ),
+            y: root.clamp(
+                root.singlePanMarginY
+                    + root.clamp(
+                        Number(focusY),
+                        0,
+                        1
+                    ) * pageHeight
+                    - anchorY,
+                0,
+                root.singleMaximumY
+            )
+        }
+    }
+
     function placeSingleFocus(
         focusX,
         focusY,
@@ -242,54 +297,17 @@ Item {
         pageWidth,
         pageHeight
     ) {
-        var targetX = root.singlePanMarginX
-            + root.clamp(
-                Number(focusX),
-                0,
-                1
-            ) * pageWidth
-            - anchorX
-        var targetY = root.singlePanMarginY
-            + root.clamp(
-                Number(focusY),
-                0,
-                1
-            ) * pageHeight
-            - anchorY
+        var target = root.singleFocusPosition(
+            focusX,
+            focusY,
+            anchorX,
+            anchorY,
+            pageWidth,
+            pageHeight
+        )
 
-        singleViewport.contentX = root.clamp(
-            targetX,
-            0,
-            root.singleMaximumX
-        )
-        singleViewport.contentY = root.clamp(
-            targetY,
-            0,
-            root.singleMaximumY
-        )
-    }
-
-    function centerSinglePage() {
-        if (!root.singlePageDocument) {
-            return
-        }
-
-        root.adjustingSingleViewport = true
-        root.updateSingleCanvas(
-            root.singlePageWidth,
-            root.singlePageHeight
-        )
-        root.placeSingleFocus(
-            0.5,
-            0.5,
-            singleViewport.width / 2,
-            singleViewport.height / 2,
-            root.singlePageWidth,
-            root.singlePageHeight
-        )
-        root.adjustingSingleViewport = false
-        root.singleInitialized = true
-        viewportSaveTimer.restart()
+        singleViewport.contentX = target.x
+        singleViewport.contentY = target.y
     }
 
     function applySingleZoom(
@@ -299,6 +317,8 @@ Item {
         usePointerAnchor,
         notifyParent
     ) {
+        root.cancelSingleCenterAnimation()
+
         if (!root.singlePageDocument) {
             return
         }
@@ -337,6 +357,13 @@ Item {
             resolvedAnchorX,
             resolvedAnchorY
         )
+
+        if (!root.freePanEnabled) {
+            resolvedAnchorX =
+                singleViewport.width / 2
+            focus.x = 0.5
+        }
+
         var nextScale =
             root.clampedZoom(value)
         var nextWidth = Math.max(
@@ -366,6 +393,7 @@ Item {
         )
         root.adjustingSingleViewport = false
         root.singleInitialized = true
+        root.constrainReadingPosition()
 
         if (notifyParent) {
             root.requestingZoom = true
@@ -427,6 +455,10 @@ Item {
             1
         )
 
+        if (!root.freePanEnabled) {
+            focusX = 0.5
+        }
+
         root.lastSingleViewportWidth =
             Math.max(
                 1,
@@ -438,12 +470,17 @@ Item {
                 singleViewport.height
             )
 
-        root.adjustingSingleViewport = true
+        if (root.fitToWidth) {
+            root.singleRenderScale =
+                root.singleFitScale()
+        }
+
         root.updateSingleCanvas(
             root.singlePageWidth,
             root.singlePageHeight
         )
-        root.placeSingleFocus(
+
+        var target = root.singleFocusPosition(
             focusX,
             focusY,
             singleViewport.width / 2,
@@ -451,8 +488,28 @@ Item {
             root.singlePageWidth,
             root.singlePageHeight
         )
-        root.adjustingSingleViewport = false
-        viewportSaveTimer.restart()
+
+        if (root.freePanEnabled) {
+            root.cancelSingleCenterAnimation()
+            root.adjustingSingleViewport = true
+            singleViewport.contentX = target.x
+            singleViewport.contentY = target.y
+            root.adjustingSingleViewport = false
+            viewportSaveTimer.restart()
+        } else {
+            var bounds =
+                root.readingVerticalBounds()
+            root.animateSinglePosition(
+                target.x,
+                root.clamp(
+                    singleViewport.contentY,
+                    bounds.minimum,
+                    bounds.maximum
+                ),
+                false
+            )
+            singleResizeSettleTimer.restart()
+        }
     }
 
     function rebuildMultiLayout(scale) {
@@ -703,7 +760,7 @@ Item {
         }
     }
 
-    function placeMultiAnchor(
+    function multiAnchorPosition(
         anchor,
         viewportX,
         viewportY
@@ -712,7 +769,10 @@ Item {
             !anchor
             || root.multiPageWidths.length <= 0
         ) {
-            return
+            return {
+                x: multiViewport.contentX,
+                y: multiViewport.contentY
+            }
         }
 
         var pageIndex = root.clamp(
@@ -745,31 +805,46 @@ Item {
             root.multiPageX(pageIndex)
         var pageY =
             root.multiPageY(pageIndex)
-        var targetX = pageX
-            + root.clamp(
-                Number(anchor.x),
-                0,
-                1
-            ) * pageWidth
-            - viewportX
-        var targetY = pageY
-            + root.clamp(
-                Number(anchor.y),
-                0,
-                1
-            ) * pageHeight
-            - viewportY
 
-        multiViewport.contentX = root.clamp(
-            targetX,
-            0,
-            root.multiMaximumX
+        return {
+            x: root.clamp(
+                pageX
+                    + root.clamp(
+                        Number(anchor.x),
+                        0,
+                        1
+                    ) * pageWidth
+                    - viewportX,
+                0,
+                root.multiMaximumX
+            ),
+            y: root.clamp(
+                pageY
+                    + root.clamp(
+                        Number(anchor.y),
+                        0,
+                        1
+                    ) * pageHeight
+                    - viewportY,
+                0,
+                root.multiMaximumY
+            )
+        }
+    }
+
+    function placeMultiAnchor(
+        anchor,
+        viewportX,
+        viewportY
+    ) {
+        var target = root.multiAnchorPosition(
+            anchor,
+            viewportX,
+            viewportY
         )
-        multiViewport.contentY = root.clamp(
-            targetY,
-            0,
-            root.multiMaximumY
-        )
+
+        multiViewport.contentX = target.x
+        multiViewport.contentY = target.y
     }
 
     function updateMultiCurrentPage() {
@@ -806,6 +881,8 @@ Item {
         usePointerAnchor,
         notifyParent
     ) {
+        root.cancelMultiCenterAnimation()
+
         if (
             !root.documentReady
             || document.pageCount <= 1
@@ -841,6 +918,13 @@ Item {
             resolvedAnchorX,
             resolvedAnchorY
         )
+
+        if (!root.freePanEnabled) {
+            resolvedAnchorX =
+                multiViewport.width / 2
+            anchor.x = 0.5
+        }
+
         var nextScale =
             root.clampedZoom(value)
 
@@ -856,6 +940,7 @@ Item {
             anchor.page
         root.adjustingMultiViewport = false
         root.multiInitialized = true
+        root.constrainReadingPosition()
 
         if (notifyParent) {
             root.requestingZoom = true
@@ -897,33 +982,6 @@ Item {
         )
     }
 
-    function centerMultiDocument() {
-        if (
-            !root.documentReady
-            || document.pageCount <= 1
-        ) {
-            return
-        }
-
-        root.adjustingMultiViewport = true
-        root.rebuildMultiLayout(
-            root.multiRenderScale
-        )
-        root.placeMultiAnchor(
-            {
-                page: 0,
-                x: 0.5,
-                y: 0
-            },
-            multiViewport.width / 2,
-            32
-        )
-        root.multiCurrentPage = 0
-        root.adjustingMultiViewport = false
-        root.multiInitialized = true
-        viewportSaveTimer.restart()
-    }
-
     function preserveMultiAcrossResize() {
         if (
             !root.documentReady
@@ -958,6 +1016,10 @@ Item {
             oldHeight
         )
 
+        if (!root.freePanEnabled) {
+            anchor.x = 0.5
+        }
+
         root.lastMultiViewportWidth =
             Math.max(
                 1,
@@ -970,19 +1032,590 @@ Item {
             )
 
         root.beginMultiVisualTransition()
-        root.adjustingMultiViewport = true
         root.rebuildMultiLayout(
-            root.multiRenderScale
+            root.fitToWidth
+                ? root.multiFitScale()
+                : root.multiRenderScale
         )
-        root.placeMultiAnchor(
+
+        var target = root.multiAnchorPosition(
             anchor,
             multiViewport.width / 2,
             multiViewport.height / 2
         )
+
         root.multiCurrentPage =
             anchor.page
+
+        if (root.freePanEnabled) {
+            root.cancelMultiCenterAnimation()
+            root.adjustingMultiViewport = true
+            multiViewport.contentX = target.x
+            multiViewport.contentY = target.y
+            root.adjustingMultiViewport = false
+            viewportSaveTimer.restart()
+        } else {
+            var bounds =
+                root.readingVerticalBounds()
+
+            root.adjustingMultiViewport = true
+            multiViewport.contentY = root.clamp(
+                target.y,
+                bounds.minimum,
+                bounds.maximum
+            )
+            root.adjustingMultiViewport = false
+            root.animateMultiPosition(
+                target.x,
+                false
+            )
+            multiResizeSettleTimer.restart()
+        }
+    }
+
+    function cancelSingleCenterAnimation() {
+        singleCenterDelayTimer.stop()
+        singleCenterAnimation.stop()
+        root.singleCenterAnimating = false
+        root.singleCenterChaseY = false
+        root.singleCenterVelocityX = 0
+        root.singleCenterVelocityY = 0
+    }
+
+    function cancelMultiCenterAnimation() {
+        multiCenterDelayTimer.stop()
+        multiCenterAnimation.stop()
+        root.multiCenterAnimating = false
+        root.multiCenterVelocityX = 0
+    }
+
+    function cancelCenterAnimations() {
+        singleResizeSettleTimer.stop()
+        multiResizeSettleTimer.stop()
+        root.cancelSingleCenterAnimation()
+        root.cancelMultiCenterAnimation()
+    }
+
+    function resetTransientState() {
+        root.cancelCenterAnimations()
+        singleResizeTimer.stop()
+        multiResizeTimer.stop()
+        singlePageRefineTimer.stop()
+        multiVisualTransitionTimer.stop()
+        viewportSaveTimer.stop()
+        root.adjustingSingleViewport = false
         root.adjustingMultiViewport = false
+        root.requestingZoom = false
+        root.singlePageRefining = false
+        root.multiVisualTransitionActive = false
+    }
+
+    function startSingleCenterAnimation() {
+        singleCenterDelayTimer.stop()
+
+        if (!singleCenterAnimation.running) {
+            singleCenterAnimation.start()
+        }
+    }
+
+    function startMultiCenterAnimation() {
+        multiCenterDelayTimer.stop()
+
+        if (!multiCenterAnimation.running) {
+            multiCenterAnimation.start()
+        }
+    }
+
+    function animateSinglePosition(
+        targetX,
+        targetY,
+        delayed,
+        chaseY
+    ) {
+        var resolvedY = root.clamp(
+            Number(targetY),
+            0,
+            root.singleMaximumY
+        )
+
+        if (!root.freePanEnabled) {
+            var bounds =
+                root.readingVerticalBounds()
+            resolvedY = root.clamp(
+                resolvedY,
+                bounds.minimum,
+                bounds.maximum
+            )
+        }
+
+        root.singleCenterTargetX = root.clamp(
+            Number(targetX),
+            0,
+            root.singleMaximumX
+        )
+        root.singleCenterTargetY = resolvedY
+        root.singleCenterChaseY =
+            Boolean(chaseY)
+        root.singleCenterAnimating = true
+
+        if (!root.singleCenterChaseY) {
+            root.singleCenterVelocityY = 0
+        }
+
+        if (Boolean(delayed)) {
+            singleCenterDelayTimer.restart()
+        } else {
+            root.startSingleCenterAnimation()
+        }
+    }
+
+    function animateMultiPosition(
+        targetX,
+        delayed
+    ) {
+        root.multiCenterTargetX = root.clamp(
+            Number(targetX),
+            0,
+            root.multiMaximumX
+        )
+        root.multiCenterAnimating = true
+
+        if (Boolean(delayed)) {
+            multiCenterDelayTimer.restart()
+        } else {
+            root.startMultiCenterAnimation()
+        }
+    }
+
+    function updateSingleCenterTarget() {
+        if (!root.singlePageDocument) {
+            return
+        }
+
+        root.updateSingleCanvas(
+            root.singlePageWidth,
+            root.singlePageHeight
+        )
+
+        var centered =
+            root.singleFocusPosition(
+                0.5,
+                0.5,
+                singleViewport.width / 2,
+                singleViewport.height / 2,
+                root.singlePageWidth,
+                root.singlePageHeight
+            )
+
+        root.singleCenterTargetX =
+            centered.x
+
+        if (root.singleCenterChaseY) {
+            root.singleCenterTargetY =
+                centered.y
+        } else {
+            var bounds =
+                root.readingVerticalBounds()
+            root.singleCenterTargetY =
+                root.clamp(
+                    root.singleCenterTargetY,
+                    bounds.minimum,
+                    bounds.maximum
+                )
+        }
+    }
+
+    function updateMultiCenterTarget() {
+        if (
+            !root.documentReady
+            || document.pageCount <= 1
+        ) {
+            return
+        }
+
+        var pageIndex = root.clamp(
+            root.multiCurrentPage,
+            0,
+            Math.max(
+                0,
+                document.pageCount - 1
+            )
+        )
+        var centered =
+            root.multiAnchorPosition(
+                {
+                    page: pageIndex,
+                    x: 0.5,
+                    y: 0.5
+                },
+                multiViewport.width / 2,
+                multiViewport.height / 2
+            )
+        root.multiCenterTargetX =
+            centered.x
+    }
+
+    function stepSingleCenterAnimation() {
+        if (
+            !root.singleCenterAnimating
+            || !root.singlePageDocument
+        ) {
+            root.cancelSingleCenterAnimation()
+            return
+        }
+
+        root.updateSingleCenterTarget()
+
+        var deltaX =
+            root.singleCenterTargetX
+            - singleViewport.contentX
+        var deltaY =
+            root.singleCenterTargetY
+            - singleViewport.contentY
+
+        root.singleCenterVelocityX =
+            (
+                root.singleCenterVelocityX
+                + deltaX * root.centerSpringStrength
+            ) * root.centerDamping
+
+        if (root.singleCenterChaseY) {
+            root.singleCenterVelocityY =
+                (
+                    root.singleCenterVelocityY
+                    + deltaY * root.centerSpringStrength
+                ) * root.centerDamping
+        } else {
+            root.singleCenterVelocityY = 0
+            deltaY = 0
+        }
+
+        root.adjustingSingleViewport = true
+        singleViewport.contentX = root.clamp(
+            singleViewport.contentX
+                + root.singleCenterVelocityX,
+            0,
+            root.singleMaximumX
+        )
+
+        if (root.singleCenterChaseY) {
+            singleViewport.contentY = root.clamp(
+                singleViewport.contentY
+                    + root.singleCenterVelocityY,
+                0,
+                root.singleMaximumY
+            )
+        }
+        root.adjustingSingleViewport = false
+
+        var settledX =
+            Math.abs(deltaX) < root.centerPositionEpsilon
+            && Math.abs(
+                root.singleCenterVelocityX
+            ) < root.centerVelocityEpsilon
+        var settledY =
+            !root.singleCenterChaseY
+            || (
+                Math.abs(deltaY) < root.centerPositionEpsilon
+                && Math.abs(
+                    root.singleCenterVelocityY
+                ) < root.centerVelocityEpsilon
+            )
+
+        if (settledX && settledY) {
+            root.adjustingSingleViewport = true
+            singleViewport.contentX =
+                root.singleCenterTargetX
+
+            if (root.singleCenterChaseY) {
+                singleViewport.contentY =
+                    root.singleCenterTargetY
+            }
+            root.adjustingSingleViewport = false
+
+            singleCenterAnimation.stop()
+            root.singleCenterAnimating = false
+            root.singleCenterChaseY = false
+            root.singleCenterVelocityX = 0
+            root.singleCenterVelocityY = 0
+            root.constrainReadingPosition()
+            viewportSaveTimer.restart()
+        }
+    }
+
+    function stepMultiCenterAnimation() {
+        if (
+            !root.multiCenterAnimating
+            || !root.documentReady
+            || document.pageCount <= 1
+        ) {
+            root.cancelMultiCenterAnimation()
+            return
+        }
+
+        root.updateMultiCenterTarget()
+
+        var deltaX =
+            root.multiCenterTargetX
+            - multiViewport.contentX
+
+        root.multiCenterVelocityX =
+            (
+                root.multiCenterVelocityX
+                + deltaX * root.centerSpringStrength
+            ) * root.centerDamping
+
+        root.adjustingMultiViewport = true
+        multiViewport.contentX = root.clamp(
+            multiViewport.contentX
+                + root.multiCenterVelocityX,
+            0,
+            root.multiMaximumX
+        )
+        root.adjustingMultiViewport = false
+
+        var settled =
+            Math.abs(deltaX) < root.centerPositionEpsilon
+            && Math.abs(
+                root.multiCenterVelocityX
+            ) < root.centerVelocityEpsilon
+
+        if (settled) {
+            root.adjustingMultiViewport = true
+            multiViewport.contentX =
+                root.multiCenterTargetX
+            root.adjustingMultiViewport = false
+
+            multiCenterAnimation.stop()
+            root.multiCenterAnimating = false
+            root.multiCenterVelocityX = 0
+            root.constrainReadingPosition()
+            root.updateMultiCurrentPage()
+            viewportSaveTimer.restart()
+        }
+    }
+
+    function settleSingleResizeCenter() {
+        if (
+            !root.singlePageDocument
+            || root.freePanEnabled
+        ) {
+            return
+        }
+
+        root.updateSingleCanvas(
+            root.singlePageWidth,
+            root.singlePageHeight
+        )
+
+        var target = root.singleFocusPosition(
+            0.5,
+            0.5,
+            singleViewport.width / 2,
+            singleViewport.height / 2,
+            root.singlePageWidth,
+            root.singlePageHeight
+        )
+        var bounds =
+            root.readingVerticalBounds()
+
+        root.animateSinglePosition(
+            target.x,
+            root.clamp(
+                singleViewport.contentY,
+                bounds.minimum,
+                bounds.maximum
+            ),
+            false
+        )
+    }
+
+    function settleMultiResizeCenter() {
+        if (
+            !root.documentReady
+            || document.pageCount <= 1
+            || root.freePanEnabled
+        ) {
+            return
+        }
+
+        var anchor = root.multiAnchorAt(
+            multiViewport.width / 2,
+            multiViewport.height / 2
+        )
+        anchor.x = 0.5
+
+        var target = root.multiAnchorPosition(
+            anchor,
+            multiViewport.width / 2,
+            multiViewport.height / 2
+        )
+        root.multiCurrentPage = anchor.page
+        root.animateMultiPosition(
+            target.x,
+            false
+        )
+    }
+
+    function readingVerticalBounds() {
+        var viewport = root.singlePageDocument
+            ? singleViewport
+            : multiViewport
+        var documentTop = root.singlePageDocument
+            ? root.singlePanMarginY
+            : root.multiPanMarginY
+        var documentHeight = root.singlePageDocument
+            ? root.singlePageHeight
+            : root.multiDocumentHeight
+        var absoluteMaximum = root.singlePageDocument
+            ? root.singleMaximumY
+            : root.multiMaximumY
+        var edgeInset = root.readingEdgeInset
+        var minimumY =
+            documentTop - edgeInset
+        var maximumY =
+            documentTop
+            + documentHeight
+            - viewport.height
+            + edgeInset
+
+        if (maximumY < minimumY) {
+            var centeredY =
+                documentTop
+                + documentHeight / 2
+                - viewport.height / 2
+            minimumY = centeredY
+            maximumY = centeredY
+        }
+
+        return {
+            minimum: root.clamp(
+                minimumY,
+                0,
+                absoluteMaximum
+            ),
+            maximum: root.clamp(
+                maximumY,
+                0,
+                absoluteMaximum
+            )
+        }
+    }
+
+    function constrainReadingPosition() {
+        if (
+            !root.documentReady
+            || root.freePanEnabled
+        ) {
+            return
+        }
+
+        var target = root.singlePageDocument
+            ? singleViewport
+            : multiViewport
+        var bounds =
+            root.readingVerticalBounds()
+
+        target.contentY = root.clamp(
+            target.contentY,
+            bounds.minimum,
+            bounds.maximum
+        )
+    }
+
+    function readingScrollDelta(event) {
+        var pixelY = Number(
+            event.pixelDelta.y || 0
+        )
+
+        if (Math.abs(pixelY) > 0.01) {
+            return pixelY
+        }
+
+        return Number(
+            event.angleDelta.y || 0
+        ) / 2
+    }
+
+    function scrollReadingViewport(event) {
+        root.cancelCenterAnimations()
+
+        var target = root.singlePageDocument
+            ? singleViewport
+            : multiViewport
+        var bounds =
+            root.readingVerticalBounds()
+        var deltaY =
+            root.readingScrollDelta(event)
+
+        target.cancelFlick()
+        target.contentY = root.clamp(
+            target.contentY - deltaY,
+            bounds.minimum,
+            bounds.maximum
+        )
+
+        if (!root.singlePageDocument) {
+            root.updateMultiCurrentPage()
+        }
+
         viewportSaveTimer.restart()
+    }
+
+    function recenter() {
+        if (!root.documentReady) {
+            return
+        }
+
+        if (root.singlePageDocument) {
+            root.updateSingleCanvas(
+                root.singlePageWidth,
+                root.singlePageHeight
+            )
+
+            var singleTarget =
+                root.singleFocusPosition(
+                    0.5,
+                    0.5,
+                    singleViewport.width / 2,
+                    singleViewport.height / 2,
+                    root.singlePageWidth,
+                    root.singlePageHeight
+                )
+
+            root.singleInitialized = true
+            root.animateSinglePosition(
+                singleTarget.x,
+                singleTarget.y,
+                true,
+                true
+            )
+            return
+        }
+
+        if (document.pageCount <= 1) {
+            return
+        }
+
+        var anchor = root.multiAnchorAt(
+            multiViewport.width / 2,
+            multiViewport.height / 2
+        )
+        anchor.x = 0.5
+
+        var multiTarget =
+            root.multiAnchorPosition(
+                anchor,
+                multiViewport.width / 2,
+                multiViewport.height / 2
+            )
+
+        root.multiCurrentPage = anchor.page
+        root.multiInitialized = true
+        root.animateMultiPosition(
+            multiTarget.x,
+            true
+        )
     }
 
     function requestZoom(
@@ -1071,7 +1704,9 @@ Item {
                 root.singlePageHeight
             )
             root.placeSingleFocus(
-                root.pendingFocusX,
+                root.freePanEnabled
+                    ? root.pendingFocusX
+                    : 0.5,
                 root.pendingFocusY,
                 singleViewport.width / 2,
                 singleViewport.height / 2,
@@ -1102,7 +1737,9 @@ Item {
                         document.pageCount - 1
                     )
                 ),
-                x: root.pendingFocusX,
+                x: root.freePanEnabled
+                    ? root.pendingFocusX
+                    : 0.5,
                 y: root.pendingFocusY
             },
             multiViewport.width / 2,
@@ -1121,6 +1758,7 @@ Item {
             )
         root.adjustingMultiViewport = false
         root.multiInitialized = true
+        root.constrainReadingPosition()
         viewportSaveTimer.restart()
     }
 
@@ -1146,6 +1784,10 @@ Item {
             multiViewport.height / 2
         )
 
+        if (!root.freePanEnabled) {
+            anchor.x = 0.5
+        }
+
         root.beginMultiVisualTransition()
         root.adjustingMultiViewport = true
         root.rebuildMultiLayout(
@@ -1160,6 +1802,7 @@ Item {
             anchor.page
         root.adjustingMultiViewport = false
         root.multiInitialized = true
+        root.constrainReadingPosition()
         viewportSaveTimer.restart()
     }
 
@@ -1226,20 +1869,36 @@ Item {
         }
     }
 
+    onFreePanEnabledChanged: {
+        singleViewport.cancelFlick()
+        multiViewport.cancelFlick()
+
+        if (
+            root.documentReady
+            && !root.freePanEnabled
+        ) {
+            Qt.callLater(root.recenter)
+        }
+    }
+
     onSourceChanged: {
+        root.resetTransientState()
         root.documentSurfaceHasRendered =
             false
         root.singleInitialized = false
         root.singlePageHasRendered = false
-        root.singlePageRefining = false
         root.multiInitialized = false
-        root.multiVisualTransitionActive =
-            false
         root.multiCurrentPage = 0
         root.multiPageWidths = []
         root.multiPageHeights = []
         root.multiPageTops = []
         root.pendingPage = 0
+        root.pendingZoom =
+            root.clampedZoom(root.zoomFactor)
+        root.pendingFitToWidth =
+            root.fitToWidth
+        root.pendingFocusX = 0.5
+        root.pendingFocusY = 0.5
     }
 
     Component.onCompleted: {
@@ -1272,6 +1931,9 @@ Item {
                 root.zoomFactor
             )
     }
+
+    Component.onDestruction:
+        root.resetTransientState()
 
     PdfDocument {
         id: document
@@ -1348,8 +2010,15 @@ Item {
         anchors.fill: parent
         visible: root.singlePageDocument
         clip: true
+        interactive:
+            root.freePanEnabled
         acceptedButtons:
-            Qt.LeftButton | Qt.MiddleButton
+            root.freePanEnabled
+                ? Qt.LeftButton | Qt.MiddleButton
+                : Qt.NoButton
+        pixelAligned: false
+        maximumFlickVelocity: 5200
+        flickDeceleration: 1900
         contentWidth:
             root.singleCanvasWidth
         contentHeight:
@@ -1367,14 +2036,24 @@ Item {
             policy: ScrollBar.AlwaysOff
         }
 
-        onWidthChanged:
-            singleResizeTimer.restart()
-        onHeightChanged:
-            singleResizeTimer.restart()
+        onWidthChanged: {
+            if (!singleResizeTimer.running) {
+                singleResizeTimer.start()
+            }
+            singleResizeSettleTimer.restart()
+        }
+
+        onHeightChanged: {
+            if (!singleResizeTimer.running) {
+                singleResizeTimer.start()
+            }
+            singleResizeSettleTimer.restart()
+        }
 
         onContentXChanged: {
             if (
                 !root.adjustingSingleViewport
+                && !root.singleCenterAnimating
             ) {
                 viewportSaveTimer.restart()
             }
@@ -1383,13 +2062,33 @@ Item {
         onContentYChanged: {
             if (
                 !root.adjustingSingleViewport
+                && !root.singleCenterAnimating
             ) {
                 viewportSaveTimer.restart()
             }
         }
 
+        onMovementStarted:
+            root.cancelSingleCenterAnimation()
+
         onMovementEnded:
             root.emitViewportChanged()
+
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            gesturePolicy:
+                TapHandler.DragThreshold
+            onDoubleTapped:
+                root.recenter()
+        }
+
+        HoverHandler {
+            enabled: root.freePanEnabled
+            cursorShape:
+                singleViewport.dragging
+                    ? Qt.ClosedHandCursor
+                    : Qt.OpenHandCursor
+        }
 
         Item {
             width:
@@ -1511,8 +2210,15 @@ Item {
             root.documentReady
             && document.pageCount > 1
         clip: true
+        interactive:
+            root.freePanEnabled
         acceptedButtons:
-            Qt.LeftButton | Qt.MiddleButton
+            root.freePanEnabled
+                ? Qt.LeftButton | Qt.MiddleButton
+                : Qt.NoButton
+        pixelAligned: false
+        maximumFlickVelocity: 5200
+        flickDeceleration: 1900
         contentWidth:
             root.multiCanvasWidth
         contentHeight:
@@ -1546,17 +2252,26 @@ Item {
 
         onWidthChanged: {
             root.beginMultiVisualTransition()
-            multiResizeTimer.restart()
+
+            if (!multiResizeTimer.running) {
+                multiResizeTimer.start()
+            }
+            multiResizeSettleTimer.restart()
         }
 
         onHeightChanged: {
             root.beginMultiVisualTransition()
-            multiResizeTimer.restart()
+
+            if (!multiResizeTimer.running) {
+                multiResizeTimer.start()
+            }
+            multiResizeSettleTimer.restart()
         }
 
         onContentXChanged: {
             if (
                 !root.adjustingMultiViewport
+                && !root.multiCenterAnimating
             ) {
                 viewportSaveTimer.restart()
             }
@@ -1565,14 +2280,34 @@ Item {
         onContentYChanged: {
             if (
                 !root.adjustingMultiViewport
+                && !root.multiCenterAnimating
             ) {
                 root.updateMultiCurrentPage()
                 viewportSaveTimer.restart()
             }
         }
 
+        onMovementStarted:
+            root.cancelMultiCenterAnimation()
+
         onMovementEnded:
             root.emitViewportChanged()
+
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            gesturePolicy:
+                TapHandler.DragThreshold
+            onDoubleTapped:
+                root.recenter()
+        }
+
+        HoverHandler {
+            enabled: root.freePanEnabled
+            cursorShape:
+                multiViewport.dragging
+                    ? Qt.ClosedHandCursor
+                    : Qt.OpenHandCursor
+        }
 
         Item {
             id: multiCanvas
@@ -1681,6 +2416,22 @@ Item {
         z: 100
 
         WheelHandler {
+            enabled:
+                !root.freePanEnabled
+            acceptedDevices:
+                PointerDevice.Mouse
+                | PointerDevice.TouchPad
+            acceptedModifiers:
+                Qt.NoModifier
+            blocking: true
+
+            onWheel: function(event) {
+                root.scrollReadingViewport(event)
+                event.accepted = true
+            }
+        }
+
+        WheelHandler {
             acceptedDevices:
                 PointerDevice.Mouse
                 | PointerDevice.TouchPad
@@ -1742,9 +2493,63 @@ Item {
     }
 
     Timer {
+        id: singleCenterDelayTimer
+
+        interval: root.centerDelayInterval
+        repeat: false
+        onTriggered:
+            root.startSingleCenterAnimation()
+    }
+
+    Timer {
+        id: singleCenterAnimation
+
+        interval: root.centerFrameInterval
+        repeat: true
+        onTriggered:
+            root.stepSingleCenterAnimation()
+    }
+
+    Timer {
+        id: multiCenterDelayTimer
+
+        interval: root.centerDelayInterval
+        repeat: false
+        onTriggered:
+            root.startMultiCenterAnimation()
+    }
+
+    Timer {
+        id: multiCenterAnimation
+
+        interval: root.centerFrameInterval
+        repeat: true
+        onTriggered:
+            root.stepMultiCenterAnimation()
+    }
+
+    Timer {
+        id: singleResizeSettleTimer
+
+        interval: root.resizeSettleInterval
+        repeat: false
+        onTriggered:
+            root.settleSingleResizeCenter()
+    }
+
+    Timer {
+        id: multiResizeSettleTimer
+
+        interval: root.resizeSettleInterval
+        repeat: false
+        onTriggered:
+            root.settleMultiResizeCenter()
+    }
+
+    Timer {
         id: singleResizeTimer
 
-        interval: 16
+        interval: root.centerFrameInterval
         repeat: false
         onTriggered:
             root.preserveSingleAcrossResize()
@@ -1753,7 +2558,7 @@ Item {
     Timer {
         id: multiResizeTimer
 
-        interval: 16
+        interval: root.centerFrameInterval
         repeat: false
         onTriggered:
             root.preserveMultiAcrossResize()
@@ -1762,7 +2567,7 @@ Item {
     Timer {
         id: singlePageRefineTimer
 
-        interval: 70
+        interval: root.singleRefineInterval
         repeat: false
         onTriggered:
             root.singlePageRefining = false
@@ -1771,7 +2576,7 @@ Item {
     Timer {
         id: multiVisualTransitionTimer
 
-        interval: 115
+        interval: root.multiTransitionInterval
         repeat: false
         onTriggered:
             root.multiVisualTransitionActive =
@@ -1781,7 +2586,7 @@ Item {
     Timer {
         id: viewportSaveTimer
 
-        interval: 90
+        interval: root.viewportSaveInterval
         repeat: false
         onTriggered:
             root.emitViewportChanged()

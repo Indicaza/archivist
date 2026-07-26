@@ -39,6 +39,7 @@ private:
     void setState(const QString &state);
     void setErrorMessage(const QString &message);
     void setConverterLabel(const QString &label);
+    void cleanupJobDirectory();
     void fail(const QString &message);
 
     QProcess m_process;

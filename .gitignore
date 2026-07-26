@@ -14,11 +14,17 @@ backend/data/
 *.db-shm
 *.db-wal
 
-# .env files
+# Environment files
 .env
 .env.local
 .env.*.local
+
+# Patch and diff files
+*.patch
+*.diff
+*.rej
+*.orig
+
 # Local development handoff files
-/archivist-workbench-shell-v*.patch
 /*-context.tar.gz
 /chat-presentation-context.txt
