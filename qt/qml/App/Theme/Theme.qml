@@ -72,6 +72,7 @@ QtObject {
     readonly property int textComposerSize: typeControl
     readonly property int textBodySize: typeBody
     readonly property int textWorkbenchTitleSize: typeBody
+    readonly property int textTopbarBrandSize: typeTitle
     readonly property int textPanelTitleSize: typeTitle
     readonly property int textDisplaySize: typeDisplay
 
@@ -119,7 +120,8 @@ QtObject {
         return typeDisplay
     }
 
-    readonly property int topbarHeight: 52
+    readonly property int topbarHeight: 40
+    readonly property int topbarAvatarSize: 28
     readonly property int activityRailWidth: 44
     readonly property int statusBarHeight: 26
     readonly property int explorerHeaderHeight: 40
