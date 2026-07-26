@@ -9,7 +9,7 @@ var renderers = {
     "svg": renderer("svg", "SVG", "SvgRenderer", false, ["rendered", "source", "split"]),
     "structured-json": renderer("structured-json", "JSON", "StructuredDataRenderer", false, ["structured", "source", "split"]),
     "structured-yaml": renderer("structured-yaml", "YAML", "StructuredDataRenderer", false, ["structured", "source", "split"]),
-    "pdf": renderer("pdf", "PDF", "PdfRenderer", false, ["rendered"]),
+    "pdf": renderer("pdf", "Document", "PdfRenderer", true, ["rendered"]),
     "model-3d": renderer("model-3d", "3D Model", "ModelRenderer", false, ["rendered"]),
     "audio": renderer("audio", "Audio", "AudioRenderer", false, ["rendered"]),
     "video": renderer("video", "Video", "VideoRenderer", false, ["rendered"]),

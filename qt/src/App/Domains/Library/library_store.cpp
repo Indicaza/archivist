@@ -7,6 +7,7 @@
 #include <QMimeDatabase>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QSet>
 
 namespace
 {
@@ -72,6 +73,30 @@ bool usesDirectImageRenderer(const QVariantMap &file)
 
     return mimeType.startsWith(QStringLiteral("image/"))
         && mimeType != QStringLiteral("image/svg+xml");
+}
+
+bool usesDocumentRenderer(const QVariantMap &file)
+{
+    static const QSet<QString> extensions{
+        QStringLiteral("pdf"),
+        QStringLiteral("doc"),
+        QStringLiteral("docx"),
+        QStringLiteral("odt"),
+        QStringLiteral("rtf"),
+        QStringLiteral("xls"),
+        QStringLiteral("xlsx"),
+        QStringLiteral("ods"),
+        QStringLiteral("ppt"),
+        QStringLiteral("pptx"),
+        QStringLiteral("odp"),
+    };
+
+    QString extension = file.value(QStringLiteral("extension")).toString().toLower();
+    if (extension.startsWith(QLatin1Char('.'))) {
+        extension.remove(0, 1);
+    }
+
+    return extensions.contains(extension);
 }
 }
 
@@ -622,7 +647,7 @@ void LibraryStore::previewFile(const QString &fileId)
         return;
     }
 
-    if (usesDirectImageRenderer(file)) {
+    if (usesDirectImageRenderer(file) || usesDocumentRenderer(file)) {
         setLoadingFilePreview(false);
         return;
     }

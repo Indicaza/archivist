@@ -9,81 +9,424 @@ Item {
     property string libraryRootPath: ""
     property string relativePath: ""
     property real zoomFactor: 1.0
-    property bool fitToView: true
+    property bool fitToView: false
     property bool checkerboardVisible: true
+
+    property real renderZoom: 1.0
+    property real canvasWidth: 1
+    property real canvasHeight: 1
+    property real lastViewportWidth: 1
+    property real lastViewportHeight: 1
+    property bool imageInitialized: false
+    property bool adjustingViewport: false
+    property bool requestingZoom: false
     property real pinchStartZoom: 1.0
+    property real pinchAnchorX: 0
+    property real pinchAnchorY: 0
 
     readonly property real minimumZoom: 0.05
     readonly property real maximumZoom: 8.0
-    readonly property real viewportPadding: 48
     readonly property url sourceUrl: MarkdownDocumentBridge.resolveImageUrl(
         root.libraryRootPath,
         "",
         "/" + String(root.relativePath || "")
     )
     readonly property bool imageReady: image.status === Image.Ready
-    readonly property real naturalWidth: imageReady
+    readonly property real naturalWidth: root.imageReady
         ? Math.max(1, image.sourceSize.width)
         : 1
-    readonly property real naturalHeight: imageReady
+    readonly property real naturalHeight: root.imageReady
         ? Math.max(1, image.sourceSize.height)
         : 1
-    readonly property real availableImageWidth: Math.max(
-        1,
-        viewport.width - root.viewportPadding * 2
-    )
-    readonly property real availableImageHeight: Math.max(
-        1,
-        viewport.height - root.viewportPadding * 2
-    )
-    readonly property real fitScale: imageReady
+    readonly property real fitScale: root.imageReady
         ? Math.min(
             1.0,
-            root.availableImageWidth / root.naturalWidth,
-            root.availableImageHeight / root.naturalHeight
+            Math.max(1, viewport.width - 96) / root.naturalWidth,
+            Math.max(1, viewport.height - 96) / root.naturalHeight
         )
         : 1.0
-    readonly property real effectiveScale: (
-        root.fitToView ? root.fitScale : 1.0
-    ) * root.zoomFactor
-    readonly property int effectivePercent: Math.round(root.effectiveScale * 100)
+    readonly property real effectiveScale: root.fitToView
+        ? root.fitScale
+        : root.renderZoom
+    readonly property int effectivePercent: Math.round(
+        root.effectiveScale * 100
+    )
+    readonly property real renderedWidth: root.imageReady
+        ? Math.max(1, root.naturalWidth * root.effectiveScale)
+        : 1
+    readonly property real renderedHeight: root.imageReady
+        ? Math.max(1, root.naturalHeight * root.effectiveScale)
+        : 1
+    readonly property real panMarginX: Math.max(1, viewport.width)
+    readonly property real panMarginY: Math.max(1, viewport.height)
+    readonly property real maximumContentX: Math.max(
+        0,
+        root.canvasWidth - viewport.width
+    )
+    readonly property real maximumContentY: Math.max(
+        0,
+        root.canvasHeight - viewport.height
+    )
+    readonly property real viewportFocusX: root.imageReady
+        ? root.focusAt(
+            viewport.width / 2,
+            viewport.height / 2
+        ).x
+        : 0.5
+    readonly property real viewportFocusY: root.imageReady
+        ? root.focusAt(
+            viewport.width / 2,
+            viewport.height / 2
+        ).y
+        : 0.5
 
-    signal zoomFactorRequested(real value)
+    signal zoomFactorRequested(
+        real value,
+        real focusX,
+        real focusY
+    )
     signal fitRequested()
     signal actualSizeRequested()
+    signal viewportChanged(
+        real contentX,
+        real contentY,
+        real focusX,
+        real focusY
+    )
+
+    function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value))
+    }
 
     function clampedZoom(value) {
-        return Math.max(root.minimumZoom, Math.min(root.maximumZoom, value))
+        return root.clamp(
+            Number(value || 1.0),
+            root.minimumZoom,
+            root.maximumZoom
+        )
     }
 
-    function requestZoom(value) {
-        root.zoomFactorRequested(root.clampedZoom(value))
+    function pointInsideImage(viewportX, viewportY) {
+        if (!root.imageReady) {
+            return false
+        }
+
+        var pageLeft = imageFrame.x - viewport.contentX
+        var pageTop = imageFrame.y - viewport.contentY
+
+        return viewportX >= pageLeft
+            && viewportX <= pageLeft + root.renderedWidth
+            && viewportY >= pageTop
+            && viewportY <= pageTop + root.renderedHeight
     }
 
-    function centerContent() {
-        Qt.callLater(function() {
-            viewport.contentX = Math.max(
+    function focusAt(viewportX, viewportY) {
+        if (!root.imageReady) {
+            return Qt.point(0.5, 0.5)
+        }
+
+        return Qt.point(
+            root.clamp(
+                (
+                    viewport.contentX
+                    + viewportX
+                    - imageFrame.x
+                ) / Math.max(1, root.renderedWidth),
                 0,
-                (viewport.contentWidth - viewport.width) / 2
-            )
-            viewport.contentY = Math.max(
+                1
+            ),
+            root.clamp(
+                (
+                    viewport.contentY
+                    + viewportY
+                    - imageFrame.y
+                ) / Math.max(1, root.renderedHeight),
                 0,
-                (viewport.contentHeight - viewport.height) / 2
+                1
             )
-        })
+        )
     }
 
-    onSourceUrlChanged: centerContent()
-    onEffectiveScaleChanged: centerContent()
-    onWidthChanged: {
-        if (root.fitToView) {
-            centerContent()
+    function updateCanvas(pageWidth, pageHeight) {
+        root.canvasWidth = Math.max(
+            viewport.width,
+            root.panMarginX * 2 + pageWidth
+        )
+        root.canvasHeight = Math.max(
+            viewport.height,
+            root.panMarginY * 2 + pageHeight
+        )
+    }
+
+    function placeFocus(
+        focusX,
+        focusY,
+        anchorX,
+        anchorY,
+        pageWidth,
+        pageHeight
+    ) {
+        var targetX = root.panMarginX
+            + root.clamp(Number(focusX), 0, 1) * pageWidth
+            - anchorX
+        var targetY = root.panMarginY
+            + root.clamp(Number(focusY), 0, 1) * pageHeight
+            - anchorY
+
+        viewport.contentX = root.clamp(
+            targetX,
+            0,
+            root.maximumContentX
+        )
+        viewport.contentY = root.clamp(
+            targetY,
+            0,
+            root.maximumContentY
+        )
+    }
+
+    function centerImage() {
+        if (!root.imageReady) {
+            return
+        }
+
+        root.adjustingViewport = true
+        root.updateCanvas(
+            root.renderedWidth,
+            root.renderedHeight
+        )
+        root.placeFocus(
+            0.5,
+            0.5,
+            viewport.width / 2,
+            viewport.height / 2,
+            root.renderedWidth,
+            root.renderedHeight
+        )
+        root.adjustingViewport = false
+        root.imageInitialized = true
+        viewportSaveTimer.restart()
+    }
+
+    function applyZoom(
+        value,
+        anchorX,
+        anchorY,
+        usePointerAnchor,
+        notifyParent
+    ) {
+        if (!root.imageReady) {
+            root.renderZoom = root.clampedZoom(value)
+
+            if (notifyParent) {
+                root.zoomFactorRequested(
+                    root.renderZoom,
+                    0.5,
+                    0.5
+                )
+            }
+            return
+        }
+
+        var resolvedAnchorX = isFinite(Number(anchorX))
+            ? root.clamp(Number(anchorX), 0, viewport.width)
+            : viewport.width / 2
+        var resolvedAnchorY = isFinite(Number(anchorY))
+            ? root.clamp(Number(anchorY), 0, viewport.height)
+            : viewport.height / 2
+        var pointerIsUsable = Boolean(usePointerAnchor)
+            && root.pointInsideImage(
+                resolvedAnchorX,
+                resolvedAnchorY
+            )
+
+        if (!pointerIsUsable) {
+            resolvedAnchorX = viewport.width / 2
+            resolvedAnchorY = viewport.height / 2
+        }
+
+        var focus = root.focusAt(
+            resolvedAnchorX,
+            resolvedAnchorY
+        )
+        var nextZoom = root.clampedZoom(value)
+        var nextWidth = Math.max(
+            1,
+            root.naturalWidth * nextZoom
+        )
+        var nextHeight = Math.max(
+            1,
+            root.naturalHeight * nextZoom
+        )
+
+        root.adjustingViewport = true
+        root.renderZoom = nextZoom
+        root.updateCanvas(nextWidth, nextHeight)
+        root.placeFocus(
+            focus.x,
+            focus.y,
+            resolvedAnchorX,
+            resolvedAnchorY,
+            nextWidth,
+            nextHeight
+        )
+        root.adjustingViewport = false
+        root.imageInitialized = true
+
+        if (notifyParent) {
+            root.requestingZoom = true
+            root.zoomFactorRequested(
+                nextZoom,
+                focus.x,
+                focus.y
+            )
+            root.requestingZoom = false
+        }
+
+        viewportSaveTimer.restart()
+    }
+
+    function requestZoom(value, viewportX, viewportY) {
+        var usePointer = isFinite(Number(viewportX))
+            && isFinite(Number(viewportY))
+
+        root.applyZoom(
+            value,
+            viewportX,
+            viewportY,
+            usePointer,
+            true
+        )
+    }
+
+    function restoreViewport(
+        contentX,
+        contentY,
+        focusX,
+        focusY
+    ) {
+        if (!root.imageReady) {
+            return
+        }
+
+        root.adjustingViewport = true
+        root.renderZoom = root.clampedZoom(root.zoomFactor)
+        root.updateCanvas(
+            root.renderedWidth,
+            root.renderedHeight
+        )
+        root.placeFocus(
+            isFinite(Number(focusX)) ? Number(focusX) : 0.5,
+            isFinite(Number(focusY)) ? Number(focusY) : 0.5,
+            viewport.width / 2,
+            viewport.height / 2,
+            root.renderedWidth,
+            root.renderedHeight
+        )
+        root.adjustingViewport = false
+        root.imageInitialized = true
+        viewportSaveTimer.restart()
+    }
+
+    function preserveAcrossResize() {
+        if (!root.imageReady || !root.imageInitialized) {
+            root.lastViewportWidth = Math.max(1, viewport.width)
+            root.lastViewportHeight = Math.max(1, viewport.height)
+            return
+        }
+
+        var oldWidth = Math.max(1, root.lastViewportWidth)
+        var oldHeight = Math.max(1, root.lastViewportHeight)
+        var focusX = root.clamp(
+            (
+                viewport.contentX
+                + oldWidth / 2
+                - oldWidth
+            ) / Math.max(1, root.renderedWidth),
+            0,
+            1
+        )
+        var focusY = root.clamp(
+            (
+                viewport.contentY
+                + oldHeight / 2
+                - oldHeight
+            ) / Math.max(1, root.renderedHeight),
+            0,
+            1
+        )
+
+        root.lastViewportWidth = Math.max(1, viewport.width)
+        root.lastViewportHeight = Math.max(1, viewport.height)
+        root.adjustingViewport = true
+        root.updateCanvas(
+            root.renderedWidth,
+            root.renderedHeight
+        )
+        root.placeFocus(
+            focusX,
+            focusY,
+            viewport.width / 2,
+            viewport.height / 2,
+            root.renderedWidth,
+            root.renderedHeight
+        )
+        root.adjustingViewport = false
+        viewportSaveTimer.restart()
+    }
+
+    function emitViewportChanged() {
+        if (!root.imageReady || root.adjustingViewport) {
+            return
+        }
+
+        var focus = root.focusAt(
+            viewport.width / 2,
+            viewport.height / 2
+        )
+
+        root.viewportChanged(
+            viewport.contentX,
+            viewport.contentY,
+            focus.x,
+            focus.y
+        )
+    }
+
+    onZoomFactorChanged: {
+        if (
+            root.imageReady
+            && !root.fitToView
+            && !root.requestingZoom
+            && Math.abs(root.renderZoom - root.zoomFactor) > 0.0001
+        ) {
+            root.applyZoom(
+                root.zoomFactor,
+                viewport.width / 2,
+                viewport.height / 2,
+                false,
+                false
+            )
         }
     }
-    onHeightChanged: {
-        if (root.fitToView) {
-            centerContent()
+
+    onFitToViewChanged: {
+        if (root.imageReady) {
+            root.centerImage()
         }
+    }
+
+    onSourceUrlChanged: {
+        root.imageInitialized = false
+    }
+
+    onWidthChanged: root.preserveAcrossResize()
+    onHeightChanged: root.preserveAcrossResize()
+
+    Component.onCompleted: {
+        root.lastViewportWidth = Math.max(1, viewport.width)
+        root.lastViewportHeight = Math.max(1, viewport.height)
+        root.renderZoom = root.clampedZoom(root.zoomFactor)
     }
 
     Rectangle {
@@ -97,18 +440,33 @@ Item {
         anchors.fill: parent
         clip: true
         interactive: root.imageReady
+        acceptedButtons: Qt.NoButton
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.AutoFlickIfNeeded
-        contentWidth: Math.max(
-            width,
-            imageFrame.width + root.viewportPadding * 2
-        )
-        contentHeight: Math.max(
-            height,
-            imageFrame.height + root.viewportPadding * 2
-        )
-        ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        contentWidth: root.canvasWidth
+        contentHeight: root.canvasHeight
+
+        ScrollBar.horizontal: ScrollBar {
+            policy: ScrollBar.AlwaysOff
+        }
+
+        ScrollBar.vertical: ScrollBar {
+            policy: ScrollBar.AlwaysOff
+        }
+
+        onContentXChanged: {
+            if (!root.adjustingViewport) {
+                viewportSaveTimer.restart()
+            }
+        }
+
+        onContentYChanged: {
+            if (!root.adjustingViewport) {
+                viewportSaveTimer.restart()
+            }
+        }
+
+        onMovementEnded: root.emitViewportChanged()
 
         Item {
             id: canvas
@@ -117,8 +475,6 @@ Item {
             height: viewport.contentHeight
 
             Rectangle {
-                id: imageShadow
-
                 x: imageFrame.x + 7
                 y: imageFrame.y + 9
                 width: imageFrame.width
@@ -131,20 +487,10 @@ Item {
             Rectangle {
                 id: imageFrame
 
-                x: Math.max(
-                    root.viewportPadding,
-                    (canvas.width - width) / 2
-                )
-                y: Math.max(
-                    root.viewportPadding,
-                    (canvas.height - height) / 2
-                )
-                width: root.imageReady
-                    ? Math.max(1, root.naturalWidth * root.effectiveScale)
-                    : 0
-                height: root.imageReady
-                    ? Math.max(1, root.naturalHeight * root.effectiveScale)
-                    : 0
+                x: root.panMarginX
+                y: root.panMarginY
+                width: root.renderedWidth
+                height: root.renderedHeight
                 visible: root.imageReady
                 color: root.checkerboardVisible
                     ? "transparent"
@@ -175,10 +521,20 @@ Item {
                     mipmap: root.effectiveScale < 1.0
                     fillMode: Image.PreserveAspectFit
                     autoTransform: true
+
+                    onStatusChanged: {
+                        if (status === Image.Ready) {
+                            root.renderZoom = root.clampedZoom(
+                                root.zoomFactor
+                            )
+                            root.centerImage()
+                        }
+                    }
                 }
 
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
+
                     onDoubleTapped: {
                         if (root.fitToView) {
                             root.actualSizeRequested()
@@ -191,33 +547,56 @@ Item {
         }
     }
 
+    WheelHandler {
+        acceptedDevices:
+            PointerDevice.Mouse | PointerDevice.TouchPad
+        acceptedModifiers: Qt.ControlModifier
+        blocking: true
+
+        onWheel: function(event) {
+            var direction = event.angleDelta.y >= 0 ? 1 : -1
+            var step = root.effectiveScale < 0.5 ? 0.05 : 0.1
+
+            root.requestZoom(
+                root.effectiveScale + direction * step,
+                point.position.x,
+                point.position.y
+            )
+            event.accepted = true
+        }
+    }
+
     PinchHandler {
         target: null
-        acceptedDevices: PointerDevice.TouchPad | PointerDevice.TouchScreen
+        acceptedDevices:
+            PointerDevice.TouchPad | PointerDevice.TouchScreen
         scaleAxis.enabled: true
 
         onActiveChanged: {
             if (active) {
-                root.pinchStartZoom = root.zoomFactor
+                root.pinchStartZoom = root.effectiveScale
+                root.pinchAnchorX = centroid.position.x
+                root.pinchAnchorY = centroid.position.y
             }
         }
 
         onActiveScaleChanged: {
             if (active) {
-                root.requestZoom(root.pinchStartZoom * activeScale)
+                root.requestZoom(
+                    root.pinchStartZoom * activeScale,
+                    root.pinchAnchorX,
+                    root.pinchAnchorY
+                )
             }
         }
     }
 
-    WheelHandler {
-        acceptedModifiers: Qt.ControlModifier
+    Timer {
+        id: viewportSaveTimer
 
-        onWheel: function(event) {
-            var direction = event.angleDelta.y >= 0 ? 1 : -1
-            var step = root.zoomFactor < 0.5 ? 0.05 : 0.1
-            root.requestZoom(root.zoomFactor + direction * step)
-            event.accepted = true
-        }
+        interval: 80
+        repeat: false
+        onTriggered: root.emitViewportChanged()
     }
 
     Rectangle {

@@ -8,6 +8,7 @@
 #include "App/Domains/Chat/chat_store.h"
 #include "App/Domains/Collection/collection_store.h"
 #include "App/Domains/Files/markdown_document_bridge.h"
+#include "App/Domains/Files/document_preview_service.h"
 #include "App/Domains/Library/library_store.h"
 #include "App/Services/workspace_state_store.h"
 
@@ -28,6 +29,12 @@ int main(int argc, char *argv[])
     MarkdownDocumentBridge markdownDocumentBridge;
     ChatStore chatStore;
     WorkspaceStateStore workspaceState;
+    qmlRegisterType<DocumentPreviewService>(
+        "Archivist.Services",
+        1,
+        0,
+        "DocumentPreviewService"
+    );
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
     qmlRegisterSingletonInstance(
         "Archivist.Services",

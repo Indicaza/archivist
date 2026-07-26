@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Network Quick QuickControls2 QuickDialogs2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Network Pdf Quick QuickControls2 QuickDialogs2)
 
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
@@ -21,6 +21,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Collection/collection_store.h
     src/App/Domains/Files/markdown_document_bridge.cpp
     src/App/Domains/Files/markdown_document_bridge.h
+    src/App/Domains/Files/document_preview_service.cpp
+    src/App/Domains/Files/document_preview_service.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
     src/App/Services/workspace_state_store.cpp
@@ -38,6 +40,8 @@ qt_add_qml_module(archivist-qt
         qml/App/Files/Renderers/PlainTextRenderer.qml
         qml/App/Files/Renderers/MarkdownRenderer.qml
         qml/App/Files/Renderers/ImageRenderer.qml
+        qml/App/Files/Renderers/PdfRenderer.qml
+        qml/App/Files/Renderers/DocumentLoadingState.qml
         qml/App/Topbar/Topbar.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
@@ -77,6 +81,7 @@ qt_add_qml_module(archivist-qt
 target_link_libraries(archivist-qt
     PRIVATE
         Qt6::Network
+        Qt6::Pdf
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::QuickDialogs2
