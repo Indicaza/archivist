@@ -55,20 +55,49 @@ QtObject {
         ? "Menlo"
         : "monospace"
 
-    readonly property int typeFine: 10
+    readonly property int typeMicro: 10
     readonly property int typeCaption: 12
     readonly property int typeLabel: 13
-    readonly property int typeCode: 14
+    readonly property int typeControl: 14
     readonly property int typeBody: 16
-    readonly property int typeHeading: 21
+    readonly property int typeTitle: 21
     readonly property int typeDisplay: 34
-    readonly property real typeLineHeightCompact: 1.4
-    readonly property real typeLineHeightBody: 1.55
-    readonly property real typeLineHeightReading: 1.75
+
+    readonly property int textStatusSize: typeMicro
+    readonly property int textMetadataSize: typeMicro
+    readonly property int textCaptionSize: typeCaption
+    readonly property int textSidebarLabelSize: typeCaption
+    readonly property int textTabSize: typeLabel
+    readonly property int textControlSize: typeControl
+    readonly property int textComposerSize: typeControl
+    readonly property int textBodySize: typeBody
+    readonly property int textWorkbenchTitleSize: typeBody
+    readonly property int textPanelTitleSize: typeTitle
+    readonly property int textDisplaySize: typeDisplay
+
+    readonly property int textWeightRegular: Font.Normal
+    readonly property int textWeightEmphasis: Font.DemiBold
+    readonly property int textWeightStrong: Font.Bold
+
+    readonly property real textTrackingNormal: 0.0
+    readonly property real textTrackingLabel: 0.35
+    readonly property real textTrackingCaps: 0.55
+
+    readonly property real textLineHeightControl: 1.2
+    readonly property real textLineHeightCompact: 1.4
+    readonly property real textLineHeightBody: 1.55
+    readonly property real textLineHeightReading: 1.75
+
+    readonly property int typeFine: typeMicro
+    readonly property int typeCode: typeControl
+    readonly property int typeHeading: typeTitle
+    readonly property real typeLineHeightCompact: textLineHeightCompact
+    readonly property real typeLineHeightBody: textLineHeightBody
+    readonly property real typeLineHeightReading: textLineHeightReading
 
     function typeSize(referenceSize) {
         if (referenceSize <= 8) {
-            return typeFine
+            return typeMicro
         }
 
         if (referenceSize <= 10) {
@@ -84,7 +113,7 @@ QtObject {
         }
 
         if (referenceSize <= 22) {
-            return typeHeading
+            return typeTitle
         }
 
         return typeDisplay

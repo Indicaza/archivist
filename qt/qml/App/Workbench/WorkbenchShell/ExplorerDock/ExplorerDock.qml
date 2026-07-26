@@ -1892,53 +1892,6 @@ Rectangle {
                     }
                 }
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: root.theme.controlBarHeight
-                    color: root.theme.controlSurfaceBg
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        height: 1
-                        color: root.theme.quietBorder
-                    }
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 9
-                        anchors.rightMargin: 9
-                        spacing: 6
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.libraryFlowError.length > 0
-                                ? root.libraryFlowError
-                                : workspaceDragSession.active
-                                    ? workspaceDragSession.statusText
-                                    : root.selectedNodePath.length > 0
-                                        ? "Selected  ·  " + root.selectedNodePath
-                                        : LibraryStore.movingFile
-                                            ? "Moving file…"
-                                            : LibraryStore.creatingLibrary
-                                                ? "Adding Library…"
-                                            : LibraryStore.scanning
-                                            ? "Scanning Library…"
-                                        : LibraryStore.loadingFiles
-                                            ? "Loading file catalog…"
-                                            : LibraryStore.latestScan.status
-                                                ? "Catalog  ·  " + String(LibraryStore.latestScan.status)
-                                                : "Ready  ·  API connected"
-                            color: root.libraryFlowError.length > 0
-                                ? root.theme.danger
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            opacity: 0.72
-                            elide: Text.ElideRight
-                        }
-                    }
-                }
             }
         }
     }

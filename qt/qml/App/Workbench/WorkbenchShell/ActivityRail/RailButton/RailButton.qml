@@ -44,16 +44,6 @@ Button {
         border.width: root.active || root.hovered ? 1 : 0
         border.color: root.active ? "#5a4d8c" : root.theme.panelBorder
 
-        Rectangle {
-            anchors.left: parent.left
-            anchors.leftMargin: -4
-            anchors.verticalCenter: parent.verticalCenter
-            width: 2
-            height: 19
-            radius: 1
-            visible: root.active
-            color: root.theme.accent
-        }
     }
 
     Behavior on scale {

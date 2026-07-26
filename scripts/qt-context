@@ -53,6 +53,8 @@ paths=(
   "scripts/qt-build"
   "scripts/qt-configure"
   "scripts/qt-context"
+  "scripts/qt-typography-audit"
+  "scripts/typography-legacy-baseline.txt"
   "scripts/qt-dev"
   "scripts/qt-run"
   "scripts/qt-stop"

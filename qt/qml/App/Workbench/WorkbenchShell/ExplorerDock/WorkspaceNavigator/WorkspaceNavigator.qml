@@ -19,8 +19,8 @@ Item {
     property bool resizingWorktrees: false
     property real preferredChatHeight: 170
     property real preferredWorktreeHeight: 92
-    property real chatSectionHeight: chatsExpanded ? preferredChatHeight : 36
-    property real worktreeSectionHeight: worktreesExpanded ? preferredWorktreeHeight : 34
+    property real chatSectionHeight: chatsExpanded ? preferredChatHeight : 28
+    property real worktreeSectionHeight: worktreesExpanded ? preferredWorktreeHeight : 28
     property real chatDragStartY: 0
     property real chatDragStartHeight: 0
     property real worktreeDragStartY: 0
@@ -189,7 +189,7 @@ Item {
                                     : "Select Collection"
                         color: root.theme.appText
                         font.family: root.theme.titleFontFamily
-                        font.pixelSize: root.theme.typeSize(11)
+                        font.pixelSize: root.theme.typeSize(9)
                         font.weight: Font.DemiBold
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideMiddle
@@ -200,7 +200,7 @@ Item {
                         y: (parent.height - height) / 2
                         text: "⌄"
                         color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(12)
+                        font.pixelSize: root.theme.typeSize(10)
                     }
 
                     background: Rectangle {
@@ -255,7 +255,7 @@ Item {
                         required property var modelData
 
                         width: collectionSelector.width - 8
-                        height: 34
+                        height: 28
                         highlighted: collectionSelector.highlightedIndex === index
                         leftPadding: 9
                         rightPadding: 9
@@ -412,7 +412,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: root.worktreeSectionHeight
-            Layout.minimumHeight: 34
+            Layout.minimumHeight: 28
             color: root.theme.surfaceBg
             clip: true
 
@@ -426,9 +426,9 @@ Item {
                 padding: 0
                 onClicked: root.worktreesExpanded = !root.worktreesExpanded
                 contentItem: RowLayout {
-                    spacing: 7
+                    spacing: 5
                     Text {
-                        Layout.leftMargin: 10
+                        Layout.leftMargin: 8
                         text: root.worktreesExpanded ? "⌄" : "›"
                         color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
                         font.pixelSize: root.theme.typeSize(12)
@@ -442,15 +442,15 @@ Item {
                         Layout.fillWidth: true
                         text: "WORKTREES"
                         color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
+                        font.pixelSize: root.theme.typeSize(8)
                         font.weight: Font.Bold
-                        font.letterSpacing: 0.55
+                        font.letterSpacing: 0.5
                     }
                     Text {
-                        Layout.rightMargin: 9
+                        Layout.rightMargin: 7
                         text: "COMING NEXT"
                         color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(7)
+                        font.pixelSize: root.theme.typeSize(6)
                         font.weight: Font.Bold
                         font.letterSpacing: 0.4
                         opacity: 0.55
@@ -517,7 +517,7 @@ Item {
         ChatBand {
             Layout.fillWidth: true
             Layout.preferredHeight: root.chatSectionHeight
-            Layout.minimumHeight: 36
+            Layout.minimumHeight: 28
             theme: root.theme
             expanded: root.chatsExpanded
             clip: true

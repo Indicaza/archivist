@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../Files/FileIdentity.js" as FileIdentity
 import "AgentEditor"
 import "ChatAgentPicker"
 
@@ -41,10 +42,6 @@ Rectangle {
         Math.max(panelMinimumWidth, panelWidth)
     )
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "Select a Chat"
-    readonly property string selectedLibraryName: ChatStore.selectedChat.libraryName
-        || (ChatStore.selectedChatId.length > 0
-            ? "Standalone"
-            : LibraryStore.selectedLibrary.name || "No Library")
     readonly property var selectedAgent: agentForId(ChatStore.selectedChat.agentId)
     readonly property string selectedAgentName: selectedAgent && selectedAgent.name
         ? String(selectedAgent.name)
@@ -283,7 +280,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.theme.chatDockHeaderHeight
+            Layout.preferredHeight: 36
             color: root.theme.controlSurfaceBg
 
             Rectangle {
@@ -296,104 +293,424 @@ Rectangle {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 11
+                anchors.leftMargin: 9
                 anchors.rightMargin: 6
-                spacing: 8
+                spacing: 6
 
-                Column {
+                Text {
                     Layout.fillWidth: true
-                    spacing: 3
+                    Layout.minimumWidth: 90
+                    text: root.selectedChatTitle
+                    color: root.theme.appText
+                    font.family: root.theme.chatFontFamily
+                    font.pixelSize: root.theme.textWorkbenchTitleSize
+                    font.weight: root.theme.textWeightEmphasis
+                    font.letterSpacing: root.theme.textTrackingNormal
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
 
-                    Text {
-                        width: parent.width
-                        text: root.selectedChatTitle
-                        color: root.theme.appText
-                        font.pixelSize: root.theme.typeSize(14)
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                    }
+                ListView {
+                    id: attachmentList
 
-                    Row {
-                        spacing: 8
+                    visible: root.attachmentCount > 0
+                    Layout.preferredWidth: visible
+                        ? Math.min(260, contentWidth)
+                        : 0
+                    Layout.maximumWidth: 260
+                    Layout.preferredHeight: 28
+                    orientation: ListView.Horizontal
+                    spacing: 4
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: ChatStore.attachments
 
-                        Text {
-                            text: "▣  LIBRARY  " + root.selectedLibraryName
-                            color: root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.letterSpacing: 0.25
-                        }
+                    delegate: Item {
+                        id: sourceItem
+
+                        required property int index
+                        required property var modelData
+
+                        readonly property string sourceName: String(
+                            modelData.fileName
+                                || modelData.relativePath
+                                || "Library file"
+                        ).split("/").pop()
+                        readonly property string sourceRelativePath:
+                            String(
+                                modelData.relativePath
+                                    || modelData.fileName
+                                    || sourceName
+                            )
+                        readonly property string sourceLibrary:
+                            String(modelData.libraryName || "Library")
+                        readonly property string sourceGlyph:
+                            FileIdentity.glyphFor({
+                                fileName: sourceName,
+                                extension:
+                                    modelData.extension || ""
+                            })
+                        readonly property string sourceType:
+                            FileIdentity.displayLabelFor({
+                                fileName: sourceName,
+                                extension:
+                                    modelData.extension || ""
+                            })
+                        readonly property bool includedInLastResponse:
+                            root.sourceWasIncluded(modelData.id)
+
+                        width: 30
+                        height: 28
 
                         Rectangle {
-                            width: 1
-                            height: 10
-                            color: root.theme.quietBorder
-                        }
+                            id: sourceTile
 
-                        Rectangle {
-                            width: Math.min(
-                                220,
-                                activeAgentLabel.implicitWidth + 10
-                            )
-                            height: 18
-                            radius: 9
-                            color: Qt.rgba(
-                                0.44,
-                                0.36,
-                                0.75,
-                                0.08 + root.agentSwitchPulse * 0.34
-                            )
-                            scale: 1 + root.agentSwitchPulse * 0.055
+                            anchors.centerIn: parent
+                            width: 26
+                            height: 26
+                            radius: 6
+                            color:
+                                sourceItem.includedInLastResponse
+                                    ? root.theme.activeBg
+                                    : sourceHover.hovered
+                                        ? root.theme.hoverBg
+                                        : root.theme.surfaceBg
+                            border.width: 1
+                            border.color:
+                                sourceItem.includedInLastResponse
+                                    ? root.theme.accent
+                                    : sourceHover.hovered
+                                        ? root.theme.panelBorder
+                                        : root.theme.quietBorder
 
-                            Behavior on width {
-                                NumberAnimation {
-                                    duration: root.theme.motionPanel
-                                    easing.type: Easing.OutCubic
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration:
+                                        root.theme.motionFast
                                 }
                             }
 
                             Text {
-                                id: activeAgentLabel
-
                                 anchors.centerIn: parent
-                                width: parent.width - 10
-                                text: "♙  AGENT  " + root.selectedAgentName
-                                horizontalAlignment: Text.AlignHCenter
-                                color: root.agentSwitchPulse > 0.05
-                                    ? root.theme.accentBright
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                font.letterSpacing: 0.25
-                                elide: Text.ElideRight
+                                text: sourceItem.sourceGlyph
+                                color:
+                                    sourceItem.includedInLastResponse
+                                        ? root.theme.accentBright
+                                        : sourceHover.hovered
+                                            ? root.theme.appText
+                                            : root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.typeSize(10)
+                                font.weight: Font.DemiBold
                             }
                         }
 
-                        Rectangle {
-                            width: 1
-                            height: 10
-                            color: root.theme.quietBorder
+                        HoverHandler {
+                            id: sourceHover
                         }
 
-                        Text {
-                            text: "▤  SOURCES  " + String(root.attachmentCount)
-                            color: root.attachmentCount > 0
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.letterSpacing: 0.25
+                        Button {
+                            id: removeSourceButton
+
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            width: 14
+                            height: 14
+                            visible: sourceHover.hovered
+                            enabled: !ChatStore.responding
+                                && !ChatStore.mutating
+                                && !ChatStore.mutatingAttachment
+                            text: "×"
+                            hoverEnabled: true
+                            padding: 0
+                            z: 3
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Remove source"
+                            onClicked:
+                                ChatStore.removeAttachment(
+                                    String(
+                                        sourceItem.modelData.id
+                                    )
+                                )
+
+                            contentItem: Text {
+                                text: parent.text
+                                color:
+                                    parent.enabled
+                                    && parent.hovered
+                                        ? root.theme.appText
+                                        : root.theme.mutedText
+                                font.pixelSize:
+                                    root.theme.typeSize(9)
+                                font.weight: Font.Bold
+                                horizontalAlignment:
+                                    Text.AlignHCenter
+                                verticalAlignment:
+                                    Text.AlignVCenter
+                                opacity:
+                                    parent.enabled ? 1 : 0.45
+                            }
+
+                            background: Rectangle {
+                                radius: 7
+                                color: parent.hovered
+                                    ? root.theme.hoverBg
+                                    : root.theme.surfaceBg
+                                border.width: 1
+                                border.color:
+                                    root.theme.quietBorder
+                            }
+                        }
+
+                        ToolTip {
+                            id: sourceInfo
+
+                            visible: sourceHover.hovered
+                                && !removeSourceButton.hovered
+                            delay: 700
+                            timeout: 7000
+                            y: sourceItem.height + 7
+                            padding: 0
+
+                            enter: Transition {
+                                ParallelAnimation {
+                                    NumberAnimation {
+                                        property: "opacity"
+                                        from: 0
+                                        to: 1
+                                        duration:
+                                            root.theme.motionFast
+                                        easing.type:
+                                            Easing.OutCubic
+                                    }
+
+                                    NumberAnimation {
+                                        property: "scale"
+                                        from: 0.96
+                                        to: 1
+                                        duration:
+                                            root.theme.motionHover
+                                        easing.type:
+                                            Easing.OutBack
+                                    }
+                                }
+                            }
+
+                            exit: Transition {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 1
+                                    to: 0
+                                    duration:
+                                        root.theme.motionFast
+                                    easing.type:
+                                        Easing.InCubic
+                                }
+                            }
+
+                            contentItem: Item {
+                                implicitWidth: 310
+                                implicitHeight:
+                                    sourceInfoColumn.implicitHeight
+                                        + 26
+
+                                Column {
+                                    id: sourceInfoColumn
+
+                                    anchors.left:
+                                        parent.left
+                                    anchors.right:
+                                        parent.right
+                                    anchors.top:
+                                        parent.top
+                                    anchors.margins: 13
+                                    spacing: 9
+
+                                    Row {
+                                        spacing: 9
+
+                                        Rectangle {
+                                            width: 30
+                                            height: 30
+                                            radius: 9
+                                            color:
+                                                root.theme.accentSoft
+                                            border.width: 1
+                                            border.color:
+                                                root.theme.quietBorder
+
+                                            Text {
+                                                anchors.centerIn:
+                                                    parent
+                                                text:
+                                                    sourceItem.sourceGlyph
+                                                color:
+                                                    root.theme.accentBright
+                                                font.pixelSize:
+                                                    root.theme.typeSize(
+                                                        10
+                                                    )
+                                                font.weight:
+                                                    Font.DemiBold
+                                            }
+                                        }
+
+                                        Column {
+                                            width: 245
+                                            spacing: 3
+
+                                            Text {
+                                                width:
+                                                    parent.width
+                                                text:
+                                                    sourceItem.sourceName
+                                                color:
+                                                    root.theme.appText
+                                                font.pixelSize:
+                                                    root.theme.typeSize(
+                                                        12
+                                                    )
+                                                font.weight:
+                                                    Font.DemiBold
+                                                elide:
+                                                    Text.ElideRight
+                                            }
+
+                                            Text {
+                                                width:
+                                                    parent.width
+                                                text:
+                                                    sourceItem.sourceType
+                                                color:
+                                                    root.theme.accentBright
+                                                font.pixelSize:
+                                                    root.theme.typeSize(
+                                                        8
+                                                    )
+                                                font.weight:
+                                                    Font.Bold
+                                                font.letterSpacing:
+                                                    0.4
+                                                elide:
+                                                    Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: parent.width
+                                        implicitHeight:
+                                            sourcePathText.implicitHeight
+                                                + 16
+                                        radius: 7
+                                        color:
+                                            root.theme.controlSurfaceBg
+                                        border.width: 1
+                                        border.color:
+                                            root.theme.quietBorder
+
+                                        Text {
+                                            id: sourcePathText
+
+                                            anchors.left:
+                                                parent.left
+                                            anchors.right:
+                                                parent.right
+                                            anchors.top:
+                                                parent.top
+                                            anchors.margins: 8
+                                            text:
+                                                sourceItem.sourceRelativePath
+                                            color:
+                                                root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    9
+                                                )
+                                            wrapMode:
+                                                Text.WrapAnywhere
+                                            maximumLineCount: 3
+                                            elide:
+                                                Text.ElideRight
+                                        }
+                                    }
+
+                                    Row {
+                                        spacing: 7
+
+                                        Text {
+                                            text:
+                                                sourceItem.sourceLibrary
+                                            color:
+                                                root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    8
+                                                )
+                                            font.weight:
+                                                Font.DemiBold
+                                        }
+
+                                        Text {
+                                            text: "·"
+                                            color:
+                                                root.theme.quietBorder
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    8
+                                                )
+                                        }
+
+                                        Text {
+                                            text:
+                                                sourceItem.includedInLastResponse
+                                                    ? "Used in last response"
+                                                    : "Attached source"
+                                            color:
+                                                sourceItem.includedInLastResponse
+                                                    ? root.theme.accentBright
+                                                    : root.theme.mutedText
+                                            font.pixelSize:
+                                                root.theme.typeSize(
+                                                    8
+                                                )
+                                            font.weight:
+                                                Font.DemiBold
+                                        }
+                                    }
+                                }
+                            }
+
+                            background: Rectangle {
+                                color: root.theme.surfaceBg
+                                border.width: 1
+                                border.color:
+                                    root.theme.panelBorder
+                                radius: 12
+                            }
                         }
                     }
+                }
+
+                Text {
+                    visible: ChatStore.loadingAttachments
+                    text: "…"
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(10)
                 }
 
                 Button {
                     id: dockModeButton
 
-                    Layout.preferredWidth: 31
-                    Layout.preferredHeight: 31
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
                     text: root.attached ? "↙" : "↗"
                     hoverEnabled: true
                     padding: 0
                     ToolTip.visible: hovered
-                    ToolTip.text: root.attached ? "Center Chat Dock" : "Attach Chat Dock"
+                    ToolTip.text: root.attached
+                        ? "Center Chat Dock"
+                        : "Attach Chat Dock"
                     onClicked: root.dockModeToggleRequested()
                     onHoveredChanged: root.updateHoverIndex(
                         "header",
@@ -410,39 +727,50 @@ Rectangle {
                         enabled: !dockModeButton.down
 
                         NumberAnimation {
-                            duration: root.headerHoverIndex >= 0
-                                ? root.theme.motionHover
-                                : root.theme.motionHoverExit
+                            duration:
+                                root.headerHoverIndex >= 0
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
                             easing.type: Easing.OutCubic
                         }
                     }
 
                     contentItem: Text {
                         text: parent.text
-                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(15)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        color: parent.hovered
+                            ? root.theme.appText
+                            : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(14)
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
                     }
 
                     background: Rectangle {
-                        radius: 4
-                        color: parent.hovered ? root.theme.hoverBg : "transparent"
-                        border.width: 0
+                        radius: 5
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : "transparent"
                     }
                 }
 
                 Button {
                     id: agentsTabButton
 
-                    Layout.preferredWidth: 66
-                    Layout.preferredHeight: 31
-                    text: "♙  Agents"
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    text: "♙"
                     hoverEnabled: true
                     padding: 0
-                    onClicked: root.activePanel = root.activePanel === "agents"
-                        ? "none"
-                        : "agents"
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Agents"
+                    onClicked:
+                        root.activePanel =
+                            root.activePanel === "agents"
+                                ? "none"
+                                : "agents"
                     onHoveredChanged: root.updateHoverIndex(
                         "header",
                         1,
@@ -451,23 +779,30 @@ Rectangle {
 
                     contentItem: Text {
                         text: parent.text
-                        color: root.activePanel === "agents" || parent.hovered
-                            ? root.theme.appText
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(10)
+                        color:
+                            root.activePanel === "agents"
+                            || parent.hovered
+                                ? root.theme.appText
+                                : root.theme.mutedText
+                        font.pixelSize:
+                            root.theme.typeSize(13)
                         font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
                     }
 
                     background: Item {
                         Rectangle {
                             anchors.fill: parent
-                            color: root.activePanel === "agents"
-                                ? "#211f1c"
-                                : agentsTabButton.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
+                            radius: 5
+                            color:
+                                root.activePanel === "agents"
+                                    ? root.theme.activeBg
+                                    : agentsTabButton.hovered
+                                        ? root.theme.hoverBg
+                                        : "transparent"
                         }
 
                         Rectangle {
@@ -475,7 +810,8 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
                             height: 1
-                            visible: root.activePanel === "agents"
+                            visible:
+                                root.activePanel === "agents"
                             color: root.theme.appText
                             opacity: 0.52
                         }
@@ -491,9 +827,10 @@ Rectangle {
                         enabled: !agentsTabButton.down
 
                         NumberAnimation {
-                            duration: root.headerHoverIndex >= 0
-                                ? root.theme.motionHover
-                                : root.theme.motionHoverExit
+                            duration:
+                                root.headerHoverIndex >= 0
+                                    ? root.theme.motionHover
+                                    : root.theme.motionHoverExit
                             easing.type: Easing.OutCubic
                         }
                     }
@@ -528,151 +865,6 @@ Rectangle {
                     anchors.fill: parent
                     spacing: 0
 
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: ChatStore.selectedChatId.length > 0 ? 38 : 0
-                        visible: ChatStore.selectedChatId.length > 0
-                        color: root.theme.sidebarBg
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 1
-                            color: root.theme.quietBorder
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 8
-                            spacing: 8
-
-                            Text {
-                                text: "SOURCES  " + String(root.attachmentCount) + " ATTACHED"
-                                color: root.attachmentCount > 0
-                                    ? root.theme.accentBright
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(8)
-                                font.weight: Font.Bold
-                                font.letterSpacing: 0.55
-                                opacity: 0.82
-                            }
-
-                            Text {
-                                visible: !ChatStore.loadingAttachments
-                                    && root.attachmentCount === 0
-                                Layout.fillWidth: true
-                                text: "No files attached — preview a Library file to add one."
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                opacity: 0.66
-                                elide: Text.ElideRight
-                            }
-
-                            ListView {
-                                id: attachmentList
-
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 26
-                                visible: root.attachmentCount > 0
-                                orientation: ListView.Horizontal
-                                spacing: 6
-                                clip: true
-                                model: ChatStore.attachments
-
-                                delegate: Rectangle {
-                                    id: attachmentChip
-
-                                    required property var modelData
-
-                                    readonly property string sourcePath: String(
-                                        modelData.libraryName || "Library"
-                                    ) + " / " + String(
-                                        modelData.relativePath || modelData.fileName || "Library file"
-                                    )
-                                    readonly property bool includedInLastResponse: root.sourceWasIncluded(
-                                        modelData.id
-                                    )
-
-                                    width: Math.min(
-                                        190,
-                                        Math.max(90, attachmentLabel.implicitWidth + 30)
-                                    )
-                                    height: 24
-                                    color: root.theme.controlSurfaceBg
-                                    border.width: 1
-                                    border.color: attachmentChip.includedInLastResponse
-                                        ? root.theme.accentBright
-                                        : root.theme.quietBorder
-                                    radius: 4
-
-                                    Text {
-                                        id: attachmentLabel
-
-                                        anchors.left: parent.left
-                                        anchors.right: removeAttachmentButton.left
-                                        anchors.leftMargin: 8
-                                        anchors.rightMargin: 4
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: (attachmentChip.includedInLastResponse ? "✓  " : "▤  ")
-                                            + attachmentChip.sourcePath
-                                        color: root.theme.appText
-                                        font.pixelSize: root.theme.typeSize(9)
-                                        elide: Text.ElideMiddle
-                                    }
-
-                                    Button {
-                                        id: removeAttachmentButton
-
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 3
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 20
-                                        height: 20
-                                        text: "×"
-                                        enabled: !ChatStore.responding
-                                            && !ChatStore.mutating
-                                            && !ChatStore.mutatingAttachment
-                                        hoverEnabled: true
-                                        padding: 0
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: "Remove attached source"
-                                        onClicked: ChatStore.removeAttachment(
-                                            String(attachmentChip.modelData.id)
-                                        )
-
-                                        contentItem: Text {
-                                            text: parent.text
-                                            color: parent.enabled && parent.hovered
-                                                ? root.theme.appText
-                                                : root.theme.mutedText
-                                            font.pixelSize: root.theme.typeSize(11)
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            opacity: parent.enabled ? 1 : 0.45
-                                        }
-
-                                        background: Rectangle {
-                                            color: parent.enabled && parent.hovered
-                                                ? root.theme.hoverBg
-                                                : "transparent"
-                                            radius: 3
-                                        }
-                                    }
-                                }
-                            }
-
-                            Text {
-                                visible: ChatStore.loadingAttachments
-                                text: "Loading…"
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                opacity: 0.7
-                            }
-                        }
-                    }
-
                     TextArea {
                         id: composer
 
@@ -691,8 +883,10 @@ Rectangle {
                         color: root.theme.appText
                         selectionColor: root.theme.messageSelectionBg
                         selectedTextColor: root.theme.messageSelectionText
-                        font.family: root.theme.bodyFontFamily
-                        font.pixelSize: root.theme.typeSize(14)
+                        font.family: root.theme.chatFontFamily
+                        font.pixelSize: root.theme.textComposerSize
+                        font.weight: root.theme.textWeightRegular
+                        font.letterSpacing: root.theme.textTrackingNormal
                         wrapMode: TextEdit.Wrap
                         leftPadding: 15
                         rightPadding: 15

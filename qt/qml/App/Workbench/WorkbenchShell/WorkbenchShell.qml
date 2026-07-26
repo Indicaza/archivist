@@ -545,8 +545,18 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         theme: root.theme
-        explorerOpen: root.explorerOpen
-        dockAttached: root.effectiveDockAttached
+        filePreviewActive:
+            workspace.filePreviewStatusVisible
+        fileAccessLabel:
+            workspace.filePreviewAccessLabel
+        fileTypeLabel:
+            workspace.filePreviewTypeLabel
+        filePath:
+            workspace.filePreviewPath
+        fileMetrics:
+            workspace.filePreviewMetrics
+        fileAttached:
+            workspace.filePreviewAttached
         z: 50
     }
 }

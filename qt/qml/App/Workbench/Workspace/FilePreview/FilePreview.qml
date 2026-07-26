@@ -69,6 +69,107 @@ Rectangle {
     property bool restoringViewportState: false
     property int viewportRestorePass: 0
 
+    component PreviewControlButton: Button {
+        id: controlButton
+
+        required property var controlTheme
+        property bool activeControl: false
+        property string controlTooltip: ""
+        property bool compactLabel: false
+        property bool circular: false
+
+        width: 40
+        height: circular
+            ? 40
+            : compactLabel
+                ? 24
+                : 32
+        hoverEnabled: true
+        padding: 0
+        opacity: enabled ? 1.0 : 0.42
+        scale: down
+            ? controlTheme.pressedScale
+            : hovered
+                ? 1.06
+                : 1.0
+
+        ToolTip.visible: hovered
+        ToolTip.delay: 220
+        ToolTip.text: controlTooltip
+
+        Behavior on scale {
+            NumberAnimation {
+                duration: controlTheme.motionHover
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: controlTheme.motionFast
+            }
+        }
+
+        contentItem: Text {
+            text: parent.text
+            color: parent.activeControl
+                ? controlTheme.accentBright
+                : parent.hovered
+                    ? controlTheme.appText
+                    : controlTheme.mutedText
+            font.pixelSize: controlTheme.typeSize(
+                parent.compactLabel
+                    ? 8
+                    : String(parent.text).length > 3
+                        ? 8
+                        : 11
+            )
+            font.weight: parent.activeControl
+                ? Font.Bold
+                : Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        background: Rectangle {
+            radius: controlButton.circular
+                ? width / 2
+                : controlButton.compactLabel
+                    ? 6
+                    : 8
+            color: controlButton.activeControl
+                ? controlTheme.activeBg
+                : controlButton.hovered
+                    ? controlTheme.hoverBg
+                    : controlButton.circular
+                        ? controlTheme.controlSurfaceBg
+                        : "transparent"
+            border.width: controlButton.activeControl
+                ? 2
+                : controlButton.circular
+                    || controlButton.hovered
+                        ? 1
+                        : 0
+            border.color: controlButton.activeControl
+                ? controlTheme.accent
+                : controlButton.hovered
+                    ? controlTheme.quietBorder
+                    : controlTheme.panelBorder
+
+            Behavior on color {
+                ColorAnimation {
+                    duration: controlTheme.motionFast
+                }
+            }
+
+            Behavior on border.color {
+                ColorAnimation {
+                    duration: controlTheme.motionFast
+                }
+            }
+        }
+    }
+
     readonly property string viewportStateKey: (
         String(CollectionStore.selectedCollectionId || "").length > 0
         && String(LibraryStore.selectedLibraryId || "").length > 0
@@ -642,6 +743,22 @@ Rectangle {
             && !ChatStore.mutating
             && !ChatStore.mutatingAttachment
     )
+    readonly property string statusAccessLabel: "READ-ONLY"
+    readonly property string statusTypeLabel: String(
+        root.fileIdentity.displayLabel || "File"
+    )
+    readonly property string statusRendererLabel: String(
+        root.rendererSelection.displayLabel || ""
+    )
+    readonly property string statusPath: root.file && root.file.relativePath
+        ? String(root.file.relativePath)
+        : "Library file"
+    readonly property string statusMetrics: root.lineCount > 0
+        ? root.formattedSize(root.sizeBytes)
+            + "  ·  "
+            + String(root.lineCount)
+            + (root.lineCount === 1 ? " line" : " lines")
+        : root.formattedSize(root.sizeBytes)
 
     function attachmentIdForFile() {
         var attachments = ChatStore.attachments || []
@@ -699,534 +816,12 @@ Rectangle {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.left: parent.left
-        anchors.leftMargin: Math.max(18, root.leftObstruction + 18)
+        anchors.leftMargin: Math.max(8, root.leftObstruction + 8)
         anchors.right: parent.right
-        anchors.rightMargin: 18
-        anchors.topMargin: 14
-        anchors.bottomMargin: 14
-        spacing: 10
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 46
-            color: root.theme.controlSurfaceBg
-            border.width: 1
-            border.color: root.theme.quietBorder
-            radius: 5
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                spacing: 10
-
-                Text {
-                    text: "READ-ONLY"
-                    color: root.theme.accentBright
-                    font.pixelSize: root.theme.typeSize(9)
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.65
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: 1
-                    Layout.preferredHeight: 16
-                    color: root.theme.quietBorder
-                }
-
-                Text {
-                    text: root.fileIdentity.displayLabel.toUpperCase()
-                    color: root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(9)
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.45
-                }
-
-                Text {
-                    text: root.rendererSelection.displayLabel.toUpperCase()
-                    color: root.rendererSelection.usedFallback
-                        ? root.theme.mutedText
-                        : root.theme.accentBright
-                    font.pixelSize: root.theme.typeSize(9)
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.45
-                    opacity: root.rendererSelection.usedFallback ? 0.72 : 1
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: 1
-                    Layout.preferredHeight: 16
-                    color: root.theme.quietBorder
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.file && root.file.relativePath
-                        ? String(root.file.relativePath)
-                        : "Library file"
-                    color: root.theme.appText
-                    font.pixelSize: root.theme.typeSize(11)
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideMiddle
-                }
-
-                Text {
-                    visible: !root.displayLoading
-                        && root.displayErrorMessage.length === 0
-                    text: root.imageRenderingAvailable
-                        ? root.formattedSize(root.sizeBytes)
-                        : root.formattedSize(root.sizeBytes)
-                            + "  ·  "
-                            + String(root.lineCount)
-                            + (root.lineCount === 1 ? " line" : " lines")
-                    color: root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(9)
-                    opacity: 0.72
-                }
-
-
-                Button {
-                    id: attachmentButton
-
-                    Layout.preferredWidth: root.attachedToChat ? 92 : 108
-                    Layout.preferredHeight: 28
-                    visible: !root.loading && root.errorMessage.length === 0
-                    enabled: root.canAttach
-                    text: root.pendingAttachmentFileId.length > 0
-                        ? "Attaching…"
-                        : root.attachedToChat
-                            ? "✓  Attached"
-                            : "＋  Attach to Chat"
-                    hoverEnabled: true
-                    padding: 0
-                    ToolTip.visible: hovered
-                    ToolTip.text: ChatStore.selectedChatId.length === 0
-                        ? "Select a Chat before attaching this file"
-                        : root.attachedToChat
-                            ? "Remove this file from the selected Chat"
-                            : "Use this file as explicit evidence in the selected Chat"
-                    onClicked: {
-                        if (root.attachedToChat) {
-                            ChatStore.removeAttachment(root.attachmentId)
-                        } else {
-                            root.pendingAttachmentFileId = String(root.file.id)
-                            ChatStore.attachFile(
-                                LibraryStore.selectedLibraryId,
-                                root.pendingAttachmentFileId
-                            )
-                        }
-                    }
-                    scale: down
-                        ? root.theme.pressedScale
-                        : hovered
-                            ? root.theme.hoverScale
-                            : 1.0
-
-                    Behavior on scale {
-                        enabled: !attachmentButton.down
-
-                        NumberAnimation {
-                            duration: root.theme.motionHover
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.enabled
-                            ? root.attachedToChat
-                                ? root.theme.accentBright
-                                : root.theme.appText
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        opacity: parent.enabled ? 1 : 0.45
-                    }
-
-                    background: Rectangle {
-                        color: parent.enabled && parent.hovered
-                            ? root.theme.hoverBg
-                            : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: root.attachedToChat
-                            ? root.theme.accentBright
-                            : root.theme.quietBorder
-                        radius: 4
-                        opacity: parent.enabled ? 1 : 0.55
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.directRenderingAvailable ? 36 : 0
-            visible: root.directRenderingAvailable
-            color: "transparent"
-
-            RowLayout {
-                anchors.fill: parent
-                spacing: 6
-
-                Item { Layout.fillWidth: true }
-
-                Repeater {
-                    visible: root.markdownRenderingAvailable
-                    model: root.markdownRenderingAvailable ? [
-                        { id: "rendered", label: "Rendered" },
-                        { id: "source", label: "Source" },
-                        { id: "split", label: "Split" }
-                    ] : []
-
-                    Button {
-                        required property var modelData
-
-                        Layout.preferredWidth: modelData.id === "rendered" ? 84 : 66
-                        Layout.preferredHeight: 30
-                        text: modelData.label
-                        hoverEnabled: true
-                        padding: 0
-                        onClicked: root.viewMode = modelData.id
-
-                        contentItem: Text {
-                            text: parent.text
-                            color: root.viewMode === modelData.id
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(9)
-                            font.weight: root.viewMode === modelData.id
-                                ? Font.Bold
-                                : Font.DemiBold
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        background: Rectangle {
-                            color: root.viewMode === modelData.id
-                                ? root.theme.activeBg
-                                : parent.hovered
-                                    ? root.theme.hoverBg
-                                    : root.theme.controlSurfaceBg
-                            border.width: 1
-                            border.color: root.viewMode === modelData.id
-                                ? root.theme.accent
-                                : root.theme.quietBorder
-                            radius: 4
-                        }
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 68
-                    Layout.preferredHeight: 30
-                    visible: root.documentRenderingAvailable
-                    text: "Center"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: pdfRenderer.recenter()
-                    ToolTip.visible: hovered
-                    ToolTip.text:
-                        "Recenter the current document view"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: root.theme.mutedText
-                        font.pixelSize:
-                            root.theme.typeSize(9)
-                        font.weight: Font.Bold
-                        horizontalAlignment:
-                            Text.AlignHCenter
-                        verticalAlignment:
-                            Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: parent.hovered
-                            ? root.theme.hoverBg
-                            : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color:
-                            root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 60
-                    Layout.preferredHeight: 30
-                    visible: root.documentRenderingAvailable
-                    text: "Pan"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked:
-                        root.documentFreePanEnabled =
-                            !root.documentFreePanEnabled
-                    ToolTip.visible: hovered
-                    ToolTip.text:
-                        root.documentFreePanEnabled
-                            ? "Return to vertical reading mode"
-                            : "Enable two-dimensional free panning"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color:
-                            root.documentFreePanEnabled
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                        font.pixelSize:
-                            root.theme.typeSize(9)
-                        font.weight: Font.Bold
-                        horizontalAlignment:
-                            Text.AlignHCenter
-                        verticalAlignment:
-                            Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color:
-                            root.documentFreePanEnabled
-                                ? root.theme.activeBg
-                                : parent.hovered
-                                    ? root.theme.hoverBg
-                                    : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color:
-                            root.documentFreePanEnabled
-                                ? root.theme.accent
-                                : root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 54
-                    Layout.preferredHeight: 30
-                    visible: root.imageRenderingAvailable || root.documentRenderingAvailable
-                    text: "Fit"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: {
-                        if (root.documentRenderingAvailable) {
-                            if (root.documentFitToWidth) {
-                                pdfRenderer.fitWidth()
-                            } else {
-                                root.documentFitToWidth = true
-                            }
-                        } else {
-                            root.fitImage()
-                        }
-                    }
-                    ToolTip.visible: hovered
-                    ToolTip.text: root.documentRenderingAvailable
-                        ? "Fit document to width"
-                        : "Fit image to viewport"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: (root.documentRenderingAvailable && root.documentFitToWidth)
-                            || (root.imageRenderingAvailable && root.imageFitToView)
-                            ? root.theme.accentBright
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
-                        font.weight: Font.Bold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: (root.documentRenderingAvailable && root.documentFitToWidth)
-                            || (root.imageRenderingAvailable && root.imageFitToView)
-                            ? root.theme.activeBg
-                            : parent.hovered
-                                ? root.theme.hoverBg
-                                : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: (root.documentRenderingAvailable && root.documentFitToWidth)
-                            || (root.imageRenderingAvailable && root.imageFitToView)
-                            ? root.theme.accent
-                            : root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 54
-                    Layout.preferredHeight: 30
-                    visible: root.imageRenderingAvailable
-                    text: "1:1"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: root.showImageActualSize()
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Show actual pixel size"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: !root.imageFitToView && root.imageZoom === 1.0
-                            ? root.theme.accentBright
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
-                        font.weight: Font.Bold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: !root.imageFitToView && root.imageZoom === 1.0
-                            ? root.theme.activeBg
-                            : parent.hovered
-                                ? root.theme.hoverBg
-                                : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: !root.imageFitToView && root.imageZoom === 1.0
-                            ? root.theme.accent
-                            : root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 78
-                    Layout.preferredHeight: 30
-                    visible: root.imageRenderingAvailable
-                    text: "Grid"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: root.imageCheckerboardVisible = !root.imageCheckerboardVisible
-                    ToolTip.visible: hovered
-                    ToolTip.text: root.imageCheckerboardVisible
-                        ? "Hide transparency grid"
-                        : "Show transparency grid"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: root.imageCheckerboardVisible
-                            ? root.theme.accentBright
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
-                        font.weight: Font.Bold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: root.imageCheckerboardVisible
-                            ? root.theme.activeBg
-                            : parent.hovered
-                                ? root.theme.hoverBg
-                                : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: root.imageCheckerboardVisible
-                            ? root.theme.accent
-                            : root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Rectangle {
-                    Layout.preferredWidth: 1
-                    Layout.preferredHeight: 22
-                    visible: root.viewMode !== "source"
-                    color: root.theme.quietBorder
-                }
-
-                Button {
-                    Layout.preferredWidth: 30
-                    Layout.preferredHeight: 30
-                    visible: root.viewMode !== "source"
-                    text: "−"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: root.zoomActiveRendererOut()
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Zoom out"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: root.theme.appText
-                        font.pixelSize: root.theme.typeSize(12)
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: parent.hovered
-                            ? root.theme.hoverBg
-                            : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 56
-                    Layout.preferredHeight: 30
-                    visible: root.viewMode !== "source"
-                    text: root.documentRenderingAvailable
-                        ? String(pdfRenderer.effectivePercent) + "%"
-                        : root.imageRenderingAvailable
-                            ? String(imageRenderer.effectivePercent) + "%"
-                            : String(Math.round(root.markdownZoom * 100)) + "%"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: root.resetActiveRendererZoom()
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Reset zoom"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: parent.hovered
-                            ? root.theme.hoverBg
-                            : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 30
-                    Layout.preferredHeight: 30
-                    visible: root.viewMode !== "source"
-                    text: "+"
-                    hoverEnabled: true
-                    padding: 0
-                    onClicked: root.zoomActiveRendererIn()
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Zoom in"
-
-                    contentItem: Text {
-                        text: parent.text
-                        color: root.theme.appText
-                        font.pixelSize: root.theme.typeSize(11)
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        color: parent.hovered
-                            ? root.theme.hoverBg
-                            : root.theme.controlSurfaceBg
-                        border.width: 1
-                        border.color: root.theme.quietBorder
-                        radius: 4
-                    }
-                }
-            }
-        }
+        anchors.rightMargin: 8
+        anchors.topMargin: 6
+        anchors.bottomMargin: 6
+        spacing: 0
 
         Rectangle {
             Layout.fillWidth: true
@@ -1236,6 +831,334 @@ Rectangle {
             border.color: root.theme.quietBorder
             radius: 5
             clip: true
+
+            Item {
+                id: floatingRendererControls
+
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 10
+                anchors.rightMargin: 10
+                width: Math.max(
+                    zoomControlGroup.visible
+                        ? zoomControlGroup.width
+                        : 0,
+                    toolControlGroup.visible
+                        ? toolControlGroup.width
+                        : 0
+                )
+                height: zoomControlGroup.visible
+                    ? zoomControlGroup.height
+                        + (
+                            toolControlGroup.visible
+                                ? 10 + toolControlGroup.height
+                                : 0
+                        )
+                    : toolControlGroup.height
+                visible: root.directRenderingAvailable
+                z: 180
+
+                Rectangle {
+                    id: zoomControlShadow
+
+                    x: zoomControlGroup.x + 2
+                    y: zoomControlGroup.y + 3
+                    width: zoomControlGroup.width
+                    height: zoomControlGroup.height
+                    visible: zoomControlGroup.visible
+                    radius: zoomControlGroup.radius
+                    color: "#000000"
+                    opacity: 0.22
+                }
+
+                Rectangle {
+                    id: zoomControlGroup
+
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    width: 40
+                    height: zoomControlColumn.implicitHeight + 10
+                    visible: root.viewMode !== "source"
+                    radius: 11
+                    color: root.theme.controlSurfaceBg
+                    border.width: 1
+                    border.color: zoomControlsHover.hovered
+                        ? root.theme.quietBorder
+                        : root.theme.panelBorder
+                    opacity: zoomControlsHover.hovered ? 0.99 : 0.88
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: root.theme.motionFast
+                        }
+                    }
+
+                    HoverHandler {
+                        id: zoomControlsHover
+                    }
+
+                    Column {
+                        id: zoomControlColumn
+
+                        anchors.top: parent.top
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.topMargin: 5
+                        spacing: 3
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            text: "+"
+                            controlTooltip: "Zoom in"
+                            onClicked:
+                                root.zoomActiveRendererIn()
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            compactLabel: true
+                            text:
+                                root.documentRenderingAvailable
+                                    ? String(
+                                        pdfRenderer.effectivePercent
+                                    ) + "%"
+                                    : root.imageRenderingAvailable
+                                        ? String(
+                                            imageRenderer.effectivePercent
+                                        ) + "%"
+                                        : String(
+                                            Math.round(
+                                                root.markdownZoom * 100
+                                            )
+                                        ) + "%"
+                            controlTooltip:
+                                "Reset zoom"
+                            onClicked:
+                                root.resetActiveRendererZoom()
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            text: "−"
+                            controlTooltip: "Zoom out"
+                            onClicked:
+                                root.zoomActiveRendererOut()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: toolControlGroup
+
+                    anchors.top:
+                        zoomControlGroup.visible
+                            ? zoomControlGroup.bottom
+                            : parent.top
+                    anchors.topMargin:
+                        zoomControlGroup.visible ? 10 : 0
+                    anchors.right: parent.right
+                    width: 40
+                    height: toolControlColumn.implicitHeight
+                    visible: root.directRenderingAvailable
+                    color: "transparent"
+                    border.width: 0
+
+                    HoverHandler {
+                        id: toolControlsHover
+                    }
+
+                    Column {
+                        id: toolControlColumn
+
+                        anchors.top: parent.top
+                        anchors.horizontalCenter:
+                            parent.horizontalCenter
+                        spacing: 7
+
+                        Repeater {
+                            model:
+                                root.markdownRenderingAvailable
+                                    ? [
+                                        {
+                                            id: "rendered",
+                                            label: "▤",
+                                            tooltip:
+                                                "Rendered preview"
+                                        },
+                                        {
+                                            id: "source",
+                                            label: "<>",
+                                            tooltip:
+                                                "Source view"
+                                        },
+                                        {
+                                            id: "split",
+                                            label: "◫",
+                                            tooltip:
+                                                "Split source and preview"
+                                        }
+                                    ]
+                                    : []
+
+                            PreviewControlButton {
+                                required property var modelData
+
+                                controlTheme: root.theme
+                                circular: true
+                                text: modelData.label
+                                activeControl:
+                                    root.viewMode
+                                        === modelData.id
+                                controlTooltip:
+                                    modelData.tooltip
+                                onClicked:
+                                    root.viewMode =
+                                        modelData.id
+                            }
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            circular: true
+                            visible:
+                                root.imageRenderingAvailable
+                                || root.documentRenderingAvailable
+                            text: "↔"
+                            activeControl:
+                                (
+                                    root.documentRenderingAvailable
+                                    && root.documentFitToWidth
+                                )
+                                || (
+                                    root.imageRenderingAvailable
+                                    && root.imageFitToView
+                                )
+                            controlTooltip:
+                                root.documentRenderingAvailable
+                                    ? "Fit document to width"
+                                    : "Fit image to viewport"
+                            onClicked: {
+                                if (
+                                    root.documentRenderingAvailable
+                                ) {
+                                    if (
+                                        root.documentFitToWidth
+                                    ) {
+                                        pdfRenderer.fitWidth()
+                                    } else {
+                                        root.documentFitToWidth =
+                                            true
+                                    }
+                                } else {
+                                    root.fitImage()
+                                }
+                            }
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            circular: true
+                            visible:
+                                root.documentRenderingAvailable
+                            text: "◎"
+                            controlTooltip:
+                                "Center document"
+                            onClicked:
+                                pdfRenderer.recenter()
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            circular: true
+                            visible:
+                                root.documentRenderingAvailable
+                            text: "✣"
+                            activeControl:
+                                root.documentFreePanEnabled
+                            controlTooltip:
+                                root.documentFreePanEnabled
+                                    ? "Return to reading mode"
+                                    : "Enable free panning"
+                            onClicked:
+                                root.documentFreePanEnabled =
+                                    !root.documentFreePanEnabled
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            circular: true
+                            visible:
+                                root.imageRenderingAvailable
+                            compactLabel: true
+                            text: "1:1"
+                            activeControl:
+                                !root.imageFitToView
+                                && root.imageZoom === 1.0
+                            controlTooltip:
+                                "Show actual pixel size"
+                            onClicked:
+                                root.showImageActualSize()
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            circular: true
+                            visible:
+                                root.imageRenderingAvailable
+                            text: "▦"
+                            activeControl:
+                                root.imageCheckerboardVisible
+                            controlTooltip:
+                                root.imageCheckerboardVisible
+                                    ? "Hide transparency grid"
+                                    : "Show transparency grid"
+                            onClicked:
+                                root.imageCheckerboardVisible =
+                                    !root.imageCheckerboardVisible
+                        }
+
+                        PreviewControlButton {
+                            controlTheme: root.theme
+                            circular: true
+                            visible:
+                                Boolean(
+                                    root.file
+                                    && root.file.id
+                                )
+                                && !root.displayLoading
+                                && root.displayErrorMessage.length === 0
+                            enabled: root.canAttach
+                            text:
+                                root.pendingAttachmentFileId.length > 0
+                                    ? "…"
+                                    : root.attachedToChat
+                                        ? "✓"
+                                        : "+"
+                            activeControl:
+                                root.attachedToChat
+                            controlTooltip:
+                                ChatStore.selectedChatId.length === 0
+                                    ? "Select a Chat before attaching this file"
+                                    : root.attachedToChat
+                                        ? "Remove this file from the selected Chat"
+                                        : "Attach this file to the selected Chat"
+                            onClicked: {
+                                if (root.attachedToChat) {
+                                    ChatStore.removeAttachment(
+                                        root.attachmentId
+                                    )
+                                } else {
+                                    root.pendingAttachmentFileId =
+                                        String(root.file.id)
+                                    ChatStore.attachFile(
+                                        LibraryStore.selectedLibraryId,
+                                        root.pendingAttachmentFileId
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             PlainTextRenderer {
                 id: sourceRenderer
@@ -1495,4 +1418,5 @@ Rectangle {
             }
         }
     }
+
 }
