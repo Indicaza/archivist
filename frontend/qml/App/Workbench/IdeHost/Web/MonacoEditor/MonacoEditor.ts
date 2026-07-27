@@ -12,6 +12,9 @@ import {
   ensureLanguage,
   normalizeLanguageId,
 } from "./LanguageRegistry.js";
+import {
+  LanguageSupportClient,
+} from "./LanguageSupport/LanguageSupportClient.js";
 import type {
   ArchivistDocument,
   ArchivistEditorCommand,
@@ -121,7 +124,21 @@ function persistViewState(
   }
 }
 
+function normalizedLocalPath(value: string): string {
+  return String(value || "")
+    .trim()
+    .replace(/\\/g, "/");
+}
+
 function documentUri(document: ArchivistDocument): monaco.Uri {
+  const filePath = normalizedLocalPath(
+    document.filePath,
+  );
+
+  if (filePath) {
+    return monaco.Uri.file(filePath);
+  }
+
   const identity = encodeURIComponent(
     document.id || document.path || "untitled",
   );
@@ -144,6 +161,8 @@ export class MonacoEditor {
 
   private readonly editor:
     monaco.editor.IStandaloneCodeEditor;
+
+  private readonly languageSupport: LanguageSupportClient;
 
   private readonly viewStates = new Map<
     string,
@@ -176,6 +195,10 @@ export class MonacoEditor {
     private readonly callbacks: MonacoEditorCallbacks,
   ) {
     this.element = element;
+    this.languageSupport = new LanguageSupportClient(
+      monaco,
+      callbacks,
+    );
     this.editor = monaco.editor.create(element, {
       model: null,
       automaticLayout: true,
@@ -341,6 +364,11 @@ export class MonacoEditor {
     this.applyLanguage(
       model,
       modelKey,
+      requestedLanguage,
+    );
+    this.languageSupport.openDocument(
+      document,
+      model,
       requestedLanguage,
     );
     this.editor.layout();

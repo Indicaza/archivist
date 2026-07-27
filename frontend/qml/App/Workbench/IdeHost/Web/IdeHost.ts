@@ -50,7 +50,10 @@ const fallbackTheme: ArchivistTheme = {
 
 const emptyDocument: ArchivistDocument = {
   id: "",
+  libraryId: "",
   path: "",
+  filePath: "",
+  workspaceRoot: "",
   language: "plaintext",
   content: "",
   modifiedAt: "",
@@ -109,7 +112,12 @@ function parseDocument(
 
     return {
       id: String(document.id || ""),
+      libraryId: String(document.libraryId || ""),
       path: String(document.path || ""),
+      filePath: String(document.filePath || ""),
+      workspaceRoot: String(
+        document.workspaceRoot || "",
+      ),
       language: String(
         document.language || "plaintext",
       ),
