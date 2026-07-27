@@ -10,6 +10,7 @@ Rectangle {
 
     required property var theme
     required property bool active
+    required property bool markdownDocument
     required property var file
     required property var preview
     required property bool loading
@@ -18,6 +19,11 @@ Rectangle {
     property bool initialDocumentLoaded: false
 
     signal dirtyStateReported(string documentId, bool dirty)
+    signal saveFailed(
+        string documentId,
+        string message
+    )
+    signal markdownPreviewRequested()
 
     readonly property string content:
         preview && preview.content
@@ -74,11 +80,20 @@ Rectangle {
                 ? String(file.modifiedAt)
                 : ""
 
-    readonly property bool previewMatchesDocument:
+    readonly property bool previewMatchesDocument: Boolean(
         preview
         && preview.file
         && String(preview.file.id || "")
             === String(file && file.id ? file.id : "")
+    )
+
+    function saveDocument(documentId) {
+        ideHost.saveDocument(documentId)
+    }
+
+    function discardDocument(documentId) {
+        ideHost.discardDocument(documentId)
+    }
 
     readonly property bool blockingInitialLoad:
         root.active
@@ -105,10 +120,98 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        id: markdownToolbar
+
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: root.markdownDocument ? 30 : 0
+        visible: root.markdownDocument
+        color: root.theme.workspaceBg
+        z: 12
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: root.theme.quietBorder
+        }
+
+        Row {
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 8
+
+            Text {
+                text: "MARKDOWN EDIT"
+                color: root.theme.mutedText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize:
+                    root.theme.textMetadataSize
+                font.weight:
+                    root.theme.textWeightStrong
+                font.letterSpacing:
+                    root.theme.textTrackingLabel
+            }
+        }
+
+        Button {
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            width: 72
+            height: 24
+            text: "PREVIEW"
+            hoverEnabled: true
+            padding: 0
+            ToolTip.visible: hovered
+            ToolTip.text: "Open rendered Markdown"
+            onClicked:
+                root.markdownPreviewRequested()
+
+            contentItem: Text {
+                text: parent.text
+                color: parent.hovered
+                    ? root.theme.appText
+                    : root.theme.mutedText
+                font.family:
+                    root.theme.bodyFontFamily
+                font.pixelSize:
+                    root.theme.textMetadataSize
+                font.weight:
+                    root.theme.textWeightStrong
+                horizontalAlignment:
+                    Text.AlignHCenter
+                verticalAlignment:
+                    Text.AlignVCenter
+            }
+
+            background: Rectangle {
+                radius: 3
+                color: parent.hovered
+                    ? root.theme.hoverBg
+                    : "transparent"
+                border.width: 1
+                border.color: parent.hovered
+                    ? root.theme.panelBorder
+                    : root.theme.quietBorder
+            }
+        }
+    }
+
     IdeHost {
         id: ideHost
 
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.top:
+            markdownToolbar.visible
+                ? markdownToolbar.bottom
+                : parent.top
         visible:
             root.active
             && (
@@ -179,9 +282,15 @@ Rectangle {
             fileId,
             message
         ) {
-            ideHost.failSave(
-                root.documentIdFor(libraryId, fileId),
-                message
+            var documentId = root.documentIdFor(
+                libraryId,
+                fileId
+            )
+
+            ideHost.failSave(documentId, message)
+            root.saveFailed(
+                documentId,
+                String(message || "")
             )
         }
     }

@@ -2,6 +2,7 @@ import "./IdeHost.css";
 import type {
   ArchivistBridge,
   ArchivistDocument,
+  ArchivistEditorCommand,
   ArchivistSaveResult,
   ArchivistTerminalCommand,
   ArchivistTerminalContext,
@@ -10,6 +11,7 @@ import type {
 } from "./IdeHost.types.js";
 
 interface EditorSurface {
+  applyCommand(command: ArchivistEditorCommand): void;
   applySaveResult(result: ArchivistSaveResult): void;
   applyTheme(theme: ArchivistTheme): void;
   layout(): void;
@@ -117,6 +119,46 @@ function parseDocument(
     };
   } catch {
     return emptyDocument;
+  }
+}
+
+function parseEditorCommand(
+  commandJson: string,
+): ArchivistEditorCommand | null {
+  if (!commandJson) {
+    return null;
+  }
+
+  try {
+    const command = JSON.parse(
+      commandJson,
+    ) as Partial<ArchivistEditorCommand>;
+    const documentId = String(
+      command.documentId || "",
+    );
+
+    if (!documentId) {
+      return null;
+    }
+
+    switch (command.type) {
+      case "save":
+        return {
+          type: "save",
+          documentId,
+          nonce: String(command.nonce || ""),
+        };
+      case "discard":
+        return {
+          type: "discard",
+          documentId,
+          nonce: String(command.nonce || ""),
+        };
+      default:
+        return null;
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -269,6 +311,20 @@ class IdeHost {
 
     this.bridge.documentJsonChanged.connect(() => {
       this.syncEditorDocument();
+    });
+
+    this.bridge.editorCommandJsonChanged.connect(() => {
+      if (!this.bridge || !this.editor) {
+        return;
+      }
+
+      const command = parseEditorCommand(
+        this.bridge.editorCommandJson,
+      );
+
+      if (command) {
+        this.editor.applyCommand(command);
+      }
     });
 
     this.bridge.terminalJsonChanged.connect(() => {

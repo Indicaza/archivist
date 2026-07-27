@@ -91,6 +91,7 @@ Item {
         property string themeJson: root.themePayload
         property string surface: root.activeSurface
         property string documentJson: root.documentPayload
+        property string editorCommandJson: ""
         property string terminalJson: root.terminalPayload
         property string terminalCommandJson: ""
         property string saveResultJson: ""
@@ -139,6 +140,28 @@ Item {
                 String(expectedModifiedAt || "")
             )
         }
+    }
+
+    function sendEditorCommand(command) {
+        var payload = command || ({})
+        payload.nonce = Date.now().toString()
+            + "-"
+            + Math.random().toString()
+        bridge.editorCommandJson = JSON.stringify(payload)
+    }
+
+    function saveDocument(documentId) {
+        sendEditorCommand({
+            type: "save",
+            documentId: String(documentId || "")
+        })
+    }
+
+    function discardDocument(documentId) {
+        sendEditorCommand({
+            type: "discard",
+            documentId: String(documentId || "")
+        })
     }
 
     function killTerminal(sessionId) {

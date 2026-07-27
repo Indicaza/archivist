@@ -9,24 +9,12 @@ import {
   loadTerminalSessionSnapshot,
   saveTerminalSessionSnapshot,
 } from "./TerminalSessionSnapshotStore.js";
+import {
+  deleteTerminalShellState,
+  prepareTerminalShell,
+} from "./TerminalShellProfile.js";
 
 const maximumScrollbackCharacters = 1_500_000;
-
-function terminalEnvironment(): Record<string, string> {
-  const environment: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === "string") {
-      environment[key] = value;
-    }
-  }
-
-  environment.TERM = "xterm-256color";
-  environment.COLORTERM = "truecolor";
-  environment.ARCHIVIST_TERMINAL = "1";
-
-  return environment;
-}
 
 function sendMessage(
   socket: WebSocket,
@@ -73,16 +61,17 @@ export class TerminalSession {
       this.scrollback = snapshot.scrollback;
     }
 
-    const shellArguments = process.platform === "win32"
-      ? []
-      : ["-l"];
+    const preparedShell = prepareTerminalShell(
+      context,
+      shell,
+    );
 
-    this.process = pty.spawn(shell, shellArguments, {
+    this.process = pty.spawn(shell, preparedShell.args, {
       name: "xterm-256color",
       cols: context.cols,
       rows: context.rows,
       cwd,
-      env: terminalEnvironment(),
+      env: preparedShell.env,
     });
 
     this.process.onData((data) => {
@@ -90,6 +79,7 @@ export class TerminalSession {
       this.scheduleSnapshotSave();
       this.broadcast({
         type: "output",
+        sessionId: this.sessionId,
         data,
       });
     });
@@ -106,8 +96,9 @@ export class TerminalSession {
 
       this.broadcast({
         type: "exit",
+        sessionId: this.sessionId,
         exitCode,
-        signal,
+        signal: signal ?? 0,
       });
 
       for (const socket of this.sockets) {
@@ -127,6 +118,7 @@ export class TerminalSession {
     if (this.exited) {
       sendMessage(socket, {
         type: "error",
+        sessionId: this.sessionId,
         message: "This terminal process has exited.",
       });
       socket.close(1011, "Terminal process exited.");
@@ -144,6 +136,7 @@ export class TerminalSession {
     if (this.scrollback.length > 0) {
       sendMessage(socket, {
         type: "output",
+        sessionId: this.sessionId,
         data: this.scrollback,
       });
     }
@@ -170,6 +163,7 @@ export class TerminalSession {
       this.removeSnapshotOnExit = true;
       this.clearSnapshotTimer();
       deleteTerminalSessionSnapshot(this);
+      deleteTerminalShellState(this);
       this.process.kill();
     }
   }
@@ -190,7 +184,7 @@ export class TerminalSession {
 
   private persistSnapshot(): void {
     saveTerminalSessionSnapshot({
-      version: 1,
+      version: 2,
       sessionId: this.sessionId,
       collectionId: this.collectionId,
       libraryId: this.libraryId,

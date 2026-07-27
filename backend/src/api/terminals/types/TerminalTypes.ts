@@ -33,15 +33,18 @@ export type TerminalServerMessage =
     }
   | {
       type: "output";
+      sessionId: string;
       data: string;
     }
   | {
       type: "exit";
+      sessionId: string;
       exitCode: number;
       signal: number;
     }
   | {
       type: "error";
+      sessionId: string;
       message: string;
     }
   | {

@@ -9,11 +9,101 @@ Rectangle {
     id: root
 
     required property var theme
+    required property string collectionId
     property bool attached: true
     property string activeView: "chat"
+    property string stateScopeId: ""
+    property bool stateRestored: false
 
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
+
+    function stateKey(scopeId) {
+        return "workspace/collections/"
+            + String(scopeId || "")
+            + "/workbench/activeView"
+    }
+
+    function validView(value) {
+        var candidate = String(value || "")
+
+        return candidate === "chat"
+            || candidate === "terminal"
+            || candidate === "problems"
+    }
+
+    function persistActiveView(syncNow) {
+        if (
+            !stateRestored
+            || stateScopeId.length === 0
+        ) {
+            return
+        }
+
+        WorkspaceState.setValue(
+            stateKey(stateScopeId),
+            activeView
+        )
+
+        if (Boolean(syncNow)) {
+            WorkspaceState.sync()
+        }
+    }
+
+    function switchStateScope() {
+        var nextScopeId = String(collectionId || "")
+
+        if (nextScopeId === stateScopeId) {
+            return
+        }
+
+        persistActiveView(true)
+        workbenchStateSaveTimer.stop()
+        stateRestored = false
+        stateScopeId = nextScopeId
+
+        if (nextScopeId.length === 0) {
+            activeView = "chat"
+            return
+        }
+
+        var restoredView = String(
+            WorkspaceState.value(
+                stateKey(nextScopeId),
+                "chat"
+            )
+        )
+        activeView = validView(restoredView)
+            ? restoredView
+            : "chat"
+        stateRestored = true
+    }
+
+    Component.onCompleted: switchStateScope()
+
+    Component.onDestruction: {
+        workbenchStateSaveTimer.stop()
+        persistActiveView(true)
+    }
+
+    onCollectionIdChanged:
+        Qt.callLater(switchStateScope)
+    onActiveViewChanged: {
+        if (stateRestored) {
+            workbenchStateSaveTimer.restart()
+        }
+    }
+
+    Timer {
+        id: workbenchStateSaveTimer
+
+        interval: 180
+        repeat: false
+        onTriggered: {
+            root.persistActiveView(false)
+            WorkspaceState.sync()
+        }
+    }
 
     color: theme.surfaceBg
     clip: true

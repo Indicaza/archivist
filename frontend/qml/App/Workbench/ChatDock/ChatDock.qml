@@ -25,6 +25,8 @@ Rectangle {
     property int composerHoverIndex: -1
     property bool resizingPanel: false
     property real panelWidth: theme.chatDockPanelDefaultWidth
+    property string sidebarStateScopeId: ""
+    property bool sidebarStateRestored: false
     readonly property var attachedAgents: chatAttachedAgents()
     readonly property var scopedChats: filteredChats()
 
@@ -60,6 +62,97 @@ Rectangle {
 
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
+
+    function sidebarStateKey(scopeId) {
+        return "workspace/collections/"
+            + String(scopeId || "")
+            + "/workbench/chatSidebar"
+    }
+
+    function validSidebarPanel(value) {
+        var candidate = String(value || "")
+
+        return candidate === "none"
+            || candidate === "chats"
+            || candidate === "agents"
+    }
+
+    function persistSidebarState(syncNow) {
+        if (
+            !sidebarStateRestored
+            || sidebarStateScopeId.length === 0
+        ) {
+            return
+        }
+
+        WorkspaceState.setValue(
+            sidebarStateKey(sidebarStateScopeId),
+            JSON.stringify({
+                version: 1,
+                activePanel: activePanel,
+                panelWidth: Number(panelWidth || 0)
+            })
+        )
+
+        if (Boolean(syncNow)) {
+            WorkspaceState.sync()
+        }
+    }
+
+    function scheduleSidebarStateSave() {
+        if (sidebarStateRestored) {
+            sidebarStateSaveTimer.restart()
+        }
+    }
+
+    function switchSidebarStateScope() {
+        var nextScopeId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
+
+        if (nextScopeId === sidebarStateScopeId) {
+            return
+        }
+
+        persistSidebarState(true)
+        sidebarStateSaveTimer.stop()
+        sidebarStateRestored = false
+        sidebarStateScopeId = nextScopeId
+        activePanel = "none"
+        panelWidth = theme.chatDockPanelDefaultWidth
+
+        if (nextScopeId.length === 0) {
+            return
+        }
+
+        var rawState = WorkspaceState.value(
+            sidebarStateKey(nextScopeId),
+            ""
+        )
+        var state = ({})
+
+        try {
+            state = JSON.parse(
+                String(rawState || "{}")
+            )
+        } catch (error) {
+            state = ({})
+        }
+
+        var restoredPanel = String(
+            state.activePanel || "none"
+        )
+        activePanel = validSidebarPanel(
+            restoredPanel
+        )
+            ? restoredPanel
+            : "none"
+        panelWidth = Number(
+            state.panelWidth
+                || theme.chatDockPanelDefaultWidth
+        )
+        sidebarStateRestored = true
+    }
 
     function filteredChats() {
         var revision = collectionScopeRevision
@@ -261,9 +354,31 @@ Rectangle {
     }
 
     Component.onCompleted: {
+        switchSidebarStateScope()
         AgentStore.refresh()
         ChatStore.refresh()
         ChatStore.refreshArchived()
+    }
+
+    Component.onDestruction: {
+        sidebarStateSaveTimer.stop()
+        persistSidebarState(true)
+    }
+
+    onActivePanelChanged:
+        scheduleSidebarStateSave()
+    onPanelWidthChanged:
+        scheduleSidebarStateSave()
+
+    Timer {
+        id: sidebarStateSaveTimer
+
+        interval: 180
+        repeat: false
+        onTriggered: {
+            root.persistSidebarState(false)
+            WorkspaceState.sync()
+        }
     }
 
     Connections {
@@ -271,6 +386,9 @@ Rectangle {
 
         function onSelectedCollectionIdChanged() {
             root.collectionScopeRevision += 1
+            Qt.callLater(
+                root.switchSidebarStateScope
+            )
         }
 
         function onWorkspaceScopeChanged() {

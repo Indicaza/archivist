@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Archivist.Services 1.0
 
-ScrollView {
+Flickable {
     id: root
 
     required property var theme
@@ -18,7 +18,7 @@ ScrollView {
     property int viewportRestorePass: 0
     property bool restoringViewport: false
 
-    readonly property var flickable: root.contentItem
+    readonly property var flickable: root
     readonly property real viewportContentX: root.flickable
         && root.flickable.contentX !== undefined
         ? Number(root.flickable.contentX)
@@ -57,10 +57,18 @@ ScrollView {
     )
 
     clip: true
+    boundsBehavior: Flickable.StopAtBounds
+    flickableDirection: Flickable.AutoFlickDirection
     contentWidth: documentCanvas.width
     contentHeight: documentCanvas.height
-    ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+    ScrollBar.horizontal: ScrollBar {
+        policy: ScrollBar.AsNeeded
+    }
+
+    ScrollBar.vertical: ScrollBar {
+        policy: ScrollBar.AsNeeded
+    }
 
     function clampedZoom(value) {
         return Math.max(root.minimumZoom, Math.min(root.maximumZoom, value))
@@ -342,8 +350,14 @@ ScrollView {
     Item {
         id: documentCanvas
 
-        width: Math.max(root.width, paper.width + root.outerMargin * 2)
-        height: Math.max(root.height, paper.height + root.outerMargin * 2)
+        width: Math.max(
+            root.width,
+            paper.width + root.outerMargin * 2
+        )
+        height: Math.max(
+            root.height,
+            paper.height + root.outerMargin * 2
+        )
 
         Rectangle {
             x: paper.x + 6

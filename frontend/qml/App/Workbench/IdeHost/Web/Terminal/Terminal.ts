@@ -26,15 +26,18 @@ type TerminalServerMessage =
     }
   | {
       type: "output";
+      sessionId: string;
       data: string;
     }
   | {
       type: "exit";
+      sessionId: string;
       exitCode: number;
       signal: number;
     }
   | {
       type: "error";
+      sessionId: string;
       message: string;
     }
   | {
@@ -158,6 +161,8 @@ class TerminalSessionView {
   private viewportRestoreTimer: number | null = null;
   private pendingViewportRestore = true;
   private suppressViewportPersistence = false;
+  private reconnectPending = false;
+  private started = false;
   private visible = false;
   private disposed = false;
 
@@ -202,13 +207,6 @@ class TerminalSessionView {
     });
     this.resizeObserver.observe(this.element);
 
-    this.callbacks.reportState(
-      context.sessionId,
-      "connecting",
-      "Terminal",
-      "",
-    );
-    this.connect(++this.connectionGeneration);
   }
 
   applyTheme(theme: ArchivistTheme): void {
@@ -246,6 +244,13 @@ class TerminalSessionView {
     if (visible) {
       requestAnimationFrame(() => {
         this.fitAndResize();
+
+        if (this.reconnectPending) {
+          this.reconnectPending = false;
+          this.recreateForReplay();
+        }
+
+        this.ensureConnected();
         this.terminal.focus();
       });
     }
@@ -275,6 +280,7 @@ class TerminalSessionView {
     }
 
     this.disposed = true;
+    this.connectionGeneration += 1;
     this.persistViewport();
     this.clearReconnectTimer();
     this.stopPingTimer();
@@ -299,7 +305,7 @@ class TerminalSessionView {
     this.fitAddon = new FitAddon();
     this.terminal = new XtermTerminal({
       cursorBlink: true,
-      convertEol: true,
+      convertEol: false,
       scrollback: 10000,
       allowProposedApi: false,
     });
@@ -338,6 +344,36 @@ class TerminalSessionView {
         this.terminal.focus();
       });
     }
+  }
+
+  private ensureConnected(): void {
+    if (
+      this.disposed
+      || !this.visible
+      || (
+        this.socket
+        && (
+          this.socket.readyState === WebSocket.OPEN
+          || this.socket.readyState
+            === WebSocket.CONNECTING
+        )
+      )
+      || this.reconnectTimer !== null
+    ) {
+      return;
+    }
+
+    if (!this.started) {
+      this.started = true;
+      this.callbacks.reportState(
+        this.context.sessionId,
+        "connecting",
+        "Terminal",
+        "",
+      );
+    }
+
+    this.connect(++this.connectionGeneration);
   }
 
   private connect(generation: number): void {
@@ -396,6 +432,14 @@ class TerminalSessionView {
           String(event.data),
         ) as TerminalServerMessage;
       } catch {
+        return;
+      }
+
+      if (
+        message.type !== "pong"
+        && message.sessionId
+          !== this.context.sessionId
+      ) {
         return;
       }
 
@@ -519,6 +563,12 @@ class TerminalSessionView {
 
   private scheduleReconnect(generation: number): void {
     this.clearReconnectTimer();
+
+    if (!this.visible) {
+      this.reconnectPending = true;
+      return;
+    }
+
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
 

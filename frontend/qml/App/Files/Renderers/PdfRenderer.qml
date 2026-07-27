@@ -8,6 +8,8 @@ Item {
 
     required property var theme
     property url source
+    readonly property bool sourceAvailable:
+        String(root.source || "").length > 0
     property real zoomFactor: 1.0
     property bool fitToWidth: false
     property bool freePanEnabled: false
@@ -60,7 +62,10 @@ Item {
     property real pinchAnchorY: 0
 
     readonly property bool documentReady:
-        pdfDocument.status === PdfDocument.Ready
+        root.sourceAvailable
+        && String(pdfDocument.source || "")
+            === String(root.source || "")
+        && pdfDocument.status === PdfDocument.Ready
     readonly property bool singlePageDocument:
         root.documentReady && pdfDocument.pageCount === 1
 
@@ -152,6 +157,18 @@ Item {
     )
 
     clip: true
+
+    function syncPdfDocumentSource() {
+        if (
+            !root.sourceAvailable
+            || String(pdfDocument.source || "")
+                === String(root.source || "")
+        ) {
+            return
+        }
+
+        pdfDocument.source = root.source
+    }
 
     function clamp(value, minimum, maximum) {
         return Math.max(
@@ -1899,6 +1916,7 @@ Item {
             root.fitToWidth
         root.pendingFocusX = 0.5
         root.pendingFocusY = 0.5
+        Qt.callLater(root.syncPdfDocumentSource)
     }
 
     Component.onCompleted: {
@@ -1930,6 +1948,7 @@ Item {
             root.clampedZoom(
                 root.zoomFactor
             )
+        Qt.callLater(root.syncPdfDocumentSource)
     }
 
     Component.onDestruction:
@@ -1937,7 +1956,6 @@ Item {
 
     PdfDocument {
         id: pdfDocument
-        source: root.source
 
         onStatusChanged: {
             if (
@@ -1968,6 +1986,7 @@ Item {
 
         PdfPageImage {
             anchors.fill: parent
+            source: ""
             document: renderDocument
             currentFrame: renderPageIndex
             sourceSize: Qt.size(
@@ -2140,6 +2159,7 @@ Item {
                     id: singlePageImage
 
                     anchors.fill: parent
+                    source: ""
                     document: pdfDocument
                     currentFrame: 0
                     sourceSize: Qt.size(

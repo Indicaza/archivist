@@ -40,6 +40,18 @@ export interface ArchivistTerminalCommand {
   nonce: string;
 }
 
+export type ArchivistEditorCommand =
+  | {
+      type: "save";
+      documentId: string;
+      nonce: string;
+    }
+  | {
+      type: "discard";
+      documentId: string;
+      nonce: string;
+    };
+
 export interface ArchivistSaveResult {
   documentId: string;
   ok: boolean;
@@ -60,12 +72,14 @@ export interface ArchivistBridge {
   themeJson: string;
   surface: string;
   documentJson: string;
+  editorCommandJson: string;
   terminalJson: string;
   terminalCommandJson: string;
   saveResultJson: string;
   themeJsonChanged: WebChannelSignal;
   surfaceChanged: WebChannelSignal;
   documentJsonChanged: WebChannelSignal;
+  editorCommandJsonChanged: WebChannelSignal;
   terminalJsonChanged: WebChannelSignal;
   terminalCommandJsonChanged: WebChannelSignal;
   saveResultJsonChanged: WebChannelSignal;

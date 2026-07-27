@@ -1,9 +1,20 @@
 import * as monaco from "monaco-editor/editor/editor.api";
 import editorWorker from "monaco-editor/editor/editor.worker?worker";
+import cssWorker from "monaco-editor/language/css/css.worker?worker";
+import htmlWorker from "monaco-editor/language/html/html.worker?worker";
+import jsonWorker from "monaco-editor/language/json/json.worker?worker";
 import "monaco-editor/language/typescript/monaco.contribution";
 import typescriptWorker from "monaco-editor/language/typescript/ts.worker?worker";
+import {
+  defineArchivistEditorTheme,
+} from "./ArchivistEditorTheme.js";
+import {
+  ensureLanguage,
+  normalizeLanguageId,
+} from "./LanguageRegistry.js";
 import type {
   ArchivistDocument,
+  ArchivistEditorCommand,
   ArchivistSaveResult,
   ArchivistTheme,
 } from "../IdeHost.types.js";
@@ -42,24 +53,29 @@ monacoGlobal.MonacoEnvironment = {
       return new typescriptWorker();
     }
 
+    if (label === "json") {
+      return new jsonWorker();
+    }
+
+    if (
+      label === "css"
+      || label === "scss"
+      || label === "less"
+    ) {
+      return new cssWorker();
+    }
+
+    if (
+      label === "html"
+      || label === "handlebars"
+      || label === "razor"
+    ) {
+      return new htmlWorker();
+    }
+
     return new editorWorker();
   },
 };
-
-const languageAliases: Record<string, string> = {
-  javascriptreact: "javascript",
-  typescriptreact: "typescript",
-  qml: "plaintext",
-  shellscript: "shell",
-};
-
-function normalizedLanguage(language: string): string {
-  const normalized = String(language || "plaintext")
-    .trim()
-    .toLowerCase();
-
-  return languageAliases[normalized] || normalized || "plaintext";
-}
 
 function editorViewStateStorageKey(
   documentId: string,
@@ -109,10 +125,18 @@ function documentUri(document: ArchivistDocument): monaco.Uri {
   const identity = encodeURIComponent(
     document.id || document.path || "untitled",
   );
+  const fileName = String(
+    document.path || "untitled",
+  )
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .at(-1) || "untitled";
 
-  return monaco.Uri.parse(
-    `archivist://file/${identity}`,
-  );
+  return monaco.Uri.from({
+    scheme: "archivist",
+    authority: "file",
+    path: `/${identity}/${fileName}`,
+  });
 }
 
 export class MonacoEditor {
@@ -137,6 +161,12 @@ export class MonacoEditor {
   >();
 
   private readonly savesInFlight = new Set<string>();
+
+  private readonly languageRevisionByModelKey = new Map<
+    string,
+    number
+  >();
+
   private viewStateSaveTimer: number | null = null;
   private activeModelKey = "";
   private suppressContentEvents = false;
@@ -150,16 +180,43 @@ export class MonacoEditor {
       model: null,
       automaticLayout: true,
       minimap: {
-        enabled: false,
+        enabled: true,
+        renderCharacters: true,
+        maxColumn: 110,
+        scale: 1,
+        showSlider: "always",
       },
       padding: {
         top: 14,
         bottom: 14,
       },
+      bracketPairColorization: {
+        enabled: true,
+        independentColorPoolPerBracketType: true,
+      },
+      guides: {
+        indentation: true,
+        bracketPairs: true,
+        bracketPairsHorizontal: true,
+        highlightActiveBracketPair: true,
+      },
+      detectIndentation: true,
+      folding: true,
       fontLigatures: true,
+      formatOnType: true,
+      glyphMargin: true,
+      matchBrackets: "always",
       readOnly: true,
       domReadOnly: false,
+      renderLineHighlight: "all",
+      renderWhitespace: "selection",
       scrollBeyondLastLine: false,
+      showFoldingControls: "mouseover",
+      smoothScrolling: true,
+      stickyScroll: {
+        enabled: true,
+      },
+      wordWrap: "off",
     });
 
     this.element.addEventListener(
@@ -203,28 +260,7 @@ export class MonacoEditor {
   }
 
   applyTheme(theme: ArchivistTheme): void {
-    monaco.editor.defineTheme("archivist", {
-      base: "vs-dark",
-      inherit: true,
-      rules: [],
-      colors: {
-        "editor.background": theme.workspaceBg,
-        "editor.foreground": theme.appText,
-        "editorLineNumber.foreground": theme.mutedText,
-        "editorLineNumber.activeForeground": theme.appText,
-        "editorCursor.foreground": theme.accentBright,
-        "editor.selectionBackground": theme.activeBg,
-        "editor.inactiveSelectionBackground":
-          theme.controlSurfaceBg,
-        "editorIndentGuide.background1": theme.quietBorder,
-        "editorIndentGuide.activeBackground1":
-          theme.panelBorder,
-        "editorWidget.background": theme.surfaceBg,
-        "editorWidget.border": theme.panelBorder,
-      },
-    });
-
-    monaco.editor.setTheme("archivist");
+    defineArchivistEditorTheme(monaco, theme);
     this.editor.updateOptions({
       fontFamily: theme.monospaceFontFamily,
       fontSize: theme.textControlSize,
@@ -245,7 +281,9 @@ export class MonacoEditor {
 
     const uri = documentUri(document);
     const modelKey = uri.toString();
-    const language = normalizedLanguage(document.language);
+    const requestedLanguage = normalizeLanguageId(
+      document.language,
+    );
 
     let model = monaco.editor.getModel(uri);
     let state = this.statesByModelKey.get(modelKey);
@@ -253,7 +291,7 @@ export class MonacoEditor {
     if (!model || !state) {
       model = monaco.editor.createModel(
         document.content,
-        language,
+        "plaintext",
         uri,
       );
       state = {
@@ -268,10 +306,6 @@ export class MonacoEditor {
         modelKey,
       );
     } else {
-      if (model.getLanguageId() !== language) {
-        monaco.editor.setModelLanguage(model, language);
-      }
-
       const dirty = model.getValue() !== state.savedContent;
 
       state.readOnly = document.readOnly;
@@ -304,8 +338,59 @@ export class MonacoEditor {
       this.editor.restoreViewState(viewState);
     }
 
+    this.applyLanguage(
+      model,
+      modelKey,
+      requestedLanguage,
+    );
     this.editor.layout();
     this.reportActiveDirtyState();
+  }
+
+  private applyLanguage(
+    model: monaco.editor.ITextModel,
+    modelKey: string,
+    requestedLanguage: string,
+  ): void {
+    const revision =
+      (this.languageRevisionByModelKey.get(modelKey) ?? 0)
+      + 1;
+
+    this.languageRevisionByModelKey.set(
+      modelKey,
+      revision,
+    );
+
+    void ensureLanguage(
+      monaco,
+      requestedLanguage,
+    ).then((languageId) => {
+      if (
+        model.isDisposed()
+        || this.languageRevisionByModelKey.get(modelKey)
+          !== revision
+      ) {
+        return;
+      }
+
+      if (model.getLanguageId() !== languageId) {
+        monaco.editor.setModelLanguage(
+          model,
+          languageId,
+        );
+      }
+    });
+  }
+
+  applyCommand(command: ArchivistEditorCommand): void {
+    switch (command.type) {
+      case "save":
+        this.saveDocument(command.documentId);
+        break;
+      case "discard":
+        this.discardDocument(command.documentId);
+        break;
+    }
   }
 
   applySaveResult(result: ArchivistSaveResult): void {
@@ -372,6 +457,32 @@ export class MonacoEditor {
     this.editor.layout();
   }
 
+  private documentState(documentId: string): {
+    modelKey: string;
+    model: monaco.editor.ITextModel;
+    state: DocumentState;
+  } | null {
+    const modelKey = this.modelKeyByDocumentId.get(
+      documentId,
+    );
+    const model = modelKey
+      ? monaco.editor.getModel(
+          monaco.Uri.parse(modelKey),
+        )
+      : null;
+    const state = modelKey
+      ? this.statesByModelKey.get(modelKey)
+      : null;
+
+    return modelKey && model && state
+      ? {
+          modelKey,
+          model,
+          state,
+        }
+      : null;
+  }
+
   private activeState(): {
     model: monaco.editor.ITextModel;
     state: DocumentState;
@@ -395,45 +506,51 @@ export class MonacoEditor {
   private saveActiveDocument(): void {
     const active = this.activeState();
 
-    if (!active) {
+    if (active) {
+      this.saveDocument(active.state.documentId);
+    }
+  }
+
+  private saveDocument(documentId: string): void {
+    const document = this.documentState(documentId);
+
+    if (!document) {
+      this.callbacks.reportStatus(
+        "The editor model is no longer available.",
+      );
       return;
     }
 
-    if (active.state.readOnly) {
+    if (document.state.readOnly) {
       this.callbacks.reportStatus(
         "This file is read-only.",
       );
       return;
     }
 
-    const content = active.model.getValue();
+    const content = document.model.getValue();
 
-    if (content === active.state.savedContent) {
+    if (content === document.state.savedContent) {
       this.callbacks.reportStatus(
         "No changes to save.",
       );
+      this.callbacks.reportDirty(documentId, false);
       return;
     }
 
-    if (
-      this.savesInFlight.has(
-        active.state.documentId,
-      )
-    ) {
+    if (this.savesInFlight.has(documentId)) {
       this.callbacks.reportStatus(
         "Save already in progress.",
       );
       return;
     }
 
-    this.savesInFlight.add(
-      active.state.documentId,
-    );
+    this.savesInFlight.add(documentId);
     this.callbacks.reportStatus("Saving…");
     this.callbacks.requestSave(
-      active.state.documentId,
+      documentId,
       content,
-      active.state.modifiedAt,
+      document.state.modifiedAt,
     );
   }
 
@@ -446,8 +563,39 @@ export class MonacoEditor {
 
     this.callbacks.reportDirty(
       active.state.documentId,
-      active.model.getValue()
-        !== active.state.savedContent,
+      active.model.getValue() !== active.state.savedContent,
+    );
+  }
+
+  private discardDocument(documentId: string): void {
+    const document = this.documentState(documentId);
+
+    if (!document) {
+      return;
+    }
+
+    if (this.activeModelKey === document.modelKey) {
+      this.rememberViewState();
+      this.activeModelKey = "";
+      this.editor.setModel(null);
+    }
+
+    this.suppressContentEvents = true;
+    document.model.setValue(
+      document.state.savedContent,
+    );
+    this.suppressContentEvents = false;
+    this.callbacks.reportDirty(documentId, false);
+
+    document.model.dispose();
+    this.statesByModelKey.delete(document.modelKey);
+    this.modelKeyByDocumentId.delete(documentId);
+    this.viewStates.delete(document.modelKey);
+    this.languageRevisionByModelKey.delete(
+      document.modelKey,
+    );
+    this.callbacks.reportStatus(
+      "Discarded unsaved changes",
     );
   }
 

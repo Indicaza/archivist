@@ -209,6 +209,11 @@ QVariantList LibraryStore::files() const
     return m_files;
 }
 
+QVariantList LibraryStore::directories() const
+{
+    return m_directories;
+}
+
 QVariantMap LibraryStore::latestScan() const
 {
     return m_latestScan;
@@ -259,6 +264,11 @@ bool LibraryStore::scanning() const
 bool LibraryStore::movingFile() const
 {
     return m_movingFile;
+}
+
+bool LibraryStore::mutatingEntry() const
+{
+    return m_mutatingEntry;
 }
 
 bool LibraryStore::savingFile() const
@@ -655,6 +665,7 @@ void LibraryStore::refreshSelectedFiles()
         ++m_fileRequestRevision;
         clearFilePreview();
         setFiles({});
+        setDirectories({});
         setLatestScan({});
         setLoadingFiles(false);
         return;
@@ -693,6 +704,9 @@ void LibraryStore::refreshSelectedFiles()
 
             setFiles(
                 result.object.value(QStringLiteral("files")).toArray().toVariantList()
+            );
+            setDirectories(
+                result.object.value(QStringLiteral("directories")).toArray().toVariantList()
             );
             setLatestScan(
                 result.object.value(QStringLiteral("latestScan")).toObject().toVariantMap()
@@ -745,6 +759,9 @@ void LibraryStore::scanSelectedLibrary()
 
             setFiles(
                 result.object.value(QStringLiteral("files")).toArray().toVariantList()
+            );
+            setDirectories(
+                result.object.value(QStringLiteral("directories")).toArray().toVariantList()
             );
 
             QVariantMap scan =
@@ -811,11 +828,230 @@ void LibraryStore::moveFile(const QString &fileId, const QString &targetDirector
         }
 
         setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
+        setDirectories(
+            result.object.value(QStringLiteral("directories")).toArray().toVariantList()
+        );
         const QVariantMap file = result.object.value(QStringLiteral("file")).toObject().toVariantMap();
         emit fileMoved(
             fileId,
             file.value(QStringLiteral("relativePath")).toString()
         );
+    });
+}
+
+void LibraryStore::createEntry(
+    const QString &parentDirectory,
+    const QString &name,
+    bool directory
+)
+{
+    if (
+        m_selectedLibraryId.isEmpty()
+        || name.trimmed().isEmpty()
+        || m_mutatingEntry
+    ) {
+        return;
+    }
+
+    const QString libraryId = m_selectedLibraryId;
+    setErrorMessage({});
+    setMutatingEntry(true);
+
+    QJsonObject body{
+        {QStringLiteral("parentDirectory"), parentDirectory},
+        {QStringLiteral("name"), name},
+        {
+            QStringLiteral("kind"),
+            directory
+                ? QStringLiteral("directory")
+                : QStringLiteral("file")
+        },
+    };
+    const QString path = QStringLiteral("/libraries/%1/files")
+        .arg(encodedPathSegment(libraryId));
+    QNetworkReply *reply = m_network.post(
+        requestFor(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, libraryId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutatingEntry(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        if (m_selectedLibraryId != libraryId) {
+            return;
+        }
+
+        setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
+        setDirectories(
+            result.object.value(QStringLiteral("directories")).toArray().toVariantList()
+        );
+
+        const QVariantMap entry = result.object
+            .value(QStringLiteral("entry"))
+            .toObject()
+            .toVariantMap();
+        const QVariantMap file = entry
+            .value(QStringLiteral("file"))
+            .toMap();
+        emit entryCreated(
+            entry.value(QStringLiteral("kind")).toString(),
+            entry.value(QStringLiteral("relativePath")).toString(),
+            file.value(QStringLiteral("id")).toString()
+        );
+    });
+}
+
+void LibraryStore::renameFile(const QString &fileId, const QString &name)
+{
+    if (
+        m_selectedLibraryId.isEmpty()
+        || fileId.isEmpty()
+        || name.trimmed().isEmpty()
+        || !containsFile(fileId)
+        || m_mutatingEntry
+    ) {
+        return;
+    }
+
+    const QString libraryId = m_selectedLibraryId;
+    setErrorMessage({});
+    setMutatingEntry(true);
+
+    QJsonObject body{{QStringLiteral("name"), name}};
+    const QString path = QStringLiteral("/libraries/%1/files/%2/name")
+        .arg(encodedPathSegment(libraryId), encodedPathSegment(fileId));
+    QNetworkReply *reply = m_network.sendCustomRequest(
+        requestFor(path),
+        QByteArrayLiteral("PATCH"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, libraryId, fileId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutatingEntry(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        if (m_selectedLibraryId != libraryId) {
+            return;
+        }
+
+        setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
+        setDirectories(
+            result.object.value(QStringLiteral("directories")).toArray().toVariantList()
+        );
+        const QVariantMap file = result.object
+            .value(QStringLiteral("file"))
+            .toObject()
+            .toVariantMap();
+        emit fileRenamed(
+            fileId,
+            file.value(QStringLiteral("relativePath")).toString(),
+            file.value(QStringLiteral("name")).toString()
+        );
+    });
+}
+
+void LibraryStore::duplicateFile(const QString &fileId, const QString &name)
+{
+    if (
+        m_selectedLibraryId.isEmpty()
+        || fileId.isEmpty()
+        || name.trimmed().isEmpty()
+        || !containsFile(fileId)
+        || m_mutatingEntry
+    ) {
+        return;
+    }
+
+    const QString libraryId = m_selectedLibraryId;
+    setErrorMessage({});
+    setMutatingEntry(true);
+
+    QJsonObject body{{QStringLiteral("name"), name}};
+    const QString path = QStringLiteral("/libraries/%1/files/%2/duplicate")
+        .arg(encodedPathSegment(libraryId), encodedPathSegment(fileId));
+    QNetworkReply *reply = m_network.post(
+        requestFor(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, libraryId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutatingEntry(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        if (m_selectedLibraryId != libraryId) {
+            return;
+        }
+
+        setFiles(result.object.value(QStringLiteral("files")).toArray().toVariantList());
+        setDirectories(
+            result.object.value(QStringLiteral("directories")).toArray().toVariantList()
+        );
+        const QVariantMap file = result.object
+            .value(QStringLiteral("file"))
+            .toObject()
+            .toVariantMap();
+        emit fileDuplicated(
+            file.value(QStringLiteral("id")).toString(),
+            file.value(QStringLiteral("relativePath")).toString(),
+            file.value(QStringLiteral("name")).toString()
+        );
+    });
+}
+
+void LibraryStore::revealEntry(const QString &relativePath)
+{
+    if (
+        m_selectedLibraryId.isEmpty()
+        || relativePath.isEmpty()
+        || m_mutatingEntry
+    ) {
+        return;
+    }
+
+    const QString libraryId = m_selectedLibraryId;
+    setErrorMessage({});
+    setMutatingEntry(true);
+
+    QJsonObject body{{QStringLiteral("relativePath"), relativePath}};
+    const QString path = QStringLiteral("/libraries/%1/reveal")
+        .arg(encodedPathSegment(libraryId));
+    QNetworkReply *reply = m_network.post(
+        requestFor(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, libraryId, relativePath]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutatingEntry(false);
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        if (m_selectedLibraryId == libraryId) {
+            emit entryRevealed(relativePath);
+        }
     });
 }
 
@@ -1057,6 +1293,16 @@ void LibraryStore::setFiles(const QVariantList &files)
     }
 }
 
+void LibraryStore::setDirectories(const QVariantList &directories)
+{
+    if (m_directories == directories) {
+        return;
+    }
+
+    m_directories = directories;
+    emit directoriesChanged();
+}
+
 void LibraryStore::setLatestScan(const QVariantMap &latestScan)
 {
     if (m_latestScan == latestScan) {
@@ -1137,6 +1383,16 @@ void LibraryStore::setMovingFile(bool moving)
 
     m_movingFile = moving;
     emit movingFileChanged();
+}
+
+void LibraryStore::setMutatingEntry(bool mutating)
+{
+    if (m_mutatingEntry == mutating) {
+        return;
+    }
+
+    m_mutatingEntry = mutating;
+    emit mutatingEntryChanged();
 }
 
 void LibraryStore::setSavingFile(bool saving)

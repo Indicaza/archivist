@@ -41,12 +41,21 @@ Rectangle {
         languageId: file && file.languageId ? String(file.languageId) : ""
     })
     readonly property var rendererSelection: RendererRegistry.resolve(fileIdentity)
-    readonly property bool markdownRenderingAvailable: rendererSelection.id === "markdown"
+    readonly property bool markdownRenderingAvailable: Boolean(
+        rendererSelection
+        && rendererSelection.id === "markdown"
         && rendererSelection.available
-    readonly property bool imageRenderingAvailable: rendererSelection.id === "image"
+    )
+    readonly property bool imageRenderingAvailable: Boolean(
+        rendererSelection
+        && rendererSelection.id === "image"
         && rendererSelection.available
-    readonly property bool documentRenderingAvailable: rendererSelection.id === "pdf"
+    )
+    readonly property bool documentRenderingAvailable: Boolean(
+        rendererSelection
+        && rendererSelection.id === "pdf"
         && rendererSelection.available
+    )
     readonly property bool directRenderingAvailable: markdownRenderingAvailable
         || imageRenderingAvailable
         || documentRenderingAvailable
@@ -61,15 +70,16 @@ Rectangle {
     readonly property bool displayContentAvailable: imageRenderingAvailable
         || (documentRenderingAvailable && documentPreview.state === "ready")
         || content.length > 0
-    readonly property bool previewMatchesFile:
+    readonly property bool previewMatchesFile: Boolean(
         preview
         && preview.file
         && String(preview.file.id || "") === currentFileId
+    )
     readonly property bool blockingInitialLoading:
         displayLoading && !initialFileLoaded
     readonly property bool blockingInitialError:
         displayErrorMessage.length > 0 && !initialFileLoaded
-    property string viewMode: "source"
+    property string viewMode: "rendered"
     property real markdownZoom: 1.0
     property real imageZoom: 1.0
     property bool imageFitToView: false
@@ -176,7 +186,12 @@ Rectangle {
                 : controlButton.hovered
                     ? controlTheme.hoverBg
                     : controlButton.circular
-                        ? controlTheme.controlSurfaceBg
+                        ? Qt.rgba(
+                            controlTheme.controlSurfaceBg.r,
+                            controlTheme.controlSurfaceBg.g,
+                            controlTheme.controlSurfaceBg.b,
+                            0.88
+                        )
                         : "transparent"
             border.width: controlButton.activeControl
                 ? 2
@@ -350,9 +365,19 @@ Rectangle {
         }
 
         root.cachedViewportState = state
-        root.viewMode = String(
+        var restoredViewMode = String(
             state.viewMode || root.defaultViewportState().viewMode
         )
+
+        if (
+            root.markdownRenderingAvailable
+            && restoredViewMode !== "source"
+            && restoredViewMode !== "rendered"
+        ) {
+            restoredViewMode = "rendered"
+        }
+
+        root.viewMode = restoredViewMode
         root.markdownZoom = Math.max(
             0.65,
             Math.min(2.0, root.numberValue(state.markdownZoom, 1.0))
@@ -743,7 +768,7 @@ Rectangle {
     }
 
     Shortcut {
-        sequence: StandardKey.ZoomIn
+        sequences: [ StandardKey.ZoomIn ]
         enabled: root.directRenderingAvailable && root.viewMode !== "source"
         onActivated: root.zoomActiveRendererIn()
     }
@@ -755,7 +780,7 @@ Rectangle {
     }
 
     Shortcut {
-        sequence: StandardKey.ZoomOut
+        sequences: [ StandardKey.ZoomOut ]
         enabled: root.directRenderingAvailable && root.viewMode !== "source"
         onActivated: root.zoomActiveRendererOut()
     }
@@ -772,8 +797,6 @@ Rectangle {
         ChatStore.selectedChatId.length > 0
             && file
             && file.id
-            && !loading
-            && errorMessage.length === 0
             && !ChatStore.responding
             && !ChatStore.mutating
             && !ChatStore.mutatingAttachment
@@ -997,10 +1020,6 @@ Rectangle {
                     color: "transparent"
                     border.width: 0
 
-                    HoverHandler {
-                        id: toolControlsHover
-                    }
-
                     Column {
                         id: toolControlColumn
 
@@ -1012,24 +1031,13 @@ Rectangle {
                         Repeater {
                             model:
                                 root.markdownRenderingAvailable
+                                && root.viewMode === "rendered"
                                     ? [
-                                        {
-                                            id: "rendered",
-                                            label: "▤",
-                                            tooltip:
-                                                "Rendered preview"
-                                        },
                                         {
                                             id: "source",
                                             label: "<>",
                                             tooltip:
-                                                "Source view"
-                                        },
-                                        {
-                                            id: "split",
-                                            label: "◫",
-                                            tooltip:
-                                                "Split source and preview"
+                                                "Edit Markdown"
                                         }
                                     ]
                                     : []
@@ -1154,13 +1162,10 @@ Rectangle {
                         PreviewControlButton {
                             controlTheme: root.theme
                             circular: true
-                            visible:
-                                Boolean(
-                                    root.file
-                                    && root.file.id
-                                )
-                                && !root.displayLoading
-                                && root.displayErrorMessage.length === 0
+                            visible: Boolean(
+                                root.file
+                                && root.file.id
+                            )
                             enabled: root.canAttach
                             text:
                                 root.pendingAttachmentFileId.length > 0

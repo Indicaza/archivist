@@ -22,7 +22,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(moduleId) {
-          if (moduleId.includes("monaco-editor")) {
+          const normalizedId = moduleId.replaceAll(
+            "\\",
+            "/",
+          );
+          if (normalizedId.includes("monaco-editor")) {
             return "monaco";
           }
 

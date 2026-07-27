@@ -34,6 +34,61 @@ Rectangle {
     property bool chatViewportRestorePending: false
     property bool restoringChatViewport: false
     property int chatViewportRestorePass: 0
+    property string editorSafetyMode: ""
+    property string editorSafetyTabKey: ""
+    property string editorSafetyDocumentId: ""
+    property string editorSafetyTitle: ""
+    property string pendingCloseTabKey: ""
+    property string pendingCloseDocumentId: ""
+
+    function openDirtyCloseDialog(
+        tabKey,
+        documentId,
+        title
+    ) {
+        editorSafetyMode = "dirtyClose"
+        editorSafetyTabKey = String(tabKey || "")
+        editorSafetyDocumentId = String(
+            documentId || ""
+        )
+        editorSafetyTitle = String(title || "Untitled")
+        editorSafetyDialog.open()
+    }
+
+    function resetEditorSafetyTarget() {
+        editorSafetyMode = ""
+        editorSafetyTabKey = ""
+        editorSafetyDocumentId = ""
+        editorSafetyTitle = ""
+    }
+
+    function cancelEditorSafety() {
+        pendingCloseTabKey = ""
+        pendingCloseDocumentId = ""
+        editorSafetyDialog.close()
+        resetEditorSafetyTarget()
+    }
+
+    function saveAndCloseTarget() {
+        pendingCloseTabKey = editorSafetyTabKey
+        pendingCloseDocumentId =
+            editorSafetyDocumentId
+        editorSafetyDialog.close()
+        codeEditor.saveDocument(
+            pendingCloseDocumentId
+        )
+        resetEditorSafetyTarget()
+    }
+
+    function discardAndCloseTarget() {
+        var tabKey = editorSafetyTabKey
+        var documentId = editorSafetyDocumentId
+
+        editorSafetyDialog.close()
+        resetEditorSafetyTarget()
+        codeEditor.discardDocument(documentId)
+        editorTabStrip.closeTabByKey(tabKey)
+    }
 
     readonly property real historyPrefetchDistance: Math.max(
         6000,
@@ -70,6 +125,16 @@ Rectangle {
             root.previewFileIdentity.category === "code"
             || root.previewFileIdentity.category === "data"
         )
+    readonly property bool markdownFileActive:
+        root.previewActive
+        && root.previewFileIdentity.preferredRendererId
+            === "markdown"
+    readonly property bool markdownEditMode:
+        root.markdownFileActive
+        && filePreview.viewMode === "source"
+    readonly property bool editorSurfaceActive:
+        root.codeEditorActive
+        || root.markdownEditMode
     readonly property bool imagePreviewActive: root.previewActive
         && root.previewFileIdentity.preferredRendererId === "image"
     readonly property bool filePreviewStatusVisible: root.previewActive
@@ -708,7 +773,7 @@ Rectangle {
 
             Text {
                 text: root.previewActive
-                    ? root.codeEditorActive
+                    ? root.editorSurfaceActive
                         ? LibraryStore.savingFile
                             ? "Saving…"
                             : LibraryStore.fileSaveError.length > 0
@@ -721,8 +786,17 @@ Rectangle {
                                             : "Opening code editor"
                                         : codeEditor.dirty
                                             ? "Unsaved changes"
-                                            : "Code editor"
-                        : root.imagePreviewActive
+                                            : root.markdownEditMode
+                                                ? "Markdown editor"
+                                                : String(
+                                                    root.previewFileIdentity
+                                                        .displayLabel
+                                                    || "Code"
+                                                )
+                                                    + " editor"
+                        : root.markdownFileActive
+                            ? "Markdown preview"
+                            : root.imagePreviewActive
                             ? "Image preview"
                             : LibraryStore.loadingFilePreview
                             ? "Opening file"
@@ -736,7 +810,7 @@ Rectangle {
                             : root.hasSelectedChat
                                 ? "Ready"
                                 : "Select a Chat"
-                color: root.codeEditorActive
+                color: root.editorSurfaceActive
                     && (
                         LibraryStore.fileSaveError.length > 0
                         || LibraryStore.filePreviewError.length > 0
@@ -765,7 +839,8 @@ Rectangle {
                 padding: 0
                 ToolTip.visible: hovered
                 ToolTip.text: "Close file preview"
-                onClicked: LibraryStore.clearFilePreview()
+                onClicked:
+                    editorTabStrip.requestCloseActiveTab()
                 scale: down
                     ? root.theme.pressedScale
                     : hovered
@@ -803,6 +878,18 @@ Rectangle {
 
             anchors.fill: parent
             theme: root.theme
+
+            onDirtyCloseRequested: function(
+                tabKey,
+                documentId,
+                title
+            ) {
+                root.openDirtyCloseDialog(
+                    tabKey,
+                    documentId,
+                    title
+                )
+            }
         }
     }
 
@@ -815,6 +902,7 @@ Rectangle {
         width: Math.max(0, parent.width - root.previewLeftObstruction)
         visible: root.previewActive
             && !root.codeEditorActive
+            && !root.markdownEditMode
         theme: root.theme
         file: LibraryStore.selectedFile
         preview: LibraryStore.filePreview
@@ -849,19 +937,44 @@ Rectangle {
             0,
             parent.width - root.previewLeftObstruction
         )
-        visible: root.codeEditorActive
+        visible: root.editorSurfaceActive
         theme: root.theme
-        active: root.codeEditorActive
+        active: root.editorSurfaceActive
+        markdownDocument: root.markdownFileActive
         file: LibraryStore.selectedFile
         preview: LibraryStore.filePreview
         loading: LibraryStore.loadingFilePreview
         errorMessage: LibraryStore.filePreviewError
+
+        onMarkdownPreviewRequested: {
+            filePreview.viewMode = "rendered"
+        }
 
         onDirtyStateReported: function(documentId, dirty) {
             editorTabStrip.setDocumentDirty(
                 documentId,
                 dirty
             )
+
+            if (
+                !dirty
+                && documentId
+                    === root.pendingCloseDocumentId
+                && root.pendingCloseTabKey.length > 0
+            ) {
+                var tabKey = root.pendingCloseTabKey
+                root.pendingCloseTabKey = ""
+                root.pendingCloseDocumentId = ""
+                editorTabStrip.closeTabByKey(tabKey)
+            }
+        }
+
+        onSaveFailed: function(
+            documentId,
+            message
+        ) {
+            root.pendingCloseTabKey = ""
+            root.pendingCloseDocumentId = ""
         }
 
         Behavior on x {
@@ -878,6 +991,132 @@ Rectangle {
                 damping: root.theme.motionDamping
                 epsilon: 0.2
             }
+        }
+    }
+
+    Dialog {
+        id: editorSafetyDialog
+
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        width: Math.min(
+            460,
+            Math.max(320, root.width - 48)
+        )
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        padding: 0
+        closePolicy: Popup.CloseOnEscape
+
+        onRejected: root.cancelEditorSafety()
+
+        background: Rectangle {
+            color: root.theme.controlSurfaceBg
+            radius: 8
+            border.width: 1
+            border.color: root.theme.panelBorder
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            Item {
+                Layout.preferredHeight: 6
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                text: "Save changes to “"
+                    + root.editorSafetyTitle
+                    + "”?"
+                color: root.theme.appText
+                font.pixelSize: root.theme.typeSize(14)
+                font.weight: Font.DemiBold
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                text: "Your changes will be lost if you don’t save them."
+                color: root.theme.mutedText
+                font.pixelSize: root.theme.typeSize(11)
+                wrapMode: Text.Wrap
+            }
+
+            Item {
+                Layout.preferredHeight: 4
+            }
+        }
+
+        footer: Rectangle {
+            implicitHeight: 58
+            color: "transparent"
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 1
+                color: root.theme.quietBorder
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 8
+
+                Button {
+                    text: "Don’t Save"
+                    onClicked: root.discardAndCloseTarget()
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Button {
+                    text: "Cancel"
+                    onClicked: root.cancelEditorSafety()
+                }
+
+                Button {
+                    text: "Save"
+                    highlighted: true
+                    enabled: !LibraryStore.savingFile
+                    onClicked: root.saveAndCloseTarget()
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: LibraryStore
+
+        function onFileRenamed(
+            fileId,
+            relativePath,
+            name
+        ) {
+            var documentId = String(
+                CollectionStore.selectedCollectionId || ""
+            )
+                + ":"
+                + String(
+                    LibraryStore.selectedLibraryId || ""
+                )
+                + ":"
+                + String(fileId || "")
+            editorTabStrip.updateFileTab(
+                documentId,
+                name,
+                relativePath
+            )
         }
     }
 

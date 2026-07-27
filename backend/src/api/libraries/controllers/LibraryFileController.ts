@@ -3,12 +3,23 @@ import { AppError } from "../../../errors/app-error.js";
 import { getLibraryById } from "../models/Library.js";
 import { getLibraryFileCatalog } from "../models/LibraryFile.js";
 import {
+  createLibraryEntrySchema,
+  duplicateLibraryFileSchema,
   libraryFileIdParamsSchema,
   libraryIdParamsSchema,
   moveLibraryFileSchema,
+  renameLibraryFileSchema,
+  revealLibraryEntrySchema,
   saveLibraryFileSchema,
 } from "../schemas/LibrarySchemas.js";
 import { moveLibraryFile } from "../services/LibraryFileMover.js";
+import { listLibraryDirectories } from "../services/LibraryDirectoryCatalog.js";
+import {
+  createLibraryEntry,
+  duplicateLibraryFile,
+  renameLibraryFile,
+  revealLibraryEntry,
+} from "../services/LibraryEntryOperations.js";
 import { readLibraryFilePreview } from "../services/LibraryFileReader.js";
 import { scanLibraryFiles } from "../services/LibraryFileScanner.js";
 import { writeLibraryFileText } from "../services/LibraryFileWriter.js";
@@ -36,7 +47,7 @@ function parseLibraryFileIds(params: unknown): {
   return parsed.data;
 }
 
-export const getLibraryFiles: RequestHandler = (request, response) => {
+export const getLibraryFiles: RequestHandler = async (request, response) => {
   const libraryId = parseLibraryId(request.params);
   const library = getLibraryById(libraryId);
 
@@ -47,6 +58,7 @@ export const getLibraryFiles: RequestHandler = (request, response) => {
   response.json({
     ok: true,
     ...getLibraryFileCatalog(libraryId),
+    directories: await listLibraryDirectories(libraryId),
   });
 };
 
@@ -72,6 +84,7 @@ export const patchLibraryFileLocation: RequestHandler = async (
     ok: true,
     file,
     ...getLibraryFileCatalog(libraryId),
+    directories: await listLibraryDirectories(libraryId),
   });
 };
 
@@ -119,5 +132,117 @@ export const postLibraryScan: RequestHandler = async (request, response) => {
   response.json({
     ok: true,
     ...result,
+    directories: await listLibraryDirectories(libraryId),
+  });
+};
+
+export const postLibraryEntry: RequestHandler = async (
+  request,
+  response,
+) => {
+  const libraryId = parseLibraryId(request.params);
+  const parsed = createLibraryEntrySchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid file or folder request.",
+      parsed.error.flatten(),
+    );
+  }
+
+  const entry = await createLibraryEntry(
+    libraryId,
+    parsed.data,
+  );
+
+  response.json({
+    ok: true,
+    entry,
+    ...getLibraryFileCatalog(libraryId),
+    directories: await listLibraryDirectories(libraryId),
+  });
+};
+
+export const patchLibraryFileName: RequestHandler = async (
+  request,
+  response,
+) => {
+  const { libraryId, fileId } = parseLibraryFileIds(request.params);
+  const parsed = renameLibraryFileSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid file name.",
+      parsed.error.flatten(),
+    );
+  }
+
+  const file = await renameLibraryFile(
+    libraryId,
+    fileId,
+    parsed.data.name,
+  );
+
+  response.json({
+    ok: true,
+    file,
+    ...getLibraryFileCatalog(libraryId),
+    directories: await listLibraryDirectories(libraryId),
+  });
+};
+
+export const postLibraryFileDuplicate: RequestHandler = async (
+  request,
+  response,
+) => {
+  const { libraryId, fileId } = parseLibraryFileIds(request.params);
+  const parsed = duplicateLibraryFileSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid duplicate file name.",
+      parsed.error.flatten(),
+    );
+  }
+
+  const file = await duplicateLibraryFile(
+    libraryId,
+    fileId,
+    parsed.data.name,
+  );
+
+  response.json({
+    ok: true,
+    file,
+    ...getLibraryFileCatalog(libraryId),
+    directories: await listLibraryDirectories(libraryId),
+  });
+};
+
+export const postLibraryEntryReveal: RequestHandler = async (
+  request,
+  response,
+) => {
+  const libraryId = parseLibraryId(request.params);
+  const parsed = revealLibraryEntrySchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new AppError(
+      400,
+      "Invalid reveal path.",
+      parsed.error.flatten(),
+    );
+  }
+
+  await revealLibraryEntry(
+    libraryId,
+    parsed.data.relativePath,
+  );
+
+  response.json({
+    ok: true,
   });
 };

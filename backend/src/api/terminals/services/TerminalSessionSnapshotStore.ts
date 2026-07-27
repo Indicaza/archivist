@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import type { TerminalSocketContext } from "../types/TerminalTypes.js";
 
 export type TerminalSessionSnapshot = {
-  version: 1;
+  version: 2;
   sessionId: string;
   collectionId: string;
   libraryId: string;
@@ -65,7 +65,7 @@ function snapshotMatchesContext(
   >,
 ): boolean {
   return (
-    snapshot.version === 1
+    snapshot.version === 2
     && snapshot.sessionId === context.sessionId
     && snapshot.collectionId === context.collectionId
     && snapshot.libraryId === context.libraryId

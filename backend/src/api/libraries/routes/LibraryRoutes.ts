@@ -12,6 +12,10 @@ import {
   getLibraryFileContent,
   getLibraryFiles,
   patchLibraryFileLocation,
+  patchLibraryFileName,
+  postLibraryEntry,
+  postLibraryEntryReveal,
+  postLibraryFileDuplicate,
   postLibraryScan,
   putLibraryFileContent,
 } from "../controllers/LibraryFileController.js";
@@ -22,9 +26,19 @@ libraryRouter.get("/", getLibraries);
 libraryRouter.get("/archived", getArchivedLibraryList);
 libraryRouter.post("/", postLibrary);
 libraryRouter.get("/:libraryId/files", getLibraryFiles);
+libraryRouter.post("/:libraryId/files", postLibraryEntry);
+libraryRouter.post("/:libraryId/reveal", postLibraryEntryReveal);
 libraryRouter.patch(
   "/:libraryId/files/:fileId",
   patchLibraryFileLocation,
+);
+libraryRouter.patch(
+  "/:libraryId/files/:fileId/name",
+  patchLibraryFileName,
+);
+libraryRouter.post(
+  "/:libraryId/files/:fileId/duplicate",
+  postLibraryFileDuplicate,
 );
 libraryRouter.get(
   "/:libraryId/files/:fileId/content",

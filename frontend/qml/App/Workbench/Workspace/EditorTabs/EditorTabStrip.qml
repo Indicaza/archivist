@@ -8,6 +8,12 @@ Item {
 
     required property var theme
 
+    signal dirtyCloseRequested(
+        string tabKey,
+        string documentId,
+        string title
+    )
+
     readonly property bool hasTabs: tabs.count > 0
     readonly property string activeTabKind: {
         var index = tabIndexForKey(activeTabKey)
@@ -952,6 +958,79 @@ Item {
         pendingFileId = ""
     }
 
+    function documentIdForTab(index) {
+        if (index < 0 || index >= tabs.count) {
+            return ""
+        }
+
+        var tab = tabs.get(index)
+
+        if (String(tab.tabType || "") !== "file") {
+            return ""
+        }
+
+        return String(
+            CollectionStore.selectedCollectionId || ""
+        )
+            + ":"
+            + String(tab.libraryId || "")
+            + ":"
+            + String(tab.fileId || "")
+    }
+
+    function requestCloseTab(index) {
+        if (index < 0 || index >= tabs.count) {
+            return
+        }
+
+        var tab = tabs.get(index)
+
+        if (
+            String(tab.tabType || "") === "file"
+            && Boolean(tab.dirty)
+        ) {
+            activateTab(index)
+            dirtyCloseRequested(
+                String(tab.tabKey || ""),
+                documentIdForTab(index),
+                String(tab.title || "Untitled")
+            )
+            return
+        }
+
+        closeTab(index)
+    }
+
+    function requestCloseActiveTab() {
+        requestCloseTab(
+            tabIndexForKey(activeTabKey)
+        )
+    }
+
+    function closeTabByKey(tabKey) {
+        closeTab(tabIndexForKey(tabKey))
+    }
+
+    function updateFileTab(
+        documentId,
+        title,
+        relativePath
+    ) {
+        for (var index = 0; index < tabs.count; index += 1) {
+            if (documentIdForTab(index) !== documentId) {
+                continue
+            }
+
+            tabs.setProperty(index, "title", String(title || "Untitled"))
+            tabs.setProperty(
+                index,
+                "relativePath",
+                String(relativePath || "")
+            )
+            return
+        }
+    }
+
     function closeTab(index) {
         if (index < 0 || index >= tabs.count) {
             return
@@ -1703,16 +1782,10 @@ Item {
                         : 0
                 ToolTip.visible: hovered
                 ToolTip.text: tabItem.dirty
-                    ? "Unsaved changes — press ⌘S to save"
+                    ? "Close with unsaved changes"
                     : "Close tab"
-                onClicked: {
-                    if (tabItem.dirty) {
-                        root.activateTab(tabItem.index)
-                        return
-                    }
-
-                    root.closeTab(tabItem.index)
-                }
+                onClicked:
+                    root.requestCloseTab(tabItem.index)
 
                 Behavior on opacity {
                     NumberAnimation { duration: root.theme.motionFast }

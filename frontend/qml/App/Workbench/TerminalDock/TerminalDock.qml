@@ -12,6 +12,7 @@ Rectangle {
     required property string libraryId
 
     property real panelWidth: theme.chatDockPanelDefaultWidth
+    property bool panelOpen: true
     property bool resizingPanel: false
     property string activeScopeKey: ""
     property string activeCollectionId: ""
@@ -163,6 +164,8 @@ Rectangle {
                 Number(nextTerminalNumber || 1),
             panelWidth:
                 Number(panelWidth || 0),
+            panelOpen:
+                Boolean(panelOpen),
             listContentY:
                 Number(terminalList.contentY || 0)
         }
@@ -241,6 +244,7 @@ Rectangle {
         nextTerminalNumber = 1
         panelWidth =
             theme.chatDockPanelDefaultWidth
+        panelOpen = true
         pendingTerminalListContentY = 0
 
         if (nextScopeKey.length === 0) {
@@ -333,6 +337,9 @@ Rectangle {
             savedState.panelWidth
                 || theme.chatDockPanelDefaultWidth
         )
+        panelOpen = savedState.panelOpen === undefined
+            ? true
+            : Boolean(savedState.panelOpen)
         pendingTerminalListContentY = Math.max(
             0,
             Number(savedState.listContentY || 0)
@@ -568,6 +575,8 @@ Rectangle {
         Qt.callLater(switchTerminalScope)
     onPanelWidthChanged:
         scheduleTerminalStateSave()
+    onPanelOpenChanged:
+        scheduleTerminalStateSave()
 
     Timer {
         id: terminalStateSaveTimer
@@ -625,6 +634,48 @@ Rectangle {
                 }
             }
 
+            Button {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.rightMargin: 4
+                anchors.topMargin: 4
+                width: 24
+                height: 28
+                visible: !root.panelOpen
+                z: 20
+                text: "‹"
+                hoverEnabled: true
+                padding: 0
+                ToolTip.visible: hovered
+                ToolTip.text: "Show Terminals"
+                onClicked: root.panelOpen = true
+
+                contentItem: Text {
+                    text: parent.text
+                    color: parent.hovered
+                        ? root.theme.appText
+                        : root.theme.mutedText
+                    font.family:
+                        root.theme.bodyFontFamily
+                    font.pixelSize:
+                        root.theme.textControlSize
+                    horizontalAlignment:
+                        Text.AlignHCenter
+                    verticalAlignment:
+                        Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    radius: 3
+                    color: parent.hovered
+                        ? root.theme.hoverBg
+                        : root.theme.controlSurfaceBg
+                    border.width: 1
+                    border.color:
+                        root.theme.quietBorder
+                }
+            }
+
             Text {
                 anchors.centerIn: parent
                 visible:
@@ -645,8 +696,11 @@ Rectangle {
             id: panelResizeHandle
 
             Layout.preferredWidth:
-                root.theme.resizeHandleThickness
+                root.panelOpen
+                    ? root.theme.resizeHandleThickness
+                    : 0
             Layout.fillHeight: true
+            visible: root.panelOpen
             z: 8
 
             Rectangle {
@@ -728,8 +782,11 @@ Rectangle {
             id: terminalPanel
 
             Layout.preferredWidth:
-                root.clampedPanelWidth
+                root.panelOpen
+                    ? root.clampedPanelWidth
+                    : 0
             Layout.fillHeight: true
+            visible: root.panelOpen
             color: root.theme.sidebarBg
             clip: true
 
@@ -833,6 +890,40 @@ Rectangle {
                                     Text.AlignVCenter
                                 opacity:
                                     parent.enabled ? 1 : 0.42
+                            }
+
+                            background: Rectangle {
+                                radius: 3
+                                color: parent.hovered
+                                    ? root.theme.hoverBg
+                                    : "transparent"
+                            }
+                        }
+
+                        Button {
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            text: "›"
+                            hoverEnabled: true
+                            padding: 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Hide Terminals"
+                            onClicked:
+                                root.panelOpen = false
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.hovered
+                                    ? root.theme.appText
+                                    : root.theme.mutedText
+                                font.family:
+                                    root.theme.bodyFontFamily
+                                font.pixelSize:
+                                    root.theme.textControlSize
+                                horizontalAlignment:
+                                    Text.AlignHCenter
+                                verticalAlignment:
+                                    Text.AlignVCenter
                             }
 
                             background: Rectangle {

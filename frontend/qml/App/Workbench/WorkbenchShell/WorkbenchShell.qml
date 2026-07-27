@@ -437,6 +437,8 @@ Rectangle {
             : root.floatingDockWidth
         height: root.clampedDockHeight
         theme: root.theme
+        collectionId:
+            CollectionStore.selectedCollectionId
         attached: root.effectiveDockAttached
         z: 30
 

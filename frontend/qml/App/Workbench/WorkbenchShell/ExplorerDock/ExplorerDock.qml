@@ -24,6 +24,15 @@ Rectangle {
     property string selectedNodePath: ""
     property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
+    property string contextNodeId: ""
+    property string contextFileId: ""
+    property string contextRelativePath: ""
+    property string contextTitle: ""
+    property bool contextFolder: false
+    property string entryOperationMode: ""
+    property string entryOperationParent: ""
+    property string entryOperationFileId: ""
+    property string entryOperationInitialName: ""
     property bool rootDropActive: false
     property var treeView: null
     property int treeViewportRevision: 0
@@ -438,28 +447,31 @@ Rectangle {
     function rebuildNodesFromFiles(preserveViewport) {
         var nodes = []
         var directories = ({})
+        var catalogDirectories = LibraryStore.directories || []
         var files = LibraryStore.files || []
 
-        for (var fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
-            var file = files[fileIndex]
-            var relativePath = String(file.relativePath || file.name || "")
-            var rawParts = relativePath.split("/")
+        function appendDirectoryPath(relativePath) {
+            var rawParts = String(relativePath || "").split("/")
             var parts = []
 
-            for (var partIndex = 0; partIndex < rawParts.length; partIndex += 1) {
+            for (
+                var partIndex = 0;
+                partIndex < rawParts.length;
+                partIndex += 1
+            ) {
                 if (rawParts[partIndex].length > 0) {
                     parts.push(rawParts[partIndex])
                 }
             }
 
-            if (parts.length === 0) {
-                continue
-            }
-
             var parentId = ""
             var pathParts = []
 
-            for (var directoryIndex = 0; directoryIndex < parts.length - 1; directoryIndex += 1) {
+            for (
+                var directoryIndex = 0;
+                directoryIndex < parts.length;
+                directoryIndex += 1
+            ) {
                 pathParts.push(parts[directoryIndex])
                 var directoryPath = pathParts.join("/")
                 var directoryId = "folder:" + directoryPath
@@ -482,10 +494,38 @@ Rectangle {
                 parentId = directoryId
             }
 
+            return parentId
+        }
+
+        for (
+            var directoryCatalogIndex = 0;
+            directoryCatalogIndex < catalogDirectories.length;
+            directoryCatalogIndex += 1
+        ) {
+            appendDirectoryPath(
+                String(catalogDirectories[directoryCatalogIndex] || "")
+            )
+        }
+
+        for (
+            var fileIndex = 0;
+            fileIndex < files.length;
+            fileIndex += 1
+        ) {
+            var file = files[fileIndex]
+            var relativePath = String(
+                file.relativePath || file.name || ""
+            )
+            var separator = relativePath.lastIndexOf("/")
+            var directoryPath = separator >= 0
+                ? relativePath.slice(0, separator)
+                : ""
+            var parentId = appendDirectoryPath(directoryPath)
+
             nodes.push({
                 id: "file:" + String(file.id),
                 parentId: parentId,
-                title: String(file.name || parts[parts.length - 1]),
+                title: String(file.name || relativePath),
                 glyph: glyphForFile(file.name, file.extension),
                 folder: false,
                 fileId: String(file.id),
@@ -508,7 +548,11 @@ Rectangle {
         })
 
         var groupedChildren = ({})
-        for (var groupedIndex = 0; groupedIndex < nodes.length; groupedIndex += 1) {
+        for (
+            var groupedIndex = 0;
+            groupedIndex < nodes.length;
+            groupedIndex += 1
+        ) {
             var groupedNode = nodes[groupedIndex]
             var groupKey = groupedNode.parentId
 
@@ -534,7 +578,11 @@ Rectangle {
         expandedNodeIds = nextExpandedNodeIds
 
         var selectedStillExists = false
-        for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex += 1) {
+        for (
+            var nodeIndex = 0;
+            nodeIndex < nodes.length;
+            nodeIndex += 1
+        ) {
             if (nodes[nodeIndex].id === selectedNodeId) {
                 selectedStillExists = true
                 selectedNodePath = String(
@@ -781,6 +829,103 @@ Rectangle {
         )
     }
 
+    function directoryForPath(relativePath) {
+        var normalized = String(relativePath || "")
+            .split("\\")
+            .join("/")
+        var separator = normalized.lastIndexOf("/")
+        return separator >= 0
+            ? normalized.slice(0, separator)
+            : ""
+    }
+
+    function suggestedDuplicateName(fileName) {
+        var name = String(fileName || "")
+        var dot = name.lastIndexOf(".")
+
+        if (dot <= 0) {
+            return name + " copy"
+        }
+
+        return name.slice(0, dot)
+            + " copy"
+            + name.slice(dot)
+    }
+
+    function openEntryOperation(mode) {
+        entryOperationMode = String(mode || "")
+        entryOperationFileId = contextFileId
+        entryOperationParent = contextFolder
+            ? contextRelativePath
+            : directoryForPath(contextRelativePath)
+
+        if (entryOperationMode === "rename") {
+            entryOperationInitialName = contextTitle
+        } else if (entryOperationMode === "duplicate") {
+            entryOperationInitialName = suggestedDuplicateName(
+                contextTitle
+            )
+        } else {
+            entryOperationInitialName = ""
+        }
+
+        entryOperationDialog.open()
+    }
+
+    function submitEntryOperation() {
+        var name = String(entryNameField.text || "").trim()
+
+        if (name.length === 0) {
+            return
+        }
+
+        switch (entryOperationMode) {
+        case "newFile":
+            LibraryStore.createEntry(
+                entryOperationParent,
+                name,
+                false
+            )
+            break
+        case "newFolder":
+            LibraryStore.createEntry(
+                entryOperationParent,
+                name,
+                true
+            )
+            break
+        case "rename":
+            LibraryStore.renameFile(
+                entryOperationFileId,
+                name
+            )
+            break
+        case "duplicate":
+            LibraryStore.duplicateFile(
+                entryOperationFileId,
+                name
+            )
+            break
+        }
+
+        entryOperationDialog.close()
+    }
+
+    function showNodeContext(
+        nodeId,
+        fileId,
+        relativePath,
+        title,
+        folder
+    ) {
+        contextNodeId = String(nodeId || "")
+        contextFileId = String(fileId || "")
+        contextRelativePath = String(relativePath || "")
+        contextTitle = String(title || "")
+        contextFolder = Boolean(folder)
+        fileContextMenu.popup()
+    }
+
     function activateNode(nodeId, folder, fileId) {
         var previousNodeId = selectedNodeId
         selectedNodeId = nodeId
@@ -960,6 +1105,71 @@ Rectangle {
     Connections {
         target: LibraryStore
 
+        function onDirectoriesChanged() {
+            if (!root.treeStateRestorePending) {
+                root.rebuildNodesFromFiles(true)
+                root.scheduleLibraryTreeStateSave()
+            }
+        }
+
+        function onEntryCreated(
+            kind,
+            relativePath,
+            fileId
+        ) {
+            var path = String(relativePath || "")
+            var parentPath = root.directoryForPath(path)
+
+            if (parentPath.length > 0) {
+                root.expandedNodeIds[
+                    "folder:" + parentPath
+                ] = true
+            }
+
+            Qt.callLater(function() {
+                root.rebuildNodesFromFiles(true)
+                var nodeId = String(kind) === "directory"
+                    ? "folder:" + path
+                    : "file:" + String(fileId || "")
+                root.activateNode(
+                    nodeId,
+                    String(kind) === "directory",
+                    String(fileId || "")
+                )
+            })
+        }
+
+        function onFileRenamed(
+            fileId,
+            relativePath,
+            name
+        ) {
+            Qt.callLater(function() {
+                root.rebuildNodesFromFiles(true)
+                root.selectedNodeId =
+                    "file:" + String(fileId || "")
+                root.selectedNodePath = String(
+                    relativePath || ""
+                )
+                root.rebuildTree(true)
+            })
+        }
+
+        function onFileDuplicated(
+            fileId,
+            relativePath,
+            name
+        ) {
+            Qt.callLater(function() {
+                root.rebuildNodesFromFiles(true)
+                root.activateNode(
+                    "file:" + String(fileId || ""),
+                    false,
+                    String(fileId || "")
+                )
+            })
+        }
+
         function onFilesChanged() {
             if (
                 LibraryStore.loadingFiles
@@ -1103,6 +1313,227 @@ Rectangle {
         anchors.bottom: parent.bottom
         width: 1
         color: root.theme.panelBorder
+    }
+
+    Menu {
+        id: fileContextMenu
+
+        MenuItem {
+            text: "New File"
+            enabled: !LibraryStore.mutatingEntry
+            onTriggered: root.openEntryOperation("newFile")
+        }
+
+        MenuItem {
+            text: "New Folder"
+            enabled: !LibraryStore.mutatingEntry
+            onTriggered: root.openEntryOperation("newFolder")
+        }
+
+        MenuSeparator {}
+
+        MenuItem {
+            text: "Rename"
+            visible: !root.contextFolder
+            enabled:
+                root.contextFileId.length > 0
+                && !LibraryStore.mutatingEntry
+            onTriggered: root.openEntryOperation("rename")
+        }
+
+        MenuItem {
+            text: "Duplicate"
+            visible: !root.contextFolder
+            enabled:
+                root.contextFileId.length > 0
+                && !LibraryStore.mutatingEntry
+            onTriggered: root.openEntryOperation("duplicate")
+        }
+
+        MenuSeparator {}
+
+        MenuItem {
+            text: Qt.platform.os === "osx"
+                ? "Reveal in Finder"
+                : "Reveal in File Manager"
+            enabled:
+                root.contextRelativePath.length > 0
+                && !LibraryStore.mutatingEntry
+            onTriggered: LibraryStore.revealEntry(
+                root.contextRelativePath
+            )
+        }
+    }
+
+    Popup {
+        id: entryOperationDialog
+
+        parent: Overlay.overlay
+        x: parent
+            ? Math.round((parent.width - width) / 2)
+            : 0
+        y: parent
+            ? Math.round((parent.height - height) / 2)
+            : 0
+        width: Math.min(
+            380,
+            parent ? parent.width - 48 : 380
+        )
+        height: 154
+        padding: 0
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+
+        onOpened: {
+            entryNameField.text =
+                root.entryOperationInitialName
+            entryNameField.forceActiveFocus()
+            entryNameField.selectAll()
+        }
+
+        background: Rectangle {
+            color: root.theme.surfaceBg
+            border.width: 1
+            border.color: root.theme.panelBorder
+            radius: root.theme.radiusPanel
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 10
+
+            Text {
+                Layout.fillWidth: true
+                text: root.entryOperationMode === "newFile"
+                    ? "New File"
+                    : root.entryOperationMode === "newFolder"
+                        ? "New Folder"
+                        : root.entryOperationMode === "rename"
+                            ? "Rename File"
+                            : "Duplicate File"
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize:
+                    root.theme.textPanelTitleSize
+                font.weight:
+                    root.theme.textWeightStrong
+            }
+
+            TextField {
+                id: entryNameField
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: 32
+                color: root.theme.appText
+                selectionColor: root.theme.accentSoft
+                selectedTextColor: root.theme.appText
+                placeholderText: "Name"
+                placeholderTextColor: root.theme.mutedText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textControlSize
+                selectByMouse: true
+                maximumLength: 255
+                onAccepted: root.submitEntryOperation()
+
+                background: Rectangle {
+                    radius: 3
+                    color: root.theme.controlSurfaceBg
+                    border.width: 1
+                    border.color: parent.activeFocus
+                        ? root.theme.accent
+                        : root.theme.quietBorder
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Button {
+                    Layout.preferredWidth: 82
+                    Layout.preferredHeight: 30
+                    text: "CANCEL"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: entryOperationDialog.close()
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.hovered
+                            ? root.theme.appText
+                            : root.theme.mutedText
+                        font.family:
+                            root.theme.bodyFontFamily
+                        font.pixelSize:
+                            root.theme.textMetadataSize
+                        font.weight:
+                            root.theme.textWeightStrong
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        radius: 3
+                        color: parent.hovered
+                            ? root.theme.hoverBg
+                            : "transparent"
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 82
+                    Layout.preferredHeight: 30
+                    enabled:
+                        entryNameField.text.trim().length > 0
+                        && !LibraryStore.mutatingEntry
+                    text: root.entryOperationMode === "rename"
+                        ? "RENAME"
+                        : root.entryOperationMode === "duplicate"
+                            ? "DUPLICATE"
+                            : "CREATE"
+                    hoverEnabled: true
+                    padding: 0
+                    onClicked: root.submitEntryOperation()
+
+                    contentItem: Text {
+                        text: parent.text
+                        color: parent.enabled
+                            ? root.theme.accentBright
+                            : root.theme.mutedText
+                        opacity: parent.enabled ? 1 : 0.45
+                        font.family:
+                            root.theme.bodyFontFamily
+                        font.pixelSize:
+                            root.theme.textMetadataSize
+                        font.weight:
+                            root.theme.textWeightStrong
+                        horizontalAlignment:
+                            Text.AlignHCenter
+                        verticalAlignment:
+                            Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        radius: 3
+                        color: parent.hovered
+                            ? root.theme.activeBg
+                            : root.theme.controlSurfaceBg
+                        border.width: 1
+                        border.color: parent.enabled
+                            ? root.theme.accent
+                            : root.theme.quietBorder
+                    }
+                }
+            }
+        }
     }
 
     ColumnLayout {
@@ -1837,6 +2268,13 @@ Rectangle {
                             }
                         }
                         onActivated: root.activateNode(nodeId, itemFolder, itemFileId)
+                        onContextRequested: root.showNodeContext(
+                            nodeId,
+                            itemFileId,
+                            itemRelativePath,
+                            itemTitle,
+                            itemFolder
+                        )
                         onFileDropRequested: function(fileId, targetDirectory) {
                             root.moveFileToFolder(fileId, targetDirectory)
                         }

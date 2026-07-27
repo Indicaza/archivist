@@ -26,6 +26,7 @@ Item {
     readonly property string sourceDirectory: directoryForPath(relativePath)
 
     signal activated()
+    signal contextRequested()
     signal fileDropRequested(string fileId, string targetDirectory)
 
     width: parent ? parent.width : 220
@@ -94,8 +95,15 @@ Item {
     }
 
     TapHandler {
+        acceptedButtons: Qt.LeftButton
         enabled: !root.dragging
         onTapped: root.activated()
+    }
+
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        enabled: !root.dragging
+        onTapped: root.contextRequested()
     }
 
     DropArea {

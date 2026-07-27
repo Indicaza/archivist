@@ -35,3 +35,36 @@ export const saveLibraryFileSchema = z.object({
   content: z.string(),
   expectedModifiedAt: z.string().datetime({ offset: true }),
 });
+
+
+const libraryEntryNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .refine(
+    (value) =>
+      value !== "."
+      && value !== ".."
+      && !value.includes("/")
+      && !value.includes("\\"),
+    "Invalid file or folder name.",
+  );
+
+export const createLibraryEntrySchema = z.object({
+  parentDirectory: z.string().trim().max(2000),
+  name: libraryEntryNameSchema,
+  kind: z.enum(["file", "directory"]),
+});
+
+export const renameLibraryFileSchema = z.object({
+  name: libraryEntryNameSchema,
+});
+
+export const duplicateLibraryFileSchema = z.object({
+  name: libraryEntryNameSchema,
+});
+
+export const revealLibraryEntrySchema = z.object({
+  relativePath: z.string().trim().max(2000),
+});
