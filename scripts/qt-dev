@@ -191,6 +191,9 @@ if ! node -e 'const Database = require("better-sqlite3"); const database = new D
   exit 1
 fi
 
+printf 'Preparing Archivist IDE shell...\n'
+npm run build:ide:cached
+
 mkdir -p "$RUNTIME_DIR"
 
 clear_managed_backend
@@ -223,5 +226,5 @@ if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
   exit 1
 fi
 
-printf 'Archivist backend is healthy. Building and launching Qt...\n'
+printf 'Archivist backend is healthy. Building and launching the native frontend...\n'
 "$ROOT/scripts/qt-run"

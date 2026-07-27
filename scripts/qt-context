@@ -49,7 +49,7 @@ fi
 paths=(
   "README.md"
   "package.json"
-  "qt"
+  "frontend"
   "scripts/qt-build"
   "scripts/qt-configure"
   "scripts/qt-context"
@@ -107,7 +107,7 @@ else
       -path './build' -o \
       -path './coverage' -o \
       -path './backend/data' -o \
-      -path './qt/build' -o \
+      -path './frontend/build' -o \
       -name CMakeFiles \
     \) -prune -o \
     -maxdepth 6 \
