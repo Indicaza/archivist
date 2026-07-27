@@ -60,6 +60,9 @@ Rectangle {
             + String(fileId || "")
     }
 
+    readonly property string documentLibraryId:
+        String(LibraryStore.selectedLibraryId || "")
+
     readonly property string stableDocumentId:
         root.documentIdFor(
             LibraryStore.selectedLibraryId,
@@ -70,6 +73,43 @@ Rectangle {
         file && (file.relativePath || file.name)
             ? String(file.relativePath || file.name)
             : ""
+
+    readonly property string documentWorkspaceRoot:
+        LibraryStore.selectedLibrary
+        && LibraryStore.selectedLibrary.rootPath
+            ? String(
+                LibraryStore.selectedLibrary.rootPath
+            )
+            : ""
+
+    readonly property string documentFilePath: {
+        var relativePath = String(root.documentPath || "")
+        var workspaceRoot = String(
+            root.documentWorkspaceRoot || ""
+        )
+
+        if (relativePath.length === 0) {
+            return ""
+        }
+
+        if (
+            relativePath.charAt(0) === "/"
+            || /^[A-Za-z]:[\\/]/.test(relativePath)
+            || relativePath.indexOf("\\\\") === 0
+        ) {
+            return relativePath
+        }
+
+        if (workspaceRoot.length === 0) {
+            return relativePath
+        }
+
+        var separator = /[\\/]$/.test(workspaceRoot)
+            ? ""
+            : "/"
+
+        return workspaceRoot + separator + relativePath
+    }
 
     readonly property string documentModifiedAt:
         preview
@@ -225,7 +265,11 @@ Rectangle {
         activeSurface: "editor"
         documentId:
             root.active ? root.stableDocumentId : ""
+        documentLibraryId: root.documentLibraryId
         documentPath: root.documentPath
+        documentFilePath: root.documentFilePath
+        documentWorkspaceRoot:
+            root.documentWorkspaceRoot
         documentLanguage:
             String(
                 root.fileIdentity.languageId

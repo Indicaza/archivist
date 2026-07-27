@@ -9,6 +9,7 @@ import { chatRouter } from "./api/chats/routes/ChatRoutes.js";
 import { collectionRouter } from "./api/collections/routes/CollectionRoutes.js";
 import { contextCompilerRouter } from "./api/cognition/contextCompilers/routes/ContextCompilerRoutes.js";
 import { contextRetrievalRouter } from "./api/cognition/contextRetrieval/routes/ContextRetrievalRoutes.js";
+import { languageSupportRouter } from "./api/languageSupport/routes/LanguageSupportRoutes.js";
 import { libraryRouter } from "./api/libraries/routes/LibraryRoutes.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
@@ -47,6 +48,7 @@ app.get("/api/health", (_request, response) => {
 app.use("/api/agents", agentRouter);
 app.use("/api/ai", aiModelRouter);
 app.use("/api/libraries", libraryRouter);
+app.use("/api/language-support", languageSupportRouter);
 app.use("/api/chats", chatRouter);
 app.use("/api/collections", collectionRouter);
 app.use("/api/app-state", appStateRouter);

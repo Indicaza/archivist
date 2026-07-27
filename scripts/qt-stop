@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="3333"
 RUNTIME_DIR="$ROOT/backend/data/runtime"
 PID_FILE="$RUNTIME_DIR/qt-dev-backend.pid"
+FRONTEND_PID_FILE="$RUNTIME_DIR/qt-dev-frontend.pid"
 PROCESS_TREE=()
 
 collect_process_tree() {
@@ -94,6 +95,24 @@ repository_process_root() {
 
 stopped=0
 
+if [[ -f "$FRONTEND_PID_FILE" ]]; then
+  frontend_pid="$(tr -d '[:space:]' < "$FRONTEND_PID_FILE")"
+
+  if [[ "$frontend_pid" =~ ^[0-9]+$ ]] && kill -0 "$frontend_pid" 2>/dev/null; then
+    frontend_command="$(ps -p "$frontend_pid" -o command= 2>/dev/null || true)"
+
+    if [[ "$frontend_command" == *"archivist-qt"* ]]; then
+      printf 'Stopping managed Archivist frontend process tree (%s)...\n' "$frontend_pid"
+      terminate_process_tree "$frontend_pid"
+      stopped=1
+    else
+      printf 'Leaving unrelated process %s alone.\n' "$frontend_pid" >&2
+    fi
+  fi
+
+  rm -f "$FRONTEND_PID_FILE"
+fi
+
 if [[ -f "$PID_FILE" ]]; then
   managed_pid="$(tr -d '[:space:]' < "$PID_FILE")"
 
@@ -128,7 +147,7 @@ for listener_pid in $listener_pids; do
 done
 
 if (( stopped == 0 )); then
-  printf 'No managed Archivist backend process was running.\n'
+  printf 'No managed Archivist development processes were running.\n'
 else
-  printf 'Archivist backend processes stopped.\n'
+  printf 'Archivist development processes stopped.\n'
 fi

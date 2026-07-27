@@ -19,7 +19,10 @@ export interface ArchivistTheme {
 
 export interface ArchivistDocument {
   id: string;
+  libraryId: string;
   path: string;
+  filePath: string;
+  workspaceRoot: string;
   language: string;
   content: string;
   modifiedAt: string;

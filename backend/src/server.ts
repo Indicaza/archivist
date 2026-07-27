@@ -3,9 +3,12 @@ import { app } from "./app.js";
 import { closeDatabase } from "./database/database.js";
 import { recoverInterruptedLibraryScans } from "./api/libraries/models/LibraryFile.js";
 import { installTerminalSocketServer } from "./api/terminals/services/TerminalSocketServer.js";
+import { languageSupportSocketServer } from "./api/languageSupport/services/LanguageSupportSocketServer.js";
 
 const port = Number(process.env.PORT ?? 3333);
 const recoveredScanCount = recoverInterruptedLibraryScans();
+
+await languageSupportSocketServer.start();
 
 if (recoveredScanCount > 0) {
   console.warn(
@@ -28,6 +31,7 @@ function shutdown(): void {
 
   shuttingDown = true;
   terminalSocketServer.close();
+  languageSupportSocketServer.close();
   server.close(() => {
     closeDatabase();
     process.exit(0);

@@ -9,7 +9,10 @@ Item {
     required property var theme
     property string activeSurface: "terminal"
     property string documentId: ""
+    property string documentLibraryId: ""
     property string documentPath: ""
+    property string documentFilePath: ""
+    property string documentWorkspaceRoot: ""
     property string documentLanguage: "plaintext"
     property string documentContent: ""
     property string documentModifiedAt: ""
@@ -68,7 +71,12 @@ Item {
 
     readonly property string documentPayload: JSON.stringify({
         id: String(root.documentId || ""),
+        libraryId: String(root.documentLibraryId || ""),
         path: String(root.documentPath || ""),
+        filePath: String(root.documentFilePath || ""),
+        workspaceRoot: String(
+            root.documentWorkspaceRoot || ""
+        ),
         language: String(
             root.documentLanguage || "plaintext"
         ),
