@@ -1,0 +1,74 @@
+.archivist-editor-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 224px;
+  max-width: min(360px, calc(100vw - 12px));
+  padding: 5px;
+  overflow: hidden;
+  color: var(--editor-menu-text, #d8d2c7);
+  background: var(--editor-menu-bg, #24221d);
+  border: 1px solid var(--editor-menu-border, #3b3730);
+  border-radius: 8px;
+  box-shadow:
+    0 16px 40px rgb(0 0 0 / 38%),
+    0 4px 12px rgb(0 0 0 / 24%);
+  font-family: system-ui, sans-serif;
+  font-size: var(--editor-menu-font-size, 13px);
+  user-select: none;
+}
+
+.archivist-editor-context-menu[hidden] {
+  display: none !important;
+}
+
+.archivist-editor-context-menu__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: 30px;
+  gap: 20px;
+  padding: 5px 9px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.archivist-editor-context-menu__item:not(:disabled):hover,
+.archivist-editor-context-menu__item:not(:disabled):focus-visible {
+  color: var(--editor-menu-accent, #b7aad2);
+  background: var(--editor-menu-hover, #2b2924);
+  outline: none;
+}
+
+.archivist-editor-context-menu__item:not(:disabled):active {
+  background: var(--editor-menu-active, #302b38);
+}
+
+.archivist-editor-context-menu__item:disabled {
+  color: var(--editor-menu-muted, #9a9387);
+  opacity: 0.48;
+}
+
+.archivist-editor-context-menu__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archivist-editor-context-menu__shortcut {
+  color: var(--editor-menu-muted, #9a9387);
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+
+.archivist-editor-context-menu__separator {
+  height: 1px;
+  margin: 4px 7px;
+  background: var(--editor-menu-divider, #2d2a25);
+}

@@ -51,6 +51,16 @@ Update this section after every meaningful coding session.
 - reference-based Collections that group multiple Libraries, Chats, and Agent configuration into task-focused workspaces;
 - Collection-scoped navigation with no global `All Work` Library view;
 - persistent file and Chat tabs with polished drag-and-drop reordering;
+- one embedded Qt WebEngine IDE host containing Monaco and xterm.js;
+- Archivist-owned editor commands and context menu with Go to Definition plus standard clipboard actions;
+- workspace-scoped language-server supervision with one reusable process per server and workspace;
+- TypeScript/JavaScript language intelligence for `.ts`, `.js`, `.tsx`, and `.jsx`, including React and Next.js projects;
+- QML, C/C++, Rust, Python, Go, YAML, Bash, and Markdown language-server adapters with graceful missing-tool fallback;
+- Monaco-native HTML, CSS, SCSS, Less, and JSON services;
+- SQL highlighting and generic completion isolated to SQL models so SQL never attaches to TypeScript files;
+- pinned npm language tooling in `scripts/language-tools.json` with install, update, doctor, and version commands;
+- structured language telemetry and one-command diagnostics for classifications, capabilities, markers, processes, and failures;
+- `language-test-lab/` fixtures for cross-file navigation and intentional diagnostic smoke tests;
 - per-Collection tab order, active tab, Explorer width and visibility, active activity view, Chat dock height, and dock attachment state;
 - live Collection switching that waits for the new Collection scope before restoring active files and Chats;
 - multi-Library Collections for separate code, documentation, assets, research, and design roots;
@@ -166,95 +176,68 @@ They describe what happened during a response rather than recalculating history 
 
 ## Next Milestone
 
-The next branch should be:
+Finish and merge the current language-support PR before adding more adapters.
 
 ```text
-feature/file-renderers
-```
-
-The next coherent milestone is to make files feel native to Archivist rather than like plain text dumped into a preview:
-
-```text
-detect file type
-→ select a registered renderer
-→ show the best readable view
-→ preserve access to authoritative source
-→ reuse one icon identity in the Library and tabs
+run the final checks
+→ smoke-test the small language fixtures
+→ inspect one diagnostic snapshot
+→ stage only the intended implementation and documentation
+→ commit, push, and open the PR
 ```
 
 ### Immediate goals
 
-1. **Introduce a renderer registry**
-   - resolve by extension, MIME type, and explicit language identity;
-   - keep fallback text rendering dependable;
-   - do not hardcode every renderer into one giant QML conditional;
-   - keep renderer ownership inside the file-preview domain.
+1. **Verify the branch**
+   - run `nvm use`;
+   - run `npm run check:language-support`;
+   - run `npm run build`;
+   - launch with `npm run dev`;
+   - open representative valid and intentionally broken fixtures.
 
-2. **Ship rendered Markdown**
-   - add `Rendered`, `Source`, and `Split` modes;
-   - render headings, lists, code blocks, tables, links, quotes, and images cleanly;
-   - preserve the original file as authoritative;
-   - remember the preferred view mode per file type or workspace without overbuilding settings.
+2. **Inspect language health**
+   - run `npm run diagnose:language-support`;
+   - confirm expected Monaco and LSP language IDs;
+   - confirm valid TSX/JSX returns zero diagnostics;
+   - confirm intentional errors produce owned Monaco markers;
+   - treat missing optional Go support as non-blocking.
 
-3. **Create one shared icon registry**
-   - use the same resolver in Library rows, editor tabs, drag proxies, and future search results;
-   - separate application-action icons from file-type and programming-language identity;
-   - replace temporary Unicode glyph decisions gradually rather than scattering more one-off symbols.
-
-4. **Establish the next renderer set**
-   - images with zoom and fit controls;
-   - SVG rendered/source modes;
-   - JSON and YAML structured/source modes;
-   - plain text and log fallback;
-   - leave PDF, 3D, diff, and richer media renderers behind the same contract.
-
-5. **Protect workspace behavior**
-   - renderer changes must not disturb tab drag-and-drop;
-   - Collection switching must still restore active tabs and Libraries;
-   - Library tree selection and scroll state must remain stable when a preview changes.
+3. **Keep the PR narrow**
+   - include the editor command boundary, language-server supervision, managed tools, telemetry, fixtures, and documentation;
+   - exclude generated `target/`, build output, diagnostic dumps, context bundles, and numbered patches;
+   - do not add framework-specific, Unreal, Godot, debugger, or Blueprint systems before merge.
 
 ### Known debt
 
-- most file previews are plain text;
-- file and language glyphs are temporary and inconsistent;
-- the Library Explorer has no Git status decorations or status filters;
-- automatic retrieval searches only the active Library;
-- worktree identity is not part of tab or Library state;
-- the same path opened from two future worktrees would currently collide;
-- split editor groups, dockable panes, and recursive layout persistence are not implemented;
-- workspace-state keys do not yet have an explicit schema-version migration layer;
-- Library tree state currently assumes stable Library and catalog node IDs.
+- the editor menu currently exposes only Go to Definition and standard clipboard actions;
+- Find References, Rename, Quick Fix, Format, multiple-definition selection, and peek views still need UI surfaces;
+- JSX editing now parses and validates correctly, but completion and auto-closing deserve focused testing in real React projects;
+- SQL completion is generic and isolated to SQL files; it is not connected to live database schemas;
+- `clangd` quality depends on a correct compilation database or compile flags;
+- Unreal projects need a future adapter for compilation commands, generated headers, reflection data, and assets;
+- Godot GDScript requires a future TCP transport to Godot's project-scoped language server;
+- Go remains optional until the local Go toolchain can install a compatible `gopls`;
+- language-server sessions are bounded in memory and process count but do not yet have an idle-time eviction policy;
+- client telemetry is local, in-memory, bounded, and diagnostic-only; it resets with the backend.
 
-### After file renderers
+### After merge
 
-1. **Library Explorer V2**
-   - file-type icons;
-   - Git modified, added, deleted, untracked, renamed, and conflict decorations;
-   - status and file-type filters;
-   - keyboard navigation and richer context actions.
+1. **Capability-driven editor commands**
+   - Find References;
+   - Rename Symbol;
+   - Quick Fix and code actions;
+   - Format Document and Selection;
+   - multiple-definition and reference result pickers.
 
-2. **Worktree-scoped Collection views**
-   - include worktree identity in tabs and file state;
-   - swap filesystem contents, Git decorations, terminals, Agent jobs, diffs, and tests together.
+2. **Targeted language quality**
+   - test real React and Next.js repositories;
+   - improve JSX completion only from observed failures;
+   - add project-aware C++ and Unreal setup when needed;
+   - add additional languages only when a real project requires them.
 
-3. **Split editor groups and dockable panes**
-   - recursive layout tree;
-   - named layouts;
-   - multi-monitor workspace presets.
-
-4. **Retrieval hardening**
-   - measure indexing, search, context compilation, provider, persistence, and rendering latency separately;
-   - make index freshness automatic and obvious;
-   - improve evidence selection using observed failures rather than speculative complexity.
-
-### Explicitly not now
-
-- autonomous filesystem mutation;
-- embeddings added merely because they are fashionable;
-- generic multi-Agent playgrounds;
-- large plugin marketplaces;
-- broad social or business integrations;
-- replacing mature creative applications.
+3. **Return to product work**
+   - keep language plumbing stable;
+   - continue the broader Archivist workspace, renderer, Git, Agent, and deployment roadmap on fresh branches.
 
 ## Root Development Workflow
 
@@ -553,60 +536,65 @@ Never claim a build or test passed unless it was actually run.
 - provide rollback guidance when a change is risky;
 - keep temporary context and patch artifacts out of Git.
 
-Local-only ignores:
-
-```bash
-cat >> .git/info/exclude <<'EOF_IGNORE'
-qt-context-*.txt
-[0-9][0-9][0-9]-*.patch
-[0-9][0-9][0-9]-*.py
-[0-9][0-9][0-9][a-z]-*.py
-EOF_IGNORE
-```
+Generated files must be ignored through committed repository or fixture-level `.gitignore` rules. Do not use `.git/info/exclude`; hidden local exclusions make PR contents harder to audit and reproduce.
 
 ## Current PR Boundary
 
-The current coherent milestone is **Collection-scoped workspaces with persistent multi-Library Explorer state**:
+The current coherent milestone is **workspace-scoped language support inside the embedded Archivist IDE**:
 
 ```text
-real Collection selection
-→ restore Collection shell layout
-→ restore file and Chat tabs
-→ wait for live Collection scope
-→ restore active file or Chat
-→ restore last active Library
-→ restore per-Library tree expansion, selection, filter, and scroll
-→ populate scoped Chats immediately
+open a supported source file
+→ classify its Monaco and LSP language identities
+→ resolve the nearest project workspace
+→ reuse or start the correct language service
+→ expose completion, hover, navigation, diagnostics, and advertised capabilities
+→ preserve normal editing when an optional tool is unavailable
+→ capture enough local telemetry to diagnose failures
 ```
 
-The PR should contain only:
+The PR should contain only the coherent language-support slice:
 
 ```text
 README.md
 devHandoff.md
-qt/qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
-qt/qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
-qt/qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/WorkspaceNavigator.qml
-qt/qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionBand.qml
-qt/qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/ChatBand.qml
-qt/qml/App/Workbench/Workspace/EditorTabs/EditorTabStrip.qml
+package.json
+package-lock.json
+backend/src/api/languageSupport/**
+frontend/qml/App/Workbench/IdeHost/Web/MonacoEditor/**
+language-test-lab/**
+scripts/diagnose-language-support.mjs
+scripts/language-tools.json
+scripts/language-tools.mjs
+.gitignore changes directly related to generated language-test output
 ```
 
-Numbered patch files, Python updater scripts, generated context bundles, screenshots, and other temporary coding artifacts must remain local and must not appear in the PR.
+Do not include:
 
-Do not add file renderers, the icon registry, Git decorations, worktree scoping, split panes, or unrelated retrieval changes before merging this PR.
+```text
+numbered patch files
+generated context bundles
+language-support diagnostic dumps
+language-test-lab compiler output
+Rust target directories
+screenshots or unrelated UI work
+framework-specific adapters
+Unreal, Godot, debugger, Blueprint, or deployment systems
+```
 
 Suggested PR title:
 
 ```text
-feat: add collection-scoped workspaces and persistent library state
+feat: add workspace-scoped language support
 ```
 
-Suggested next branch after merge:
+Suggested commit shape:
 
 ```text
-feature/file-renderers
+feat: add workspace-scoped language support
+chore: add language tooling diagnostics and test fixtures
 ```
+
+A single commit is acceptable if the branch is already one coherent uncommitted slice.
 
 ## Keeping This Seed Useful
 

@@ -1,0 +1,16 @@
+:root {
+  --surface: #201f1b;
+  --text: #d8d2c7;
+}
+
+.dashboard {
+  display: grid;
+  gap: 1rem;
+  padding: 2rem;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.dashboard button:hover {
+  transform: translateY(-1px);
+}

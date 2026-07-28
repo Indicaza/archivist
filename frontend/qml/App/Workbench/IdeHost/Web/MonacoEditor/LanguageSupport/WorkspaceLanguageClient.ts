@@ -12,6 +12,14 @@ import {
   type LanguageServerSessionDescriptor,
   type LspPublishDiagnosticsParams,
 } from "./LspTypes.js";
+import {
+  recordLanguageSupportTelemetry,
+} from "./LanguageSupportTelemetry.js";
+import {
+  languageServerConfiguration,
+  languageServerInitializationOptions,
+  languageServerSettings,
+} from "./LanguageServerSettings.js";
 
 type MonacoApi = typeof Monaco;
 
@@ -31,11 +39,41 @@ interface ManagedDocument {
   disposeDisposable: Disposable;
 }
 
+function diagnosticSeverityName(
+  severity: number | undefined,
+): string {
+  switch (severity) {
+    case 2:
+      return "warning";
+    case 3:
+      return "info";
+    case 4:
+      return "hint";
+    default:
+      return "error";
+  }
+}
+
+function initializeCapabilityNames(result: unknown): string[] {
+  if (!isRecord(result) || !isRecord(result.capabilities)) {
+    return [];
+  }
+
+  return Object.entries(result.capabilities)
+    .filter(([, value]) => value !== false && value !== null)
+    .map(([name]) => name)
+    .sort();
+}
+
 export class WorkspaceLanguageClient {
   private connection: LspConnection | null = null;
   private readonly documents = new Map<
     string,
     ManagedDocument
+  >();
+  private readonly diagnosticFingerprintByUri = new Map<
+    string,
+    string
   >();
   private disposed = false;
 
@@ -78,7 +116,7 @@ export class WorkspaceLanguageClient {
     const workspaceUri = this.monaco.Uri.file(
       this.descriptor.workspaceRoot,
     ).toString();
-    await this.connection.request<unknown>(
+    const initializeResult = await this.connection.request<unknown>(
       "initialize",
       {
         processId: null,
@@ -95,7 +133,10 @@ export class WorkspaceLanguageClient {
           },
           workspace: {
             applyEdit: false,
-            configuration: false,
+            configuration: true,
+            didChangeConfiguration: {
+              dynamicRegistration: false,
+            },
             workspaceFolders: true,
           },
           window: {
@@ -149,6 +190,22 @@ export class WorkspaceLanguageClient {
             references: {
               dynamicRegistration: false,
             },
+            formatting: {
+              dynamicRegistration: false,
+            },
+            rangeFormatting: {
+              dynamicRegistration: false,
+            },
+            rename: {
+              dynamicRegistration: false,
+              prepareSupport: true,
+            },
+            codeAction: {
+              dynamicRegistration: false,
+              dataSupport: true,
+              disabledSupport: true,
+              isPreferredSupport: true,
+            },
             publishDiagnostics: {
               relatedInformation: true,
               tagSupport: {
@@ -164,14 +221,40 @@ export class WorkspaceLanguageClient {
             name: fileName(this.descriptor.workspaceRoot),
           },
         ],
+        initializationOptions:
+          languageServerInitializationOptions(
+            this.descriptor.serverId,
+          ),
         trace: "off",
       },
     );
 
     this.connection.notify("initialized", {});
-    console.info(
-      `[Language Support] ${this.descriptor.displayName} initialized for ${this.descriptor.workspaceRoot}`,
+    const settings = languageServerSettings(
+      this.descriptor.serverId,
     );
+
+    if (Object.keys(settings).length > 0) {
+      this.connection.notify(
+        "workspace/didChangeConfiguration",
+        { settings },
+      );
+    }
+    const capabilities = initializeCapabilityNames(
+      initializeResult,
+    );
+    console.info(
+      `[Language Support:${this.descriptor.serverId}] initialized`
+      + ` workspace=${this.descriptor.workspaceRoot}`
+      + ` capabilities=${capabilities.join(",") || "none"}`,
+    );
+    recordLanguageSupportTelemetry({
+      kind: "initialized",
+      provider: "lsp",
+      serverId: this.descriptor.serverId,
+      workspaceRoot: this.descriptor.workspaceRoot,
+      capabilities,
+    });
   }
 
   attachDocument(
@@ -225,6 +308,23 @@ export class WorkspaceLanguageClient {
         version: managed.version,
         text: model.getValue(),
       },
+    });
+    console.info(
+      `[Language Support:${this.descriptor.serverId}] didOpen`
+      + ` lspLanguage=${languageId}`
+      + ` monacoLanguage=${model.getLanguageId()}`
+      + ` version=${managed.version}`
+      + ` uri=${uri}`,
+    );
+    recordLanguageSupportTelemetry({
+      kind: "document-open",
+      provider: "lsp",
+      serverId: this.descriptor.serverId,
+      workspaceRoot: this.descriptor.workspaceRoot,
+      uri,
+      monacoLanguageId: model.getLanguageId(),
+      lspLanguageId: languageId,
+      version: managed.version,
     });
   }
 
@@ -294,6 +394,7 @@ export class WorkspaceLanguageClient {
     }
 
     this.documents.delete(uri);
+    this.diagnosticFingerprintByUri.delete(uri);
     document.changeDisposable.dispose();
     document.disposeDisposable.dispose();
     this.connection?.notify("textDocument/didClose", {
@@ -340,7 +441,17 @@ export class WorkspaceLanguageClient {
           && Array.isArray(params.items)
             ? params.items
             : [];
-        return items.map(() => null);
+        return items.map((item) => {
+          const section = isRecord(item)
+            && typeof item.section === "string"
+              ? item.section
+              : "";
+
+          return languageServerConfiguration(
+            this.descriptor.serverId,
+            section,
+          );
+        });
       }
       case "workspace/workspaceFolders": {
         const uri = this.monaco.Uri.file(
@@ -403,6 +514,95 @@ export class WorkspaceLanguageClient {
         diagnosticMarker(this.monaco, diagnostic),
       ),
     );
+
+    const fingerprint = JSON.stringify(
+      typed.diagnostics.map((diagnostic) => [
+        diagnostic.severity ?? 1,
+        diagnostic.range.start.line,
+        diagnostic.range.start.character,
+        diagnostic.message,
+      ]),
+    );
+
+    if (
+      this.diagnosticFingerprintByUri.get(typed.uri)
+      === fingerprint
+    ) {
+      return;
+    }
+
+    this.diagnosticFingerprintByUri.set(
+      typed.uri,
+      fingerprint,
+    );
+
+    const counts = {
+      error: 0,
+      warning: 0,
+      info: 0,
+      hint: 0,
+    };
+
+    for (const diagnostic of typed.diagnostics) {
+      counts[diagnosticSeverityName(
+        diagnostic.severity,
+      ) as keyof typeof counts] += 1;
+    }
+
+    console.info(
+      `[Language Support:${this.descriptor.serverId}] diagnostics`
+      + ` total=${typed.diagnostics.length}`
+      + ` errors=${counts.error}`
+      + ` warnings=${counts.warning}`
+      + ` info=${counts.info}`
+      + ` hints=${counts.hint}`
+      + ` uri=${typed.uri}`,
+    );
+
+    for (const diagnostic of typed.diagnostics.slice(0, 8)) {
+      console.info(
+        `[Language Support:${this.descriptor.serverId}] diagnostic`
+        + ` severity=${diagnosticSeverityName(diagnostic.severity)}`
+        + ` line=${diagnostic.range.start.line + 1}`
+        + ` column=${diagnostic.range.start.character + 1}`
+        + ` message=${diagnostic.message.replace(/\s+/g, " ").trim()}`,
+      );
+    }
+
+    if (typed.diagnostics.length > 8) {
+      console.info(
+        `[Language Support:${this.descriptor.serverId}] diagnostic`
+        + ` omitted=${typed.diagnostics.length - 8}`
+        + ` uri=${typed.uri}`,
+      );
+    }
+
+    recordLanguageSupportTelemetry({
+      kind: "diagnostics",
+      provider: "lsp",
+      serverId: this.descriptor.serverId,
+      workspaceRoot: this.descriptor.workspaceRoot,
+      uri: typed.uri,
+      diagnostics: {
+        total: typed.diagnostics.length,
+        errors: counts.error,
+        warnings: counts.warning,
+        info: counts.info,
+        hints: counts.hint,
+        details: typed.diagnostics.slice(0, 8).map(
+          (diagnostic) => ({
+            severity: diagnosticSeverityName(
+              diagnostic.severity,
+            ) as "error" | "warning" | "info" | "hint",
+            line: diagnostic.range.start.line + 1,
+            column: diagnostic.range.start.character + 1,
+            message: diagnostic.message
+              .replace(/\s+/g, " ")
+              .trim(),
+          }),
+        ),
+      },
+    });
   }
 
   private handleClose(message: string): void {
@@ -411,8 +611,18 @@ export class WorkspaceLanguageClient {
     }
 
     console.warn(
-      `[Language Support:${this.descriptor.serverId}] ${message}`,
+      `[Language Support:${this.descriptor.serverId}] disconnected`
+      + ` documents=${this.documents.size}`
+      + ` workspace=${this.descriptor.workspaceRoot}`
+      + ` reason=${message}`,
     );
+    recordLanguageSupportTelemetry({
+      kind: "disconnected",
+      provider: "lsp",
+      serverId: this.descriptor.serverId,
+      workspaceRoot: this.descriptor.workspaceRoot,
+      message,
+    });
     this.callbacks.reportStatus(
       `${this.descriptor.displayName} disconnected`,
     );

@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "managedPackages": [
+    "typescript-language-server",
+    "typescript",
+    "@zed-industries/vscode-langservers-extracted",
+    "sql-language-server",
+    "yaml-language-server",
+    "bash-language-server",
+    "pyright"
+  ],
+  "npmTools": [
+    {
+      "id": "typescript",
+      "displayName": "TypeScript / JavaScript",
+      "package": "typescript-language-server",
+      "version": "5.3.0",
+      "binaries": [
+        "typescript-language-server"
+      ]
+    },
+    {
+      "id": "typescript-runtime",
+      "displayName": "TypeScript runtime",
+      "package": "typescript",
+      "version": "6.0.2",
+      "binaries": [
+        "tsserver"
+      ],
+      "updatePolicy": "manual"
+    },
+    {
+      "id": "yaml",
+      "displayName": "YAML",
+      "package": "yaml-language-server",
+      "version": "1.24.0",
+      "binaries": [
+        "yaml-language-server"
+      ]
+    },
+    {
+      "id": "bash",
+      "displayName": "Bash / Shell",
+      "package": "bash-language-server",
+      "version": "5.6.0",
+      "binaries": [
+        "bash-language-server"
+      ]
+    },
+    {
+      "id": "python",
+      "displayName": "Python",
+      "package": "pyright",
+      "version": "1.1.411",
+      "binaries": [
+        "pyright-langserver"
+      ]
+    }
+  ],
+  "nativeTools": [
+    {
+      "id": "qml",
+      "displayName": "QML",
+      "binaries": [
+        "qmlls",
+        "qmlls6"
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "updateHint": "Update the Qt installation that provides qmlls; on Homebrew this is usually: brew upgrade qt"
+    },
+    {
+      "id": "clangd",
+      "displayName": "C / C++",
+      "binaries": [
+        "clangd"
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "updateHint": "Update LLVM/clangd with the package manager that installed it; on Homebrew: brew upgrade llvm"
+    },
+    {
+      "id": "rust",
+      "displayName": "Rust",
+      "binaries": [
+        "rust-analyzer"
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "updateHint": "Update the active Rust toolchain and component: rustup update && rustup component add rust-analyzer"
+    },
+    {
+      "id": "go",
+      "displayName": "Go",
+      "binaries": [
+        "gopls"
+      ],
+      "versionArgs": [
+        "version"
+      ],
+      "updateHint": "Install or update gopls: go install golang.org/x/tools/gopls@latest"
+    },
+    {
+      "id": "markdown",
+      "displayName": "Markdown",
+      "binaries": [
+        "marksman"
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "updateHint": "Install or update Marksman with its package manager; on Homebrew: brew upgrade marksman"
+    },
+    {
+      "id": "shellcheck",
+      "displayName": "ShellCheck helper",
+      "binaries": [
+        "shellcheck"
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "updateHint": "Install or update ShellCheck; on Homebrew: brew upgrade shellcheck"
+    },
+    {
+      "id": "shfmt",
+      "displayName": "Shell formatter",
+      "binaries": [
+        "shfmt"
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "updateHint": "Install or update shfmt; on Homebrew: brew upgrade shfmt"
+    }
+  ]
+}

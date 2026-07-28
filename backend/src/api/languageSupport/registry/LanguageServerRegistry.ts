@@ -31,6 +31,7 @@ const definitions: readonly LanguageServerDefinition[] = [
     executableCandidates: ["qmlls", "qmlls6"],
     args: [],
     rootMarkers: [
+      ".qmlls.ini",
       "qmldir",
       "CMakeLists.txt",
       ".git",
@@ -129,6 +130,27 @@ const definitions: readonly LanguageServerDefinition[] = [
     executableCandidates: ["yaml-language-server"],
     args: ["--stdio"],
     rootMarkers: [".yamllint", "package.json", ".git"],
+    enabledByDefault: true,
+  },
+  {
+    id: "sql",
+    displayName: "SQL",
+    languageIds: [
+      "sql",
+      "mysql",
+      "postgres",
+      "postgresql",
+      "sqlite",
+      "sqlite3",
+    ],
+    executableCandidates: ["sql-language-server"],
+    args: ["up", "--method", "stdio"],
+    rootMarkers: [
+      ".sqllsrc.json",
+      "package.json",
+      "composer.json",
+      ".git",
+    ],
     enabledByDefault: false,
   },
   {
@@ -138,7 +160,7 @@ const definitions: readonly LanguageServerDefinition[] = [
     executableCandidates: ["bash-language-server"],
     args: ["start"],
     rootMarkers: [".git"],
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
   {
     id: "markdown",
@@ -147,7 +169,7 @@ const definitions: readonly LanguageServerDefinition[] = [
     executableCandidates: ["marksman"],
     args: ["server"],
     rootMarkers: [".marksman.toml", ".git"],
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
 ];
 

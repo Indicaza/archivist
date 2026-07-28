@@ -1,0 +1,710 @@
+import QtQuick.tooling 1.2
+
+// Tooling metadata for C++ types registered imperatively in main.cpp.
+// This file is not loaded by the runtime application.
+Module {
+    Component {
+        name: "AgentStore"
+        prototype: "QObject"
+        exports: ["Archivist.Services/AgentStore 1.0"]
+        exportMetaObjectRevisions: [0]
+        isSingleton: true
+        isCreatable: false
+        Property { name: "agents"; type: "QVariantList"; isReadonly: true }
+        Property { name: "archivedAgents"; type: "QVariantList"; isReadonly: true }
+        Property { name: "loading"; type: "bool"; isReadonly: true }
+        Property { name: "loadingArchived"; type: "bool"; isReadonly: true }
+        Property { name: "mutating"; type: "bool"; isReadonly: true }
+        Property { name: "errorMessage"; type: "QString"; isReadonly: true }
+        Method {
+            name: "refresh"
+        }
+        Method {
+            name: "refreshArchived"
+        }
+        Method {
+            name: "createAgent"
+            Parameter { name: "input"; type: "QVariantMap" }
+        }
+        Method {
+            name: "updateAgent"
+            Parameter { name: "agentId"; type: "QString" }
+            Parameter { name: "input"; type: "QVariantMap" }
+        }
+        Method {
+            name: "duplicateAgent"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "archiveAgent"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "restoreAgent"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "deleteAgent"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "clearError"
+        }
+        Method {
+            name: "agentById"
+            type: "QVariantMap"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Signal {
+            name: "agentsChanged"
+        }
+        Signal {
+            name: "archivedAgentsChanged"
+        }
+        Signal {
+            name: "loadingChanged"
+        }
+        Signal {
+            name: "loadingArchivedChanged"
+        }
+        Signal {
+            name: "mutatingChanged"
+        }
+        Signal {
+            name: "errorMessageChanged"
+        }
+        Signal {
+            name: "agentCreated"
+            Parameter { name: "agent"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "agentUpdated"
+            Parameter { name: "agent"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "agentDuplicated"
+            Parameter { name: "agent"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "agentArchived"
+            Parameter { name: "agent"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "agentRestored"
+            Parameter { name: "agent"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "agentDeleted"
+            Parameter { name: "agentId"; type: "QString" }
+            Parameter { name: "reassignedChatCount"; type: "int" }
+        }
+    }
+
+    Component {
+        name: "ChatStore"
+        prototype: "QObject"
+        exports: ["Archivist.Services/ChatStore 1.0"]
+        exportMetaObjectRevisions: [0]
+        isSingleton: true
+        isCreatable: false
+        Property { name: "chats"; type: "QVariantList"; isReadonly: true }
+        Property { name: "archivedChats"; type: "QVariantList"; isReadonly: true }
+        Property { name: "selectedChatId"; type: "QString"; isReadonly: true }
+        Property { name: "selectedChat"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "messages"; type: "QVariantList"; isReadonly: true }
+        Property { name: "attachments"; type: "QVariantList"; isReadonly: true }
+        Property { name: "lastSources"; type: "QVariantList"; isReadonly: true }
+        Property { name: "inspectedContext"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "inspectedMessageId"; type: "QString"; isReadonly: true }
+        Property { name: "loadingChats"; type: "bool"; isReadonly: true }
+        Property { name: "loadingArchivedChats"; type: "bool"; isReadonly: true }
+        Property { name: "loadingMessages"; type: "bool"; isReadonly: true }
+        Property { name: "loadingAttachments"; type: "bool"; isReadonly: true }
+        Property { name: "loadingOlderMessages"; type: "bool"; isReadonly: true }
+        Property { name: "hasOlderMessages"; type: "bool"; isReadonly: true }
+        Property { name: "responding"; type: "bool"; isReadonly: true }
+        Property { name: "assigningAgent"; type: "bool"; isReadonly: true }
+        Property { name: "mutating"; type: "bool"; isReadonly: true }
+        Property { name: "mutatingAttachment"; type: "bool"; isReadonly: true }
+        Property { name: "loadingContext"; type: "bool"; isReadonly: true }
+        Property { name: "errorMessage"; type: "QString"; isReadonly: true }
+        Property { name: "contextErrorMessage"; type: "QString"; isReadonly: true }
+        Property { name: "lastProvider"; type: "QString"; isReadonly: true }
+        Property { name: "lastModel"; type: "QString"; isReadonly: true }
+        Method {
+            name: "refresh"
+        }
+        Method {
+            name: "refreshArchived"
+        }
+        Method {
+            name: "createChat"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "selectChat"
+            Parameter { name: "chatId"; type: "QString" }
+        }
+        Method {
+            name: "refreshSelectedMessages"
+        }
+        Method {
+            name: "refreshSelectedAttachments"
+        }
+        Method {
+            name: "loadOlderMessages"
+        }
+        Method {
+            name: "sendMessage"
+            Parameter { name: "content"; type: "QString" }
+        }
+        Method {
+            name: "finishMessageReveal"
+            Parameter { name: "messageId"; type: "QString" }
+        }
+        Method {
+            name: "assignAgentToSelectedChat"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "attachAgentToSelectedChat"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "detachAgentFromSelectedChat"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Method {
+            name: "attachFile"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "fileId"; type: "QString" }
+        }
+        Method {
+            name: "removeAttachment"
+            Parameter { name: "attachmentId"; type: "QString" }
+        }
+        Method {
+            name: "loadMessageContext"
+            Parameter { name: "messageId"; type: "QString" }
+        }
+        Method {
+            name: "clearInspectedContext"
+        }
+        Method {
+            name: "updateChat"
+            Parameter { name: "chatId"; type: "QString" }
+            Parameter { name: "input"; type: "QVariantMap" }
+        }
+        Method {
+            name: "archiveChat"
+            Parameter { name: "chatId"; type: "QString" }
+        }
+        Method {
+            name: "restoreChat"
+            Parameter { name: "chatId"; type: "QString" }
+        }
+        Method {
+            name: "deleteChat"
+            Parameter { name: "chatId"; type: "QString" }
+        }
+        Method {
+            name: "clearError"
+        }
+        Signal {
+            name: "chatsChanged"
+        }
+        Signal {
+            name: "archivedChatsChanged"
+        }
+        Signal {
+            name: "selectedChatIdChanged"
+        }
+        Signal {
+            name: "selectedChatChanged"
+        }
+        Signal {
+            name: "messagesChanged"
+        }
+        Signal {
+            name: "attachmentsChanged"
+        }
+        Signal {
+            name: "olderMessagesWillPrepend"
+            Parameter { name: "count"; type: "int" }
+        }
+        Signal {
+            name: "olderMessagesPrepended"
+            Parameter { name: "count"; type: "int" }
+        }
+        Signal {
+            name: "loadingChatsChanged"
+        }
+        Signal {
+            name: "loadingArchivedChatsChanged"
+        }
+        Signal {
+            name: "loadingMessagesChanged"
+        }
+        Signal {
+            name: "loadingAttachmentsChanged"
+        }
+        Signal {
+            name: "loadingOlderMessagesChanged"
+        }
+        Signal {
+            name: "hasOlderMessagesChanged"
+        }
+        Signal {
+            name: "respondingChanged"
+        }
+        Signal {
+            name: "assigningAgentChanged"
+        }
+        Signal {
+            name: "mutatingChanged"
+        }
+        Signal {
+            name: "mutatingAttachmentChanged"
+        }
+        Signal {
+            name: "errorMessageChanged"
+        }
+        Signal {
+            name: "completionMetadataChanged"
+        }
+        Signal {
+            name: "inspectedContextChanged"
+        }
+        Signal {
+            name: "loadingContextChanged"
+        }
+        Signal {
+            name: "contextErrorMessageChanged"
+        }
+        Signal {
+            name: "attachmentAdded"
+            Parameter { name: "attachment"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "attachmentRemoved"
+            Parameter { name: "attachmentId"; type: "QString" }
+        }
+        Signal {
+            name: "agentAssigned"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Signal {
+            name: "chatCreated"
+            Parameter { name: "chat"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "chatUpdated"
+            Parameter { name: "chat"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "chatArchived"
+            Parameter { name: "chat"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "chatRestored"
+            Parameter { name: "chat"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "chatDeleted"
+            Parameter { name: "chatId"; type: "QString" }
+        }
+    }
+
+    Component {
+        name: "CollectionStore"
+        prototype: "QObject"
+        exports: ["Archivist.Services/CollectionStore 1.0"]
+        exportMetaObjectRevisions: [0]
+        isSingleton: true
+        isCreatable: false
+        Property { name: "collections"; type: "QVariantList"; isReadonly: true }
+        Property { name: "archivedCollections"; type: "QVariantList"; isReadonly: true }
+        Property { name: "selectedCollectionId"; type: "QString"; isReadonly: true }
+        Property { name: "selectedCollection"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "scope"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "loading"; type: "bool"; isReadonly: true }
+        Property { name: "loadingArchived"; type: "bool"; isReadonly: true }
+        Property { name: "mutating"; type: "bool"; isReadonly: true }
+        Property { name: "errorMessage"; type: "QString"; isReadonly: true }
+        Method {
+            name: "refresh"
+        }
+        Method {
+            name: "refreshArchived"
+        }
+        Method {
+            name: "selectCollection"
+            Parameter { name: "collectionId"; type: "QString" }
+        }
+        Method {
+            name: "createCollection"
+            Parameter { name: "name"; type: "QString" }
+            Parameter { name: "parentCollectionId"; type: "QString" }
+            Parameter { name: "libraryIds"; type: "QVariantList" }
+            Parameter { name: "chatIds"; type: "QVariantList" }
+            Parameter { name: "agentIds"; type: "QVariantList" }
+            Parameter { name: "defaultAgentId"; type: "QString" }
+        }
+        Method {
+            name: "addLibraryToCollection"
+            Parameter { name: "collectionId"; type: "QString" }
+            Parameter { name: "libraryId"; type: "QString" }
+        }
+        Method {
+            name: "updateCollection"
+            Parameter { name: "collectionId"; type: "QString" }
+            Parameter { name: "name"; type: "QString" }
+            Parameter { name: "parentCollectionId"; type: "QString" }
+            Parameter { name: "libraryIds"; type: "QVariantList" }
+            Parameter { name: "chatIds"; type: "QVariantList" }
+            Parameter { name: "agentIds"; type: "QVariantList" }
+            Parameter { name: "defaultAgentId"; type: "QString" }
+        }
+        Method {
+            name: "archiveCollection"
+            Parameter { name: "collectionId"; type: "QString" }
+        }
+        Method {
+            name: "restoreCollection"
+            Parameter { name: "collectionId"; type: "QString" }
+        }
+        Method {
+            name: "includesLibrary"
+            type: "bool"
+            Parameter { name: "libraryId"; type: "QString" }
+        }
+        Method {
+            name: "includesChat"
+            type: "bool"
+            Parameter { name: "chatId"; type: "QString" }
+        }
+        Method {
+            name: "isRosterAgent"
+            type: "bool"
+            Parameter { name: "agentId"; type: "QString" }
+        }
+        Signal {
+            name: "collectionsChanged"
+        }
+        Signal {
+            name: "archivedCollectionsChanged"
+        }
+        Signal {
+            name: "selectedCollectionIdChanged"
+        }
+        Signal {
+            name: "selectedCollectionChanged"
+        }
+        Signal {
+            name: "scopeChanged"
+        }
+        Signal {
+            name: "loadingChanged"
+        }
+        Signal {
+            name: "loadingArchivedChanged"
+        }
+        Signal {
+            name: "mutatingChanged"
+        }
+        Signal {
+            name: "errorMessageChanged"
+        }
+        Signal {
+            name: "collectionCreated"
+            Parameter { name: "collection"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "collectionUpdated"
+            Parameter { name: "collection"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "collectionArchived"
+            Parameter { name: "collection"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "collectionRestored"
+            Parameter { name: "collection"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "workspaceScopeChanged"
+        }
+    }
+
+    Component {
+        name: "MarkdownDocumentBridge"
+        prototype: "QObject"
+        exports: ["Archivist.Services/MarkdownDocumentBridge 1.0"]
+        exportMetaObjectRevisions: [0]
+        isSingleton: true
+        isCreatable: false
+        Method {
+            name: "resolveImageUrl"
+            type: "QUrl"
+            Parameter { name: "libraryRootPath"; type: "QString" }
+            Parameter { name: "documentRelativePath"; type: "QString" }
+            Parameter { name: "target"; type: "QString" }
+        }
+        Method {
+            name: "constrainImages"
+            Parameter { name: "quickDocument"; type: "QObject"; isPointer: true }
+            Parameter { name: "maximumWidth"; type: "qreal" }
+        }
+    }
+
+    Component {
+        name: "DocumentPreviewService"
+        prototype: "QObject"
+        exports: ["Archivist.Services/DocumentPreviewService 1.0"]
+        exportMetaObjectRevisions: [0]
+        Property { name: "previewUrl"; type: "QUrl"; isReadonly: true }
+        Property { name: "state"; type: "QString"; isReadonly: true }
+        Property { name: "errorMessage"; type: "QString"; isReadonly: true }
+        Property { name: "converterLabel"; type: "QString"; isReadonly: true }
+        Method {
+            name: "openDocument"
+            Parameter { name: "libraryRootPath"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+        }
+        Method {
+            name: "clear"
+        }
+        Signal {
+            name: "previewUrlChanged"
+        }
+        Signal {
+            name: "stateChanged"
+        }
+        Signal {
+            name: "errorMessageChanged"
+        }
+        Signal {
+            name: "converterLabelChanged"
+        }
+    }
+
+    Component {
+        name: "LibraryStore"
+        prototype: "QObject"
+        exports: ["Archivist.Services/LibraryStore 1.0"]
+        exportMetaObjectRevisions: [0]
+        isSingleton: true
+        isCreatable: false
+        Property { name: "libraries"; type: "QVariantList"; isReadonly: true }
+        Property { name: "selectedLibraryId"; type: "QString"; isReadonly: true }
+        Property { name: "selectedLibrary"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "files"; type: "QVariantList"; isReadonly: true }
+        Property { name: "directories"; type: "QVariantList"; isReadonly: true }
+        Property { name: "latestScan"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "selectedFileId"; type: "QString"; isReadonly: true }
+        Property { name: "selectedFile"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "filePreview"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "loadingLibraries"; type: "bool"; isReadonly: true }
+        Property { name: "loadingFiles"; type: "bool"; isReadonly: true }
+        Property { name: "loadingFilePreview"; type: "bool"; isReadonly: true }
+        Property { name: "scanning"; type: "bool"; isReadonly: true }
+        Property { name: "movingFile"; type: "bool"; isReadonly: true }
+        Property { name: "mutatingEntry"; type: "bool"; isReadonly: true }
+        Property { name: "savingFile"; type: "bool"; isReadonly: true }
+        Property { name: "creatingLibrary"; type: "bool"; isReadonly: true }
+        Property { name: "errorMessage"; type: "QString"; isReadonly: true }
+        Property { name: "filePreviewError"; type: "QString"; isReadonly: true }
+        Property { name: "fileSaveError"; type: "QString"; isReadonly: true }
+        Method {
+            name: "refresh"
+        }
+        Method {
+            name: "createLibrary"
+            Parameter { name: "folderUrl"; type: "QUrl" }
+        }
+        Method {
+            name: "selectLibrary"
+            Parameter { name: "libraryId"; type: "QString" }
+        }
+        Method {
+            name: "selectLibraryAndScan"
+            Parameter { name: "libraryId"; type: "QString" }
+        }
+        Method {
+            name: "refreshSelectedFiles"
+        }
+        Method {
+            name: "scanSelectedLibrary"
+        }
+        Method {
+            name: "moveFile"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "targetDirectory"; type: "QString" }
+        }
+        Method {
+            name: "createEntry"
+            Parameter { name: "parentDirectory"; type: "QString" }
+            Parameter { name: "name"; type: "QString" }
+            Parameter { name: "directory"; type: "bool" }
+        }
+        Method {
+            name: "renameFile"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "name"; type: "QString" }
+        }
+        Method {
+            name: "duplicateFile"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "name"; type: "QString" }
+        }
+        Method {
+            name: "revealEntry"
+            Parameter { name: "relativePath"; type: "QString" }
+        }
+        Method {
+            name: "previewFile"
+            Parameter { name: "fileId"; type: "QString" }
+        }
+        Method {
+            name: "saveFileContent"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "content"; type: "QString" }
+            Parameter { name: "expectedModifiedAt"; type: "QString" }
+        }
+        Method {
+            name: "clearFilePreview"
+        }
+        Signal {
+            name: "librariesChanged"
+        }
+        Signal {
+            name: "selectedLibraryIdChanged"
+        }
+        Signal {
+            name: "selectedLibraryChanged"
+        }
+        Signal {
+            name: "filesChanged"
+        }
+        Signal {
+            name: "directoriesChanged"
+        }
+        Signal {
+            name: "latestScanChanged"
+        }
+        Signal {
+            name: "selectedFileIdChanged"
+        }
+        Signal {
+            name: "selectedFileChanged"
+        }
+        Signal {
+            name: "filePreviewChanged"
+        }
+        Signal {
+            name: "loadingLibrariesChanged"
+        }
+        Signal {
+            name: "loadingFilesChanged"
+        }
+        Signal {
+            name: "loadingFilePreviewChanged"
+        }
+        Signal {
+            name: "scanningChanged"
+        }
+        Signal {
+            name: "movingFileChanged"
+        }
+        Signal {
+            name: "mutatingEntryChanged"
+        }
+        Signal {
+            name: "savingFileChanged"
+        }
+        Signal {
+            name: "creatingLibraryChanged"
+        }
+        Signal {
+            name: "libraryCreated"
+            Parameter { name: "library"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "fileMoved"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+        }
+        Signal {
+            name: "entryCreated"
+            Parameter { name: "kind"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+            Parameter { name: "fileId"; type: "QString" }
+        }
+        Signal {
+            name: "fileRenamed"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+            Parameter { name: "name"; type: "QString" }
+        }
+        Signal {
+            name: "fileDuplicated"
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+            Parameter { name: "name"; type: "QString" }
+        }
+        Signal {
+            name: "entryRevealed"
+            Parameter { name: "relativePath"; type: "QString" }
+        }
+        Signal {
+            name: "fileSaved"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "preview"; type: "QVariantMap" }
+        }
+        Signal {
+            name: "fileSaveFailed"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "message"; type: "QString" }
+        }
+        Signal {
+            name: "errorMessageChanged"
+        }
+        Signal {
+            name: "filePreviewErrorChanged"
+        }
+        Signal {
+            name: "fileSaveErrorChanged"
+        }
+    }
+
+    Component {
+        name: "WorkspaceStateStore"
+        prototype: "QObject"
+        exports: ["Archivist.Services/WorkspaceState 1.0"]
+        exportMetaObjectRevisions: [0]
+        isSingleton: true
+        isCreatable: false
+        Method {
+            name: "value"
+            type: "QVariant"
+            Parameter { name: "key"; type: "QString" }
+            Parameter { name: "defaultValue"; type: "QVariant" }
+        }
+        Method {
+            name: "setValue"
+            Parameter { name: "key"; type: "QString" }
+            Parameter { name: "value"; type: "QVariant" }
+        }
+        Method {
+            name: "remove"
+            Parameter { name: "key"; type: "QString" }
+        }
+        Method {
+            name: "sync"
+        }
+    }
+
+}

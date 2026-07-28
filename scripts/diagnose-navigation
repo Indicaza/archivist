@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+output_file="$repo_root/navigation-diagnostic.txt"
+legacy_output="$repo_root/backend/data/runtime/logs/navigation-diagnostic.txt"
+
+cd "$repo_root"
+rm -f "$legacy_output"
+
+{
+  printf '===== GENERATED =====\n'
+  date
+
+  printf '\n===== GIT =====\n'
+  git branch --show-current
+  git rev-parse --short HEAD
+  git status --short
+
+  printf '\n===== NAVIGATION SOURCE MATCHES =====\n'
+  grep -R -n -E \
+    'registerEditorOpener|registerDefinitionProvider|requestOpenLocation|revealLocation|IDE Navigation|archivist\.goToDefinition' \
+    frontend/qml/App/Workbench/IdeHost \
+    frontend/qml/App/Workbench/Workspace \
+    backend/src/api/languageSupport \
+    2>/dev/null || true
+
+  printf '\n===== BUILT IDE MATCHES =====\n'
+  grep -R -n -E \
+    'registerEditorOpener|IDE Navigation|archivist\.goToDefinition' \
+    frontend/dist/ide \
+    2>/dev/null || true
+
+  printf '\n===== RUNNING PROCESSES =====\n'
+  pgrep -alf \
+    'archivist-qt|tsx watch src/index.ts|qt-dev-detached|tail .*backend.log' \
+    || true
+
+  printf '\n===== BACKEND LOG =====\n'
+  tail -n 120 backend/data/runtime/logs/backend.log \
+    2>/dev/null || true
+
+  printf '\n===== FRONTEND LOG =====\n'
+  tail -n 160 backend/data/runtime/logs/frontend.log \
+    2>/dev/null || true
+} > "$output_file"
+
+printf 'Created %s\n' "$output_file"

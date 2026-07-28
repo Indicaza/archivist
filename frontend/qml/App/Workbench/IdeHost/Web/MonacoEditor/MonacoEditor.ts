@@ -3,7 +3,13 @@ import editorWorker from "monaco-editor/editor/editor.worker?worker";
 import cssWorker from "monaco-editor/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/language/json/json.worker?worker";
-import "monaco-editor/language/typescript/monaco.contribution";
+import {
+  JsxEmit,
+  javascriptDefaults,
+  typescriptDefaults,
+  type CompilerOptions,
+  type DiagnosticsOptions,
+} from "monaco-editor/languages/features/typescript/register";
 import typescriptWorker from "monaco-editor/language/typescript/ts.worker?worker";
 import {
   defineArchivistEditorTheme,
@@ -12,6 +18,16 @@ import {
   ensureLanguage,
   normalizeLanguageId,
 } from "./LanguageRegistry.js";
+import {
+  registerSqlLanguageSupport,
+} from "./Languages/SqlLanguageSupport.js";
+import {
+  EditorCommandRegistry,
+  type EditorCommandContext,
+} from "./Commands/EditorCommandRegistry.js";
+import {
+  EditorContextMenu,
+} from "./Commands/EditorContextMenu.js";
 import {
   LanguageSupportClient,
 } from "./LanguageSupport/LanguageSupportClient.js";
@@ -33,6 +49,11 @@ interface MonacoEditorCallbacks {
     documentId: string,
     content: string,
     expectedModifiedAt: string,
+  ): void;
+  requestOpenLocation(
+    filePath: string,
+    lineNumber: number,
+    columnNumber: number,
   ): void;
 }
 
@@ -79,6 +100,31 @@ monacoGlobal.MonacoEnvironment = {
     return new editorWorker();
   },
 };
+
+function configureMonacoTypeScriptDefaults(): void {
+  const diagnostics: DiagnosticsOptions = {
+    noSemanticValidation: true,
+    noSyntaxValidation: true,
+    noSuggestionDiagnostics: true,
+  };
+  const compilerOptions: CompilerOptions = {
+    allowJs: true,
+    allowNonTsExtensions: true,
+    checkJs: true,
+    jsx: JsxEmit.Preserve,
+  };
+
+  typescriptDefaults.setDiagnosticsOptions(diagnostics);
+  javascriptDefaults.setDiagnosticsOptions(diagnostics);
+  typescriptDefaults.setCompilerOptions({
+    ...typescriptDefaults.getCompilerOptions(),
+    ...compilerOptions,
+  });
+  javascriptDefaults.setCompilerOptions({
+    ...javascriptDefaults.getCompilerOptions(),
+    ...compilerOptions,
+  });
+}
 
 function editorViewStateStorageKey(
   documentId: string,
@@ -164,6 +210,22 @@ export class MonacoEditor {
 
   private readonly languageSupport: LanguageSupportClient;
 
+  private readonly sqlLanguageSupport: monaco.IDisposable;
+
+  private readonly editorOpener: monaco.IDisposable;
+
+  private readonly commandRegistry = new EditorCommandRegistry();
+
+  private readonly contextMenu: EditorContextMenu;
+
+  private readonly commandDisposables: {
+    dispose(): void;
+  }[] = [];
+
+  private readonly nativeContextMenuHandler: (
+    event: MouseEvent,
+  ) => void;
+
   private readonly viewStates = new Map<
     string,
     monaco.editor.ICodeEditorViewState | null
@@ -181,6 +243,14 @@ export class MonacoEditor {
 
   private readonly savesInFlight = new Set<string>();
 
+  private readonly pendingRevealByDocumentId = new Map<
+    string,
+    {
+      lineNumber: number;
+      columnNumber: number;
+    }
+  >();
+
   private readonly languageRevisionByModelKey = new Map<
     string,
     number
@@ -195,6 +265,8 @@ export class MonacoEditor {
     private readonly callbacks: MonacoEditorCallbacks,
   ) {
     this.element = element;
+    configureMonacoTypeScriptDefaults();
+    this.sqlLanguageSupport = registerSqlLanguageSupport(monaco);
     this.languageSupport = new LanguageSupportClient(
       monaco,
       callbacks,
@@ -231,6 +303,7 @@ export class MonacoEditor {
       matchBrackets: "always",
       readOnly: true,
       domReadOnly: false,
+      contextmenu: false,
       renderLineHighlight: "all",
       renderWhitespace: "selection",
       scrollBeyondLastLine: false,
@@ -241,6 +314,67 @@ export class MonacoEditor {
       },
       wordWrap: "off",
     });
+
+    this.editorOpener = monaco.editor.registerEditorOpener({
+      openCodeEditor: (source, resource, target) => {
+        if (source !== this.editor) {
+          return false;
+        }
+
+        const currentResource = source.getModel()?.uri;
+
+        if (
+          currentResource?.toString()
+            === resource.toString()
+        ) {
+          return false;
+        }
+
+        if (resource.scheme !== "file" || !resource.fsPath) {
+          return false;
+        }
+
+        const position = target && "lineNumber" in target
+          ? target
+          : target
+            ? {
+                lineNumber: target.startLineNumber,
+                column: target.startColumn,
+              }
+            : {
+                lineNumber: 1,
+                column: 1,
+              };
+
+        this.callbacks.requestOpenLocation(
+          resource.fsPath,
+          position.lineNumber,
+          position.column,
+        );
+        return true;
+      },
+    });
+
+    this.contextMenu = new EditorContextMenu(
+      this.commandRegistry,
+      {
+        reportStatus: (message) => {
+          this.callbacks.reportStatus(message);
+        },
+        restoreEditorFocus: () => {
+          this.editor.focus();
+        },
+      },
+    );
+    this.registerEditorCommands();
+    this.nativeContextMenuHandler = (event) => {
+      this.openContextMenu(event);
+    };
+    this.element.addEventListener(
+      "contextmenu",
+      this.nativeContextMenuHandler,
+      true,
+    );
 
     this.element.addEventListener(
       "pointerdown",
@@ -266,6 +400,20 @@ export class MonacoEditor {
 
     window.addEventListener("beforeunload", () => {
       this.rememberViewState();
+      this.element.removeEventListener(
+        "contextmenu",
+        this.nativeContextMenuHandler,
+        true,
+      );
+      this.sqlLanguageSupport.dispose();
+      this.contextMenu.dispose();
+
+      for (const disposable of this.commandDisposables) {
+        disposable.dispose();
+      }
+
+      this.commandDisposables.length = 0;
+      this.editorOpener.dispose();
     });
 
     this.editor.onDidChangeModelContent(() => {
@@ -280,10 +428,12 @@ export class MonacoEditor {
         this.saveActiveDocument();
       },
     );
+
   }
 
   applyTheme(theme: ArchivistTheme): void {
     defineArchivistEditorTheme(monaco, theme);
+    this.contextMenu.applyTheme(theme);
     this.editor.updateOptions({
       fontFamily: theme.monospaceFontFamily,
       fontSize: theme.textControlSize,
@@ -291,6 +441,7 @@ export class MonacoEditor {
   }
 
   openDocument(document: ArchivistDocument): void {
+    this.contextMenu.hide(false);
     const documentKey = document.id || document.path;
 
     if (!documentKey) {
@@ -311,12 +462,19 @@ export class MonacoEditor {
     let model = monaco.editor.getModel(uri);
     let state = this.statesByModelKey.get(modelKey);
 
-    if (!model || !state) {
+    if (!model) {
       model = monaco.editor.createModel(
         document.content,
         "plaintext",
         uri,
       );
+    }
+
+    if (!state) {
+      if (model.getValue() !== document.content) {
+        model.setValue(document.content);
+      }
+
       state = {
         documentId: document.id,
         modifiedAt: document.modifiedAt,
@@ -371,6 +529,18 @@ export class MonacoEditor {
       model,
       requestedLanguage,
     );
+    const pendingReveal =
+      this.pendingRevealByDocumentId.get(document.id);
+
+    if (pendingReveal) {
+      this.pendingRevealByDocumentId.delete(document.id);
+      this.revealLocation(
+        document.id,
+        pendingReveal.lineNumber,
+        pendingReveal.columnNumber,
+      );
+    }
+
     this.editor.layout();
     this.reportActiveDirtyState();
   }
@@ -417,6 +587,13 @@ export class MonacoEditor {
         break;
       case "discard":
         this.discardDocument(command.documentId);
+        break;
+      case "revealLocation":
+        this.revealLocation(
+          command.documentId,
+          command.lineNumber,
+          command.columnNumber,
+        );
         break;
     }
   }
@@ -469,6 +646,10 @@ export class MonacoEditor {
   }
 
   setVisible(visible: boolean): void {
+    if (!visible) {
+      this.contextMenu.hide(false);
+    }
+
     this.element.hidden = !visible;
     this.element.style.pointerEvents =
       visible ? "auto" : "none";
@@ -529,6 +710,274 @@ export class MonacoEditor {
     return model && state
       ? { model, state }
       : null;
+  }
+
+  private registerEditorCommands(): void {
+    const isMac = /Mac|iPhone|iPad|iPod/.test(
+      navigator.userAgent,
+    );
+    const primary = isMac ? "⌘" : "Ctrl+";
+
+    this.commandDisposables.push(
+      this.commandRegistry.register({
+        id: "editor.goToDefinition",
+        label: "Go to Definition",
+        group: "navigation",
+        groupOrder: 10,
+        order: 10,
+        shortcut: "F12",
+        run: (context) =>
+          this.goToDefinition(
+            context.model,
+            context.position,
+          ),
+      }),
+      this.commandRegistry.register({
+        id: "editor.cut",
+        label: "Cut",
+        group: "clipboard",
+        groupOrder: 20,
+        order: 10,
+        shortcut: `${primary}X`,
+        isEnabled: (context) =>
+          !context.readOnly && !context.selection.isEmpty(),
+        run: () =>
+          this.runEditorAction(
+            "editor.action.clipboardCutAction",
+            "Cut is unavailable.",
+          ),
+      }),
+      this.commandRegistry.register({
+        id: "editor.copy",
+        label: "Copy",
+        group: "clipboard",
+        groupOrder: 20,
+        order: 20,
+        shortcut: `${primary}C`,
+        isEnabled: (context) =>
+          !context.selection.isEmpty(),
+        run: () =>
+          this.runEditorAction(
+            "editor.action.clipboardCopyAction",
+            "Copy is unavailable.",
+          ),
+      }),
+      this.commandRegistry.register({
+        id: "editor.paste",
+        label: "Paste",
+        group: "clipboard",
+        groupOrder: 20,
+        order: 30,
+        shortcut: `${primary}V`,
+        isEnabled: (context) => !context.readOnly,
+        run: () =>
+          this.runEditorAction(
+            "editor.action.clipboardPasteAction",
+            "Paste is unavailable.",
+          ),
+      }),
+      this.commandRegistry.register({
+        id: "editor.selectAll",
+        label: "Select All",
+        group: "selection",
+        groupOrder: 30,
+        order: 10,
+        shortcut: `${primary}A`,
+        run: () =>
+          this.runEditorAction(
+            "editor.action.selectAll",
+            "Select All is unavailable.",
+          ),
+      }),
+    );
+  }
+
+  private openContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const model = this.editor.getModel();
+    const target = this.editor.getTargetAtClientPoint(
+      event.clientX,
+      event.clientY,
+    );
+    const targetPosition = target?.position
+      ?? this.editor.getPosition();
+
+    if (!model || !targetPosition) {
+      this.contextMenu.hide(false);
+      return;
+    }
+
+    const position = model.validatePosition(targetPosition);
+    const currentSelection = this.editor.getSelection();
+
+    if (
+      !currentSelection
+      || !monaco.Range.containsPosition(
+        currentSelection,
+        position,
+      )
+    ) {
+      this.editor.setPosition(position);
+    }
+
+    const context = this.editorCommandContext(
+      model,
+      position,
+    );
+
+    if (!context) {
+      this.contextMenu.hide(false);
+      return;
+    }
+
+    this.contextMenu.show(
+      event.clientX,
+      event.clientY,
+      context,
+    );
+  }
+
+  private editorCommandContext(
+    model: monaco.editor.ITextModel,
+    position: monaco.Position,
+  ): EditorCommandContext | null {
+    const state = this.statesByModelKey.get(
+      model.uri.toString(),
+    );
+
+    if (!state || model.isDisposed()) {
+      return null;
+    }
+
+    const validPosition = model.validatePosition(position);
+    const selection = this.editor.getSelection()
+      ?? new monaco.Selection(
+        validPosition.lineNumber,
+        validPosition.column,
+        validPosition.lineNumber,
+        validPosition.column,
+      );
+
+    return {
+      editor: this.editor,
+      model,
+      position: validPosition,
+      selection,
+      readOnly: state.readOnly,
+    };
+  }
+
+  private async runEditorAction(
+    actionId: string,
+    unavailableMessage: string,
+  ): Promise<void> {
+    const action = this.editor.getAction(actionId);
+
+    if (!action) {
+      this.callbacks.reportStatus(unavailableMessage);
+      return;
+    }
+
+    await action.run();
+  }
+
+  private async goToDefinition(
+    model: monaco.editor.ITextModel,
+    position: monaco.Position,
+  ): Promise<void> {
+    if (model.isDisposed()) {
+      this.callbacks.reportStatus(
+        "The editor model is no longer available.",
+      );
+      return;
+    }
+
+    this.callbacks.reportStatus("Finding definition…");
+
+    const definitions = await this.languageSupport.definitionsAt(
+      model,
+      model.validatePosition(position),
+    );
+    const definition = definitions[0];
+
+    if (!definition) {
+      this.callbacks.reportStatus("No definition found");
+      return;
+    }
+
+    const target = {
+      lineNumber: definition.range.startLineNumber,
+      column: definition.range.startColumn,
+    };
+
+    if (
+      definition.uri.toString() === model.uri.toString()
+      && this.editor.getModel() === model
+    ) {
+      const validPosition = model.validatePosition(target);
+
+      this.editor.setPosition(validPosition);
+      this.editor.revealPositionInCenter(validPosition);
+      this.editor.focus();
+      this.callbacks.reportStatus("Definition opened");
+      return;
+    }
+
+    if (
+      definition.uri.scheme !== "file"
+      || !definition.uri.fsPath
+    ) {
+      this.callbacks.reportStatus(
+        "The definition target cannot be opened.",
+      );
+      return;
+    }
+
+    this.callbacks.reportStatus(
+      definitions.length > 1
+        ? `Opening first of ${definitions.length} definitions…`
+        : "Opening definition…",
+    );
+    this.callbacks.requestOpenLocation(
+      definition.uri.fsPath,
+      target.lineNumber,
+      target.column,
+    );
+  }
+
+  private revealLocation(
+    documentId: string,
+    lineNumber: number,
+    columnNumber: number,
+  ): void {
+    const document = this.documentState(documentId);
+
+    if (!document) {
+      this.pendingRevealByDocumentId.set(documentId, {
+        lineNumber,
+        columnNumber,
+      });
+      this.callbacks.reportStatus("Opening definition…");
+      return;
+    }
+
+    if (this.activeModelKey !== document.modelKey) {
+      this.rememberViewState();
+      this.activeModelKey = document.modelKey;
+      this.editor.setModel(document.model);
+    }
+
+    const position = document.model.validatePosition({
+      lineNumber: Math.max(1, lineNumber),
+      column: Math.max(1, columnNumber),
+    });
+
+    this.editor.setPosition(position);
+    this.editor.revealPositionInCenter(position);
+    this.editor.focus();
+    this.callbacks.reportStatus("Definition opened");
   }
 
   private saveActiveDocument(): void {

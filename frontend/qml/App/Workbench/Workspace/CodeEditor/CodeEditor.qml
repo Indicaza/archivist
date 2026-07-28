@@ -24,6 +24,12 @@ Rectangle {
         string message
     )
     signal markdownPreviewRequested()
+    signal fileLocationRequested(
+        string filePath,
+        int lineNumber,
+        int columnNumber
+    )
+    signal documentReady(string documentId)
 
     readonly property string content:
         preview && preview.content
@@ -135,6 +141,18 @@ Rectangle {
         ideHost.discardDocument(documentId)
     }
 
+    function revealLocation(
+        documentId,
+        lineNumber,
+        columnNumber
+    ) {
+        ideHost.revealLocation(
+            documentId,
+            lineNumber,
+            columnNumber
+        )
+    }
+
     readonly property bool blockingInitialLoad:
         root.active
         && root.loading
@@ -151,12 +169,14 @@ Rectangle {
     onPreviewMatchesDocumentChanged: {
         if (previewMatchesDocument) {
             initialDocumentLoaded = true
+            documentReady(stableDocumentId)
         }
     }
 
     Component.onCompleted: {
         if (previewMatchesDocument) {
             initialDocumentLoaded = true
+            documentReady(stableDocumentId)
         }
     }
 
@@ -285,6 +305,18 @@ Rectangle {
             }
 
             root.dirtyStateReported(documentId, dirty)
+        }
+
+        onFileLocationRequested: function(
+            filePath,
+            lineNumber,
+            columnNumber
+        ) {
+            root.fileLocationRequested(
+                filePath,
+                lineNumber,
+                columnNumber
+            )
         }
 
         onSaveRequested: function(

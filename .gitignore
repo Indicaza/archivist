@@ -28,3 +28,6 @@ backend/data/
 # Local development handoff files
 /*-context.tar.gz
 /chat-presentation-context.txt
+
+# Generated coding context bundles
+/*-context.txt

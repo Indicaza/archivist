@@ -275,9 +275,7 @@ Popup {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: String(agentRow.modelData.name || "A")
-                                    .slice(0, 1)
-                                    .toUpperCase()
+                                text: String(agentRow.modelData.name || "A").slice(0, 1).toUpperCase()
                                 color: root.theme.accentBright
                                 font.pixelSize: root.theme.typeSize(10)
                                 font.weight: Font.Bold
