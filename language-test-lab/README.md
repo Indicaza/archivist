@@ -10,7 +10,7 @@ diagnostics, references, and Go to Definition are easy to verify.
 2. Right-click `User` and choose **Go to Definition**.
 3. Type `user.` inside `describeUser` and check completion.
 4. Open `web/Dashboard.tsx` and jump to `loadUsers`.
-5. Open `web/LegacyDashboard.jsx` and confirm JSX parses without errors.
+5. Open `web/LegacyDashboard.jsx`, add a normal element such as `<div />`, and confirm JSX remains valid.
 6. Open `python/service.py` and jump to `User`.
 7. Open `cpp/src/main.cpp` and jump to `makeGreeting`.
 8. Open `rust/src/main.rs` and jump to `greeting`.
@@ -19,7 +19,8 @@ diagnostics, references, and Go to Definition are easy to verify.
 
 The backend log should show a session request and connection for each opened
 language. Missing optional servers should leave syntax highlighting and normal
-editing available instead of breaking the editor.
+editing available instead of breaking the editor. The fixture supplies a broad
+local JSX declaration so ordinary HTML elements do not require React packages.
 
 ## Important SQL isolation check
 
@@ -44,3 +45,13 @@ The files under `intentional-errors/` are supposed to be invalid. SQL is
 currently tested for isolated syntax highlighting and completion rather than
 server diagnostics. All other files should remain valid enough for navigation
 and completion testing.
+
+
+## Cleanup
+
+Generated compiler output is ignored inside this folder. Remove local smoke-test
+artifacts at any time with:
+
+```bash
+npm run clean:language-test-lab
+```

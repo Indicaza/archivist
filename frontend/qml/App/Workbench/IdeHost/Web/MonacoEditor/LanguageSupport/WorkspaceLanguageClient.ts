@@ -230,14 +230,16 @@ export class WorkspaceLanguageClient {
     );
 
     this.connection.notify("initialized", {});
-    this.connection.notify(
-      "workspace/didChangeConfiguration",
-      {
-        settings: languageServerSettings(
-          this.descriptor.serverId,
-        ),
-      },
+    const settings = languageServerSettings(
+      this.descriptor.serverId,
     );
+
+    if (Object.keys(settings).length > 0) {
+      this.connection.notify(
+        "workspace/didChangeConfiguration",
+        { settings },
+      );
+    }
     const capabilities = initializeCapabilityNames(
       initializeResult,
     );

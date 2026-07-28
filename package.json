@@ -27,6 +27,8 @@
     "dev:stop": "./scripts/qt-stop",
     "diagnose:navigation": "./scripts/diagnose-navigation",
     "diagnose:language-support": "node scripts/diagnose-language-support.mjs",
+    "check:language-support": "npm run check-node && npm run check:ide -w frontend && npm run build -w backend && npm run lsp:doctor",
+    "clean:language-test-lab": "rimraf language-test-lab/rust/target language-test-lab/rust/Cargo.lock language-test-lab/cpp/build language-test-lab/cpp/compile_commands.json language-test-lab/python/__pycache__ language-test-lab/intentional-errors/__pycache__",
     "dev:backend": "npm run dev -w backend",
     "build": "npm run check-node && npm run build -w backend && npm run build:ide && npm run build:frontend",
     "build:frontend": "./scripts/qt-build",

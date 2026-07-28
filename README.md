@@ -26,6 +26,10 @@ Archivist is under active development. The native Qt/QML application in `fronten
 
 - **Collection workspaces** — group multiple Libraries, Chats, and Agents into task-specific environments that can be switched without rebuilding the session.
 - **Persistent editor tabs** — open files and Chats as first-class tabs, reorder them with polished drag-and-drop, and restore their order and active state after restart.
+- **Embedded development workspace** — edit source through Monaco, run persistent terminals through xterm.js, and keep navigation inside Archivist tabs.
+- **Workspace-scoped language support** — supervise local language servers per project for TypeScript/JavaScript, React/Next, QML, C/C++, Rust, Python, Go, YAML, Bash, and Markdown.
+- **Built-in web and SQL tooling** — use Monaco workers for HTML, CSS/SCSS/Less, and JSON, with SQL highlighting and completion isolated to SQL files.
+- **Archivist editor commands** — own the editor command registry and context menu instead of depending on Monaco private APIs.
 - **Multi-Library Collections** — attach separate code, documentation, asset, research, or design Libraries to the same Collection.
 - **Persistent Library trees** — remember the selected Library, expanded folders, selected node, filter text, and scroll position independently for every Library.
 - **Local-first Libraries** — register folders, scan their contents, and browse cataloged files without surrendering ownership of the filesystem.
@@ -165,8 +169,9 @@ Archivist/
 │   ├── qml/App/Workbench/IdeHost/Web/
 │   │                     Embedded Monaco and xterm.js feature
 │   └── src/App/Domains/  C++ Library, Chat and Agent stores
+├── language-test-lab/    Small cross-language fixtures for editor smoke tests
 ├── scripts/              Native build, runtime, cleanup, smoke-test and context helpers
-├── devHandoff.md          Current development state and coding-chat handoff
+├── devHandoff.md         Current development state and coding-chat handoff
 └── README.md
 ```
 
@@ -193,6 +198,7 @@ From the repository root:
 ```bash
 nvm use
 npm install
+npm run lsp:install
 
 cp backend/.env.example backend/.env
 # Add the required AI-provider credentials to backend/.env.
@@ -248,6 +254,40 @@ npm run build:qt
 npm run qt:configure
 npm run qt:run
 ```
+
+Language-support commands:
+
+```bash
+npm run lsp:install
+npm run lsp:doctor
+npm run lsp:check
+npm run check:language-support
+npm run diagnose:language-support
+npm run clean:language-test-lab
+```
+
+`lsp:install` synchronizes the exact npm-managed tool versions in
+`scripts/language-tools.json`. Native tools such as `qmlls`, `clangd`,
+`rust-analyzer`, `gopls`, and Marksman are discovered from `PATH`. Missing
+optional native tools do not disable ordinary editing.
+
+Set `ARCHIVIST_LANGUAGE_SERVER_TRACE=1` before `npm run dev` when raw server
+stderr is needed. Normal runs suppress known setup chatter while preserving
+warnings, process exits, and diagnostic telemetry.
+
+### Supported language services
+
+| Surface | Provider | Current scope |
+| --- | --- | --- |
+| TypeScript, JavaScript, TSX, JSX | TypeScript language server | React/Next navigation, completion, diagnostics, references, rename, formatting, and code actions |
+| QML | `qmlls` | Workspace-aware completion, diagnostics, and navigation |
+| C and C++ | `clangd` | Best with `compile_commands.json`, `compile_flags.txt`, or CMake metadata |
+| Rust | `rust-analyzer` | Cargo workspace intelligence |
+| Python | Pyright | Completion, navigation, and type diagnostics |
+| Go | `gopls` | Optional; available when the local Go toolchain provides it |
+| YAML, Bash, Markdown | Language servers | Completion, diagnostics, and navigation where advertised |
+| HTML, CSS, SCSS, Less, JSON | Monaco workers | Built-in validation, completion, hover, and formatting |
+| SQL files | Monaco SQL provider | Syntax highlighting and isolated generic completion; no database-schema awareness yet |
 
 Useful checks:
 
@@ -312,6 +352,8 @@ native Qt Workbench
 → deterministic Library indexing and lexical retrieval
 → bounded attached and retrieved evidence
 → durable Context Inspector records
+→ embedded Monaco and xterm.js development workspace
+→ workspace-scoped language services with local diagnostics
 → one-command native development workflow
 ```
 
@@ -326,15 +368,14 @@ select a Collection
 → inspect the evidence and context used
 ```
 
-The next milestone is **rich file rendering and a shared icon system**:
+The next editor milestone is **capability-driven commands and targeted quality**:
 
 ```text
-central file and language icon registry
-→ rendered Markdown
-→ source / rendered / split modes
-→ image, SVG, JSON, YAML, and fallback renderers
-→ richer Library rows and tab identity
-→ foundation for Git decorations and worktree views
+Find References and Rename
+→ Quick Fix and formatting actions
+→ multiple-definition picker
+→ focused JSX completion testing
+→ project adapters only when real work requires them
 ```
 
 Current deliberate limits:

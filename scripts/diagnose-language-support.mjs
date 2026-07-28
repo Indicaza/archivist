@@ -91,6 +91,14 @@ function relevantLanguageLines(lines) {
 
 function listFiles(rootPath, maximumDepth = 4) {
   const results = [];
+  const ignoredDirectories = new Set([
+    ".cache",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+  ]);
 
   function visit(directory, depth) {
     if (depth > maximumDepth || !fs.existsSync(directory)) {
@@ -103,7 +111,9 @@ function listFiles(rootPath, maximumDepth = 4) {
       const absolute = path.join(directory, entry.name);
 
       if (entry.isDirectory()) {
-        visit(absolute, depth + 1);
+        if (!ignoredDirectories.has(entry.name)) {
+          visit(absolute, depth + 1);
+        }
       } else if (entry.isFile()) {
         results.push(
           path.relative(repositoryRoot, absolute),

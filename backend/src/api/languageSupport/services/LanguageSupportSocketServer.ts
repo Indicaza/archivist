@@ -45,6 +45,36 @@ const socketPath = "/language-support";
 const pendingLifetimeMilliseconds = 60_000;
 const maximumPendingSessions = 32;
 const stderrTailLineLimit = 40;
+const verboseServerStderr =
+  process.env.ARCHIVIST_LANGUAGE_SERVER_TRACE === "1";
+
+function isRoutineServerStderr(
+  serverId: string,
+  message: string,
+): boolean {
+  if (serverId === "clangd" && /^I\[/.test(message)) {
+    return true;
+  }
+
+  if (serverId === "markdown" && /\bINF\b/.test(message)) {
+    return true;
+  }
+
+  if (serverId === "qml") {
+    return (
+      message.includes("Did Setup")
+      || message.includes("Using build directories passed by")
+      || message.includes("Using import directories passed by")
+      || message.includes("Disabling CMake calls")
+    );
+  }
+
+  return (
+    serverId === "rust"
+    && message.includes("No path was found")
+    && message.includes("rust-analyzer.toml")
+  );
+}
 
 function configuredMaximumActiveSessions(): number {
   const configured = Number(
@@ -753,6 +783,13 @@ export class LanguageSupportSocketServer {
         continue;
       }
 
+      if (
+        !verboseServerStderr
+        && isRoutineServerStderr(serverId, message)
+      ) {
+        continue;
+      }
+
       session.stderrTail.push(message);
 
       if (session.stderrTail.length > stderrTailLineLimit) {
@@ -773,6 +810,13 @@ export class LanguageSupportSocketServer {
     session.stderrBuffer = "";
 
     if (!message) {
+      return;
+    }
+
+    if (
+      !verboseServerStderr
+      && isRoutineServerStderr(serverId, message)
+    ) {
       return;
     }
 
