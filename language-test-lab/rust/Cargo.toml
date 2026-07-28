@@ -1,0 +1,8 @@
+[package]
+name = "archivist-language-test"
+version = "0.0.0"
+edition = "2024"
+
+[lib]
+name = "archivist_language_test"
+path = "src/lib.rs"

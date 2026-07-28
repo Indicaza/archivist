@@ -44,7 +44,22 @@ import { resolveLanguageWorkspace } from "./LanguageWorkspaceResolver.js";
 const socketPath = "/language-support";
 const pendingLifetimeMilliseconds = 60_000;
 const maximumPendingSessions = 32;
-const maximumActiveSessions = 8;
+const stderrTailLineLimit = 40;
+
+function configuredMaximumActiveSessions(): number {
+  const configured = Number(
+    process.env.ARCHIVIST_MAX_LANGUAGE_SERVERS ?? 24,
+  );
+
+  if (!Number.isFinite(configured)) {
+    return 24;
+  }
+
+  return Math.max(4, Math.min(64, Math.floor(configured)));
+}
+
+const maximumActiveSessions =
+  configuredMaximumActiveSessions();
 
 interface PendingSession {
   descriptor: LanguageServerSessionDescriptor;
@@ -61,6 +76,9 @@ interface ActiveSession {
   key: string;
   process: ChildProcess;
   socket: WebSocket;
+  startedAtMilliseconds: number;
+  stderrBuffer: string;
+  stderrTail: string[];
 }
 
 function isLoopbackAddress(
@@ -265,7 +283,8 @@ export class LanguageSupportSocketServer {
     this.cleanupTimer.unref();
 
     console.log(
-      `Language Support listening at ws://127.0.0.1:${this.port}${socketPath}`,
+      `Language Support listening at ws://127.0.0.1:${this.port}${socketPath}`
+      + ` · max active ${maximumActiveSessions}`,
     );
   }
 
@@ -548,7 +567,10 @@ export class LanguageSupportSocketServer {
       );
 
       if (existing) {
-        this.finishActiveSession(existing);
+        this.finishActiveSession(
+          existing,
+          "replaced by a new workspace session",
+        );
       }
     }
 
@@ -556,6 +578,17 @@ export class LanguageSupportSocketServer {
       this.activeSessions.size
       >= maximumActiveSessions
     ) {
+      const active = [...this.activeSessions.values()]
+        .map((session) =>
+          `${session.summary.serverId}@${session.summary.workspaceRoot}`
+        )
+        .join(" | ");
+      console.warn(
+        `[Language Support] Refused ${pending.definition.id}`
+        + ` workspace=${pending.workspace.workspaceRoot}`
+        + ` active=${this.activeSessions.size}/${maximumActiveSessions}`
+        + ` sessions=${active || "none"}`,
+      );
       webSocket.close(
         1013,
         "Too many language servers are active.",
@@ -574,6 +607,15 @@ export class LanguageSupportSocketServer {
         `[Language Support:${pending.definition.id}] Using import paths ${pending.launch.importDirectories.join(", ")}`,
       );
     }
+
+    console.log(
+      `[Language Support:${pending.definition.id}] launching`
+      + ` session=${pending.descriptor.sessionId}`
+      + ` active=${this.activeSessions.size + 1}/${maximumActiveSessions}`
+      + ` cwd=${pending.workspace.workspaceRoot}`
+      + ` executable=${pending.executablePath}`
+      + ` args=${JSON.stringify(pending.launch.args)}`,
+    );
 
     const child = spawn(
       pending.executablePath,
@@ -615,6 +657,9 @@ export class LanguageSupportSocketServer {
       key,
       process: child,
       socket: webSocket,
+      startedAtMilliseconds: Date.now(),
+      stderrBuffer: "",
+      stderrTail: [],
     };
 
     this.activeSessions.set(summary.sessionId, active);
@@ -630,48 +675,121 @@ export class LanguageSupportSocketServer {
     forward(socketConnection, processConnection);
 
     child.stderr?.on("data", (data: Buffer) => {
-      const message = data.toString("utf8").trim();
-
-      if (message) {
-        console.warn(
-          `[Language Support:${pending.definition.id}] ${message}`,
-        );
-      }
+      this.recordServerStderr(
+        active,
+        pending.definition.id,
+        data,
+      );
     });
 
     child.on("error", (error) => {
       console.error(
-        `[Language Support:${pending.definition.id}] ${error.message}`,
+        `[Language Support:${pending.definition.id}] process error`
+        + ` session=${summary.sessionId}`
+        + ` message=${error.message}`,
       );
-      this.finishActiveSession(active);
+      this.finishActiveSession(active, "process error");
     });
 
     child.on("exit", (code, signal) => {
-      if (code !== 0 && code !== null) {
-        console.warn(
-          `[Language Support:${pending.definition.id}] exited with code ${code}${
-            signal ? ` (${signal})` : ""
-          }`,
-        );
-      }
+      this.flushServerStderr(
+        active,
+        pending.definition.id,
+      );
+      const durationMilliseconds =
+        Date.now() - active.startedAtMilliseconds;
+      const detail = active.stderrTail.length > 0
+        ? ` stderrTail=${JSON.stringify(active.stderrTail)}`
+        : "";
 
-      this.finishActiveSession(active);
+      console.warn(
+        `[Language Support:${pending.definition.id}] process exited`
+        + ` session=${summary.sessionId}`
+        + ` code=${code === null ? "null" : code}`
+        + ` signal=${signal || "none"}`
+        + ` durationMs=${durationMilliseconds}`
+        + detail,
+      );
+
+      this.finishActiveSession(active, "process exit");
     });
 
-    webSocket.on("close", () => {
-      this.finishActiveSession(active);
+    webSocket.on("close", (code, reason) => {
+      this.finishActiveSession(
+        active,
+        `socket close ${code} ${reason.toString()}`.trim(),
+      );
     });
-    webSocket.on("error", () => {
-      this.finishActiveSession(active);
+    webSocket.on("error", (error) => {
+      console.warn(
+        `[Language Support:${pending.definition.id}] socket error`
+        + ` session=${summary.sessionId}`
+        + ` message=${error.message}`,
+      );
+      this.finishActiveSession(active, "socket error");
     });
 
     console.log(
-      `[Language Support] ${pending.definition.displayName} connected for ${pending.workspace.workspaceRoot}`,
+      `[Language Support:${pending.definition.id}] transport connected`
+      + ` session=${summary.sessionId}`
+      + ` pid=${summary.processId ?? "unknown"}`
+      + ` workspace=${pending.workspace.workspaceRoot}`,
+    );
+  }
+
+  private recordServerStderr(
+    session: ActiveSession,
+    serverId: string,
+    data: Buffer,
+  ): void {
+    session.stderrBuffer += data.toString("utf8");
+    const lines = session.stderrBuffer.split(/\r?\n/);
+    session.stderrBuffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const message = line.trim();
+
+      if (!message) {
+        continue;
+      }
+
+      session.stderrTail.push(message);
+
+      if (session.stderrTail.length > stderrTailLineLimit) {
+        session.stderrTail.shift();
+      }
+
+      console.warn(
+        `[Language Support:${serverId}] stderr ${message}`,
+      );
+    }
+  }
+
+  private flushServerStderr(
+    session: ActiveSession,
+    serverId: string,
+  ): void {
+    const message = session.stderrBuffer.trim();
+    session.stderrBuffer = "";
+
+    if (!message) {
+      return;
+    }
+
+    session.stderrTail.push(message);
+
+    if (session.stderrTail.length > stderrTailLineLimit) {
+      session.stderrTail.shift();
+    }
+
+    console.warn(
+      `[Language Support:${serverId}] stderr ${message}`,
     );
   }
 
   private finishActiveSession(
     session: ActiveSession,
+    reason: string,
   ): void {
     if (
       this.activeSessions.get(
@@ -692,6 +810,13 @@ export class LanguageSupportSocketServer {
       this.activeSessionIdByKey.delete(session.key);
     }
 
+    console.log(
+      `[Language Support:${session.summary.serverId}] session closed`
+      + ` session=${session.summary.sessionId}`
+      + ` reason=${reason}`
+      + ` active=${this.activeSessions.size}/${maximumActiveSessions}`
+      + ` workspace=${session.summary.workspaceRoot}`,
+    );
     this.stopActiveSession(session);
   }
 

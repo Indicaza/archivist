@@ -28,6 +28,14 @@ import {
   type LanguageSupportCallbacks,
   WorkspaceLanguageClient,
 } from "./WorkspaceLanguageClient.js";
+import {
+  recordLanguageSupportTelemetry,
+} from "./LanguageSupportTelemetry.js";
+import {
+  languageSupportDefinition,
+  languageSupportDefinitions,
+  type LanguageSupportDefinition,
+} from "./LanguageSupportRegistry.js";
 
 type MonacoApi = typeof Monaco;
 
@@ -35,47 +43,7 @@ type Disposable = {
   dispose(): void;
 };
 
-interface LanguageSupportDefinition {
-  serverId: string;
-  displayName: string;
-  monacoLanguageIds: readonly string[];
-  completionTriggers: readonly string[];
-  signatureHelp: boolean;
-}
-
-const languageSupportDefinitions: readonly LanguageSupportDefinition[] = [
-  {
-    serverId: "typescript",
-    displayName: "TypeScript",
-    monacoLanguageIds: ["typescript", "javascript"],
-    completionTriggers: [
-      ".",
-      '"',
-      "'",
-      "`",
-      "/",
-      "@",
-      "<",
-      "#",
-    ],
-    signatureHelp: true,
-  },
-  {
-    serverId: "qml",
-    displayName: "QML",
-    monacoLanguageIds: ["qml"],
-    completionTriggers: [".", ":", '"', "'"],
-    signatureHelp: false,
-  },
-];
-
-function languageSupportDefinition(
-  monacoLanguageId: string,
-): LanguageSupportDefinition | null {
-  return languageSupportDefinitions.find((definition) =>
-    definition.monacoLanguageIds.includes(monacoLanguageId)
-  ) ?? null;
-}
+export type DefinitionLocation = Monaco.languages.Location;
 
 export class LanguageSupportClient {
   private readonly clientsByKey = new Map<
@@ -92,6 +60,14 @@ export class LanguageSupportClient {
     ArchivistDocument
   >();
   private readonly modelResolver: LibraryModelResolver;
+  private readonly unavailableServerRequests = new Map<
+    string,
+    string
+  >();
+  private readonly markerFingerprintByUri = new Map<
+    string,
+    string
+  >();
   private openQueue: Promise<void> = Promise.resolve();
   private disposed = false;
 
@@ -101,6 +77,11 @@ export class LanguageSupportClient {
   ) {
     this.modelResolver = new LibraryModelResolver(monaco);
     this.registerProviders();
+    this.disposables.push(
+      this.monaco.editor.onDidChangeMarkers((resources) => {
+        this.recordMarkerTelemetry(resources);
+      }),
+    );
     window.addEventListener("beforeunload", () => {
       this.dispose();
     });
@@ -114,6 +95,25 @@ export class LanguageSupportClient {
     const definition = languageSupportDefinition(
       monacoLanguageId,
     );
+    const resolvedLspLanguageId = definition
+      ? lspLanguageId(document, monacoLanguageId)
+      : undefined;
+
+    recordLanguageSupportTelemetry({
+      kind: "document-classified",
+      provider: definition ? "lsp" : "monaco",
+      serverId: definition?.serverId,
+      workspaceRoot: document.workspaceRoot || undefined,
+      filePath: document.filePath || undefined,
+      uri: model.uri.toString(),
+      monacoLanguageId,
+      lspLanguageId: resolvedLspLanguageId,
+      version: model.getVersionId(),
+    });
+    this.documentByModelUri.set(
+      model.uri.toString(),
+      document,
+    );
 
     if (
       this.disposed
@@ -124,11 +124,6 @@ export class LanguageSupportClient {
     ) {
       return;
     }
-
-    this.documentByModelUri.set(
-      model.uri.toString(),
-      document,
-    );
 
     this.openQueue = this.openQueue
       .then(() => this.attachDocument(
@@ -142,8 +137,92 @@ export class LanguageSupportClient {
           ? error.message
           : "Language support could not start.";
         console.error(`[Language Support] ${message}`);
+        recordLanguageSupportTelemetry({
+          kind: "client-error",
+          provider: "lsp",
+          serverId: definition.serverId,
+          workspaceRoot: document.workspaceRoot || undefined,
+          filePath: document.filePath || undefined,
+          uri: model.uri.toString(),
+          monacoLanguageId,
+          lspLanguageId: resolvedLspLanguageId,
+          message,
+        });
         this.callbacks.reportStatus(message);
       });
+  }
+
+  async definitionsAt(
+    model: Monaco.editor.ITextModel,
+    position: Monaco.Position,
+  ): Promise<readonly DefinitionLocation[]> {
+    await this.openQueue;
+
+    if (this.disposed || model.isDisposed()) {
+      return [];
+    }
+
+    const client = this.clientForModel(model);
+
+    if (!client) {
+      return [];
+    }
+
+    const result = await this.requestForModel<
+      | LspLocation
+      | LspLocation[]
+      | LspLocationLink[]
+      | null
+    >(
+      client,
+      model,
+      "textDocument/definition",
+      {
+        textDocument: {
+          uri: model.uri.toString(),
+        },
+        position: toLspPosition(position),
+      },
+    );
+
+    if (!result || model.isDisposed()) {
+      return [];
+    }
+
+    const values = Array.isArray(result)
+      ? result
+      : [result];
+    const document = this.documentByModelUri.get(
+      model.uri.toString(),
+    );
+
+    if (document) {
+      await this.modelResolver.ensureLocationModels(
+        document,
+        values,
+      );
+    }
+
+    if (model.isDisposed()) {
+      return [];
+    }
+
+    return values.map((value) => {
+      if ("targetUri" in value) {
+        return {
+          uri: this.monaco.Uri.parse(value.targetUri),
+          range: toMonacoRange(
+            this.monaco,
+            value.targetSelectionRange,
+          ),
+        };
+      }
+
+      return {
+        uri: this.monaco.Uri.parse(value.uri),
+        range: toMonacoRange(this.monaco, value.range),
+      };
+    });
   }
 
   dispose(): void {
@@ -166,6 +245,87 @@ export class LanguageSupportClient {
     this.clientsByKey.clear();
     this.clientKeyByModelUri.clear();
     this.documentByModelUri.clear();
+    this.unavailableServerRequests.clear();
+    this.markerFingerprintByUri.clear();
+  }
+
+  private recordMarkerTelemetry(
+    resources: readonly Monaco.Uri[],
+  ): void {
+    for (const resource of resources) {
+      const uri = resource.toString();
+      const model = this.monaco.editor.getModel(resource);
+
+      if (!model || model.isDisposed()) {
+        continue;
+      }
+
+      const markers = this.monaco.editor.getModelMarkers({
+        resource,
+      });
+      const fingerprint = JSON.stringify(
+        markers.map((entry) => [
+          entry.owner,
+          entry.severity,
+          entry.startLineNumber,
+          entry.startColumn,
+          entry.message,
+        ]),
+      );
+
+      if (this.markerFingerprintByUri.get(uri) === fingerprint) {
+        continue;
+      }
+
+      this.markerFingerprintByUri.set(uri, fingerprint);
+      const counts = {
+        errors: 0,
+        warnings: 0,
+        info: 0,
+        hints: 0,
+      };
+
+      for (const entry of markers) {
+        if (entry.severity === this.monaco.MarkerSeverity.Error) {
+          counts.errors += 1;
+        } else if (entry.severity === this.monaco.MarkerSeverity.Warning) {
+          counts.warnings += 1;
+        } else if (entry.severity === this.monaco.MarkerSeverity.Info) {
+          counts.info += 1;
+        } else {
+          counts.hints += 1;
+        }
+      }
+
+      const document = this.documentByModelUri.get(uri);
+      recordLanguageSupportTelemetry({
+        kind: "markers",
+        provider: "monaco",
+        workspaceRoot: document?.workspaceRoot || undefined,
+        filePath: document?.filePath || undefined,
+        uri,
+        monacoLanguageId: model.getLanguageId(),
+        version: model.getVersionId(),
+        diagnostics: {
+          total: markers.length,
+          ...counts,
+          details: markers.slice(0, 8).map((entry) => ({
+            owner: entry.owner,
+            severity:
+              entry.severity === this.monaco.MarkerSeverity.Error
+                ? "error"
+                : entry.severity === this.monaco.MarkerSeverity.Warning
+                  ? "warning"
+                  : entry.severity === this.monaco.MarkerSeverity.Info
+                    ? "info"
+                    : "hint",
+            line: entry.startLineNumber,
+            column: entry.startColumn,
+            message: entry.message.replace(/\s+/g, " ").trim(),
+          })),
+        },
+      });
+    }
   }
 
   private async attachDocument(
@@ -189,7 +349,7 @@ export class LanguageSupportClient {
       definition,
     );
 
-    if (this.disposed || model.isDisposed()) {
+    if (!client || this.disposed || model.isDisposed()) {
       return;
     }
 
@@ -206,7 +366,15 @@ export class LanguageSupportClient {
   private async startClient(
     document: ArchivistDocument,
     definition: LanguageSupportDefinition,
-  ): Promise<WorkspaceLanguageClient> {
+  ): Promise<WorkspaceLanguageClient | null> {
+    const requestKey = [
+      definition.serverId,
+      document.workspaceRoot,
+    ].join(":");
+    if (this.unavailableServerRequests.has(requestKey)) {
+      return null;
+    }
+
     this.callbacks.reportStatus(
       `Starting ${definition.displayName} language support…`,
     );
@@ -238,10 +406,35 @@ export class LanguageSupportClient {
     const payload: unknown = await response.json();
 
     if (!response.ok) {
-      parseSessionResponse(payload);
-      throw new Error(
-        `Language-support request failed (${response.status}).`,
-      );
+      let message =
+        `Language-support request failed (${response.status}).`;
+
+      try {
+        parseSessionResponse(payload);
+      } catch (error) {
+        message = error instanceof Error
+          ? error.message
+          : message;
+      }
+
+      if (
+        response.status === 409
+        && /not installed|disabled/i.test(message)
+      ) {
+        this.unavailableServerRequests.set(
+          requestKey,
+          message,
+        );
+        console.info(
+          `[Language Support:${definition.serverId}] ${message}`,
+        );
+        this.callbacks.reportStatus(
+          `${definition.displayName} language support unavailable`,
+        );
+        return null;
+      }
+
+      throw new Error(message);
     }
 
     const descriptor = parseSessionResponse(payload);
@@ -289,6 +482,7 @@ export class LanguageSupportClient {
       throw error;
     }
 
+    this.unavailableServerRequests.delete(requestKey);
     this.callbacks.reportStatus(
       `${descriptor.displayName} connected`,
     );
@@ -467,54 +661,15 @@ export class LanguageSupportClient {
         languageId,
         {
           provideDefinition: async (model, position, token) => {
-            const client = this.clientForModel(model);
-
-            if (!client) {
-              return null;
-            }
-
-            const result = await this.requestForModel<
-              | LspLocation
-              | LspLocation[]
-              | LspLocationLink[]
-              | null
-            >(
-              client,
+            const definitions = await this.definitionsAt(
               model,
-              "textDocument/definition",
-              {
-                textDocument: {
-                  uri: model.uri.toString(),
-                },
-                position: toLspPosition(position),
-              },
+              position,
             );
 
-            if (!result || token.isCancellationRequested) {
-              return null;
-            }
-
-            const values = Array.isArray(result)
-              ? result
-              : [result];
-            const document = this.documentByModelUri.get(
-              model.uri.toString(),
-            );
-
-            if (document) {
-              await this.modelResolver.ensureLocationModels(
-                document,
-                values,
-              );
-            }
-
-            if (token.isCancellationRequested) {
-              return null;
-            }
-
-            return values.map((value) =>
-              locationResult(this.monaco, value)
-            );
+            return definitions.length === 0
+              || token.isCancellationRequested
+              ? null
+              : [...definitions];
           },
         },
       ),

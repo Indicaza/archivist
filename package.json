@@ -26,6 +26,7 @@
     "dev:qt": "npm run dev:frontend",
     "dev:stop": "./scripts/qt-stop",
     "diagnose:navigation": "./scripts/diagnose-navigation",
+    "diagnose:language-support": "node scripts/diagnose-language-support.mjs",
     "dev:backend": "npm run dev -w backend",
     "build": "npm run check-node && npm run build -w backend && npm run build:ide && npm run build:frontend",
     "build:frontend": "./scripts/qt-build",
@@ -34,12 +35,22 @@
     "qt:configure": "npm run frontend:configure",
     "frontend:run": "./scripts/qt-run",
     "qt:run": "npm run frontend:run",
+    "lsp:doctor": "node scripts/language-tools.mjs doctor",
+    "lsp:install": "node scripts/language-tools.mjs install",
+    "lsp:check": "node scripts/language-tools.mjs check",
+    "lsp:update": "node scripts/language-tools.mjs update",
+    "lsp:set": "node scripts/language-tools.mjs set",
     "audit": "npm audit --workspaces",
     "clean": "rimraf node_modules frontend/node_modules backend/node_modules frontend/dist/ide build/frontend-debug build/qt-debug package-lock.json frontend/package-lock.json backend/package-lock.json",
     "build:ide": "node scripts/build-ide.mjs --force",
     "build:ide:cached": "node scripts/build-ide.mjs"
   },
   "devDependencies": {
-    "rimraf": "latest"
+    "bash-language-server": "5.6.0",
+    "pyright": "1.1.411",
+    "rimraf": "latest",
+    "typescript": "6.0.2",
+    "typescript-language-server": "5.3.0",
+    "yaml-language-server": "1.24.0"
   }
 }

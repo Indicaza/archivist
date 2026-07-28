@@ -1,0 +1,9 @@
+$radius: 8px;
+
+.panel {
+  border-radius: $radius;
+
+  &__title {
+    font-weight: 700;
+  }
+}

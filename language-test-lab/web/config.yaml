@@ -1,0 +1,8 @@
+application:
+  name: Archivist Language Test
+  environment: development
+
+features:
+  definitions: true
+  completion: true
+  diagnostics: true
