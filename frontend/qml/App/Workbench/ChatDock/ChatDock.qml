@@ -1539,30 +1539,21 @@ Rectangle {
                                 text: "+"
                                 enabled:
                                     root.activePanel === "chats"
-                                        ? LibraryStore
-                                            .selectedLibraryId
-                                            .length > 0
+                                        ? LibraryStore.selectedLibraryId.length > 0
                                             && !ChatStore.mutating
                                             && !ChatStore.responding
-                                        : ChatStore
-                                            .selectedChatId
-                                            .length > 0
+                                        : ChatStore.selectedChatId.length > 0
                                             && !AgentStore.mutating
-                                            && !ChatStore
-                                                .assigningAgent
+                                            && !ChatStore.assigningAgent
                                 hoverEnabled: true
                                 padding: 0
                                 ToolTip.visible: hovered
                                 ToolTip.text:
                                     root.activePanel === "chats"
-                                        ? LibraryStore
-                                            .selectedLibraryId
-                                            .length > 0
+                                        ? LibraryStore.selectedLibraryId.length > 0
                                             ? "Create Chat"
                                             : "Select a Library first"
-                                        : ChatStore
-                                            .selectedChatId
-                                            .length > 0
+                                        : ChatStore.selectedChatId.length > 0
                                             ? "Add or create Agent"
                                             : "Select a Chat first"
                                 onClicked: {
@@ -1715,10 +1706,8 @@ Rectangle {
                                         font.pixelSize:
                                             root.theme.textControlSize
                                         font.weight: chatRow.selected
-                                            ? root.theme
-                                                .textWeightEmphasis
-                                            : root.theme
-                                                .textWeightRegular
+                                            ? root.theme.textWeightEmphasis
+                                            : root.theme.textWeightRegular
                                         elide: Text.ElideRight
                                     }
 
@@ -1769,14 +1758,11 @@ Rectangle {
                                                 parent.enabled
                                                 && parent.hovered
                                                     ? root.theme.appText
-                                                    : root.theme
-                                                        .mutedText
+                                                    : root.theme.mutedText
                                             font.pixelSize:
-                                                root.theme
-                                                    .textMetadataSize
+                                                root.theme.textMetadataSize
                                             font.weight:
-                                                root.theme
-                                                    .textWeightStrong
+                                                root.theme.textWeightStrong
                                             horizontalAlignment:
                                                 Text.AlignHCenter
                                             verticalAlignment:
@@ -1856,8 +1842,7 @@ Rectangle {
                                     font.pixelSize:
                                         root.theme.textMetadataSize
                                     font.weight:
-                                        root.theme
-                                            .textWeightEmphasis
+                                        root.theme.textWeightEmphasis
                                     verticalAlignment:
                                         Text.AlignVCenter
                                     leftPadding: 7
@@ -1948,11 +1933,9 @@ Rectangle {
                                                     ? root.theme.appText
                                                     : root.theme.mutedText
                                             font.pixelSize:
-                                                root.theme
-                                                    .textMetadataSize
+                                                root.theme.textMetadataSize
                                             font.weight:
-                                                root.theme
-                                                    .textWeightStrong
+                                                root.theme.textWeightStrong
                                             horizontalAlignment:
                                                 Text.AlignHCenter
                                             verticalAlignment:
@@ -1980,9 +1963,7 @@ Rectangle {
                                     !ChatStore.loadingChats
                                     && root.scopedChats.length === 0
                                 text:
-                                    CollectionStore
-                                        .selectedCollectionId
-                                        .length === 0
+                                    CollectionStore.selectedCollectionId.length === 0
                                         ? "Select a Collection to view Chats."
                                         : "No Chats in this Collection."
                                 color: root.theme.mutedText
@@ -2052,9 +2033,7 @@ Rectangle {
                                     readonly property bool assigned:
                                         String(modelData.id)
                                             === String(
-                                                ChatStore
-                                                    .selectedChat
-                                                    .agentId
+                                                ChatStore.selectedChat.agentId
                                                 || ""
                                             )
 
@@ -2113,10 +2092,8 @@ Rectangle {
                                         font.pixelSize:
                                             root.theme.textControlSize
                                         font.weight: agentRow.assigned
-                                            ? root.theme
-                                                .textWeightEmphasis
-                                            : root.theme
-                                                .textWeightRegular
+                                            ? root.theme.textWeightEmphasis
+                                            : root.theme.textWeightRegular
                                         elide: Text.ElideRight
                                     }
 
@@ -2148,14 +2125,11 @@ Rectangle {
                                                 parent.enabled
                                                 && parent.hovered
                                                     ? root.theme.appText
-                                                    : root.theme
-                                                        .mutedText
+                                                    : root.theme.mutedText
                                             font.pixelSize:
-                                                root.theme
-                                                    .textMetadataSize
+                                                root.theme.textMetadataSize
                                             font.weight:
-                                                root.theme
-                                                    .textWeightStrong
+                                                root.theme.textWeightStrong
                                             horizontalAlignment:
                                                 Text.AlignHCenter
                                             verticalAlignment:
@@ -2183,21 +2157,15 @@ Rectangle {
                                             id: agentTap
 
                                             enabled:
-                                                ChatStore
-                                                    .selectedChatId
-                                                    .length > 0
+                                                ChatStore.selectedChatId.length > 0
                                                 && !ChatStore.responding
-                                                && !ChatStore
-                                                    .assigningAgent
+                                                && !ChatStore.assigningAgent
                                                 && !ChatStore.mutating
                                                 && !agentRow.assigned
                                             onTapped:
-                                                ChatStore
-                                                    .assignAgentToSelectedChat(
+                                                ChatStore.assignAgentToSelectedChat(
                                                         String(
-                                                            agentRow
-                                                                .modelData
-                                                                .id
+                                                            agentRow.modelData.id
                                                         )
                                                     )
                                         }

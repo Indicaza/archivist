@@ -34,6 +34,11 @@ interface MonacoEditorCallbacks {
     content: string,
     expectedModifiedAt: string,
   ): void;
+  requestOpenLocation(
+    filePath: string,
+    lineNumber: number,
+    columnNumber: number,
+  ): void;
 }
 
 interface DocumentState {
@@ -164,6 +169,10 @@ export class MonacoEditor {
 
   private readonly languageSupport: LanguageSupportClient;
 
+  private readonly editorOpener: monaco.IDisposable;
+
+  private readonly contextMenuPositionSync: monaco.IDisposable;
+
   private readonly viewStates = new Map<
     string,
     monaco.editor.ICodeEditorViewState | null
@@ -180,6 +189,14 @@ export class MonacoEditor {
   >();
 
   private readonly savesInFlight = new Set<string>();
+
+  private readonly pendingRevealByDocumentId = new Map<
+    string,
+    {
+      lineNumber: number;
+      columnNumber: number;
+    }
+  >();
 
   private readonly languageRevisionByModelKey = new Map<
     string,
@@ -242,6 +259,56 @@ export class MonacoEditor {
       wordWrap: "off",
     });
 
+    this.editorOpener = monaco.editor.registerEditorOpener({
+      openCodeEditor: (source, resource, target) => {
+        if (source !== this.editor) {
+          return false;
+        }
+
+        const currentResource = source.getModel()?.uri;
+
+        if (
+          currentResource?.toString()
+            === resource.toString()
+        ) {
+          return false;
+        }
+
+        if (resource.scheme !== "file" || !resource.fsPath) {
+          return false;
+        }
+
+        const position = target && "lineNumber" in target
+          ? target
+          : target
+            ? {
+                lineNumber: target.startLineNumber,
+                column: target.startColumn,
+              }
+            : {
+                lineNumber: 1,
+                column: 1,
+              };
+
+        this.callbacks.requestOpenLocation(
+          resource.fsPath,
+          position.lineNumber,
+          position.column,
+        );
+        return true;
+      },
+    });
+
+    this.contextMenuPositionSync = this.editor.onContextMenu(
+      (event) => {
+        const position = event.target.position;
+
+        if (position) {
+          this.editor.setPosition(position);
+        }
+      },
+    );
+
     this.element.addEventListener(
       "pointerdown",
       () => {
@@ -266,6 +333,8 @@ export class MonacoEditor {
 
     window.addEventListener("beforeunload", () => {
       this.rememberViewState();
+      this.contextMenuPositionSync.dispose();
+      this.editorOpener.dispose();
     });
 
     this.editor.onDidChangeModelContent(() => {
@@ -280,6 +349,7 @@ export class MonacoEditor {
         this.saveActiveDocument();
       },
     );
+
   }
 
   applyTheme(theme: ArchivistTheme): void {
@@ -311,12 +381,19 @@ export class MonacoEditor {
     let model = monaco.editor.getModel(uri);
     let state = this.statesByModelKey.get(modelKey);
 
-    if (!model || !state) {
+    if (!model) {
       model = monaco.editor.createModel(
         document.content,
         "plaintext",
         uri,
       );
+    }
+
+    if (!state) {
+      if (model.getValue() !== document.content) {
+        model.setValue(document.content);
+      }
+
       state = {
         documentId: document.id,
         modifiedAt: document.modifiedAt,
@@ -371,6 +448,18 @@ export class MonacoEditor {
       model,
       requestedLanguage,
     );
+    const pendingReveal =
+      this.pendingRevealByDocumentId.get(document.id);
+
+    if (pendingReveal) {
+      this.pendingRevealByDocumentId.delete(document.id);
+      this.revealLocation(
+        document.id,
+        pendingReveal.lineNumber,
+        pendingReveal.columnNumber,
+      );
+    }
+
     this.editor.layout();
     this.reportActiveDirtyState();
   }
@@ -417,6 +506,13 @@ export class MonacoEditor {
         break;
       case "discard":
         this.discardDocument(command.documentId);
+        break;
+      case "revealLocation":
+        this.revealLocation(
+          command.documentId,
+          command.lineNumber,
+          command.columnNumber,
+        );
         break;
     }
   }
@@ -529,6 +625,39 @@ export class MonacoEditor {
     return model && state
       ? { model, state }
       : null;
+  }
+
+  private revealLocation(
+    documentId: string,
+    lineNumber: number,
+    columnNumber: number,
+  ): void {
+    const document = this.documentState(documentId);
+
+    if (!document) {
+      this.pendingRevealByDocumentId.set(documentId, {
+        lineNumber,
+        columnNumber,
+      });
+      this.callbacks.reportStatus("Opening definition…");
+      return;
+    }
+
+    if (this.activeModelKey !== document.modelKey) {
+      this.rememberViewState();
+      this.activeModelKey = document.modelKey;
+      this.editor.setModel(document.model);
+    }
+
+    const position = document.model.validatePosition({
+      lineNumber: Math.max(1, lineNumber),
+      column: Math.max(1, columnNumber),
+    });
+
+    this.editor.setPosition(position);
+    this.editor.revealPositionInCenter(position);
+    this.editor.focus();
+    this.callbacks.reportStatus("Definition opened");
   }
 
   private saveActiveDocument(): void {

@@ -14,6 +14,15 @@ BUILD_DIR="$ROOT/build/frontend-debug"
 APP_BINARY="$BUILD_DIR/archivist-qt.app/Contents/MacOS/archivist-qt"
 PLAIN_BINARY="$BUILD_DIR/archivist-qt"
 STARTED=0
+FOLLOW_LOGS=false
+TAIL_PID=""
+
+if [[ "${1:-}" == "--follow" ]]; then
+  FOLLOW_LOGS=true
+elif [[ $# -gt 0 ]]; then
+  printf 'Usage: %s [--follow]\n' "$0" >&2
+  exit 2
+fi
 
 cleanup_failed_start() {
   local exit_code=$?
@@ -81,7 +90,10 @@ if ! curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
 fi
 
 printf 'Archivist backend is healthy.\n'
-tail -n 20 "$BACKEND_LOG" || true
+
+if [[ "$FOLLOW_LOGS" != true ]]; then
+  tail -n 20 "$BACKEND_LOG" || true
+fi
 
 printf 'Building the native frontend...\n'
 "$ROOT/scripts/qt-build"
@@ -112,17 +124,58 @@ if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
   exit 1
 fi
 
+frontend_instance_count="$({
+  pgrep -f -- "$APP_BINARY" 2>/dev/null || true
+  pgrep -f -- "$PLAIN_BINARY" 2>/dev/null || true
+} | sort -u | wc -l | tr -d '[:space:]')"
+
+if [[ "$frontend_instance_count" != "1" ]]; then
+  printf 'Expected one Archivist frontend, found %s. Cleaning up.\n' \
+    "$frontend_instance_count" >&2
+  exit 1
+fi
+
 trap - ERR INT TERM HUP
 STARTED=0
 
-printf '\nArchivist is running in the background.\n'
+printf '\nArchivist is running.\n'
 printf 'Backend PID: %s\n' "$BACKEND_PID"
 printf 'Frontend PID: %s\n' "$FRONTEND_PID"
 printf 'Backend log: %s\n' "$BACKEND_LOG"
 printf 'Frontend log: %s\n' "$FRONTEND_LOG"
-printf '\nShow recent logs:\n'
-printf '  npm run dev:logs\n'
-printf 'Follow live logs:\n'
-printf '  npm run dev:logs:follow\n'
-printf 'Stop Archivist:\n'
-printf '  npm run dev:stop\n'
+
+if [[ "$FOLLOW_LOGS" != true ]]; then
+  printf '\nFollow logs:\n'
+  printf '  npm run dev:logs:follow\n'
+  printf 'Stop Archivist:\n'
+  printf '  npm run dev:stop\n'
+  exit 0
+fi
+
+cleanup_live_session() {
+  local exit_code=$?
+
+  trap - EXIT INT TERM HUP
+
+  if [[ -n "$TAIL_PID" ]] && kill -0 "$TAIL_PID" 2>/dev/null; then
+    kill "$TAIL_PID" 2>/dev/null || true
+    wait "$TAIL_PID" 2>/dev/null || true
+  fi
+
+  printf '\nStopping Archivist...\n'
+  "$ROOT/scripts/qt-stop" || true
+  exit "$exit_code"
+}
+
+trap cleanup_live_session EXIT INT TERM HUP
+
+printf '\nStreaming Archivist logs. Press Ctrl+C to stop everything.\n\n'
+tail -n 30 -F "$BACKEND_LOG" "$FRONTEND_LOG" &
+TAIL_PID=$!
+
+while kill -0 "$BACKEND_PID" 2>/dev/null \
+  && kill -0 "$FRONTEND_PID" 2>/dev/null; do
+  sleep 1
+done
+
+printf '\nArchivist exited; shutting down remaining development processes.\n' >&2

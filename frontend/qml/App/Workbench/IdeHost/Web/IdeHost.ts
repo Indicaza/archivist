@@ -162,6 +162,20 @@ function parseEditorCommand(
           documentId,
           nonce: String(command.nonce || ""),
         };
+      case "revealLocation":
+        return {
+          type: "revealLocation",
+          documentId,
+          lineNumber: Math.max(
+            1,
+            Number(command.lineNumber || 1),
+          ),
+          columnNumber: Math.max(
+            1,
+            Number(command.columnNumber || 1),
+          ),
+          nonce: String(command.nonce || ""),
+        };
       default:
         return null;
     }
@@ -405,6 +419,17 @@ class IdeHost {
                 documentId,
                 content,
                 expectedModifiedAt,
+              );
+            },
+            requestOpenLocation: (
+              filePath,
+              lineNumber,
+              columnNumber,
+            ) => {
+              this.bridge?.requestOpenLocation(
+                filePath,
+                lineNumber,
+                columnNumber,
               );
             },
           },

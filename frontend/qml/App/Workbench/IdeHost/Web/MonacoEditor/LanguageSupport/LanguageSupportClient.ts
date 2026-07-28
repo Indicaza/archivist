@@ -22,6 +22,9 @@ import type {
   LspSignatureHelp,
 } from "./LspTypes.js";
 import {
+  LibraryModelResolver,
+} from "./LibraryModelResolver.js";
+import {
   type LanguageSupportCallbacks,
   WorkspaceLanguageClient,
 } from "./WorkspaceLanguageClient.js";
@@ -32,21 +35,47 @@ type Disposable = {
   dispose(): void;
 };
 
-const supportedMonacoLanguages = [
-  "typescript",
-  "javascript",
-] as const;
+interface LanguageSupportDefinition {
+  serverId: string;
+  displayName: string;
+  monacoLanguageIds: readonly string[];
+  completionTriggers: readonly string[];
+  signatureHelp: boolean;
+}
 
-const defaultCompletionTriggers = [
-  ".",
-  '"',
-  "'",
-  "`",
-  "/",
-  "@",
-  "<",
-  "#",
+const languageSupportDefinitions: readonly LanguageSupportDefinition[] = [
+  {
+    serverId: "typescript",
+    displayName: "TypeScript",
+    monacoLanguageIds: ["typescript", "javascript"],
+    completionTriggers: [
+      ".",
+      '"',
+      "'",
+      "`",
+      "/",
+      "@",
+      "<",
+      "#",
+    ],
+    signatureHelp: true,
+  },
+  {
+    serverId: "qml",
+    displayName: "QML",
+    monacoLanguageIds: ["qml"],
+    completionTriggers: [".", ":", '"', "'"],
+    signatureHelp: false,
+  },
 ];
+
+function languageSupportDefinition(
+  monacoLanguageId: string,
+): LanguageSupportDefinition | null {
+  return languageSupportDefinitions.find((definition) =>
+    definition.monacoLanguageIds.includes(monacoLanguageId)
+  ) ?? null;
+}
 
 export class LanguageSupportClient {
   private readonly clientsByKey = new Map<
@@ -58,6 +87,11 @@ export class LanguageSupportClient {
     string
   >();
   private readonly disposables: Disposable[] = [];
+  private readonly documentByModelUri = new Map<
+    string,
+    ArchivistDocument
+  >();
+  private readonly modelResolver: LibraryModelResolver;
   private openQueue: Promise<void> = Promise.resolve();
   private disposed = false;
 
@@ -65,6 +99,7 @@ export class LanguageSupportClient {
     private readonly monaco: MonacoApi,
     private readonly callbacks: LanguageSupportCallbacks,
   ) {
+    this.modelResolver = new LibraryModelResolver(monaco);
     this.registerProviders();
     window.addEventListener("beforeunload", () => {
       this.dispose();
@@ -76,11 +111,13 @@ export class LanguageSupportClient {
     model: Monaco.editor.ITextModel,
     monacoLanguageId: string,
   ): void {
+    const definition = languageSupportDefinition(
+      monacoLanguageId,
+    );
+
     if (
       this.disposed
-      || !supportedMonacoLanguages.includes(
-        monacoLanguageId as typeof supportedMonacoLanguages[number],
-      )
+      || !definition
       || !document.libraryId
       || !document.workspaceRoot
       || !document.filePath
@@ -88,11 +125,17 @@ export class LanguageSupportClient {
       return;
     }
 
+    this.documentByModelUri.set(
+      model.uri.toString(),
+      document,
+    );
+
     this.openQueue = this.openQueue
       .then(() => this.attachDocument(
         document,
         model,
         monacoLanguageId,
+        definition,
       ))
       .catch((error) => {
         const message = error instanceof Error
@@ -122,12 +165,14 @@ export class LanguageSupportClient {
 
     this.clientsByKey.clear();
     this.clientKeyByModelUri.clear();
+    this.documentByModelUri.clear();
   }
 
   private async attachDocument(
     document: ArchivistDocument,
     model: Monaco.editor.ITextModel,
     monacoLanguageId: string,
+    definition: LanguageSupportDefinition,
   ): Promise<void> {
     if (this.disposed || model.isDisposed()) {
       return;
@@ -135,10 +180,14 @@ export class LanguageSupportClient {
 
     const existing = [...this.clientsByKey.values()].find(
       (client) =>
-        client.libraryId === document.libraryId
+        client.descriptor.serverId === definition.serverId
+        && client.libraryId === document.libraryId
         && pathWithin(client.workspaceRoot, document.filePath),
     );
-    const client = existing ?? await this.startClient(document);
+    const client = existing ?? await this.startClient(
+      document,
+      definition,
+    );
 
     if (this.disposed || model.isDisposed()) {
       return;
@@ -156,9 +205,10 @@ export class LanguageSupportClient {
 
   private async startClient(
     document: ArchivistDocument,
+    definition: LanguageSupportDefinition,
   ): Promise<WorkspaceLanguageClient> {
     this.callbacks.reportStatus(
-      "Starting TypeScript language support…",
+      `Starting ${definition.displayName} language support…`,
     );
 
     const controller = new AbortController();
@@ -175,7 +225,7 @@ export class LanguageSupportClient {
         },
         body: JSON.stringify({
           libraryId: document.libraryId,
-          serverId: "typescript",
+          serverId: definition.serverId,
           workspaceRoot: document.workspaceRoot,
           filePath: document.filePath,
         }),
@@ -308,251 +358,296 @@ export class LanguageSupportClient {
   }
 
   private registerProviders(): void {
-    for (const languageId of supportedMonacoLanguages) {
-      this.disposables.push(
-        this.monaco.languages.registerHoverProvider(
+    for (const definition of languageSupportDefinitions) {
+      for (const languageId of definition.monacoLanguageIds) {
+        this.registerCommonProviders(
           languageId,
-          {
-            provideHover: async (model, position, token) => {
-              const client = this.clientForModel(model);
+          definition,
+        );
 
-              if (!client) {
-                return null;
-              }
-
-              const result = await this.requestForModel<LspHover | null>(
-                client,
-                model,
-                "textDocument/hover",
-                {
-                  textDocument: {
-                    uri: model.uri.toString(),
-                  },
-                  position: toLspPosition(position),
-                },
-              );
-
-              if (!result || token.isCancellationRequested) {
-                return null;
-              }
-
-              return {
-                contents: hoverContents(result.contents),
-                range: result.range
-                  ? toMonacoRange(this.monaco, result.range)
-                  : undefined,
-              };
-            },
-          },
-        ),
-      );
-
-      this.disposables.push(
-        this.monaco.languages.registerCompletionItemProvider(
-          languageId,
-          {
-            triggerCharacters: defaultCompletionTriggers,
-            provideCompletionItems: async (
-              model,
-              position,
-              context,
-              token,
-            ) => {
-              const client = this.clientForModel(model);
-
-              if (!client) {
-                return { suggestions: [] };
-              }
-
-              const result = await this.requestForModel<
-                LspCompletionItem[] | LspCompletionList | null
-              >(
-                client,
-                model,
-                "textDocument/completion",
-                {
-                  textDocument: {
-                    uri: model.uri.toString(),
-                  },
-                  position: toLspPosition(position),
-                  context: {
-                    triggerKind: context.triggerKind + 1,
-                    triggerCharacter: context.triggerCharacter,
-                  },
-                },
-              );
-
-              return token.isCancellationRequested
-                ? { suggestions: [] }
-                : completionResult(
-                    this.monaco,
-                    model,
-                    position,
-                    result,
-                  );
-            },
-          },
-        ),
-      );
-
-      this.disposables.push(
-        this.monaco.languages.registerDefinitionProvider(
-          languageId,
-          {
-            provideDefinition: async (model, position, token) => {
-              const client = this.clientForModel(model);
-
-              if (!client) {
-                return null;
-              }
-
-              const result = await this.requestForModel<
-                | LspLocation
-                | LspLocation[]
-                | LspLocationLink[]
-                | null
-              >(
-                client,
-                model,
-                "textDocument/definition",
-                {
-                  textDocument: {
-                    uri: model.uri.toString(),
-                  },
-                  position: toLspPosition(position),
-                },
-              );
-
-              if (!result || token.isCancellationRequested) {
-                return null;
-              }
-
-              const values = Array.isArray(result)
-                ? result
-                : [result];
-
-              return values.map((value) =>
-                locationResult(this.monaco, value),
-              );
-            },
-          },
-        ),
-      );
-
-      this.disposables.push(
-        this.monaco.languages.registerReferenceProvider(
-          languageId,
-          {
-            provideReferences: async (model, position, context, token) => {
-              const client = this.clientForModel(model);
-
-              if (!client) {
-                return null;
-              }
-
-              const result = await this.requestForModel<
-                LspLocation[] | null
-              >(
-                client,
-                model,
-                "textDocument/references",
-                {
-                  textDocument: {
-                    uri: model.uri.toString(),
-                  },
-                  position: toLspPosition(position),
-                  context: {
-                    includeDeclaration: context.includeDeclaration,
-                  },
-                },
-              );
-
-              if (!result || token.isCancellationRequested) {
-                return null;
-              }
-
-              return result.map((value) => ({
-                uri: this.monaco.Uri.parse(value.uri),
-                range: toMonacoRange(
-                  this.monaco,
-                  value.range,
-                ),
-              }));
-            },
-          },
-        ),
-      );
-
-      this.disposables.push(
-        this.monaco.languages.registerSignatureHelpProvider(
-          languageId,
-          {
-            signatureHelpTriggerCharacters: ["(", ","],
-            signatureHelpRetriggerCharacters: [","],
-            provideSignatureHelp: async (
-              model,
-              position,
-              token,
-              context,
-            ) => {
-              const client = this.clientForModel(model);
-
-              if (!client) {
-                return null;
-              }
-
-              const result = await this.requestForModel<
-                LspSignatureHelp | null
-              >(
-                client,
-                model,
-                "textDocument/signatureHelp",
-                {
-                  textDocument: {
-                    uri: model.uri.toString(),
-                  },
-                  position: toLspPosition(position),
-                  context: {
-                    isRetrigger: context.isRetrigger,
-                    triggerCharacter: context.triggerCharacter,
-                    triggerKind: context.triggerKind + 1,
-                  },
-                },
-              );
-
-              if (!result || token.isCancellationRequested) {
-                return null;
-              }
-
-              return {
-                value: {
-                  activeSignature: result.activeSignature ?? 0,
-                  activeParameter: result.activeParameter ?? 0,
-                  signatures: result.signatures.map(
-                    (signature) => ({
-                      label: signature.label,
-                      documentation: markdownValue(
-                        signature.documentation,
-                      ),
-                      activeParameter:
-                        signature.activeParameter,
-                      parameters: (signature.parameters ?? []).map(
-                        (parameter) => ({
-                          label: parameter.label,
-                          documentation: markdownValue(
-                            parameter.documentation,
-                          ),
-                        }),
-                      ),
-                    }),
-                  ),
-                },
-                dispose(): void {},
-              };
-            },
-          },
-        ),
-      );
+        if (definition.signatureHelp) {
+          this.registerSignatureHelpProvider(languageId);
+        }
+      }
     }
+  }
+
+  private registerCommonProviders(
+    languageId: string,
+    definition: LanguageSupportDefinition,
+  ): void {
+    this.disposables.push(
+      this.monaco.languages.registerHoverProvider(
+        languageId,
+        {
+          provideHover: async (model, position, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client) {
+              return null;
+            }
+
+            const result = await this.requestForModel<LspHover | null>(
+              client,
+              model,
+              "textDocument/hover",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+              },
+            );
+
+            if (!result || token.isCancellationRequested) {
+              return null;
+            }
+
+            return {
+              contents: hoverContents(result.contents),
+              range: result.range
+                ? toMonacoRange(this.monaco, result.range)
+                : undefined,
+            };
+          },
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerCompletionItemProvider(
+        languageId,
+        {
+          triggerCharacters: [...definition.completionTriggers],
+          provideCompletionItems: async (
+            model,
+            position,
+            context,
+            token,
+          ) => {
+            const client = this.clientForModel(model);
+
+            if (!client) {
+              return { suggestions: [] };
+            }
+
+            const result = await this.requestForModel<
+              LspCompletionItem[] | LspCompletionList | null
+            >(
+              client,
+              model,
+              "textDocument/completion",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+                context: {
+                  triggerKind: context.triggerKind + 1,
+                  triggerCharacter: context.triggerCharacter,
+                },
+              },
+            );
+
+            return token.isCancellationRequested
+              ? { suggestions: [] }
+              : completionResult(
+                  this.monaco,
+                  model,
+                  position,
+                  result,
+                );
+          },
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerDefinitionProvider(
+        languageId,
+        {
+          provideDefinition: async (model, position, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              | LspLocation
+              | LspLocation[]
+              | LspLocationLink[]
+              | null
+            >(
+              client,
+              model,
+              "textDocument/definition",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+              },
+            );
+
+            if (!result || token.isCancellationRequested) {
+              return null;
+            }
+
+            const values = Array.isArray(result)
+              ? result
+              : [result];
+            const document = this.documentByModelUri.get(
+              model.uri.toString(),
+            );
+
+            if (document) {
+              await this.modelResolver.ensureLocationModels(
+                document,
+                values,
+              );
+            }
+
+            if (token.isCancellationRequested) {
+              return null;
+            }
+
+            return values.map((value) =>
+              locationResult(this.monaco, value)
+            );
+          },
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerReferenceProvider(
+        languageId,
+        {
+          provideReferences: async (model, position, context, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              LspLocation[] | null
+            >(
+              client,
+              model,
+              "textDocument/references",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+                context: {
+                  includeDeclaration: context.includeDeclaration,
+                },
+              },
+            );
+
+            if (!result || token.isCancellationRequested) {
+              return null;
+            }
+
+            const document = this.documentByModelUri.get(
+              model.uri.toString(),
+            );
+
+            if (document) {
+              await this.modelResolver.ensureLocationModels(
+                document,
+                result,
+              );
+            }
+
+            if (token.isCancellationRequested) {
+              return null;
+            }
+
+            return result.map((value) =>
+              locationResult(this.monaco, value)
+            );
+          },
+        },
+      ),
+    );
+  }
+
+  private registerSignatureHelpProvider(
+    languageId: string,
+  ): void {
+    this.disposables.push(
+      this.monaco.languages.registerSignatureHelpProvider(
+        languageId,
+        {
+          signatureHelpTriggerCharacters: ["(", ","],
+          signatureHelpRetriggerCharacters: [","],
+          provideSignatureHelp: async (
+            model,
+            position,
+            token,
+            context,
+          ) => {
+            const client = this.clientForModel(model);
+
+            if (!client) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              LspSignatureHelp | null
+            >(
+              client,
+              model,
+              "textDocument/signatureHelp",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+                context: {
+                  isRetrigger: context.isRetrigger,
+                  triggerCharacter: context.triggerCharacter,
+                  triggerKind: context.triggerKind + 1,
+                },
+              },
+            );
+
+            if (!result || token.isCancellationRequested) {
+              return null;
+            }
+
+            return {
+              value: {
+                activeSignature: result.activeSignature ?? 0,
+                activeParameter: result.activeParameter ?? 0,
+                signatures: result.signatures.map(
+                  (signature) => ({
+                    label: signature.label,
+                    documentation: markdownValue(
+                      signature.documentation,
+                    ),
+                    activeParameter:
+                      signature.activeParameter,
+                    parameters: (signature.parameters ?? []).map(
+                      (parameter) => ({
+                        label: parameter.label,
+                        documentation: markdownValue(
+                          parameter.documentation,
+                        ),
+                      }),
+                    ),
+                  }),
+                ),
+              },
+              dispose(): void {},
+            };
+          },
+        },
+      ),
+    );
   }
 }

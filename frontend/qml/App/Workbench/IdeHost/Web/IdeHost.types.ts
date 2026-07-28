@@ -53,6 +53,13 @@ export type ArchivistEditorCommand =
       type: "discard";
       documentId: string;
       nonce: string;
+    }
+  | {
+      type: "revealLocation";
+      documentId: string;
+      lineNumber: number;
+      columnNumber: number;
+      nonce: string;
     };
 
 export interface ArchivistSaveResult {
@@ -99,6 +106,11 @@ export interface ArchivistBridge {
     documentId: string,
     content: string,
     expectedModifiedAt: string,
+  ): void;
+  requestOpenLocation(
+    filePath: string,
+    lineNumber: number,
+    columnNumber: number,
   ): void;
 }
 

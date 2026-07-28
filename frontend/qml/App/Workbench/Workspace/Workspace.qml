@@ -40,6 +40,98 @@ Rectangle {
     property string editorSafetyTitle: ""
     property string pendingCloseTabKey: ""
     property string pendingCloseDocumentId: ""
+    property string pendingEditorTargetFileId: ""
+    property int pendingEditorTargetLine: 1
+    property int pendingEditorTargetColumn: 1
+
+    function normalizedEditorPath(value) {
+        return String(value || "")
+            .replace(/\\/g, "/")
+            .replace(/\/+$/, "")
+    }
+
+    function openEditorLocation(
+        filePath,
+        lineNumber,
+        columnNumber
+    ) {
+        var libraryRoot = root.normalizedEditorPath(
+            LibraryStore.selectedLibrary.rootPath || ""
+        )
+        var targetPath = root.normalizedEditorPath(filePath)
+        var prefix = libraryRoot.length > 0
+            ? libraryRoot + "/"
+            : ""
+
+        if (
+            prefix.length === 0
+            || targetPath.indexOf(prefix) !== 0
+        ) {
+            return
+        }
+
+        var relativePath = targetPath.substring(prefix.length)
+        var files = LibraryStore.files || []
+
+        for (var index = 0; index < files.length; index += 1) {
+            var file = files[index] || ({})
+
+            if (
+                root.normalizedEditorPath(file.relativePath)
+                    !== relativePath
+            ) {
+                continue
+            }
+
+            pendingEditorTargetFileId = String(file.id || "")
+            pendingEditorTargetLine = Math.max(
+                1, Number(lineNumber || 1)
+            )
+            pendingEditorTargetColumn = Math.max(
+                1, Number(columnNumber || 1)
+            )
+
+            if (
+                String(LibraryStore.selectedFileId || "")
+                    === pendingEditorTargetFileId
+            ) {
+                Qt.callLater(function() {
+                    root.revealPendingEditorLocation(
+                        codeEditor.stableDocumentId
+                    )
+                })
+            } else {
+                LibraryStore.previewFile(
+                    pendingEditorTargetFileId
+                )
+            }
+            return
+        }
+    }
+
+    function revealPendingEditorLocation(documentId) {
+        if (
+            pendingEditorTargetFileId.length === 0
+            || String(LibraryStore.selectedFileId || "")
+                !== pendingEditorTargetFileId
+        ) {
+            return
+        }
+
+        var lineNumber = pendingEditorTargetLine
+        var columnNumber = pendingEditorTargetColumn
+        pendingEditorTargetFileId = ""
+        pendingEditorTargetLine = 1
+        pendingEditorTargetColumn = 1
+
+        Qt.callLater(function() {
+            codeEditor.revealLocation(
+                documentId,
+                lineNumber,
+                columnNumber
+            )
+        })
+    }
 
     function openDirtyCloseDialog(
         tabKey,
@@ -948,6 +1040,22 @@ Rectangle {
 
         onMarkdownPreviewRequested: {
             filePreview.viewMode = "rendered"
+        }
+
+        onFileLocationRequested: function(
+            filePath,
+            lineNumber,
+            columnNumber
+        ) {
+            root.openEditorLocation(
+                filePath,
+                lineNumber,
+                columnNumber
+            )
+        }
+
+        onDocumentReady: function(documentId) {
+            root.revealPendingEditorLocation(documentId)
         }
 
         onDirtyStateReported: function(documentId, dirty) {

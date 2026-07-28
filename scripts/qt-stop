@@ -3,7 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="3333"
+BUILD_DIR="$ROOT/build/frontend-debug"
+APP_BINARY="$BUILD_DIR/archivist-qt.app/Contents/MacOS/archivist-qt"
+PLAIN_BINARY="$BUILD_DIR/archivist-qt"
 RUNTIME_DIR="$ROOT/backend/data/runtime"
+LOG_DIR="$RUNTIME_DIR/logs"
+BACKEND_LOG="$LOG_DIR/backend.log"
+FRONTEND_LOG="$LOG_DIR/frontend.log"
 PID_FILE="$RUNTIME_DIR/qt-dev-backend.pid"
 FRONTEND_PID_FILE="$RUNTIME_DIR/qt-dev-frontend.pid"
 PROCESS_TREE=()
@@ -95,6 +101,22 @@ repository_process_root() {
 
 stopped=0
 
+# Clean up orphaned log followers from interrupted development shells.
+# They do not create extra app instances, but they duplicate every line in
+# the terminal and make runtime diagnosis misleading.
+stale_tail_pids="$(pgrep -f -- "tail .*${BACKEND_LOG} .*${FRONTEND_LOG}" 2>/dev/null || true)"
+
+for stale_tail_pid in $stale_tail_pids; do
+  [[ "$stale_tail_pid" =~ ^[0-9]+$ ]] || continue
+  [[ "$stale_tail_pid" != "$$" ]] || continue
+
+  if kill -0 "$stale_tail_pid" 2>/dev/null; then
+    printf 'Stopping stale Archivist log follower (%s)...\n' "$stale_tail_pid"
+    kill -TERM "$stale_tail_pid" 2>/dev/null || true
+    stopped=1
+  fi
+done
+
 if [[ -f "$FRONTEND_PID_FILE" ]]; then
   frontend_pid="$(tr -d '[:space:]' < "$FRONTEND_PID_FILE")"
 
@@ -112,6 +134,32 @@ if [[ -f "$FRONTEND_PID_FILE" ]]; then
 
   rm -f "$FRONTEND_PID_FILE"
 fi
+
+# PID files only describe the newest launch. Sweep any older native frontend
+# instances from this exact repository before touching the backend. This avoids
+# running a stale WebEngine bundle beside the newly built application.
+stale_frontend_pids="$({
+  pgrep -f -- "$APP_BINARY" 2>/dev/null || true
+  pgrep -f -- "$PLAIN_BINARY" 2>/dev/null || true
+} | sort -u)"
+
+for stale_frontend_pid in $stale_frontend_pids; do
+  [[ "$stale_frontend_pid" =~ ^[0-9]+$ ]] || continue
+  [[ "$stale_frontend_pid" != "$$" ]] || continue
+
+  if ! kill -0 "$stale_frontend_pid" 2>/dev/null; then
+    continue
+  fi
+
+  stale_frontend_command="$(ps -p "$stale_frontend_pid" -o command= 2>/dev/null || true)"
+
+  if [[ "$stale_frontend_command" == *"$APP_BINARY"* ]] \
+    || [[ "$stale_frontend_command" == *"$PLAIN_BINARY"* ]]; then
+    printf 'Stopping stale Archivist frontend process tree (%s)...\n' "$stale_frontend_pid"
+    terminate_process_tree "$stale_frontend_pid"
+    stopped=1
+  fi
+done
 
 if [[ -f "$PID_FILE" ]]; then
   managed_pid="$(tr -d '[:space:]' < "$PID_FILE")"

@@ -33,12 +33,16 @@ Item {
         string content,
         string expectedModifiedAt
     )
+    signal fileLocationRequested(
+        string filePath,
+        int lineNumber,
+        int columnNumber
+    )
     property bool ready: false
     property string statusText: activeSurface === "editor"
         ? "Loading code editor…"
         : "Loading terminal…"
     property url ideUrl: "http://127.0.0.1:3333/ide/"
-
     readonly property url surfaceUrl:
         String(root.ideUrl)
             + "?surface="
@@ -84,6 +88,7 @@ Item {
         modifiedAt: String(root.documentModifiedAt || ""),
         readOnly: Boolean(root.documentReadOnly)
     })
+
 
     WebChannel {
         id: channel
@@ -148,6 +153,18 @@ Item {
                 String(expectedModifiedAt || "")
             )
         }
+
+        function requestOpenLocation(
+            filePath,
+            lineNumber,
+            columnNumber
+        ) {
+            root.fileLocationRequested(
+                String(filePath || ""),
+                Math.max(1, Number(lineNumber || 1)),
+                Math.max(1, Number(columnNumber || 1))
+            )
+        }
     }
 
     function sendEditorCommand(command) {
@@ -169,6 +186,19 @@ Item {
         sendEditorCommand({
             type: "discard",
             documentId: String(documentId || "")
+        })
+    }
+
+    function revealLocation(
+        documentId,
+        lineNumber,
+        columnNumber
+    ) {
+        sendEditorCommand({
+            type: "revealLocation",
+            documentId: String(documentId || ""),
+            lineNumber: Math.max(1, Number(lineNumber || 1)),
+            columnNumber: Math.max(1, Number(columnNumber || 1))
         })
     }
 

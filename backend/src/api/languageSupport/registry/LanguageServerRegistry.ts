@@ -31,6 +31,7 @@ const definitions: readonly LanguageServerDefinition[] = [
     executableCandidates: ["qmlls", "qmlls6"],
     args: [],
     rootMarkers: [
+      ".qmlls.ini",
       "qmldir",
       "CMakeLists.txt",
       ".git",

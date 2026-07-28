@@ -35,6 +35,10 @@ import type {
   ResolvedLanguageWorkspace,
 } from "../types/LanguageSupportTypes.js";
 import { resolveLanguageServerExecutable } from "./LanguageServerExecutableResolver.js";
+import {
+  resolveLanguageServerLaunch,
+  type LanguageServerLaunchConfiguration,
+} from "./LanguageServerLaunchResolver.js";
 import { resolveLanguageWorkspace } from "./LanguageWorkspaceResolver.js";
 
 const socketPath = "/language-support";
@@ -48,6 +52,7 @@ interface PendingSession {
   definition: LanguageServerDefinition;
   workspace: ResolvedLanguageWorkspace;
   executablePath: string;
+  launch: LanguageServerLaunchConfiguration;
   expiresAtMilliseconds: number;
 }
 
@@ -328,6 +333,10 @@ export class LanguageSupportSocketServer {
       );
     }
 
+    const launch = resolveLanguageServerLaunch(
+      definition,
+      workspace,
+    );
     const sessionId = randomUUID();
     const token = randomBytes(32).toString("hex");
     const expiresAtMilliseconds =
@@ -363,6 +372,7 @@ export class LanguageSupportSocketServer {
       definition,
       workspace,
       executablePath,
+      launch,
       expiresAtMilliseconds,
     });
 
@@ -553,9 +563,21 @@ export class LanguageSupportSocketServer {
       return;
     }
 
+    if (pending.launch.buildDirectory) {
+      console.log(
+        `[Language Support:${pending.definition.id}] Using build directory ${pending.launch.buildDirectory}`,
+      );
+    }
+
+    if (pending.launch.importDirectories.length > 0) {
+      console.log(
+        `[Language Support:${pending.definition.id}] Using import paths ${pending.launch.importDirectories.join(", ")}`,
+      );
+    }
+
     const child = spawn(
       pending.executablePath,
-      [...pending.definition.args],
+      [...pending.launch.args],
       {
         cwd: pending.workspace.workspaceRoot,
         env: minimalEnvironment(),
