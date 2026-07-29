@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import Archivist.Services 1.0
-import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "WorkspaceNavigator"
 
@@ -44,6 +43,9 @@ Rectangle {
     property bool treeStateRestorePending: false
     property string pendingCreatedLibraryId: ""
     property string pendingCreatedCollectionId: ""
+    property string pendingRevealLibraryId: ""
+    property string pendingRevealFileId: ""
+    property string pendingRevealRelativePath: ""
     property var pendingTreeViewport: ({
         contentY: 0,
         nodeId: "",
@@ -266,10 +268,15 @@ Rectangle {
         rebuildNodesFromFiles(false)
         var anchor = pendingTreeViewport
         treeStateRestorePending = false
-        restoreTreeViewport(
-            anchor,
-            treeViewportRevision
-        )
+        var revealed = applyPendingReveal()
+
+        if (!revealed) {
+            restoreTreeViewport(
+                anchor,
+                treeViewportRevision
+            )
+        }
+
         restoringLibraryTreeState = false
         scheduleLibraryTreeStateSave()
     }
@@ -437,21 +444,294 @@ Rectangle {
         LibraryStore.selectLibrary(targetLibraryId)
     }
 
-    function glyphForFile(fileName, extension) {
-        return FileIdentity.glyphFor({
-            fileName: fileName,
-            extension: extension
+    function clearPendingReveal() {
+        pendingRevealLibraryId = ""
+        pendingRevealFileId = ""
+        pendingRevealRelativePath = ""
+    }
+
+    function expandRevealParents(relativePath) {
+        var normalized = String(relativePath || "")
+            .split("\\").join("/")
+            .replace(/^\.\//, "")
+        var parts = normalized.split("/")
+        parts.pop()
+        var pathParts = []
+        var nextExpanded = cloneExpandedNodes(expandedNodeIds)
+
+        for (var index = 0; index < parts.length; index += 1) {
+            if (parts[index].length === 0) {
+                continue
+            }
+
+            pathParts.push(parts[index])
+            nextExpanded["folder:" + pathParts.join("/")] = true
+        }
+
+        expandedNodeIds = nextExpanded
+    }
+
+    function applyPendingReveal() {
+        if (
+            pendingRevealLibraryId.length === 0
+            || pendingRevealFileId.length === 0
+            || LibraryStore.loadingFiles
+            || String(LibraryStore.selectedLibraryId || "")
+                !== pendingRevealLibraryId
+        ) {
+            return false
+        }
+
+        var nodeId = "file:" + pendingRevealFileId
+        var nodeExists = false
+
+        for (var index = 0; index < treeNodes.length; index += 1) {
+            if (String(treeNodes[index].id || "") === nodeId) {
+                nodeExists = true
+                break
+            }
+        }
+
+        if (!nodeExists) {
+            clearPendingReveal()
+            return false
+        }
+
+        expandRevealParents(pendingRevealRelativePath)
+        selectedNodeId = nodeId
+        selectedNodePath = pendingRevealRelativePath
+        rebuildTree(false)
+        clearPendingReveal()
+        scheduleLibraryTreeStateSave()
+
+        var revision = treeViewportRevision
+        Qt.callLater(function() {
+            if (
+                !root.treeView
+                || revision !== root.treeViewportRevision
+            ) {
+                return
+            }
+
+            var visibleIndex = root.visibleIndexForNode(nodeId)
+            if (visibleIndex >= 0) {
+                root.treeView.positionViewAtIndex(
+                    visibleIndex,
+                    ListView.Contain
+                )
+                root.treeView.forceLayout()
+            }
         })
+
+        return true
+    }
+
+    function revealFile(libraryId, fileId, relativePath) {
+        var targetLibraryId = String(libraryId || "")
+        var targetFileId = String(fileId || "")
+
+        if (
+            targetLibraryId.length === 0
+            || targetFileId.length === 0
+        ) {
+            return
+        }
+
+        pendingRevealLibraryId = targetLibraryId
+        pendingRevealFileId = targetFileId
+        pendingRevealRelativePath = String(relativePath || "")
+
+        if (
+            String(LibraryStore.selectedLibraryId || "")
+                !== targetLibraryId
+        ) {
+            selectLibrary(targetLibraryId)
+            return
+        }
+
+        if (!LibraryStore.loadingFiles) {
+            applyPendingReveal()
+        }
+    }
+
+    function placeholderGlyphForFile(fileName, extension) {
+        var suffix = String(extension || "").toLowerCase()
+        if (suffix.charAt(0) === ".") {
+            suffix = suffix.slice(1)
+        }
+
+        if (suffix.length === 0) {
+            var name = String(fileName || "")
+            var dot = name.lastIndexOf(".")
+            suffix = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ""
+        }
+
+        var glyphs = {
+            "ts": "TS",
+            "tsx": "TX",
+            "js": "JS",
+            "jsx": "JX",
+            "qml": "Q",
+            "cpp": "C+",
+            "cc": "C+",
+            "cxx": "C+",
+            "c": "C",
+            "h": "H",
+            "hpp": "H+",
+            "py": "PY",
+            "rs": "RS",
+            "go": "GO",
+            "java": "JV",
+            "cs": "C#",
+            "swift": "SW",
+            "kt": "KT",
+            "md": "MD",
+            "markdown": "MD",
+            "json": "{}",
+            "yaml": "Y",
+            "yml": "Y",
+            "toml": "T",
+            "xml": "<>",
+            "html": "<>",
+            "css": "#",
+            "scss": "S#",
+            "less": "L#",
+            "sh": "SH",
+            "bash": "SH",
+            "sql": "DB",
+            "pdf": "P",
+            "png": "IM",
+            "jpg": "IM",
+            "jpeg": "IM",
+            "gif": "IM",
+            "webp": "IM",
+            "svg": "SV",
+            "txt": "T"
+        }
+
+        return glyphs[suffix] || "·"
+    }
+
+    function gitStatusPriority(status) {
+        switch (String(status || "")) {
+        case "conflicted": return 60
+        case "deleted": return 50
+        case "renamed": return 40
+        case "added": return 30
+        case "untracked": return 20
+        case "modified": return 10
+        default: return 0
+        }
+    }
+
+    function strongerGitStatus(currentStatus, candidateStatus) {
+        return gitStatusPriority(candidateStatus)
+            > gitStatusPriority(currentStatus)
+                ? String(candidateStatus || "")
+                : String(currentStatus || "")
+    }
+
+    function gitBranchLabel() {
+        var status = LibraryStore.gitStatus || ({})
+
+        if (LibraryStore.loadingGitStatus) {
+            return "Checking Git…"
+        }
+
+        if (!status.repository) {
+            return "No Git repository"
+        }
+
+        var label = status.detached
+            ? "Detached HEAD"
+            : String(status.branch || "Git repository")
+        var movement = []
+
+        if (Number(status.ahead || 0) > 0) {
+            movement.push("↑" + Number(status.ahead))
+        }
+        if (Number(status.behind || 0) > 0) {
+            movement.push("↓" + Number(status.behind))
+        }
+        if (movement.length > 0) {
+            label += "  " + movement.join(" ")
+        }
+
+        return label
+    }
+
+    function gitChangeLabel() {
+        var status = LibraryStore.gitStatus || ({})
+        var count = status.entries ? status.entries.length : 0
+
+        if (!status.repository || count === 0) {
+            return status.repository ? "Clean" : ""
+        }
+
+        return count === 1 ? "1 change" : String(count) + " changes"
     }
 
     function rebuildNodesFromFiles(preserveViewport) {
         var nodes = []
         var directories = ({})
+        var catalogPaths = ({})
         var catalogDirectories = LibraryStore.directories || []
         var files = LibraryStore.files || []
+        var gitEntries = (LibraryStore.gitStatus || ({})).entries || []
+        var gitByPath = ({})
+        var folderGit = ({})
+
+        function normalizedPath(value) {
+            return String(value || "")
+                .split("\\").join("/")
+                .replace(/^\.\//, "")
+                .replace(/\/{2,}/g, "/")
+                .replace(/^\/+|\/+$/g, "")
+        }
+
+        function aggregateFolderStatus(filePath, status) {
+            var parts = normalizedPath(filePath).split("/")
+            parts.pop()
+            var pathParts = []
+
+            for (var index = 0; index < parts.length; index += 1) {
+                if (parts[index].length === 0) {
+                    continue
+                }
+
+                pathParts.push(parts[index])
+                var directoryPath = pathParts.join("/")
+                var aggregate = folderGit[directoryPath] || {
+                    count: 0,
+                    status: ""
+                }
+                aggregate.count += 1
+                aggregate.status = strongerGitStatus(
+                    aggregate.status,
+                    status
+                )
+                folderGit[directoryPath] = aggregate
+            }
+        }
+
+        for (var gitIndex = 0; gitIndex < gitEntries.length; gitIndex += 1) {
+            var gitEntry = gitEntries[gitIndex] || ({})
+            var gitPath = normalizedPath(gitEntry.path)
+            var gitState = String(gitEntry.status || "")
+
+            if (gitPath.length === 0 || gitState.length === 0) {
+                continue
+            }
+
+            gitByPath[gitPath] = strongerGitStatus(
+                gitByPath[gitPath],
+                gitState
+            )
+            aggregateFolderStatus(gitPath, gitState)
+        }
 
         function appendDirectoryPath(relativePath) {
-            var rawParts = String(relativePath || "").split("/")
+            var rawParts = normalizedPath(relativePath).split("/")
             var parts = []
 
             for (
@@ -478,16 +758,19 @@ Rectangle {
 
                 if (directories[directoryId] !== true) {
                     directories[directoryId] = true
+                    var aggregate = folderGit[directoryPath] || ({})
                     nodes.push({
                         id: directoryId,
                         parentId: parentId,
                         title: parts[directoryIndex],
-                        glyph: "□",
+                        glyph: "▰",
                         folder: true,
                         fileId: "",
                         relativePath: directoryPath,
                         muted: false,
-                        warning: false
+                        warning: false,
+                        gitStatus: String(aggregate.status || ""),
+                        gitCount: Number(aggregate.count || 0)
                     })
                 }
 
@@ -513,7 +796,7 @@ Rectangle {
             fileIndex += 1
         ) {
             var file = files[fileIndex]
-            var relativePath = String(
+            var relativePath = normalizedPath(
                 file.relativePath || file.name || ""
             )
             var separator = relativePath.lastIndexOf("/")
@@ -522,16 +805,59 @@ Rectangle {
                 : ""
             var parentId = appendDirectoryPath(directoryPath)
 
+            catalogPaths[relativePath] = true
             nodes.push({
                 id: "file:" + String(file.id),
                 parentId: parentId,
                 title: String(file.name || relativePath),
-                glyph: glyphForFile(file.name, file.extension),
+                glyph: placeholderGlyphForFile(
+                    file.name,
+                    file.extension
+                ),
                 folder: false,
                 fileId: String(file.id),
                 relativePath: relativePath,
                 muted: file.status !== "available",
-                warning: file.status !== "available"
+                warning: file.status !== "available",
+                gitStatus: String(gitByPath[relativePath] || ""),
+                gitCount: 0
+            })
+        }
+
+        // Keep deleted files visible until the next commit even though the
+        // Library catalog correctly stops treating them as openable files.
+        for (var deletedIndex = 0; deletedIndex < gitEntries.length; deletedIndex += 1) {
+            var deletedEntry = gitEntries[deletedIndex] || ({})
+            var deletedPath = normalizedPath(deletedEntry.path)
+
+            if (
+                String(deletedEntry.status || "") !== "deleted"
+                || deletedPath.length === 0
+                || catalogPaths[deletedPath] === true
+            ) {
+                continue
+            }
+
+            var deletedSeparator = deletedPath.lastIndexOf("/")
+            var deletedDirectory = deletedSeparator >= 0
+                ? deletedPath.slice(0, deletedSeparator)
+                : ""
+            var deletedName = deletedSeparator >= 0
+                ? deletedPath.slice(deletedSeparator + 1)
+                : deletedPath
+
+            nodes.push({
+                id: "git-deleted:" + deletedPath,
+                parentId: appendDirectoryPath(deletedDirectory),
+                title: deletedName,
+                glyph: placeholderGlyphForFile(deletedName, ""),
+                folder: false,
+                fileId: "",
+                relativePath: deletedPath,
+                muted: true,
+                warning: false,
+                gitStatus: "deleted",
+                gitCount: 0
             })
         }
 
@@ -699,7 +1025,15 @@ Rectangle {
                 itemFileId: String(node.fileId || ""),
                 itemRelativePath: String(node.relativePath || ""),
                 itemExpanded: node.folder === true && isExpanded(node.id),
-                itemWarning: node.warning === true
+                itemWarning: node.warning === true,
+                itemGitStatus: String(node.gitStatus || ""),
+                itemGitCount: Number(node.gitCount || 0),
+                itemActive: node.folder !== true
+                    && String(node.fileId || "").length > 0
+                    && String(node.fileId || "")
+                        === String(LibraryStore.selectedFileId || "")
+                    && String(LibraryStore.activeFileLibraryId || "")
+                        === String(LibraryStore.selectedLibraryId || "")
             })
 
             if (node.folder === true && (query.length > 0 || isExpanded(node.id))) {
@@ -784,6 +1118,28 @@ Rectangle {
 
             root.treeView.returnToBounds()
         })
+    }
+
+    function updateVisibleActiveFile() {
+        var activeFileId = String(LibraryStore.selectedFileId || "")
+        var activeLibraryId = String(
+            LibraryStore.activeFileLibraryId || ""
+        )
+        var explorerLibraryId = String(
+            LibraryStore.selectedLibraryId || ""
+        )
+
+        for (var index = 0; index < visibleTree.count; index += 1) {
+            var item = visibleTree.get(index)
+            visibleTree.setProperty(
+                index,
+                "itemActive",
+                item.itemFolder !== true
+                    && activeFileId.length > 0
+                    && String(item.itemFileId || "") === activeFileId
+                    && activeLibraryId === explorerLibraryId
+            )
+        }
     }
 
     function updateVisibleSelection(previousNodeId, nextNodeId) {
@@ -1187,6 +1543,7 @@ Rectangle {
             }
 
             root.rebuildNodesFromFiles(true)
+            root.applyPendingReveal()
             root.scheduleLibraryTreeStateSave()
         }
 
@@ -1291,7 +1648,22 @@ Rectangle {
             }
 
             root.rebuildNodesFromFiles(true)
+            root.applyPendingReveal()
             root.scheduleLibraryTreeStateSave()
+        }
+
+        function onSelectedFileIdChanged() {
+            root.updateVisibleActiveFile()
+        }
+
+        function onActiveFileLibraryChanged() {
+            root.updateVisibleActiveFile()
+        }
+
+        function onGitStatusChanged() {
+            if (!root.treeStateRestorePending) {
+                root.rebuildNodesFromFiles(true)
+            }
         }
     }
 
@@ -1358,6 +1730,7 @@ Rectangle {
                 : "Reveal in File Manager"
             enabled:
                 root.contextRelativePath.length > 0
+                && (root.contextFolder || root.contextFileId.length > 0)
                 && !LibraryStore.mutatingEntry
             onTriggered: LibraryStore.revealEntry(
                 root.contextRelativePath
@@ -2135,6 +2508,90 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: 25
+                    color: root.theme.surfaceBg
+                    visible: LibraryStore.selectedLibraryId.length > 0
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: root.theme.quietBorder
+                        opacity: 0.7
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 7
+                        spacing: 6
+
+                        Rectangle {
+                            Layout.preferredWidth: 6
+                            Layout.preferredHeight: 6
+                            radius: 3
+                            color: (LibraryStore.gitStatus || ({})).dirty
+                                ? "#d7a84f"
+                                : (LibraryStore.gitStatus || ({})).repository
+                                    ? "#74b886"
+                                    : root.theme.mutedText
+                            opacity: LibraryStore.loadingGitStatus ? 0.55 : 1
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.gitBranchLabel()
+                            color: root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(9)
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideMiddle
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Text {
+                            text: root.gitChangeLabel()
+                            visible: text.length > 0
+                            color: (LibraryStore.gitStatus || ({})).dirty
+                                ? "#d7a84f"
+                                : root.theme.mutedText
+                            font.pixelSize: root.theme.typeSize(8)
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Button {
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 20
+                            text: LibraryStore.loadingGitStatus ? "…" : "↻"
+                            enabled: !LibraryStore.loadingGitStatus
+                            hoverEnabled: true
+                            padding: 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Refresh Git status"
+                            onClicked: LibraryStore.refreshSelectedGitStatus()
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.hovered
+                                    ? root.theme.appText
+                                    : root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(11)
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered
+                                    ? root.theme.hoverBg
+                                    : "transparent"
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
                     Layout.preferredHeight: 34
                     color: root.theme.surfaceBg
 
@@ -2242,6 +2699,9 @@ Rectangle {
                         required property string itemRelativePath
                         required property bool itemExpanded
                         required property bool itemWarning
+                        required property string itemGitStatus
+                        required property int itemGitCount
+                        required property bool itemActive
 
                         width: libraryList.width
                         theme: root.theme
@@ -2249,10 +2709,13 @@ Rectangle {
                         glyph: itemGlyph
                         depth: itemDepth
                         selected: itemSelected
+                        active: itemActive
                         muted: itemMuted
                         folder: itemFolder
                         expanded: itemExpanded
                         warning: itemWarning
+                        gitStatus: itemGitStatus
+                        gitCount: itemGitCount
                         dragSession: workspaceDragSession
                         dragProxy: fileDragProxy
                         dragEnabled: !LibraryStore.movingFile

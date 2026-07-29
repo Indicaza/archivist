@@ -11,6 +11,7 @@ import {
 import {
   getLibraryFileContent,
   getLibraryFiles,
+  getLibraryGitStatus,
   patchLibraryFileLocation,
   patchLibraryFileName,
   postLibraryEntry,
@@ -25,6 +26,7 @@ export const libraryRouter = Router();
 libraryRouter.get("/", getLibraries);
 libraryRouter.get("/archived", getArchivedLibraryList);
 libraryRouter.post("/", postLibrary);
+libraryRouter.get("/:libraryId/git-status", getLibraryGitStatus);
 libraryRouter.get("/:libraryId/files", getLibraryFiles);
 libraryRouter.post("/:libraryId/files", postLibraryEntry);
 libraryRouter.post("/:libraryId/reveal", postLibraryEntryReveal);

@@ -16,6 +16,11 @@ Rectangle {
     required property var theme
 
     signal contextInspectionRequested(string messageId)
+    signal revealInLibraryRequested(
+        string libraryId,
+        string fileId,
+        string relativePath
+    )
     property real leftObstruction: 0
     property real previewLeftObstruction: 0
     property bool historyLoadPending: false
@@ -41,6 +46,7 @@ Rectangle {
     property string pendingCloseTabKey: ""
     property string pendingCloseDocumentId: ""
     property string pendingEditorTargetFileId: ""
+    property string pendingEditorTargetPath: ""
     property int pendingEditorTargetLine: 1
     property int pendingEditorTargetColumn: 1
 
@@ -55,8 +61,11 @@ Rectangle {
         lineNumber,
         columnNumber
     ) {
+        var libraryId = String(
+            LibraryStore.activeFileLibraryId || ""
+        )
         var libraryRoot = root.normalizedEditorPath(
-            LibraryStore.selectedLibrary.rootPath || ""
+            LibraryStore.activeFileLibrary.rootPath || ""
         )
         var targetPath = root.normalizedEditorPath(filePath)
         var prefix = libraryRoot.length > 0
@@ -64,63 +73,91 @@ Rectangle {
             : ""
 
         if (
-            prefix.length === 0
+            libraryId.length === 0
+            || prefix.length === 0
             || targetPath.indexOf(prefix) !== 0
         ) {
             return
         }
 
         var relativePath = targetPath.substring(prefix.length)
-        var files = LibraryStore.files || []
+        pendingEditorTargetFileId = ""
+        pendingEditorTargetPath = relativePath
+        pendingEditorTargetLine = Math.max(
+            1, Number(lineNumber || 1)
+        )
+        pendingEditorTargetColumn = Math.max(
+            1, Number(columnNumber || 1)
+        )
 
-        for (var index = 0; index < files.length; index += 1) {
-            var file = files[index] || ({})
-
-            if (
-                root.normalizedEditorPath(file.relativePath)
-                    !== relativePath
-            ) {
-                continue
-            }
-
-            pendingEditorTargetFileId = String(file.id || "")
-            pendingEditorTargetLine = Math.max(
-                1, Number(lineNumber || 1)
+        if (
+            root.normalizedEditorPath(
+                LibraryStore.selectedFile.relativePath || ""
+            ) === relativePath
+            && String(LibraryStore.activeFileLibraryId || "")
+                === libraryId
+        ) {
+            pendingEditorTargetFileId = String(
+                LibraryStore.selectedFileId || ""
             )
-            pendingEditorTargetColumn = Math.max(
-                1, Number(columnNumber || 1)
-            )
-
-            if (
-                String(LibraryStore.selectedFileId || "")
-                    === pendingEditorTargetFileId
-            ) {
-                Qt.callLater(function() {
-                    root.revealPendingEditorLocation(
-                        codeEditor.stableDocumentId
-                    )
-                })
-            } else {
-                LibraryStore.previewFile(
-                    pendingEditorTargetFileId
+            Qt.callLater(function() {
+                root.revealPendingEditorLocation(
+                    codeEditor.stableDocumentId
                 )
-            }
+            })
             return
         }
+
+        if (
+            String(LibraryStore.selectedLibraryId || "")
+                === libraryId
+        ) {
+            var files = LibraryStore.files || []
+
+            for (var index = 0; index < files.length; index += 1) {
+                var file = files[index] || ({})
+
+                if (
+                    root.normalizedEditorPath(file.relativePath)
+                        !== relativePath
+                ) {
+                    continue
+                }
+
+                pendingEditorTargetFileId = String(file.id || "")
+                LibraryStore.previewFileFromLibrary(
+                    libraryId,
+                    pendingEditorTargetFileId,
+                    file
+                )
+                return
+            }
+        }
+
+        LibraryStore.previewFilePathFromLibrary(
+            libraryId,
+            relativePath
+        )
     }
 
     function revealPendingEditorLocation(documentId) {
-        if (
-            pendingEditorTargetFileId.length === 0
-            || String(LibraryStore.selectedFileId || "")
-                !== pendingEditorTargetFileId
-        ) {
+        var selectedPath = root.normalizedEditorPath(
+            LibraryStore.selectedFile.relativePath || ""
+        )
+        var pathMatches = pendingEditorTargetPath.length > 0
+            && selectedPath === pendingEditorTargetPath
+        var fileMatches = pendingEditorTargetFileId.length > 0
+            && String(LibraryStore.selectedFileId || "")
+                === pendingEditorTargetFileId
+
+        if (!pathMatches && !fileMatches) {
             return
         }
 
         var lineNumber = pendingEditorTargetLine
         var columnNumber = pendingEditorTargetColumn
         pendingEditorTargetFileId = ""
+        pendingEditorTargetPath = ""
         pendingEditorTargetLine = 1
         pendingEditorTargetColumn = 1
 
@@ -203,8 +240,8 @@ Rectangle {
     readonly property string previewPath: LibraryStore.selectedFile.relativePath
         ? String(LibraryStore.selectedFile.relativePath)
         : "Library file"
-    readonly property string selectedLibraryName: LibraryStore.selectedLibrary.name
-        ? String(LibraryStore.selectedLibrary.name)
+    readonly property string selectedLibraryName: LibraryStore.activeFileLibrary.name
+        ? String(LibraryStore.activeFileLibrary.name)
         : "Library"
     readonly property var previewFileIdentity: FileIdentity.resolve({
         fileName: LibraryStore.selectedFile.name
@@ -980,6 +1017,18 @@ Rectangle {
                     tabKey,
                     documentId,
                     title
+                )
+            }
+
+            onRevealInLibraryRequested: function(
+                libraryId,
+                fileId,
+                relativePath
+            ) {
+                root.revealInLibraryRequested(
+                    libraryId,
+                    fileId,
+                    relativePath
                 )
             }
         }

@@ -326,6 +326,19 @@ Rectangle {
         onContextInspectionRequested: function(messageId) {
             artifactDrawer.openForMessage(messageId)
         }
+        onRevealInLibraryRequested: function(
+            libraryId,
+            fileId,
+            relativePath
+        ) {
+            root.activeViewIndex = 0
+            root.explorerOpen = true
+            explorerDock.revealFile(
+                libraryId,
+                fileId,
+                relativePath
+            )
+        }
 
         Behavior on height {
             enabled: !root.resizingDock

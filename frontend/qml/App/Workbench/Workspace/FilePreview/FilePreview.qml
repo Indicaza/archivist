@@ -221,13 +221,13 @@ Rectangle {
 
     readonly property string viewportStateKey: (
         String(CollectionStore.selectedCollectionId || "").length > 0
-        && String(LibraryStore.selectedLibraryId || "").length > 0
+        && String(LibraryStore.activeFileLibraryId || "").length > 0
         && String(file && file.id ? file.id : "").length > 0
     )
         ? "workspace/collections/"
             + String(CollectionStore.selectedCollectionId)
             + "/viewports/files/"
-            + String(LibraryStore.selectedLibraryId)
+            + String(LibraryStore.activeFileLibraryId)
             + "/"
             + String(file.id)
         : ""
@@ -662,7 +662,7 @@ Rectangle {
         }
 
         documentPreview.openDocument(
-            String(LibraryStore.selectedLibrary.rootPath || ""),
+            String(LibraryStore.activeFileLibrary.rootPath || ""),
             String(root.file && root.file.relativePath ? root.file.relativePath : "")
         )
     }
@@ -1190,7 +1190,7 @@ Rectangle {
                                     root.pendingAttachmentFileId =
                                         String(root.file.id)
                                     ChatStore.attachFile(
-                                        LibraryStore.selectedLibraryId,
+                                        LibraryStore.activeFileLibraryId,
                                         root.pendingAttachmentFileId
                                     )
                                 }
@@ -1235,7 +1235,7 @@ Rectangle {
                     && root.viewMode === "rendered"
                 theme: root.theme
                 content: root.content
-                libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                libraryRootPath: String(LibraryStore.activeFileLibrary.rootPath || "")
                 documentRelativePath: String(root.file.relativePath || "")
                 zoomFactor: root.markdownZoom
                 onZoomFactorRequested: function(value) {
@@ -1261,7 +1261,7 @@ Rectangle {
                 anchors.fill: parent
                 visible: root.imageRenderingAvailable
                 theme: root.theme
-                libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                libraryRootPath: String(LibraryStore.activeFileLibrary.rootPath || "")
                 relativePath: String(root.file && root.file.relativePath
                     ? root.file.relativePath
                     : "")
@@ -1382,7 +1382,7 @@ Rectangle {
                     Layout.minimumWidth: 320
                     theme: root.theme
                     content: root.content
-                    libraryRootPath: String(LibraryStore.selectedLibrary.rootPath || "")
+                    libraryRootPath: String(LibraryStore.activeFileLibrary.rootPath || "")
                     documentRelativePath: String(root.file.relativePath || "")
                     zoomFactor: root.markdownZoom
                     onZoomFactorRequested: function(value) {

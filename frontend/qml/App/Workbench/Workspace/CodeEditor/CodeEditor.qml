@@ -67,11 +67,11 @@ Rectangle {
     }
 
     readonly property string documentLibraryId:
-        String(LibraryStore.selectedLibraryId || "")
+        String(LibraryStore.activeFileLibraryId || "")
 
     readonly property string stableDocumentId:
         root.documentIdFor(
-            LibraryStore.selectedLibraryId,
+            LibraryStore.activeFileLibraryId,
             file && file.id ? file.id : ""
         )
 
@@ -81,10 +81,10 @@ Rectangle {
             : ""
 
     readonly property string documentWorkspaceRoot:
-        LibraryStore.selectedLibrary
-        && LibraryStore.selectedLibrary.rootPath
+        LibraryStore.activeFileLibrary
+        && LibraryStore.activeFileLibrary.rootPath
             ? String(
-                LibraryStore.selectedLibrary.rootPath
+                LibraryStore.activeFileLibrary.rootPath
             )
             : ""
 
