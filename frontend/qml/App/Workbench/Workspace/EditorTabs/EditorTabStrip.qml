@@ -46,6 +46,10 @@ Item {
     property string pendingLibraryId: ""
     property string pendingFileId: ""
     property int hoveredTabIndex: -1
+    property int contextTabIndex: -1
+    property string contextFileId: ""
+    property string contextLibraryId: ""
+    property string contextRelativePath: ""
     property bool tabDragActive: false
     property string draggedTabKey: ""
     property int tabDropSlot: -1
@@ -1018,6 +1022,78 @@ Item {
         )
     }
 
+    function clearTabContext() {
+        contextTabIndex = -1
+        contextFileId = ""
+        contextLibraryId = ""
+        contextRelativePath = ""
+    }
+
+    function revealContextTabInLibrary() {
+        if (contextFileId.length === 0) {
+            return
+        }
+
+        revealInLibraryRequested(
+            contextLibraryId,
+            contextFileId,
+            contextRelativePath
+        )
+    }
+
+    function revealContextTabInFileManager() {
+        if (
+            contextLibraryId.length === 0
+            || contextRelativePath.length === 0
+        ) {
+            return
+        }
+
+        LibraryStore.revealEntryFromLibrary(
+            contextLibraryId,
+            contextRelativePath
+        )
+    }
+
+    function copyContextTabPath(absolute) {
+        if (
+            contextLibraryId.length === 0
+            || contextRelativePath.length === 0
+        ) {
+            return
+        }
+
+        LibraryStore.copyEntryPath(
+            contextLibraryId,
+            contextRelativePath,
+            Boolean(absolute)
+        )
+    }
+
+    function openTabContextMenu(index, localX, localY) {
+        if (
+            index < 0
+            || index >= tabs.count
+            || String(tabs.get(index).tabType || "") !== "file"
+        ) {
+            return
+        }
+
+        var tab = tabs.get(index)
+        contextTabIndex = index
+        contextFileId = String(tab.fileId || "")
+        contextLibraryId = String(tab.libraryId || "")
+        contextRelativePath = String(tab.relativePath || tab.title || "")
+
+        var point = tabList.mapToItem(root, localX, localY)
+        tabContextMenu.x = Math.max(
+            4,
+            Math.min(root.width - tabContextMenu.width - 4, point.x)
+        )
+        tabContextMenu.y = root.height + 2
+        tabContextMenu.open()
+    }
+
     function closeTabByKey(tabKey) {
         closeTab(tabIndexForKey(tabKey))
     }
@@ -1270,6 +1346,233 @@ Item {
         }
     }
 
+    Menu {
+        id: tabContextMenu
+
+        width: 238
+        padding: 5
+        topPadding: 5
+        bottomPadding: 5
+        leftPadding: 5
+        rightPadding: 5
+        modal: false
+        dim: false
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onClosed: Qt.callLater(root.clearTabContext)
+
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation {
+                    property: "opacity"
+                    from: 0
+                    to: 1
+                    duration: root.theme.motionFast
+                    easing.type: Easing.OutCubic
+                }
+                NumberAnimation {
+                    property: "scale"
+                    from: 0.97
+                    to: 1
+                    duration: root.theme.motionFast
+                    easing.type: Easing.OutCubic
+                }
+            }
+        }
+
+        exit: Transition {
+            NumberAnimation {
+                property: "opacity"
+                from: 1
+                to: 0
+                duration: 90
+                easing.type: Easing.InCubic
+            }
+        }
+
+        background: Rectangle {
+            color: root.theme.surfaceBg
+            border.width: 1
+            border.color: root.theme.panelBorder
+            radius: root.theme.radiusSmall
+        }
+
+        MenuItem {
+            id: revealLibraryItem
+
+            text: "Reveal in Library"
+            implicitHeight: 32
+            leftPadding: 9
+            rightPadding: 9
+            onTriggered: root.revealContextTabInLibrary()
+
+            contentItem: Row {
+                spacing: 9
+
+                Text {
+                    width: 18
+                    text: "⌖"
+                    color: revealLibraryItem.highlighted
+                        ? root.theme.accentBright
+                        : root.theme.mutedText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
+                    text: revealLibraryItem.text
+                    color: root.theme.appText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            background: Rectangle {
+                color: revealLibraryItem.highlighted
+                    ? root.theme.hoverBg
+                    : "transparent"
+                radius: 4
+            }
+        }
+
+        MenuItem {
+            id: revealFinderItem
+
+            text: Qt.platform.os === "osx"
+                ? "Reveal in Finder"
+                : "Reveal in File Manager"
+            implicitHeight: 32
+            leftPadding: 9
+            rightPadding: 9
+            onTriggered: root.revealContextTabInFileManager()
+
+            contentItem: Row {
+                spacing: 9
+
+                Text {
+                    width: 18
+                    text: "↗"
+                    color: revealFinderItem.highlighted
+                        ? root.theme.accentBright
+                        : root.theme.mutedText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
+                    text: revealFinderItem.text
+                    color: root.theme.appText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            background: Rectangle {
+                color: revealFinderItem.highlighted
+                    ? root.theme.hoverBg
+                    : "transparent"
+                radius: 4
+            }
+        }
+
+        MenuSeparator {
+            implicitHeight: 9
+            padding: 0
+
+            contentItem: Rectangle {
+                implicitHeight: 1
+                color: root.theme.quietBorder
+            }
+        }
+
+        MenuItem {
+            id: copyRelativeItem
+
+            text: "Copy Relative Path"
+            implicitHeight: 32
+            leftPadding: 9
+            rightPadding: 9
+            onTriggered: root.copyContextTabPath(false)
+
+            contentItem: Row {
+                spacing: 9
+
+                Text {
+                    width: 18
+                    text: "./"
+                    color: copyRelativeItem.highlighted
+                        ? root.theme.accentBright
+                        : root.theme.mutedText
+                    font.family: root.theme.monospaceFontFamily
+                    font.pixelSize: root.theme.typeMicro
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
+                    text: copyRelativeItem.text
+                    color: root.theme.appText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            background: Rectangle {
+                color: copyRelativeItem.highlighted
+                    ? root.theme.hoverBg
+                    : "transparent"
+                radius: 4
+            }
+        }
+
+        MenuItem {
+            id: copyAbsoluteItem
+
+            text: "Copy Absolute Path"
+            implicitHeight: 32
+            leftPadding: 9
+            rightPadding: 9
+            onTriggered: root.copyContextTabPath(true)
+
+            contentItem: Row {
+                spacing: 9
+
+                Text {
+                    width: 18
+                    text: "/"
+                    color: copyAbsoluteItem.highlighted
+                        ? root.theme.accentBright
+                        : root.theme.mutedText
+                    font.family: root.theme.monospaceFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
+                    text: copyAbsoluteItem.text
+                    color: root.theme.appText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            background: Rectangle {
+                color: copyAbsoluteItem.highlighted
+                    ? root.theme.hoverBg
+                    : "transparent"
+                radius: 4
+            }
+        }
+    }
+
     ListView {
         id: tabList
 
@@ -1459,7 +1762,7 @@ Item {
                 property real pressedLocalX: 0
 
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
                 hoverEnabled: true
                 preventStealing: true
                 cursorShape: root.tabDragActive
@@ -1469,6 +1772,16 @@ Item {
                         : Qt.PointingHandCursor
 
                 onPressed: function(mouse) {
+                    if (mouse.button === Qt.RightButton) {
+                        dragCandidate = false
+                        root.openTabContextMenu(
+                            tabItem.index,
+                            tabItem.x + mouse.x - tabList.contentX,
+                            mouse.y
+                        )
+                        return
+                    }
+
                     var rootPoint = tabItem.mapToItem(root, mouse.x, mouse.y)
                     var contentPoint = tabItem.mapToItem(
                         tabList.contentItem,
@@ -1516,6 +1829,10 @@ Item {
                 }
 
                 onReleased: function(mouse) {
+                    if (mouse.button !== Qt.LeftButton) {
+                        return
+                    }
+
                     var wasDragging = root.tabDragActive
                         && root.draggedTabKey === tabItem.tabKey
 
@@ -1559,8 +1876,10 @@ Item {
             ToolTip {
                 id: tabInfo
 
-                visible: tabHover.containsMouse && !root.tabDragActive
-                delay: 900
+                visible: tabHover.containsMouse
+                    && !root.tabDragActive
+                    && !tabContextMenu.opened
+                delay: 3000
                 timeout: 7000
                 y: tabList.height + 8
                 padding: 0

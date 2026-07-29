@@ -85,6 +85,15 @@ public:
     Q_INVOKABLE void renameFile(const QString &fileId, const QString &name);
     Q_INVOKABLE void duplicateFile(const QString &fileId, const QString &name);
     Q_INVOKABLE void revealEntry(const QString &relativePath);
+    Q_INVOKABLE void revealEntryFromLibrary(
+        const QString &libraryId,
+        const QString &relativePath
+    );
+    Q_INVOKABLE void copyEntryPath(
+        const QString &libraryId,
+        const QString &relativePath,
+        bool absolute
+    );
     Q_INVOKABLE void previewFile(const QString &fileId);
     Q_INVOKABLE void previewFileFromLibrary(
         const QString &libraryId,

@@ -1,7 +1,9 @@
 #include "library_store.h"
 
+#include <QClipboard>
 #include <QDir>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -1137,15 +1139,23 @@ void LibraryStore::duplicateFile(const QString &fileId, const QString &name)
 
 void LibraryStore::revealEntry(const QString &relativePath)
 {
+    revealEntryFromLibrary(m_selectedLibraryId, relativePath);
+}
+
+void LibraryStore::revealEntryFromLibrary(
+    const QString &libraryId,
+    const QString &relativePath
+)
+{
     if (
-        m_selectedLibraryId.isEmpty()
+        libraryId.isEmpty()
         || relativePath.isEmpty()
+        || !containsLibrary(libraryId)
         || m_mutatingEntry
     ) {
         return;
     }
 
-    const QString libraryId = m_selectedLibraryId;
     setErrorMessage({});
     setMutatingEntry(true);
 
@@ -1171,6 +1181,82 @@ void LibraryStore::revealEntry(const QString &relativePath)
             emit entryRevealed(relativePath);
         }
     });
+}
+
+void LibraryStore::copyEntryPath(
+    const QString &libraryId,
+    const QString &relativePath,
+    bool absolute
+)
+{
+    const QString normalizedRelativePath = QDir::fromNativeSeparators(
+        relativePath.trimmed()
+    );
+
+    if (
+        libraryId.isEmpty()
+        || normalizedRelativePath.isEmpty()
+    ) {
+        return;
+    }
+
+    QString rootPath;
+
+    for (const QVariant &value : m_libraries) {
+        const QVariantMap library = value.toMap();
+        if (
+            library.value(QStringLiteral("id")).toString()
+            == libraryId
+        ) {
+            rootPath = library
+                .value(QStringLiteral("rootPath"))
+                .toString();
+            break;
+        }
+    }
+
+    if (rootPath.isEmpty()) {
+        return;
+    }
+
+    const QString normalizedRootPath = QDir::cleanPath(
+        QFileInfo(rootPath).absoluteFilePath()
+    );
+    const QString absolutePath = QDir::cleanPath(
+        QFileInfo(normalizedRelativePath).isAbsolute()
+            ? normalizedRelativePath
+            : QDir(normalizedRootPath).absoluteFilePath(
+                normalizedRelativePath
+            )
+    );
+
+    QString copiedPath;
+
+    if (absolute) {
+        copiedPath = QDir::toNativeSeparators(absolutePath);
+    } else {
+        const QString normalizedRoot = QDir::fromNativeSeparators(
+            normalizedRootPath
+        );
+        const QString normalizedAbsolute = QDir::fromNativeSeparators(
+            absolutePath
+        );
+        const QString rootPrefix = normalizedRoot.endsWith('/')
+            ? normalizedRoot
+            : normalizedRoot + '/';
+
+        if (normalizedAbsolute == normalizedRoot) {
+            copiedPath = QStringLiteral(".");
+        } else if (normalizedAbsolute.startsWith(rootPrefix)) {
+            copiedPath = normalizedAbsolute.mid(rootPrefix.size());
+        } else {
+            return;
+        }
+    }
+
+    if (QClipboard *clipboard = QGuiApplication::clipboard()) {
+        clipboard->setText(copiedPath, QClipboard::Clipboard);
+    }
 }
 
 void LibraryStore::previewFile(const QString &fileId)

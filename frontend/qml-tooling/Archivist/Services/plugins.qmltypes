@@ -571,6 +571,17 @@ Module {
             Parameter { name: "relativePath"; type: "QString" }
         }
         Method {
+            name: "revealEntryFromLibrary"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+        }
+        Method {
+            name: "copyEntryPath"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+            Parameter { name: "absolute"; type: "bool" }
+        }
+        Method {
             name: "previewFile"
             Parameter { name: "fileId"; type: "QString" }
         }
