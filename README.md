@@ -255,6 +255,70 @@ npm run qt:configure
 npm run qt:run
 ```
 
+### Diagnostics and context handoffs
+
+Use the repository helpers to collect evidence before changing code when a
+failure is unclear.
+
+Start a detached diagnostic session when Archivist must remain running while
+other commands inspect it:
+
+```bash
+./scripts/qt-dev-detached
+./scripts/qt-dev-detached --follow
+./scripts/qt-stop
+```
+
+The detached launcher writes bounded backend and frontend logs under
+`backend/data/runtime/logs/`. Without `--follow`, it leaves Archivist running;
+with `--follow`, it streams both logs and stops the managed session on exit.
+
+Run focused diagnostics and audits with:
+
+```bash
+./scripts/diagnose-navigation
+npm run diagnose:language-support
+node scripts/diagnose-language-support.mjs --lines 1500
+node scripts/diagnose-language-support.mjs --full
+./scripts/qt-typography-audit
+./scripts/qt-typography-audit --check
+```
+
+`diagnose-navigation` writes `navigation-diagnostic.txt` at the repository root.
+The language diagnostic includes Git and runtime state, tool availability, live
+language-server configuration and sessions when the backend is running, client
+events, fixtures, and recent logs. Use `--lines` for a larger log window or
+`--full` for unfiltered tails. The typography audit reports current usage;
+`--check` rejects regressions against the committed baseline.
+
+Run focused backend verification with:
+
+```bash
+npm run build
+node scripts/test-collections.mjs
+node scripts/test-chat-agent-rosters.mjs
+npm run test:library-index -- "a term you know exists"
+```
+
+The Collection and Chat-Agent smoke tests use temporary databases. The Library
+index test expects Archivist's backend to be running and rescans the currently
+active Library before searching it.
+
+Generate a fresh coding-chat context bundle with:
+
+```bash
+./scripts/qt-context
+./scripts/qt-context backend/src/api/cognition frontend/qml/App/Files
+./scripts/qt-context 12 backend/src/api/languageSupport
+```
+
+Without a number, the script creates the next available `qt-context-NNN.txt`.
+An optional leading number selects the sequence, and each remaining argument adds
+a focused file or directory. The bundle records Git state, recent commits, the
+repository tree, relevant uncommitted diff, and included file contents while
+skipping large and binary files. Upload the generated bundle instead of pasting
+source files piecemeal.
+
 Language-support commands:
 
 ```bash

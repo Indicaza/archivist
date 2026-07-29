@@ -469,26 +469,102 @@ finish one coherent vertical slice
 
 Do not continue unrelated feature work on a branch whose PR boundary is already coherent.
 
+### Interpret handoff requests
+
+The user uses two short requests with specific meanings.
+
+#### Run an exploratory command
+
+This means the current evidence is insufficient. Do not answer with a speculative
+patch. Return one focused, non-destructive command or existing repository helper
+that gathers the missing evidence.
+
+An exploratory command may inspect:
+
+- Git state and recent diffs;
+- source and generated build output;
+- running processes and owned ports;
+- backend health and diagnostic API endpoints;
+- SQLite schema or selected read-only records;
+- bounded backend and frontend log tails;
+- focused symbol, registration, and stale-artifact searches.
+
+The response should include the exact command, what it is testing, and which
+output the user should paste back. Prefer commands that print clearly delimited,
+copyable output and keep the result narrow enough for the next coding turn.
+
+Exploratory work should not edit source, install or update packages, delete
+caches or the database, rewrite Git state, or begin unrelated implementation.
+If a useful verification command updates runtime state, say so explicitly and
+keep the effect bounded and reversible.
+
+Prefer the existing helpers when they match the problem:
+
+```bash
+./scripts/qt-dev-detached
+./scripts/qt-dev-detached --follow
+./scripts/diagnose-navigation
+npm run diagnose:language-support
+node scripts/diagnose-language-support.mjs --lines 1500
+node scripts/diagnose-language-support.mjs --full
+./scripts/qt-typography-audit
+./scripts/qt-typography-audit --check
+```
+
+Use the detached launcher when Archivist must remain alive while diagnostics run.
+It writes backend and frontend logs under `backend/data/runtime/logs/`; stop the
+session with `./scripts/qt-stop` or `npm run dev:stop`.
+
+Focused verification commands include:
+
+```bash
+npm run build
+node scripts/test-collections.mjs
+node scripts/test-chat-agent-rosters.mjs
+npm run test:library-index -- "a term you know exists"
+```
+
+The Collection and Chat-Agent smoke tests use temporary databases. The Library
+index test requires a live backend and rescans the active Library, so it is a
+verification command rather than a read-only diagnostic.
+
+#### Get more context
+
+This means request a fresh `qt-context` bundle with the smallest useful set of
+additional paths. Do not ask for files one at a time when the context script can
+package the relevant slice coherently.
+
 ### Generate context
 
 From the Archivist repository root:
 
 ```bash
+./scripts/qt-context
 ./scripts/qt-context   <backend paths needed for the next slice>   <Qt paths needed for the next slice>
+./scripts/qt-context 12 backend/src/api/cognition frontend/qml/App/Files
 ```
+
+The optional leading number selects the bundle sequence. Without it, the script
+uses the next available number and creates `qt-context-NNN.txt` at the repository
+root.
 
 The generated bundle includes:
 
 - current branch and Git status;
 - recent commits;
 - repository tree;
-- uncommitted diff;
-- root `package.json`;
-- Qt build, run, stop, and context scripts;
-- all Qt source;
-- explicitly requested backend and reference paths.
+- uncommitted diff for included paths;
+- root `README.md` and `package.json`;
+- Qt source and native build, run, stop, context, and typography helpers;
+- explicitly requested backend and reference paths;
+- a final line and byte count.
 
-Always generate a fresh bundle after files change.
+The script skips binary files and files larger than 750,000 bytes. Add exact
+domain directories rather than broad repository roots when only one feature is
+under discussion.
+
+Always generate a fresh bundle after files change. Upload the generated
+`qt-context-NNN.txt` with the next request.
 
 Never create a patch against an old context.
 
