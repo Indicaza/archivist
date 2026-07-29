@@ -110,6 +110,8 @@ LibraryStore::LibraryStore(QObject *parent)
     m_externalFileReloadTimer.setInterval(220);
     m_libraryRescanTimer.setSingleShot(true);
     m_libraryRescanTimer.setInterval(900);
+    m_gitStatusRefreshTimer.setSingleShot(true);
+    m_gitStatusRefreshTimer.setInterval(320);
     m_watcherSuppressionTimer.setSingleShot(true);
     m_watcherSuppressionTimer.setInterval(1200);
 
@@ -124,6 +126,7 @@ LibraryStore::LibraryStore(QObject *parent)
 
             scheduleExternalFileReload();
             scheduleLibraryRescan();
+            scheduleGitStatusRefresh();
             QTimer::singleShot(
                 0,
                 this,
@@ -143,6 +146,7 @@ LibraryStore::LibraryStore(QObject *parent)
 
             scheduleExternalFileReload();
             scheduleLibraryRescan();
+            scheduleGitStatusRefresh();
         }
     );
 
@@ -159,7 +163,11 @@ LibraryStore::LibraryStore(QObject *parent)
                 return;
             }
 
-            previewFile(m_selectedFileId);
+            previewFileFromLibrary(
+                m_activeFileLibraryId,
+                m_selectedFileId,
+                m_selectedFile
+            );
         }
     );
 
@@ -179,6 +187,13 @@ LibraryStore::LibraryStore(QObject *parent)
 
             scanSelectedLibrary();
         }
+    );
+
+    connect(
+        &m_gitStatusRefreshTimer,
+        &QTimer::timeout,
+        this,
+        &LibraryStore::refreshSelectedGitStatus
     );
 }
 
@@ -219,6 +234,43 @@ QVariantMap LibraryStore::latestScan() const
     return m_latestScan;
 }
 
+QVariantMap LibraryStore::gitStatus() const
+{
+    return m_gitStatus;
+}
+
+bool LibraryStore::loadingGitStatus() const
+{
+    return m_loadingGitStatus;
+}
+
+QString LibraryStore::activeFileLibraryId() const
+{
+    return m_activeFileLibraryId;
+}
+
+QVariantMap LibraryStore::activeFileLibrary() const
+{
+    for (const QVariant &value : m_libraries) {
+        const QVariantMap library = value.toMap();
+        if (
+            library.value(QStringLiteral("id")).toString()
+            == m_activeFileLibraryId
+        ) {
+            return library;
+        }
+    }
+
+    return {};
+}
+
+QString LibraryStore::activeFileRootPath() const
+{
+    return activeFileLibrary()
+        .value(QStringLiteral("rootPath"))
+        .toString();
+}
+
 QString LibraryStore::selectedFileId() const
 {
     return m_selectedFileId;
@@ -226,14 +278,7 @@ QString LibraryStore::selectedFileId() const
 
 QVariantMap LibraryStore::selectedFile() const
 {
-    for (const QVariant &value : m_files) {
-        const QVariantMap file = value.toMap();
-        if (file.value(QStringLiteral("id")).toString() == m_selectedFileId) {
-            return file;
-        }
-    }
-
-    return {};
+    return m_selectedFile;
 }
 
 QVariantMap LibraryStore::filePreview() const
@@ -312,7 +357,7 @@ QString LibraryStore::selectedLibraryRootPath() const
 
 QString LibraryStore::selectedFileAbsolutePath() const
 {
-    const QString rootPath = selectedLibraryRootPath();
+    const QString rootPath = activeFileRootPath();
     const QVariantMap file = selectedFile();
 
     if (rootPath.isEmpty() || file.isEmpty()) {
@@ -400,6 +445,15 @@ void LibraryStore::scheduleLibraryRescan()
     }
 
     m_libraryRescanTimer.start();
+}
+
+void LibraryStore::scheduleGitStatusRefresh()
+{
+    if (m_selectedLibraryId.isEmpty()) {
+        return;
+    }
+
+    m_gitStatusRefreshTimer.start();
 }
 
 void LibraryStore::refresh()
@@ -570,11 +624,14 @@ void LibraryStore::startLibrarySelection(const QString &libraryId)
     m_pendingLibrarySelectionId = libraryId;
     m_queuedLibrarySelectionId.clear();
     ++m_fileRequestRevision;
+    ++m_gitStatusRequestRevision;
+    m_gitStatusRefreshTimer.stop();
 
-    clearFilePreview();
     setErrorMessage({});
     setFiles({});
     setLatestScan({});
+    setGitStatus({});
+    setLoadingGitStatus(false);
     setLoadingFiles(true);
 
     QJsonObject body;
@@ -663,11 +720,13 @@ void LibraryStore::refreshSelectedFiles()
 {
     if (m_selectedLibraryId.isEmpty()) {
         ++m_fileRequestRevision;
-        clearFilePreview();
+        ++m_gitStatusRequestRevision;
         setFiles({});
         setDirectories({});
         setLatestScan({});
+        setGitStatus({});
         setLoadingFiles(false);
+        setLoadingGitStatus(false);
         return;
     }
 
@@ -712,6 +771,56 @@ void LibraryStore::refreshSelectedFiles()
                 result.object.value(QStringLiteral("latestScan")).toObject().toVariantMap()
             );
             setLoadingFiles(false);
+            refreshSelectedGitStatus();
+        }
+    );
+}
+
+void LibraryStore::refreshSelectedGitStatus()
+{
+    if (m_selectedLibraryId.isEmpty()) {
+        ++m_gitStatusRequestRevision;
+        setGitStatus({});
+        setLoadingGitStatus(false);
+        return;
+    }
+
+    const QString requestedLibraryId = m_selectedLibraryId;
+    const quint64 requestRevision = ++m_gitStatusRequestRevision;
+
+    setLoadingGitStatus(true);
+
+    const QString path = QStringLiteral("/libraries/%1/git-status")
+        .arg(encodedPathSegment(requestedLibraryId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, requestedLibraryId, requestRevision]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+
+            if (
+                requestRevision != m_gitStatusRequestRevision
+                || requestedLibraryId != m_selectedLibraryId
+            ) {
+                return;
+            }
+
+            setLoadingGitStatus(false);
+
+            if (!result.ok) {
+                setGitStatus({});
+                return;
+            }
+
+            setGitStatus(
+                result.object.value(QStringLiteral("gitStatus"))
+                    .toObject()
+                    .toVariantMap()
+            );
         }
     );
 }
@@ -725,7 +834,10 @@ void LibraryStore::scanSelectedLibrary()
     const QString requestedLibraryId = m_selectedLibraryId;
     const quint64 requestRevision = ++m_fileRequestRevision;
 
-    m_fileToReloadAfterScanId = m_selectedFileId;
+    m_fileToReloadAfterScanId =
+        m_activeFileLibraryId == requestedLibraryId
+            ? m_selectedFileId
+            : QString{};
     setErrorMessage({});
     setLoadingFiles(true);
     setScanning(true);
@@ -772,6 +884,7 @@ void LibraryStore::scanSelectedLibrary()
             setLatestScan(scan);
             setLoadingFiles(false);
             rebuildFileWatchers();
+            refreshSelectedGitStatus();
 
             const QString fileIdToReload =
                 m_fileToReloadAfterScanId;
@@ -779,6 +892,7 @@ void LibraryStore::scanSelectedLibrary()
 
             if (
                 !fileIdToReload.isEmpty()
+                && m_activeFileLibraryId == requestedLibraryId
                 && containsFile(fileIdToReload)
             ) {
                 previewFile(fileIdToReload);
@@ -832,6 +946,7 @@ void LibraryStore::moveFile(const QString &fileId, const QString &targetDirector
             result.object.value(QStringLiteral("directories")).toArray().toVariantList()
         );
         const QVariantMap file = result.object.value(QStringLiteral("file")).toObject().toVariantMap();
+        refreshSelectedGitStatus();
         emit fileMoved(
             fileId,
             file.value(QStringLiteral("relativePath")).toString()
@@ -900,6 +1015,7 @@ void LibraryStore::createEntry(
         const QVariantMap file = entry
             .value(QStringLiteral("file"))
             .toMap();
+        refreshSelectedGitStatus();
         emit entryCreated(
             entry.value(QStringLiteral("kind")).toString(),
             entry.value(QStringLiteral("relativePath")).toString(),
@@ -955,6 +1071,7 @@ void LibraryStore::renameFile(const QString &fileId, const QString &name)
             .value(QStringLiteral("file"))
             .toObject()
             .toVariantMap();
+        refreshSelectedGitStatus();
         emit fileRenamed(
             fileId,
             file.value(QStringLiteral("relativePath")).toString(),
@@ -1009,6 +1126,7 @@ void LibraryStore::duplicateFile(const QString &fileId, const QString &name)
             .value(QStringLiteral("file"))
             .toObject()
             .toVariantMap();
+        refreshSelectedGitStatus();
         emit fileDuplicated(
             file.value(QStringLiteral("id")).toString(),
             file.value(QStringLiteral("relativePath")).toString(),
@@ -1061,22 +1179,58 @@ void LibraryStore::previewFile(const QString &fileId)
         return;
     }
 
-    const QVariantMap file = [&]() {
+    QVariantMap file;
+
+    for (const QVariant &value : m_files) {
+        const QVariantMap candidate = value.toMap();
+        if (candidate.value(QStringLiteral("id")).toString() == fileId) {
+            file = candidate;
+            break;
+        }
+    }
+
+    previewFileFromLibrary(m_selectedLibraryId, fileId, file);
+}
+
+void LibraryStore::previewFileFromLibrary(
+    const QString &libraryId,
+    const QString &fileId,
+    const QVariantMap &file
+)
+{
+    if (
+        libraryId.isEmpty()
+        || fileId.isEmpty()
+        || !containsLibrary(libraryId)
+    ) {
+        return;
+    }
+
+    ++m_previewPathRequestRevision;
+    QVariantMap resolvedFile = file;
+
+    if (resolvedFile.isEmpty() && libraryId == m_selectedLibraryId) {
         for (const QVariant &value : m_files) {
             const QVariantMap candidate = value.toMap();
             if (candidate.value(QStringLiteral("id")).toString() == fileId) {
-                return candidate;
+                resolvedFile = candidate;
+                break;
             }
         }
+    }
 
-        return QVariantMap{};
-    }();
+    if (resolvedFile.isEmpty()) {
+        resolvedFile.insert(QStringLiteral("id"), fileId);
+    }
 
     const bool reloadingSelectedFile =
-        m_selectedFileId == fileId
+        m_activeFileLibraryId == libraryId
+        && m_selectedFileId == fileId
         && !m_filePreview.isEmpty();
 
+    setActiveFileLibraryId(libraryId);
     setSelectedFileId(fileId);
+    setSelectedFile(resolvedFile);
 
     if (!reloadingSelectedFile) {
         setFilePreview({});
@@ -1086,7 +1240,11 @@ void LibraryStore::previewFile(const QString &fileId)
     setFileSaveError({});
     rebuildFileWatchers();
 
-    if (file.value(QStringLiteral("status")).toString() != QStringLiteral("available")) {
+    const QString status = resolvedFile
+        .value(QStringLiteral("status"))
+        .toString();
+
+    if (!status.isEmpty() && status != QStringLiteral("available")) {
         setLoadingFilePreview(false);
         setFilePreviewError(
             QStringLiteral("This file is not currently available. Rescan the Library and try again.")
@@ -1094,17 +1252,16 @@ void LibraryStore::previewFile(const QString &fileId)
         return;
     }
 
-    if (usesDirectImageRenderer(file) || usesDocumentRenderer(file)) {
+    if (usesDirectImageRenderer(resolvedFile) || usesDocumentRenderer(resolvedFile)) {
         setLoadingFilePreview(false);
         return;
     }
 
     setLoadingFilePreview(true);
 
-    const QString libraryId = m_selectedLibraryId;
-    const QString path = QStringLiteral("/libraries/%1/files/%2/content")
+    const QString requestPath = QStringLiteral("/libraries/%1/files/%2/content")
         .arg(encodedPathSegment(libraryId), encodedPathSegment(fileId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
+    QNetworkReply *reply = m_network.get(requestFor(requestPath));
 
     connect(
         reply,
@@ -1114,7 +1271,10 @@ void LibraryStore::previewFile(const QString &fileId)
             const JsonReplyResult result = consumeJsonReply(reply);
             reply->deleteLater();
 
-            if (m_selectedLibraryId != libraryId || m_selectedFileId != fileId) {
+            if (
+                m_activeFileLibraryId != libraryId
+                || m_selectedFileId != fileId
+            ) {
                 return;
             }
 
@@ -1125,8 +1285,100 @@ void LibraryStore::previewFile(const QString &fileId)
                 return;
             }
 
-            setFilePreview(
-                result.object.value(QStringLiteral("preview")).toObject().toVariantMap()
+            const QVariantMap preview = result.object
+                .value(QStringLiteral("preview"))
+                .toObject()
+                .toVariantMap();
+            const QVariantMap previewFile = preview
+                .value(QStringLiteral("file"))
+                .toMap();
+
+            if (!previewFile.isEmpty()) {
+                setSelectedFile(previewFile);
+            }
+
+            setFilePreview(preview);
+        }
+    );
+}
+
+void LibraryStore::previewFilePathFromLibrary(
+    const QString &libraryId,
+    const QString &relativePath
+)
+{
+    QString normalizedPath = QDir::fromNativeSeparators(
+        QDir::cleanPath(relativePath)
+    );
+
+    if (
+        libraryId.isEmpty()
+        || !containsLibrary(libraryId)
+        || normalizedPath.isEmpty()
+        || normalizedPath == QStringLiteral(".")
+        || normalizedPath == QStringLiteral("..")
+        || normalizedPath.startsWith(QStringLiteral("../"))
+        || QDir::isAbsolutePath(normalizedPath)
+    ) {
+        return;
+    }
+
+    const quint64 requestRevision = ++m_previewPathRequestRevision;
+    setFilePreviewError({});
+    setLoadingFilePreview(true);
+
+    const QString requestPath = QStringLiteral("/libraries/%1/files")
+        .arg(encodedPathSegment(libraryId));
+    QNetworkReply *reply = m_network.get(requestFor(requestPath));
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, libraryId, normalizedPath, requestRevision]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+
+            if (requestRevision != m_previewPathRequestRevision) {
+                return;
+            }
+
+            if (!result.ok) {
+                setLoadingFilePreview(false);
+                setFilePreviewError(result.errorMessage);
+                return;
+            }
+
+            const QVariantList files = result.object
+                .value(QStringLiteral("files"))
+                .toArray()
+                .toVariantList();
+
+            for (const QVariant &value : files) {
+                const QVariantMap candidate = value.toMap();
+                const QString candidatePath = QDir::fromNativeSeparators(
+                    QDir::cleanPath(
+                        candidate
+                            .value(QStringLiteral("relativePath"))
+                            .toString()
+                    )
+                );
+
+                if (candidatePath != normalizedPath) {
+                    continue;
+                }
+
+                previewFileFromLibrary(
+                    libraryId,
+                    candidate.value(QStringLiteral("id")).toString(),
+                    candidate
+                );
+                return;
+            }
+
+            setLoadingFilePreview(false);
+            setFilePreviewError(
+                QStringLiteral("The requested file is not cataloged in this Library.")
             );
         }
     );
@@ -1140,15 +1392,15 @@ void LibraryStore::saveFileContent(
 {
     if (
         m_savingFile
-        || m_selectedLibraryId.isEmpty()
+        || m_activeFileLibraryId.isEmpty()
         || fileId.isEmpty()
         || expectedModifiedAt.isEmpty()
-        || !containsFile(fileId)
+        || fileId != m_selectedFileId
     ) {
         return;
     }
 
-    const QString libraryId = m_selectedLibraryId;
+    const QString libraryId = m_activeFileLibraryId;
     setFileSaveError({});
     setSavingFile(true);
     m_watcherSuppressionTimer.start();
@@ -1213,16 +1465,21 @@ void LibraryStore::saveFileContent(
                 }
 
                 setFiles(nextFiles);
+            }
 
-                if (m_selectedFileId == fileId) {
-                    setFilePreview(preview);
-                    setFilePreviewError({});
-                }
+            if (
+                m_activeFileLibraryId == libraryId
+                && m_selectedFileId == fileId
+            ) {
+                setSelectedFile(savedFile);
+                setFilePreview(preview);
+                setFilePreviewError({});
             }
 
             setFileSaveError({});
             m_watcherSuppressionTimer.start();
             rebuildFileWatchers();
+            refreshSelectedGitStatus();
             emit fileSaved(libraryId, fileId, preview);
         }
     );
@@ -1230,7 +1487,9 @@ void LibraryStore::saveFileContent(
 
 void LibraryStore::clearFilePreview()
 {
+    setActiveFileLibraryId({});
     setSelectedFileId({});
+    setSelectedFile({});
     setFilePreview({});
     setLoadingFilePreview(false);
     setFilePreviewError({});
@@ -1246,6 +1505,7 @@ void LibraryStore::setLibraries(const QVariantList &libraries)
     m_libraries = libraries;
     emit librariesChanged();
     emit selectedLibraryChanged();
+    emit activeFileLibraryChanged();
 }
 
 void LibraryStore::setSelectedLibraryId(const QString &libraryId)
@@ -1254,11 +1514,12 @@ void LibraryStore::setSelectedLibraryId(const QString &libraryId)
         return;
     }
 
-    clearFilePreview();
     m_selectedLibraryId = libraryId;
+    setGitStatus({});
     emit selectedLibraryIdChanged();
     emit selectedLibraryChanged();
     rebuildFileWatchers();
+    scheduleGitStatusRefresh();
 }
 
 void LibraryStore::setFiles(const QVariantList &files)
@@ -1285,11 +1546,39 @@ void LibraryStore::setFiles(const QVariantList &files)
 
     m_files = currentFiles;
     emit filesChanged();
-    emit selectedFileChanged();
     rebuildFileWatchers();
 
-    if (!m_selectedFileId.isEmpty() && !containsFile(m_selectedFileId)) {
-        clearFilePreview();
+    if (
+        !m_selectedFileId.isEmpty()
+        && m_activeFileLibraryId == m_selectedLibraryId
+    ) {
+        QVariantMap refreshedFile;
+
+        for (const QVariant &value : m_files) {
+            const QVariantMap candidate = value.toMap();
+            if (
+                candidate.value(QStringLiteral("id")).toString()
+                == m_selectedFileId
+            ) {
+                refreshedFile = candidate;
+                break;
+            }
+        }
+
+        if (!refreshedFile.isEmpty()) {
+            setSelectedFile(refreshedFile);
+        } else {
+            QVariantMap missingFile = m_selectedFile;
+            missingFile.insert(
+                QStringLiteral("status"),
+                QStringLiteral("missing")
+            );
+            setSelectedFile(missingFile);
+            setFilePreview({});
+            setFilePreviewError(
+                QStringLiteral("This file is no longer available in the Library.")
+            );
+        }
     }
 }
 
@@ -1313,6 +1602,48 @@ void LibraryStore::setLatestScan(const QVariantMap &latestScan)
     emit latestScanChanged();
 }
 
+void LibraryStore::setGitStatus(const QVariantMap &gitStatus)
+{
+    if (m_gitStatus == gitStatus) {
+        return;
+    }
+
+    m_gitStatus = gitStatus;
+    emit gitStatusChanged();
+}
+
+void LibraryStore::setLoadingGitStatus(bool loading)
+{
+    if (m_loadingGitStatus == loading) {
+        return;
+    }
+
+    m_loadingGitStatus = loading;
+    emit loadingGitStatusChanged();
+}
+
+void LibraryStore::setActiveFileLibraryId(const QString &libraryId)
+{
+    if (m_activeFileLibraryId == libraryId) {
+        return;
+    }
+
+    m_activeFileLibraryId = libraryId;
+    emit activeFileLibraryChanged();
+    rebuildFileWatchers();
+}
+
+void LibraryStore::setSelectedFile(const QVariantMap &file)
+{
+    if (m_selectedFile == file) {
+        return;
+    }
+
+    m_selectedFile = file;
+    emit selectedFileChanged();
+    rebuildFileWatchers();
+}
+
 void LibraryStore::setSelectedFileId(const QString &fileId)
 {
     if (m_selectedFileId == fileId) {
@@ -1321,7 +1652,6 @@ void LibraryStore::setSelectedFileId(const QString &fileId)
 
     m_selectedFileId = fileId;
     emit selectedFileIdChanged();
-    emit selectedFileChanged();
     rebuildFileWatchers();
 }
 

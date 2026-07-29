@@ -20,6 +20,11 @@ class LibraryStore final : public QObject
     Q_PROPERTY(QVariantList files READ files NOTIFY filesChanged)
     Q_PROPERTY(QVariantList directories READ directories NOTIFY directoriesChanged)
     Q_PROPERTY(QVariantMap latestScan READ latestScan NOTIFY latestScanChanged)
+    Q_PROPERTY(QVariantMap gitStatus READ gitStatus NOTIFY gitStatusChanged)
+    Q_PROPERTY(bool loadingGitStatus READ loadingGitStatus NOTIFY loadingGitStatusChanged)
+    Q_PROPERTY(QString activeFileLibraryId READ activeFileLibraryId NOTIFY activeFileLibraryChanged)
+    Q_PROPERTY(QVariantMap activeFileLibrary READ activeFileLibrary NOTIFY activeFileLibraryChanged)
+    Q_PROPERTY(QString activeFileRootPath READ activeFileRootPath NOTIFY activeFileLibraryChanged)
     Q_PROPERTY(QString selectedFileId READ selectedFileId NOTIFY selectedFileIdChanged)
     Q_PROPERTY(QVariantMap selectedFile READ selectedFile NOTIFY selectedFileChanged)
     Q_PROPERTY(QVariantMap filePreview READ filePreview NOTIFY filePreviewChanged)
@@ -44,6 +49,11 @@ public:
     [[nodiscard]] QVariantList files() const;
     [[nodiscard]] QVariantList directories() const;
     [[nodiscard]] QVariantMap latestScan() const;
+    [[nodiscard]] QVariantMap gitStatus() const;
+    [[nodiscard]] bool loadingGitStatus() const;
+    [[nodiscard]] QString activeFileLibraryId() const;
+    [[nodiscard]] QVariantMap activeFileLibrary() const;
+    [[nodiscard]] QString activeFileRootPath() const;
     [[nodiscard]] QString selectedFileId() const;
     [[nodiscard]] QVariantMap selectedFile() const;
     [[nodiscard]] QVariantMap filePreview() const;
@@ -64,6 +74,7 @@ public:
     Q_INVOKABLE void selectLibrary(const QString &libraryId);
     Q_INVOKABLE void selectLibraryAndScan(const QString &libraryId);
     Q_INVOKABLE void refreshSelectedFiles();
+    Q_INVOKABLE void refreshSelectedGitStatus();
     Q_INVOKABLE void scanSelectedLibrary();
     Q_INVOKABLE void moveFile(const QString &fileId, const QString &targetDirectory);
     Q_INVOKABLE void createEntry(
@@ -75,6 +86,15 @@ public:
     Q_INVOKABLE void duplicateFile(const QString &fileId, const QString &name);
     Q_INVOKABLE void revealEntry(const QString &relativePath);
     Q_INVOKABLE void previewFile(const QString &fileId);
+    Q_INVOKABLE void previewFileFromLibrary(
+        const QString &libraryId,
+        const QString &fileId,
+        const QVariantMap &file
+    );
+    Q_INVOKABLE void previewFilePathFromLibrary(
+        const QString &libraryId,
+        const QString &relativePath
+    );
     Q_INVOKABLE void saveFileContent(
         const QString &fileId,
         const QString &content,
@@ -89,6 +109,9 @@ signals:
     void filesChanged();
     void directoriesChanged();
     void latestScanChanged();
+    void gitStatusChanged();
+    void loadingGitStatusChanged();
+    void activeFileLibraryChanged();
     void selectedFileIdChanged();
     void selectedFileChanged();
     void filePreviewChanged();
@@ -139,6 +162,7 @@ private:
     void rebuildFileWatchers();
     void scheduleExternalFileReload();
     void scheduleLibraryRescan();
+    void scheduleGitStatusRefresh();
     [[nodiscard]] QString selectedLibraryRootPath() const;
     [[nodiscard]] QString selectedFileAbsolutePath() const;
     void setLibraries(const QVariantList &libraries);
@@ -146,6 +170,10 @@ private:
     void setFiles(const QVariantList &files);
     void setDirectories(const QVariantList &directories);
     void setLatestScan(const QVariantMap &latestScan);
+    void setGitStatus(const QVariantMap &gitStatus);
+    void setLoadingGitStatus(bool loading);
+    void setActiveFileLibraryId(const QString &libraryId);
+    void setSelectedFile(const QVariantMap &file);
     void setSelectedFileId(const QString &fileId);
     void setFilePreview(const QVariantMap &preview);
     void setLoadingLibraries(bool loading);
@@ -167,6 +195,7 @@ private:
     QFileSystemWatcher m_fileWatcher;
     QTimer m_externalFileReloadTimer;
     QTimer m_libraryRescanTimer;
+    QTimer m_gitStatusRefreshTimer;
     QTimer m_watcherSuppressionTimer;
     QUrl m_baseUrl;
     QVariantList m_libraries;
@@ -175,13 +204,19 @@ private:
     QString m_pendingLibrarySelectionId;
     QString m_queuedLibrarySelectionId;
     quint64 m_fileRequestRevision = 0;
+    quint64 m_gitStatusRequestRevision = 0;
+    quint64 m_previewPathRequestRevision = 0;
     QVariantList m_files;
     QVariantList m_directories;
     QVariantMap m_latestScan;
+    QVariantMap m_gitStatus;
+    QString m_activeFileLibraryId;
     QString m_selectedFileId;
+    QVariantMap m_selectedFile;
     QVariantMap m_filePreview;
     bool m_loadingLibraries = false;
     bool m_loadingFiles = false;
+    bool m_loadingGitStatus = false;
     bool m_loadingFilePreview = false;
     bool m_scanning = false;
     bool m_movingFile = false;

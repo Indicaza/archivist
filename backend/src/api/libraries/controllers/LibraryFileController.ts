@@ -23,6 +23,7 @@ import {
 import { readLibraryFilePreview } from "../services/LibraryFileReader.js";
 import { scanLibraryFiles } from "../services/LibraryFileScanner.js";
 import { writeLibraryFileText } from "../services/LibraryFileWriter.js";
+import { readLibraryGitStatus } from "../services/LibraryGitStatus.js";
 
 function parseLibraryId(params: unknown): string {
   const parsed = libraryIdParamsSchema.safeParse(params);
@@ -46,6 +47,15 @@ function parseLibraryFileIds(params: unknown): {
 
   return parsed.data;
 }
+
+export const getLibraryGitStatus: RequestHandler = async (request, response) => {
+  const libraryId = parseLibraryId(request.params);
+
+  response.json({
+    ok: true,
+    gitStatus: await readLibraryGitStatus(libraryId),
+  });
+};
 
 export const getLibraryFiles: RequestHandler = async (request, response) => {
   const libraryId = parseLibraryId(request.params);

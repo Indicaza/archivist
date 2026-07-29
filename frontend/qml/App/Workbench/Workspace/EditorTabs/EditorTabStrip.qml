@@ -13,6 +13,11 @@ Item {
         string documentId,
         string title
     )
+    signal revealInLibraryRequested(
+        string libraryId,
+        string fileId,
+        string relativePath
+    )
 
     readonly property bool hasTabs: tabs.count > 0
     readonly property string activeTabKind: {
@@ -109,6 +114,23 @@ Item {
             lineCount: Number(tab.lineCount || 0),
             agentCount: Number(tab.agentCount || 0),
             dirty: Boolean(tab.dirty)
+        }
+    }
+
+    function fileDescriptorForTab(index) {
+        if (index < 0 || index >= tabs.count) {
+            return ({})
+        }
+
+        var tab = tabs.get(index)
+
+        return {
+            id: String(tab.fileId || ""),
+            name: String(tab.title || "Library file"),
+            relativePath: String(tab.relativePath || tab.title || ""),
+            extension: String(tab.extension || ""),
+            sizeBytes: Number(tab.sizeBytes || 0),
+            status: "available"
         }
     }
 
@@ -390,22 +412,12 @@ Item {
                 return
             }
 
-            if (String(LibraryStore.selectedLibraryId) !== String(tab.libraryId)) {
-                LibraryStore.selectLibrary(String(tab.libraryId))
-                return
-            }
-
-            if (LibraryStore.loadingFiles) {
-                return
-            }
-
-            if (!listContainsId(LibraryStore.files, tab.fileId)) {
-                restoreActiveTabPending = false
-                return
-            }
-
             restoreActiveTabPending = false
-            LibraryStore.previewFile(String(tab.fileId))
+            LibraryStore.previewFileFromLibrary(
+                String(tab.libraryId),
+                String(tab.fileId),
+                fileDescriptorForTab(index)
+            )
         }
 
         Qt.callLater(function() {
@@ -715,9 +727,11 @@ Item {
 
     function captureSelectedFile() {
         var file = LibraryStore.selectedFile || ({})
-        var library = LibraryStore.selectedLibrary || ({})
+        var library = LibraryStore.activeFileLibrary || ({})
         var fileId = String(file.id || LibraryStore.selectedFileId || "")
-        var libraryId = String(library.id || LibraryStore.selectedLibraryId || "")
+        var libraryId = String(
+            library.id || LibraryStore.activeFileLibraryId || ""
+        )
 
         if (fileId.length === 0 || libraryId.length === 0) {
             return
@@ -885,7 +899,7 @@ Item {
 
     function capturePreviewMetadata() {
         var key = fileKey(
-            LibraryStore.selectedLibraryId,
+            LibraryStore.activeFileLibraryId,
             LibraryStore.selectedFileId
         )
         var index = tabIndexForKey(key)
@@ -918,7 +932,7 @@ Item {
         }
     }
 
-    function activateTab(index) {
+    function activateTab(index, revealInExplorer) {
         if (index < 0 || index >= tabs.count) {
             return
         }
@@ -938,24 +952,21 @@ Item {
             return
         }
 
-        pendingLibraryId = String(tab.libraryId)
-        pendingFileId = String(tab.fileId)
-
-        if (String(LibraryStore.selectedLibraryId) !== pendingLibraryId) {
-            LibraryStore.clearFilePreview()
-            LibraryStore.selectLibrary(pendingLibraryId)
-            return
-        }
-
-        if (String(LibraryStore.selectedFileId) === pendingFileId) {
-            pendingLibraryId = ""
-            pendingFileId = ""
-            return
-        }
-
-        LibraryStore.previewFile(pendingFileId)
         pendingLibraryId = ""
         pendingFileId = ""
+        LibraryStore.previewFileFromLibrary(
+            String(tab.libraryId),
+            String(tab.fileId),
+            fileDescriptorForTab(index)
+        )
+
+        if (Boolean(revealInExplorer)) {
+            revealInLibraryRequested(
+                String(tab.libraryId),
+                String(tab.fileId),
+                String(tab.relativePath || "")
+            )
+        }
     }
 
     function documentIdForTab(index) {
@@ -1513,7 +1524,10 @@ Item {
                     if (wasDragging) {
                         root.finishTabDrag(true)
                     } else {
-                        root.activateTab(tabItem.index)
+                        root.activateTab(
+                            tabItem.index,
+                            Boolean(mouse.modifiers & Qt.MetaModifier)
+                        )
                     }
                 }
 

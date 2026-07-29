@@ -502,6 +502,11 @@ Module {
         Property { name: "files"; type: "QVariantList"; isReadonly: true }
         Property { name: "directories"; type: "QVariantList"; isReadonly: true }
         Property { name: "latestScan"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "gitStatus"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "loadingGitStatus"; type: "bool"; isReadonly: true }
+        Property { name: "activeFileLibraryId"; type: "QString"; isReadonly: true }
+        Property { name: "activeFileLibrary"; type: "QVariantMap"; isReadonly: true }
+        Property { name: "activeFileRootPath"; type: "QString"; isReadonly: true }
         Property { name: "selectedFileId"; type: "QString"; isReadonly: true }
         Property { name: "selectedFile"; type: "QVariantMap"; isReadonly: true }
         Property { name: "filePreview"; type: "QVariantMap"; isReadonly: true }
@@ -533,6 +538,9 @@ Module {
         }
         Method {
             name: "refreshSelectedFiles"
+        }
+        Method {
+            name: "refreshSelectedGitStatus"
         }
         Method {
             name: "scanSelectedLibrary"
@@ -567,6 +575,17 @@ Module {
             Parameter { name: "fileId"; type: "QString" }
         }
         Method {
+            name: "previewFileFromLibrary"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "fileId"; type: "QString" }
+            Parameter { name: "file"; type: "QVariantMap" }
+        }
+        Method {
+            name: "previewFilePathFromLibrary"
+            Parameter { name: "libraryId"; type: "QString" }
+            Parameter { name: "relativePath"; type: "QString" }
+        }
+        Method {
             name: "saveFileContent"
             Parameter { name: "fileId"; type: "QString" }
             Parameter { name: "content"; type: "QString" }
@@ -592,6 +611,15 @@ Module {
         }
         Signal {
             name: "latestScanChanged"
+        }
+        Signal {
+            name: "gitStatusChanged"
+        }
+        Signal {
+            name: "loadingGitStatusChanged"
+        }
+        Signal {
+            name: "activeFileLibraryChanged"
         }
         Signal {
             name: "selectedFileIdChanged"
