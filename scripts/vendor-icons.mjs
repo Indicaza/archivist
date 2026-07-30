@@ -495,8 +495,10 @@ function resolveIcon(set, name) {
   if (direct) {
     return {
       ...direct,
-      width: direct.width ?? set.width ?? 24,
-      height: direct.height ?? set.height ?? 24,
+      left: direct.left ?? set.left ?? 0,
+      top: direct.top ?? set.top ?? 0,
+      width: direct.width ?? set.width ?? 16,
+      height: direct.height ?? set.height ?? 16,
     };
   }
 
@@ -509,6 +511,8 @@ function resolveIcon(set, name) {
   return parent
     ? {
         ...parent,
+        left: alias.left ?? parent.left,
+        top: alias.top ?? parent.top,
         width: alias.width ?? parent.width,
         height: alias.height ?? parent.height,
       }
@@ -567,11 +571,13 @@ function monochromeBody(body, color) {
 }
 
 function svgFor(icon, body) {
-  const width = icon.width ?? 24;
-  const height = icon.height ?? 24;
+  const left = icon.left ?? 0;
+  const top = icon.top ?? 0;
+  const width = icon.width ?? 16;
+  const height = icon.height ?? 16;
   return [
     '<svg xmlns="http://www.w3.org/2000/svg"',
-    ` viewBox="0 0 ${width} ${height}"`,
+    ` viewBox="${left} ${top} ${width} ${height}"`,
     ' preserveAspectRatio="xMidYMid meet">',
     body,
     "</svg>",

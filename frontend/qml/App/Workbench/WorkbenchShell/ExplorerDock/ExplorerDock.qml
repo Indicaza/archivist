@@ -2207,7 +2207,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 34
+                    Layout.preferredHeight: 30
                     color: root.theme.controlSurfaceBg
 
                     Rectangle {
@@ -2270,22 +2270,28 @@ Rectangle {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 9
+                        anchors.leftMargin: 6
                         anchors.rightMargin: 6
-                        spacing: 4
+                        spacing: 3
 
                         ComboBox {
                             id: librarySelector
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
                             model: root.scopedLibraries
                             textRole: "name"
                             valueRole: "id"
                             enabled: !LibraryStore.loadingLibraries && count > 0
                             hoverEnabled: true
-                            leftPadding: 7
+                            leftPadding: 8
                             rightPadding: 22
+
+                            ToolTip.visible: hovered && !popup.visible
+                            ToolTip.text: "Libraries"
+                            ToolTip.delay: 3000
+                            ToolTip.timeout: 2400
 
                             Binding {
                                 target: librarySelector
@@ -2313,25 +2319,37 @@ Rectangle {
                                 elide: Text.ElideRight
                             }
 
-                            indicator: Text {
-                                x: parent.width - width - 7
-                                y: (parent.height - height) / 2
-                                text: librarySelector.popup.visible ? "⌃" : "⌄"
-                                color: librarySelector.popup.visible
-                                    ? root.theme.accentBright
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(10)
+                            indicator: AppIcon {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 7
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: librarySelector.popup.visible
+                                    ? "chevron-up"
+                                    : "chevron-down"
+                                tone: librarySelector.popup.visible
+                                    ? "accent"
+                                    : "muted"
+                                iconSize: 14
+                                accessibleLabel: "Choose Library"
                             }
 
                             background: Rectangle {
-                                radius: 4
+                                radius: 5
                                 color: parent.popup.visible
                                     ? root.theme.activeBg
                                     : parent.hovered
                                         ? root.theme.hoverBg
-                                        : "transparent"
-                                border.width: parent.popup.visible ? 1 : 0
-                                border.color: root.theme.panelBorder
+                                        : root.theme.surfaceBg
+                                border.width: 1
+                                border.color: parent.popup.visible
+                                    ? "#554a7b"
+                                    : root.theme.quietBorder
+
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: root.theme.motionFast
+                                    }
+                                }
                             }
 
                             popup: Popup {
@@ -2444,11 +2462,15 @@ Rectangle {
                             theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
                             width: 24
                             height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
                             iconName: "add"
                             iconTone: enabled && hovered ? "accent" : "normal"
-                            iconSize: 14
+                            iconSize: 15
                             toolTipText: CollectionStore.selectedCollectionId.length === 0
                                 ? "Select a Collection before adding a Library"
                                 : "Add a folder as a Library"
@@ -2458,21 +2480,6 @@ Rectangle {
                             onClicked: root.openLibraryFolderDialog()
                         }
 
-                        Rectangle {
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 17
-                            radius: 9
-                            color: "#26231e"
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: LibraryStore.loadingFiles
-                                    ? "…"
-                                    : String(LibraryStore.files.length)
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(8)
-                            }
-                        }
 
                         IconButton {
                             id: collapseAllButton
@@ -2480,11 +2487,15 @@ Rectangle {
                             theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
                             width: 24
                             height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
                             iconName: "chevron-up"
                             iconTone: hovered ? "normal" : "muted"
-                            iconSize: 13
+                            iconSize: 15
                             toolTipText: "Collapse all folders"
                             onClicked: root.collapseAll()
                             onHoveredChanged: root.updateToolbarHover(0, hovered)
@@ -2512,11 +2523,15 @@ Rectangle {
                             theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
                             width: 24
                             height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
                             iconName: "chevron-down"
                             iconTone: hovered ? "normal" : "muted"
-                            iconSize: 13
+                            iconSize: 15
                             toolTipText: "Expand all folders"
                             onClicked: root.expandAll()
                             onHoveredChanged: root.updateToolbarHover(1, hovered)
@@ -2544,11 +2559,15 @@ Rectangle {
                             theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
                             width: 24
                             height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
                             iconName: "refresh"
                             iconTone: hovered ? "normal" : "muted"
-                            iconSize: 14
+                            iconSize: 15
                             toolTipText: LibraryStore.scanning
                                 ? "Scanning Library"
                                 : "Rescan selected Library"

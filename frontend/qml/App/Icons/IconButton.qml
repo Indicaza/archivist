@@ -11,10 +11,19 @@ Button {
         : "muted"
     property real iconSize: 15
     property string toolTipText: ""
+    property bool circular: false
+    property color idleBackgroundColor: "transparent"
+    property color hoverBackgroundColor: root.theme.hoverBg
+    property color pressedBackgroundColor: root.theme.activeBg
 
     width: 32
     height: 32
     padding: 0
+    leftPadding: 0
+    rightPadding: 0
+    topPadding: 0
+    bottomPadding: 0
+    spacing: 0
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
 
@@ -23,25 +32,33 @@ Button {
     ToolTip.text: toolTipText
     ToolTip.delay: 350
 
-    contentItem: AppIcon {
-        anchors.centerIn: parent
-        name: root.iconName
-        tone: root.iconTone
-        iconSize: root.iconSize
-        accessibleLabel: root.toolTipText
-        opacity: root.enabled ? 1 : 0.42
+    contentItem: Item {
+        implicitWidth: 0
+        implicitHeight: 0
     }
 
     background: Rectangle {
-        radius: root.theme.radiusSmall
+        id: buttonSurface
+        radius: root.circular
+            ? Math.min(width, height) / 2
+            : root.theme.radiusSmall
         color: root.down
-            ? root.theme.activeBg
+            ? root.pressedBackgroundColor
             : root.hovered || root.checked
-                ? root.theme.hoverBg
-                : "transparent"
+                ? root.hoverBackgroundColor
+                : root.idleBackgroundColor
         border.width: root.activeFocus || root.checked ? 1 : 0
         border.color: root.checked
             ? root.theme.accent
             : root.theme.panelBorder
+
+        AppIcon {
+            anchors.centerIn: parent
+            name: root.iconName
+            tone: root.iconTone
+            iconSize: root.iconSize
+            accessibleLabel: root.toolTipText
+            opacity: root.enabled ? 1 : 0.42
+        }
     }
 }

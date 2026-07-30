@@ -107,7 +107,7 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 38
+            Layout.preferredHeight: 30
             color: root.theme.controlSurfaceBg
 
             Rectangle {
@@ -121,23 +121,16 @@ Item {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 8
-                anchors.rightMargin: 5
-                spacing: 4
-
-                Text {
-                    text: "COLLECTION"
-                    color: root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(8)
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.65
-                }
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
+                spacing: 3
 
                 ComboBox {
                     id: collectionSelector
 
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 28
+                    Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
                     model: root.collectionOptions
                     textRole: "path"
                     valueRole: "id"
@@ -147,6 +140,11 @@ Item {
                     hoverEnabled: true
                     leftPadding: 8
                     rightPadding: 22
+
+                    ToolTip.visible: hovered && !popup.visible
+                    ToolTip.text: "Collections"
+                    ToolTip.delay: 3000
+                    ToolTip.timeout: 2400
 
                     Binding {
                         target: collectionSelector
@@ -182,13 +180,14 @@ Item {
                     }
 
                     indicator: AppIcon {
-                        x: parent.width - width - 7
-                        y: (parent.height - height) / 2
+                        anchors.right: parent.right
+                        anchors.rightMargin: 7
+                        anchors.verticalCenter: parent.verticalCenter
                         name: "chevron-down"
                         tone: collectionSelector.popup.visible
                             ? "accent"
                             : "muted"
-                        iconSize: 12
+                        iconSize: 14
                         accessibleLabel: "Choose Collection"
                     }
 
@@ -279,11 +278,15 @@ Item {
                     id: createCollectionButton
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
                     width: 24
                     height: 24
                     theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
                     iconName: "add"
-                    iconSize: 14
+                    iconSize: 15
                     enabled: !CollectionStore.mutating
                     toolTipText: "Create Collection"
                     onClicked: collectionEditor.openForCreate()
@@ -293,11 +296,15 @@ Item {
                     id: manageCollectionButton
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
                     width: 24
                     height: 24
                     theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
                     iconName: "more"
-                    iconSize: 14
+                    iconSize: 15
                     visible: CollectionStore.selectedCollectionId.length > 0
                     enabled: !CollectionStore.mutating
                     toolTipText: "Manage Collection"
@@ -310,9 +317,13 @@ Item {
                     id: closeExplorerButton
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
                     width: 24
                     height: 24
                     theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
                     iconName: "chevron-left"
                     iconSize: 15
                     toolTipText: "Close Explorer"

@@ -11,6 +11,9 @@ Rectangle {
     property string filePath: ""
     property string fileMetrics: ""
     property bool fileAttached: false
+    property bool librarySelected: false
+    property bool libraryFilesLoading: false
+    property int libraryFileCount: 0
 
     function compactTypeLabel(value) {
         var label = String(value || "").trim().toUpperCase()
@@ -76,6 +79,23 @@ Rectangle {
             text: "Local"
             color: root.theme.mutedText
             font.pixelSize: root.theme.typeSize(9)
+            font.weight: Font.DemiBold
+        }
+
+        Rectangle {
+            visible: root.librarySelected
+            Layout.preferredWidth: 1
+            Layout.preferredHeight: 12
+            color: root.theme.quietBorder
+        }
+
+        Text {
+            visible: root.librarySelected
+            text: root.libraryFilesLoading
+                ? "Library …"
+                : String(root.libraryFileCount) + " files"
+            color: root.theme.mutedText
+            font.pixelSize: root.theme.typeSize(8)
             font.weight: Font.DemiBold
         }
 

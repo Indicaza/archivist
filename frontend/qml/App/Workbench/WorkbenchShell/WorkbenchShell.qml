@@ -572,6 +572,12 @@ Rectangle {
             workspace.filePreviewMetrics
         fileAttached:
             workspace.filePreviewAttached
+        librarySelected:
+            LibraryStore.selectedLibraryId.length > 0
+        libraryFilesLoading:
+            LibraryStore.loadingFiles
+        libraryFileCount:
+            LibraryStore.files.length
         z: 50
     }
 }
