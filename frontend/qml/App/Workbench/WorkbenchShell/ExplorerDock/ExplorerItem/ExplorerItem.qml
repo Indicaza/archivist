@@ -48,12 +48,12 @@ Item {
 
     function gitColor(status) {
         switch (String(status || "")) {
-        case "modified": return "#d7a84f"
-        case "added": return "#74b886"
-        case "untracked": return "#68a7d3"
-        case "deleted": return "#df7479"
-        case "renamed": return "#b79ad6"
-        case "conflicted": return "#f06f75"
+        case "modified": return "#79c0ff"
+        case "added": return "#d29922"
+        case "untracked": return "#3fb950"
+        case "deleted": return "#f85149"
+        case "renamed": return "#a371f7"
+        case "conflicted": return "#ff7b72"
         default: return root.theme.mutedText
         }
     }
