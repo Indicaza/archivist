@@ -16,6 +16,7 @@ file(GLOB_RECURSE ARCHIVIST_ICON_ASSETS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "qml/App/Icons/Assets/*.svg"
     "qml/App/Icons/Assets/*.json"
+    "qml/App/Icons/Assets/*.ttf"
 )
 
 qt_add_executable(archivist-qt
@@ -47,6 +48,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Icons/IconButton.qml
         qml/App/Icons/IconRegistry.js
         qml/App/Icons/LanguageRegistry.js
+        qml/App/Icons/GeneratedSetiRegistry.js
         qml/App/Files/FileIdentity.js
         qml/App/Files/RendererRegistry.js
         qml/App/Files/Renderers/PlainTextRenderer.qml

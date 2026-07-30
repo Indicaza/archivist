@@ -1,6 +1,6 @@
 import QtQuick
-import "IconRegistry.js" as IconRegistry
 import "LanguageRegistry.js" as LanguageRegistry
+import "GeneratedSetiRegistry.js" as SetiRegistry
 
 Item {
     id: root
@@ -24,7 +24,11 @@ Item {
     readonly property string resolvedTone: tone.length > 0
         ? tone
         : "brand"
-    readonly property bool hasLanguageIcon: resolvedLanguageIcon.length > 0
+    readonly property string resolvedGlyph: SetiRegistry.glyph(
+        resolvedLanguageIcon
+    )
+    readonly property bool hasLanguageIcon: resolvedGlyph.length > 0
+        && setiFont.status === FontLoader.Ready
 
     implicitWidth: iconSize
     implicitHeight: iconSize
@@ -34,32 +38,33 @@ Item {
     Accessible.role: Accessible.Graphic
     Accessible.name: accessibleLabel
 
-    Image {
-        id: languageImage
+    FontLoader {
+        id: setiFont
 
+        source: Qt.resolvedUrl("Assets/fonts/seti.ttf")
+    }
+
+    Text {
         anchors.centerIn: parent
-        width: root.iconSize
-        height: root.iconSize
-        visible: root.hasLanguageIcon && status !== Image.Error
-        source: root.hasLanguageIcon
-            ? IconRegistry.languageIconSource(
-                root.resolvedLanguageIcon,
-                root.resolvedTone
-            )
-            : ""
-        sourceSize.width: Math.ceil(root.iconSize * 2)
-        sourceSize.height: Math.ceil(root.iconSize * 2)
-        fillMode: Image.PreserveAspectFit
-        smooth: true
-        mipmap: true
-        asynchronous: false
-        cache: true
+        width: root.iconSize * 1.45
+        height: root.iconSize * 1.45
+        visible: root.hasLanguageIcon
+        text: root.resolvedGlyph
+        color: SetiRegistry.color(
+            root.resolvedLanguageIcon,
+            root.resolvedTone
+        )
+        font.family: setiFont.name
+        font.pixelSize: root.iconSize * 1.28
+        font.hintingPreference: Font.PreferFullHinting
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        renderType: Text.NativeRendering
     }
 
     AppIcon {
         anchors.centerIn: parent
         visible: !root.hasLanguageIcon
-            || languageImage.status === Image.Error
         name: LanguageRegistry.fallbackAppIconName(root.iconId)
         tone: root.resolvedTone === "brand" ? "accent" : root.resolvedTone
         iconSize: root.iconSize

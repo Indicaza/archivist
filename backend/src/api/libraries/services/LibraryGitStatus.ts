@@ -12,7 +12,8 @@ export type LibraryGitFileStatus =
   | "deleted"
   | "renamed"
   | "conflicted"
-  | "untracked";
+  | "untracked"
+  | "ignored";
 
 export type LibraryGitStatusEntry = {
   path: string;
@@ -20,6 +21,7 @@ export type LibraryGitStatusEntry = {
   status: LibraryGitFileStatus;
   indexStatus: string;
   worktreeStatus: string;
+  directory: boolean;
 };
 
 export type LibraryGitStatus = {
@@ -42,6 +44,7 @@ const emptyCounts = (): Record<LibraryGitFileStatus, number> => ({
   renamed: 0,
   conflicted: 0,
   untracked: 0,
+  ignored: 0,
 });
 
 function pathIsInsideRoot(rootPath: string, candidatePath: string): boolean {
@@ -88,6 +91,10 @@ function classifyStatus(
     `${indexStatus}${worktreeStatus}` === "DD"
   ) {
     return "conflicted";
+  }
+
+  if (recordType === "!") {
+    return "ignored";
   }
 
   if (recordType === "?") {
@@ -244,6 +251,7 @@ export async function readLibraryGitStatus(
         "-z",
         "--branch",
         "--untracked-files=all",
+        "--ignored=matching",
       ],
       {
         encoding: "utf8",
@@ -308,10 +316,10 @@ export async function readLibraryGitStatus(
       parsed = parseRenamedRecord(token);
       originalPath = tokens[index + 1] ?? null;
       index += 1;
-    } else if (recordType === "?") {
+    } else if (recordType === "?" || recordType === "!") {
       parsed = {
-        indexStatus: "?",
-        worktreeStatus: "?",
+        indexStatus: recordType,
+        worktreeStatus: recordType,
         path: token.slice(2),
       };
     } else {
@@ -347,6 +355,7 @@ export async function readLibraryGitStatus(
       status,
       indexStatus: parsed.indexStatus,
       worktreeStatus: parsed.worktreeStatus,
+      directory: parsed.path.endsWith("/"),
     });
     counts[status] += 1;
   }
@@ -361,7 +370,7 @@ export async function readLibraryGitStatus(
     upstream,
     ahead,
     behind,
-    dirty: entries.length > 0,
+    dirty: entries.some((entry) => entry.status !== "ignored"),
     entries,
     counts,
   };

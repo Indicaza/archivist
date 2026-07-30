@@ -54,14 +54,60 @@ var languageAliases = {
     "node": "nodejs"
 }
 
+var fileNames = {
+    "package.json": "json",
+    "package-lock.json": "json",
+    "npm-shrinkwrap.json": "json",
+    "tsconfig.json": "json",
+    "jsconfig.json": "json",
+    ".eslintrc": "json",
+    ".eslintrc.json": "json",
+    ".prettierrc": "json",
+    ".prettierrc.json": "json",
+    ".babelrc": "json",
+    ".babelrc.json": "json",
+    ".stylelintrc": "json",
+    ".stylelintrc.json": "json",
+    "composer.lock": "json",
+    "pipfile.lock": "json",
+    "cargo.toml": "toml",
+    "cargo.lock": "toml",
+    "pipfile": "toml",
+    "pyproject.toml": "toml",
+    "poetry.lock": "toml",
+    "go.mod": "go",
+    "go.sum": "go",
+    "go.work": "go",
+    "go.work.sum": "go",
+    "dockerfile": "docker",
+    "cmakelists.txt": "cmake",
+    ".gitignore": "git",
+    ".gitattributes": "git",
+    ".gitmodules": "git",
+    ".gitkeep": "git",
+    ".gitlab-ci.yml": "gitlab",
+    ".gitlab-ci.yaml": "gitlab",
+    "gemfile": "ruby",
+    "rakefile": "ruby",
+    "vagrantfile": "ruby",
+    "podfile": "ruby",
+    "jenkinsfile": "groovy",
+    "project.godot": "godot"
+}
+
 var extensions = {
     "md": "markdown",
     "markdown": "markdown",
     "json": "json",
+    "jsonc": "json",
+    "json5": "json",
+    "code-workspace": "json",
     "yaml": "yaml",
     "yml": "yaml",
     "toml": "toml",
     "xml": "xml",
+    "qrc": "xml",
+    "ui": "xml",
     "html": "html",
     "htm": "html",
     "css": "css",
@@ -76,6 +122,10 @@ var extensions = {
     "mts": "typescript",
     "cts": "typescript",
     "tsx": "typescriptreact",
+    "vue": "vue",
+    "svelte": "svelte",
+    "graphql": "graphql",
+    "gql": "graphql",
     "py": "python",
     "rs": "rust",
     "go": "go",
@@ -86,12 +136,19 @@ var extensions = {
     "php": "php",
     "c": "c",
     "h": "cpp",
+    "hh": "cpp",
     "cc": "cpp",
     "cpp": "cpp",
     "cxx": "cpp",
     "hpp": "cpp",
+    "hxx": "cpp",
     "cs": "csharp",
+    "csproj": "dotnet",
+    "fsproj": "dotnet",
+    "vbproj": "dotnet",
+    "sln": "dotnet",
     "qml": "qml",
+    "qmltypes": "qml",
     "sh": "shell",
     "bash": "shell",
     "zsh": "shell",
@@ -99,8 +156,62 @@ var extensions = {
     "sql": "sql",
     "cmake": "cmake",
     "dockerfile": "docker",
-    "uproject": "unreal"
+    "rb": "ruby",
+    "rake": "ruby",
+    "gemspec": "ruby",
+    "dart": "dart",
+    "mm": "objectivec",
+    "lua": "lua",
+    "pl": "perl",
+    "pm": "perl",
+    "r": "r",
+    "jl": "julia",
+    "ex": "elixir",
+    "exs": "elixir",
+    "erl": "erlang",
+    "hrl": "erlang",
+    "hs": "haskell",
+    "lhs": "haskell",
+    "ml": "ocaml",
+    "mli": "ocaml",
+    "clj": "clojure",
+    "cljs": "clojure",
+    "cljc": "clojure",
+    "edn": "clojure",
+    "scala": "scala",
+    "sc": "scala",
+    "groovy": "groovy",
+    "gradle": "groovy",
+    "sol": "solidity",
+    "zig": "zig",
+    "nim": "nim",
+    "nims": "nim",
+    "nimble": "nim",
+    "cr": "crystal",
+    "f": "fortran",
+    "for": "fortran",
+    "f77": "fortran",
+    "f90": "fortran",
+    "f95": "fortran",
+    "f03": "fortran",
+    "f08": "fortran",
+    "gd": "godot",
+    "gdshader": "godot",
+    "tscn": "godot",
+    "tres": "godot",
+    "uproject": "unreal",
+    "uasset": "unreal",
+    "umap": "unreal",
+    "blend": "blender",
+    "ma": "maya",
+    "mb": "maya",
+    "sqlite": "sqlite",
+    "sqlite3": "sqlite"
 }
+
+var extensionKeys = Object.keys(extensions).sort(function(left, right) {
+    return right.length - left.length
+})
 
 var supportedLanguageIcons = {
     "markdown": true,
@@ -223,46 +334,76 @@ function normalize(value) {
     return String(value || "").trim().toLowerCase()
 }
 
+function baseNameFor(fileName) {
+    var normalized = normalize(fileName).replace(/\\/g, "/")
+    var slash = normalized.lastIndexOf("/")
+    return slash >= 0 ? normalized.slice(slash + 1) : normalized
+}
+
 function extensionFor(fileName, extension) {
     var explicit = normalize(extension).replace(/^\./, "")
     if (explicit.length > 0) {
         return explicit
     }
 
-    var name = normalize(fileName)
+    var name = baseNameFor(fileName)
+    for (var index = 0; index < extensionKeys.length; index += 1) {
+        var candidate = extensionKeys[index]
+        if (name === candidate || name.endsWith("." + candidate)) {
+            return candidate
+        }
+    }
+
     var dot = name.lastIndexOf(".")
     return dot >= 0 ? name.slice(dot + 1) : name
 }
 
-function languageIconName(options) {
-    var input = options || ({})
-    var iconId = normalize(input.iconId)
-    if (iconIds[iconId]) {
-        return iconIds[iconId]
-    }
-
-    var languageId = normalize(input.languageId)
-    languageId = languageAliases[languageId] || languageId
-    if (languageId.length > 0) {
-        if (languageId === "javascriptreact") {
-            return "react"
-        }
-        if (languageId === "typescriptreact") {
-            return "react"
-        }
-        return supportedLanguageIcons[languageId] === true
-            ? languageId
-            : ""
-    }
-
-    var extension = extensionFor(input.fileName, input.extension)
-    var resolved = extensions[extension] || ""
+function supportedIconName(value) {
+    var normalized = normalize(value)
+    var resolved = languageAliases[normalized] || normalized
     if (resolved === "javascriptreact" || resolved === "typescriptreact") {
         return "react"
     }
     return supportedLanguageIcons[resolved] === true
         ? resolved
         : ""
+}
+
+function fileNameIconName(fileName) {
+    var name = baseNameFor(fileName)
+    var exact = fileNames[name] || ""
+    if (exact.length > 0) {
+        return supportedIconName(exact)
+    }
+
+    if (/\.(?:js|mjs|cjs|ts|mts|cts|css)\.map$/.test(name)) {
+        return "json"
+    }
+
+    return ""
+}
+
+function languageIconName(options) {
+    var input = options || ({})
+
+    var resolved = fileNameIconName(input.fileName)
+    if (resolved.length > 0) {
+        return resolved
+    }
+
+    var extension = extensionFor(input.fileName, input.extension)
+    resolved = supportedIconName(extensions[extension] || "")
+    if (resolved.length > 0) {
+        return resolved
+    }
+
+    var languageId = supportedIconName(input.languageId)
+    if (languageId.length > 0) {
+        return languageId
+    }
+
+    var iconId = iconIds[normalize(input.iconId)] || ""
+    return supportedIconName(iconId)
 }
 
 function fallbackAppIconName(iconId) {

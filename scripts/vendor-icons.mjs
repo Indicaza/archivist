@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
 
 const require = createRequire(import.meta.url);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -107,7 +108,196 @@ const codiconUiIcons = {
   refresh: "refresh",
 };
 
+const compactFileIconCandidates = {
+  markdown: ["markdown", "markdownlint"],
+  yaml: ["yaml", "yml"],
+  toml: ["toml"],
+  xml: ["xml"],
+  html: ["html", "html5"],
+  css: ["css", "css3"],
+  scss: ["scss", "sass"],
+  sass: ["sass"],
+  less: ["less"],
+  javascript: ["js", "javascript"],
+  javascriptreact: ["jsx", "reactjs", "react"],
+  typescript: ["typescript", "ts"],
+  typescriptreact: ["tsx", "reactjs", "react"],
+  python: ["python"],
+  rust: ["rust"],
+  go: ["go"],
+  java: ["java"],
+  kotlin: ["kotlin"],
+  swift: ["swift"],
+  php: ["php"],
+  c: ["c"],
+  cpp: ["cplusplus", "cpp"],
+  csharp: ["csharp"],
+  qml: ["qml", "qt"],
+  shell: ["shell", "bash"],
+  powershell: ["powershell"],
+  sql: ["sql", "database"],
+  cmake: ["cmake"],
+  docker: ["docker"],
+  nodejs: ["nodejs", "node"],
+  npm: ["npm"],
+  pnpm: ["pnpm"],
+  yarn: ["yarn"],
+  bun: ["bun"],
+  react: ["reactjs", "react"],
+  vue: ["vue", "vuejs"],
+  nextjs: ["nextjs", "next"],
+  nuxt: ["nuxt", "nuxtjs"],
+  svelte: ["svelte"],
+  angular: ["angular"],
+  vite: ["vite"],
+  webpack: ["webpack"],
+  tailwind: ["tailwind", "tailwindcss"],
+  graphql: ["graphql"],
+  ruby: ["ruby"],
+  rails: ["rails"],
+  laravel: ["laravel"],
+  django: ["django"],
+  flask: ["flask"],
+  fastapi: ["fastapi"],
+  dotnet: ["dotnet"],
+  dart: ["dart"],
+  flutter: ["flutter"],
+  objectivec: ["objectivec", "objective-c"],
+  lua: ["lua"],
+  r: ["r"],
+  matlab: ["matlab"],
+  julia: ["julia"],
+  elixir: ["elixir"],
+  erlang: ["erlang"],
+  haskell: ["haskell"],
+  clojure: ["clojure"],
+  scala: ["scala"],
+  solidity: ["solidity"],
+  zig: ["zig"],
+  git: ["git"],
+  github: ["github"],
+  gitlab: ["gitlab"],
+  postgresql: ["postgresql", "postgres"],
+  mysql: ["mysql"],
+  mongodb: ["mongodb", "mongo"],
+  sqlite: ["sqlite"],
+  redis: ["redis"],
+  firebase: ["firebase"],
+  supabase: ["supabase"],
+  aws: ["aws"],
+  azure: ["azure"],
+  googlecloud: ["googlecloud", "gcp"],
+  kubernetes: ["kubernetes", "k8s"],
+  unreal: ["unreal", "unrealengine"],
+  godot: ["godot"],
+  unity: ["unity"],
+  blender: ["blender"],
+  maya: ["maya"],
+  linux: ["linux"],
+  apple: ["apple"],
+  windows: ["windows"],
+
+};
+
+const setiRepresentativeFiles = {
+  markdown: "README.md",
+  json: "settings.json",
+  yaml: "config.yaml",
+  toml: "config.toml",
+  xml: "document.xml",
+  html: "index.html",
+  css: "styles.css",
+  scss: "styles.scss",
+  sass: "styles.sass",
+  less: "styles.less",
+  javascript: "app.js",
+  javascriptreact: "Component.jsx",
+  typescript: "app.ts",
+  typescriptreact: "Component.tsx",
+  python: "app.py",
+  rust: "app.rs",
+  go: "app.go",
+  java: "App.java",
+  kotlin: "App.kt",
+  swift: "App.swift",
+  php: "index.php",
+  c: "main.c",
+  cpp: "main.cpp",
+  csharp: "Program.cs",
+  qml: "Main.qml",
+  shell: "script.sh",
+  powershell: "script.ps1",
+  sql: "schema.sql",
+  cmake: "CMakeLists.txt",
+  docker: "Dockerfile",
+  nodejs: "package.json",
+  npm: "package.json",
+  pnpm: "pnpm-lock.yaml",
+  yarn: "yarn.lock",
+  bun: "bun.lockb",
+  react: "Component.jsx",
+  vue: "App.vue",
+  nextjs: "next.config.js",
+  nuxt: "nuxt.config.ts",
+  svelte: "App.svelte",
+  angular: "angular.json",
+  vite: "vite.config.ts",
+  webpack: "webpack.config.js",
+  tailwind: "tailwind.config.js",
+  graphql: "schema.graphql",
+  ruby: "app.rb",
+  rails: "Gemfile",
+  laravel: "artisan",
+  django: "manage.py",
+  flask: "app.py",
+  fastapi: "app.py",
+  dotnet: "Program.cs",
+  dart: "app.dart",
+  flutter: "pubspec.yaml",
+  objectivec: "app.m",
+  lua: "app.lua",
+  r: "analysis.r",
+  matlab: "script.m",
+  julia: "app.jl",
+  elixir: "app.ex",
+  erlang: "app.erl",
+  haskell: "app.hs",
+  clojure: "app.clj",
+  scala: "app.scala",
+  solidity: "Contract.sol",
+  zig: "app.zig",
+  git: ".gitignore",
+  github: ".github/workflows/ci.yml",
+  gitlab: ".gitlab-ci.yml",
+  postgresql: "schema.sql",
+  mysql: "schema.sql",
+  mongodb: "database.js",
+  sqlite: "database.sqlite",
+  redis: "redis.conf",
+  firebase: "firebase.json",
+  kubernetes: "deployment.yaml",
+  godot: "project.godot",
+  linux: "script.sh",
+  apple: "App.swift",
+  windows: "Program.cs",
+};
+
+const setiPalette = {
+  blue: "#519aba",
+  grey: "#4d5a5e",
+  "grey-light": "#6d8086",
+  green: "#8dc149",
+  orange: "#e37933",
+  pink: "#f55385",
+  purple: "#a074c4",
+  red: "#cc3e44",
+  white: "#d4d7d6",
+  yellow: "#cbcb41",
+  ignore: "#41535b",
+};
+
 const languageBrandColors = {
+
   markdown: "#f2f2f2",
   json: "#f2c94c",
   yaml: "#cb171e",
@@ -389,10 +579,202 @@ function svgFor(icon, body) {
   ].join("");
 }
 
+
+function alignToFour(value) {
+  return (value + 3) & ~3;
+}
+
+function sfntChecksum(buffer) {
+  let sum = 0;
+  const paddedLength = alignToFour(buffer.length);
+
+  for (let offset = 0; offset < paddedLength; offset += 4) {
+    const value = offset + 4 <= buffer.length
+      ? buffer.readUInt32BE(offset)
+      : Buffer.concat([buffer.subarray(offset), Buffer.alloc(4)]).readUInt32BE(0);
+    sum = (sum + value) >>> 0;
+  }
+
+  return sum >>> 0;
+}
+
+function woffToTtf(woff) {
+  if (woff.length < 44 || woff.toString("ascii", 0, 4) !== "wOFF") {
+    throw new Error("The Seti font is not a valid WOFF 1 font.");
+  }
+
+  const flavor = woff.readUInt32BE(4);
+  const numTables = woff.readUInt16BE(12);
+  const totalSfntSize = woff.readUInt32BE(16);
+  const directoryOffset = 44;
+  const tableDataOffset = 12 + numTables * 16;
+  const ttf = Buffer.alloc(totalSfntSize);
+  const maximumPowerOfTwo = 2 ** Math.floor(Math.log2(numTables));
+  const entrySelector = Math.floor(Math.log2(maximumPowerOfTwo));
+
+  ttf.writeUInt32BE(flavor, 0);
+  ttf.writeUInt16BE(numTables, 4);
+  ttf.writeUInt16BE(maximumPowerOfTwo * 16, 6);
+  ttf.writeUInt16BE(entrySelector, 8);
+  ttf.writeUInt16BE(numTables * 16 - maximumPowerOfTwo * 16, 10);
+
+  let outputOffset = tableDataOffset;
+  let headOffset = -1;
+
+  for (let index = 0; index < numTables; index += 1) {
+    const sourceRecordOffset = directoryOffset + index * 20;
+    const targetRecordOffset = 12 + index * 16;
+    const tag = woff.toString("ascii", sourceRecordOffset, sourceRecordOffset + 4);
+    const sourceOffset = woff.readUInt32BE(sourceRecordOffset + 4);
+    const compressedLength = woff.readUInt32BE(sourceRecordOffset + 8);
+    const originalLength = woff.readUInt32BE(sourceRecordOffset + 12);
+    const originalChecksum = woff.readUInt32BE(sourceRecordOffset + 16);
+    const compressed = woff.subarray(sourceOffset, sourceOffset + compressedLength);
+    const table = compressedLength < originalLength
+      ? zlib.inflateSync(compressed)
+      : Buffer.from(compressed);
+
+    if (table.length !== originalLength) {
+      throw new Error(`Seti font table ${tag} has an invalid length.`);
+    }
+
+    ttf.write(tag, targetRecordOffset, 4, "ascii");
+    ttf.writeUInt32BE(originalChecksum, targetRecordOffset + 4);
+    ttf.writeUInt32BE(outputOffset, targetRecordOffset + 8);
+    ttf.writeUInt32BE(originalLength, targetRecordOffset + 12);
+    table.copy(ttf, outputOffset);
+
+    if (tag === "head") {
+      headOffset = outputOffset;
+    }
+
+    outputOffset = alignToFour(outputOffset + originalLength);
+  }
+
+  if (headOffset >= 0) {
+    ttf.writeUInt32BE(0, headOffset + 8);
+    const adjustment = (0xB1B0AFBA - sfntChecksum(ttf)) >>> 0;
+    ttf.writeUInt32BE(adjustment, headOffset + 8);
+  }
+
+  return ttf;
+}
+
+function setiThemeCandidates() {
+  const home = process.env.HOME ?? "";
+  const localAppData = process.env.LOCALAPPDATA ?? "";
+  const programFiles = process.env.ProgramFiles ?? "";
+  const configured = process.env.ARCHIVIST_SETI_THEME_DIR ?? "";
+
+  return [
+    configured,
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/theme-seti/icons",
+    "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/extensions/theme-seti/icons",
+    "/Applications/Cursor.app/Contents/Resources/app/extensions/theme-seti/icons",
+    "/Applications/VSCodium.app/Contents/Resources/app/extensions/theme-seti/icons",
+    path.join(home, "Applications/Visual Studio Code.app/Contents/Resources/app/extensions/theme-seti/icons"),
+    "/usr/share/code/resources/app/extensions/theme-seti/icons",
+    "/usr/share/codium/resources/app/extensions/theme-seti/icons",
+    "/opt/visual-studio-code/resources/app/extensions/theme-seti/icons",
+    path.join(localAppData, "Programs/Microsoft VS Code/resources/app/extensions/theme-seti/icons"),
+    path.join(programFiles, "Microsoft VS Code/resources/app/extensions/theme-seti/icons"),
+  ].filter((candidate) => candidate.length > 0);
+}
+
+function findSetiTheme() {
+  for (const directory of setiThemeCandidates()) {
+    const font = path.join(directory, "seti.woff");
+    const theme = path.join(directory, "vs-seti-icon-theme.json");
+
+    if (fs.existsSync(font) && fs.existsSync(theme)) {
+      return { directory, font, theme };
+    }
+  }
+
+  throw new Error(
+    "Archivist could not find VS Code's built-in Seti icon theme. "
+      + "Install VS Code/Cursor or set ARCHIVIST_SETI_THEME_DIR to the folder "
+      + "containing seti.woff and vs-seti-icon-theme.json.",
+  );
+}
+
+function setiDefinitionForFile(theme, fileName, languageId) {
+  const normalizedPath = String(fileName || "").replaceAll("\\", "/").toLowerCase();
+  const baseName = path.posix.basename(normalizedPath);
+  const fileNames = theme.fileNames ?? {};
+
+  if (fileNames[normalizedPath]) {
+    return fileNames[normalizedPath];
+  }
+  if (fileNames[baseName]) {
+    return fileNames[baseName];
+  }
+
+  const extensionKeys = Object.keys(theme.fileExtensions ?? {})
+    .sort((left, right) => right.length - left.length);
+
+  for (const extension of extensionKeys) {
+    if (baseName === extension || baseName.endsWith(`.${extension}`)) {
+      return theme.fileExtensions[extension];
+    }
+  }
+
+  const languageDefinition = (theme.languageIds ?? {})[languageId];
+  return languageDefinition ?? theme.file ?? "_default";
+}
+
+function setiCharacter(value) {
+  const match = /^\\([0-9a-f]{4,6})$/i.exec(String(value || ""));
+  return match ? String.fromCodePoint(Number.parseInt(match[1], 16)) : "";
+}
+
+function escapedGlyph(value) {
+  if (!value) {
+    return "";
+  }
+
+  const codePoint = value.codePointAt(0);
+  return codePoint <= 0xFFFF
+    ? `\\u${codePoint.toString(16).toUpperCase().padStart(4, "0")}`
+    : `\\u{${codePoint.toString(16).toUpperCase()}}`;
+}
+
+function generatedSetiRegistry(glyphs, colors) {
+  const glyphLines = Object.entries(glyphs)
+    .map(([name, glyph]) => `    ${JSON.stringify(name)}: "${escapedGlyph(glyph)}"`)
+    .join(",\n");
+  const colorLines = Object.entries(colors)
+    .map(([name, color]) => `    ${JSON.stringify(name)}: ${JSON.stringify(color)}`)
+    .join(",\n");
+  const toneLines = Object.entries(tones)
+    .map(([name, color]) => `    ${JSON.stringify(name)}: ${JSON.stringify(color)}`)
+    .join(",\n");
+
+  return `.pragma library\n\nvar glyphs = {\n${glyphLines}\n}\n\n`
+    + `var brandColors = {\n${colorLines}\n}\n\n`
+    + `var toneColors = {\n${toneLines}\n}\n\n`
+    + `function glyph(name) {\n`
+    + `    return glyphs[String(name || "")] || ""\n`
+    + `}\n\n`
+    + `function color(name, tone) {\n`
+    + `    var requestedTone = String(tone || "brand")\n`
+    + `    if (requestedTone !== "brand") {\n`
+    + `        return toneColors[requestedTone] || toneColors.muted\n`
+    + `    }\n`
+    + `    return brandColors[String(name || "")] || toneColors.normal\n`
+    + `}\n`;
+}
+
 function writeFile(relativePath, content) {
   const filename = path.join(outputDirectory, relativePath);
   fs.mkdirSync(path.dirname(filename), { recursive: true });
   fs.writeFileSync(filename, content, "utf8");
+}
+
+function writeBinaryFile(relativePath, content) {
+  const filename = path.join(outputDirectory, relativePath);
+  fs.mkdirSync(path.dirname(filename), { recursive: true });
+  fs.writeFileSync(filename, content);
 }
 
 function cleanOutput() {
@@ -445,68 +827,60 @@ function vendorUiIcons(streamlineSet, codiconSet) {
   return manifest;
 }
 
-function vendorLanguageIcons(deviconSet, codiconSet) {
+function vendorLanguageIcons() {
+  const source = findSetiTheme();
+  const theme = JSON.parse(fs.readFileSync(source.theme, "utf8"));
+  const ttf = woffToTtf(fs.readFileSync(source.font));
+  const glyphs = {};
+  const colors = {};
   const manifest = {};
 
-  for (const [logicalName, candidates] of Object.entries(languageIcons)) {
-    const useJsonCodicon = logicalName === "json";
-    const sourceSet = useJsonCodicon ? codiconSet : deviconSet;
-    const sourceName = useJsonCodicon
-      ? "json"
-      : chooseIconName(sourceSet, candidates, logicalName);
-    const icon = sourceName ? resolveIcon(sourceSet, sourceName) : null;
+  writeBinaryFile(path.join("fonts", "seti.ttf"), ttf);
 
-    if (!icon) {
-      console.warn(`Using generic file icon for unavailable language icon: ${logicalName}`);
+  for (const logicalName of Object.keys(languageIcons)) {
+    const representativeFile = setiRepresentativeFiles[logicalName] ?? `file.${logicalName}`;
+    const definitionName = setiDefinitionForFile(
+      theme,
+      representativeFile,
+      logicalName,
+    );
+    const definition = (theme.iconDefinitions ?? {})[definitionName]
+      ?? (theme.iconDefinitions ?? {})[theme.file]
+      ?? (theme.iconDefinitions ?? {})._default;
+    const glyph = setiCharacter(definition?.fontCharacter);
+
+    if (!glyph) {
+      console.warn(`No Seti glyph found for ${logicalName}; using generic file icon.`);
       manifest[logicalName] = "fallback:file";
-      const accentFallback = fs.readFileSync(
-        path.join(outputDirectory, "ui", "accent", "file.svg"),
-        "utf8",
-      );
-      writeFile(
-        path.join("languages", "brand", `${logicalName}.svg`),
-        accentFallback,
-      );
-      for (const toneName of Object.keys(tones)) {
-        const fallback = fs.readFileSync(
-          path.join(outputDirectory, "ui", toneName, "file.svg"),
-          "utf8",
-        );
-        writeFile(
-          path.join("languages", toneName, `${logicalName}.svg`),
-          fallback,
-        );
-      }
       continue;
     }
 
-    const sourceLabel = useJsonCodicon ? "codicon" : "devicon-plain";
-    const brandColor = languageBrandColors[logicalName] ?? tones.normal;
-    manifest[logicalName] = `${sourceLabel}:${sourceName}`;
-    writeFile(
-      path.join("languages", "brand", `${logicalName}.svg`),
-      svgFor(icon, monochromeBody(icon.body, brandColor)),
-    );
-
-    for (const [toneName, color] of Object.entries(tones)) {
-      writeFile(
-        path.join("languages", toneName, `${logicalName}.svg`),
-        svgFor(icon, monochromeBody(icon.body, color)),
-      );
-    }
+    glyphs[logicalName] = glyph;
+    colors[logicalName] = definition.fontColor ?? tones.normal;
+    manifest[logicalName] = `seti-font:${definitionName}`;
   }
 
+  const registryFilename = path.join(
+    rootDirectory,
+    "frontend/qml/App/Icons/GeneratedSetiRegistry.js",
+  );
+  fs.writeFileSync(
+    registryFilename,
+    generatedSetiRegistry(glyphs, colors),
+    "utf8",
+  );
+
+  console.log(`Using Seti theme from ${source.directory}`);
   return manifest;
 }
 
 cleanOutput();
 const streamlineFlex = loadIconSet("@iconify-json/streamline-flex");
 const codicon = loadIconSet("@iconify-json/codicon");
-const devicon = loadIconSet("@iconify-json/devicon-plain");
 const manifest = {
   generatedAt: new Date().toISOString(),
   ui: vendorUiIcons(streamlineFlex, codicon),
-  languages: vendorLanguageIcons(devicon, codicon),
+  languages: vendorLanguageIcons(),
 };
 writeFile("manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
 

@@ -621,6 +621,7 @@ Rectangle {
         case "added": return 30
         case "untracked": return 20
         case "modified": return 10
+        case "ignored": return 1
         default: return 0
         }
     }
@@ -661,9 +662,46 @@ Rectangle {
         return label
     }
 
+    function gitChangeCount() {
+        var status = LibraryStore.gitStatus || ({})
+        var counts = status.counts || ({})
+        var keys = [
+            "modified",
+            "added",
+            "deleted",
+            "renamed",
+            "conflicted",
+            "untracked"
+        ]
+        var count = 0
+
+        for (var index = 0; index < keys.length; index += 1) {
+            count += Number(counts[keys[index]] || 0)
+        }
+
+        if (count > 0 || !status.entries) {
+            return count
+        }
+
+        for (
+            var entryIndex = 0;
+            entryIndex < status.entries.length;
+            entryIndex += 1
+        ) {
+            if (
+                String(status.entries[entryIndex].status || "")
+                !== "ignored"
+            ) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
     function gitChangeLabel() {
         var status = LibraryStore.gitStatus || ({})
-        var count = status.entries ? status.entries.length : 0
+        var count = gitChangeCount()
 
         if (!status.repository || count === 0) {
             return status.repository ? "Clean" : ""
@@ -675,12 +713,12 @@ Rectangle {
     function rebuildNodesFromFiles(preserveViewport) {
         var nodes = []
         var directories = ({})
-        var catalogPaths = ({})
         var catalogDirectories = LibraryStore.directories || []
         var files = LibraryStore.files || []
         var gitEntries = (LibraryStore.gitStatus || ({})).entries || []
         var gitByPath = ({})
         var folderGit = ({})
+        var ignoredDirectoryPaths = ({})
 
         function normalizedPath(value) {
             return String(value || "")
@@ -690,10 +728,38 @@ Rectangle {
                 .replace(/^\/+|\/+$/g, "")
         }
 
-        function aggregateFolderStatus(filePath, status) {
-            var parts = normalizedPath(filePath).split("/")
-            parts.pop()
+        function pathIsIgnored(relativePath) {
+            var parts = normalizedPath(relativePath).split("/")
             var pathParts = []
+
+            for (var index = 0; index < parts.length; index += 1) {
+                if (parts[index].length === 0) {
+                    continue
+                }
+
+                pathParts.push(parts[index])
+                if (
+                    ignoredDirectoryPaths[pathParts.join("/")]
+                    === true
+                ) {
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        function aggregateFolderStatus(
+            filePath,
+            status,
+            includesDirectory
+        ) {
+            var parts = normalizedPath(filePath).split("/")
+            if (!includesDirectory) {
+                parts.pop()
+            }
+            var pathParts = []
+            var normalizedStatus = String(status || "")
 
             for (var index = 0; index < parts.length; index += 1) {
                 if (parts[index].length === 0) {
@@ -704,15 +770,66 @@ Rectangle {
                 var directoryPath = pathParts.join("/")
                 var aggregate = folderGit[directoryPath] || {
                     count: 0,
-                    status: ""
+                    ignoredCount: 0,
+                    statuses: ({})
                 }
-                aggregate.count += 1
-                aggregate.status = strongerGitStatus(
-                    aggregate.status,
-                    status
-                )
+
+                if (normalizedStatus === "ignored") {
+                    aggregate.ignoredCount += 1
+                } else {
+                    aggregate.count += 1
+                    aggregate.statuses[normalizedStatus] =
+                        Number(
+                            aggregate.statuses[normalizedStatus]
+                            || 0
+                        ) + 1
+                }
+
                 folderGit[directoryPath] = aggregate
             }
+        }
+
+        function dominantFolderStatus(aggregate) {
+            var value = aggregate || ({})
+            var statuses = value.statuses || ({})
+            var conflictedCount = Number(statuses.conflicted || 0)
+            var untrackedCount = Number(statuses.untracked || 0)
+            var addedCount = Number(statuses.added || 0)
+            var changedCount = Number(statuses.modified || 0)
+                + Number(statuses.renamed || 0)
+                + Number(statuses.deleted || 0)
+
+            if (conflictedCount > 0) {
+                return "conflicted"
+            }
+
+            if (
+                untrackedCount > 0
+                && addedCount === 0
+                && changedCount === 0
+            ) {
+                return "untracked"
+            }
+
+            if (
+                addedCount > 0
+                && untrackedCount === 0
+                && changedCount === 0
+            ) {
+                return "added"
+            }
+
+            if (
+                changedCount > 0
+                || addedCount > 0
+                || untrackedCount > 0
+            ) {
+                return "modified"
+            }
+
+            return Number(value.ignoredCount || 0) > 0
+                ? "ignored"
+                : ""
         }
 
         for (var gitIndex = 0; gitIndex < gitEntries.length; gitIndex += 1) {
@@ -728,7 +845,19 @@ Rectangle {
                 gitByPath[gitPath],
                 gitState
             )
-            aggregateFolderStatus(gitPath, gitState)
+
+            if (
+                gitState === "ignored"
+                && gitEntry.directory === true
+            ) {
+                ignoredDirectoryPaths[gitPath] = true
+            }
+
+            aggregateFolderStatus(
+                gitPath,
+                gitState,
+                gitEntry.directory === true
+            )
         }
 
         function appendDirectoryPath(relativePath) {
@@ -760,6 +889,15 @@ Rectangle {
                 if (directories[directoryId] !== true) {
                     directories[directoryId] = true
                     var aggregate = folderGit[directoryPath] || ({})
+                    var folderStatus =
+                        dominantFolderStatus(aggregate)
+                    if (
+                        folderStatus.length === 0
+                        && pathIsIgnored(directoryPath)
+                    ) {
+                        folderStatus = "ignored"
+                    }
+
                     nodes.push({
                         id: directoryId,
                         parentId: parentId,
@@ -771,7 +909,7 @@ Rectangle {
                         relativePath: directoryPath,
                         muted: false,
                         warning: false,
-                        gitStatus: String(aggregate.status || ""),
+                        gitStatus: folderStatus,
                         gitCount: Number(aggregate.count || 0)
                     })
                 }
@@ -807,7 +945,16 @@ Rectangle {
                 : ""
             var parentId = appendDirectoryPath(directoryPath)
 
-            catalogPaths[relativePath] = true
+            var fileGitStatus = String(
+                gitByPath[relativePath] || ""
+            )
+            if (
+                fileGitStatus.length === 0
+                && pathIsIgnored(relativePath)
+            ) {
+                fileGitStatus = "ignored"
+            }
+
             nodes.push({
                 id: "file:" + String(file.id),
                 parentId: parentId,
@@ -825,47 +972,7 @@ Rectangle {
                 relativePath: relativePath,
                 muted: file.status !== "available",
                 warning: file.status !== "available",
-                gitStatus: String(gitByPath[relativePath] || ""),
-                gitCount: 0
-            })
-        }
-
-        // Keep deleted files visible until the next commit even though the
-        // Library catalog correctly stops treating them as openable files.
-        for (var deletedIndex = 0; deletedIndex < gitEntries.length; deletedIndex += 1) {
-            var deletedEntry = gitEntries[deletedIndex] || ({})
-            var deletedPath = normalizedPath(deletedEntry.path)
-
-            if (
-                String(deletedEntry.status || "") !== "deleted"
-                || deletedPath.length === 0
-                || catalogPaths[deletedPath] === true
-            ) {
-                continue
-            }
-
-            var deletedSeparator = deletedPath.lastIndexOf("/")
-            var deletedDirectory = deletedSeparator >= 0
-                ? deletedPath.slice(0, deletedSeparator)
-                : ""
-            var deletedName = deletedSeparator >= 0
-                ? deletedPath.slice(deletedSeparator + 1)
-                : deletedPath
-
-            nodes.push({
-                id: "git-deleted:" + deletedPath,
-                parentId: appendDirectoryPath(deletedDirectory),
-                title: deletedName,
-                glyph: placeholderGlyphForFile(deletedName, ""),
-                iconId: FileIdentity.iconIdFor({
-                    fileName: deletedName
-                }),
-                folder: false,
-                fileId: "",
-                relativePath: deletedPath,
-                muted: true,
-                warning: false,
-                gitStatus: "deleted",
+                gitStatus: fileGitStatus,
                 gitCount: 0
             })
         }
@@ -1671,7 +1778,10 @@ Rectangle {
         }
 
         function onGitStatusChanged() {
-            if (!root.treeStateRestorePending) {
+            if (
+                !root.treeStateRestorePending
+                && !LibraryStore.loadingFiles
+            ) {
                 root.rebuildNodesFromFiles(true)
             }
         }

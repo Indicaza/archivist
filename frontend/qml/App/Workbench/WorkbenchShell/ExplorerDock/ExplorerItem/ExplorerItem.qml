@@ -28,10 +28,17 @@ Item {
     readonly property bool hovered: rowHover.hovered
     readonly property bool dragging: fileDrag.active
     readonly property string sourceDirectory: directoryForPath(relativePath)
-    readonly property color statusColor: gitColor(gitStatus)
+    readonly property string visualGitStatus: folder
+        && (gitStatus === "deleted" || gitStatus === "renamed")
+            ? "modified"
+            : gitStatus
+    readonly property color statusColor: gitColor(visualGitStatus)
     readonly property string statusText: gitLabel(gitStatus)
-    readonly property bool showsStatus: gitStatus.length > 0
-        || (folder && gitCount > 0)
+    readonly property bool hasGitDecoration: visualGitStatus.length > 0
+    readonly property bool ignoredByGit: visualGitStatus === "ignored"
+    readonly property bool showsStatus: folder
+        ? gitCount > 0
+        : statusText.length > 0
 
     signal activated()
     signal contextRequested()
@@ -39,7 +46,7 @@ Item {
 
     width: parent ? parent.width : 220
     height: 26
-    opacity: dragging ? 0.38 : 1.0
+    opacity: dragging ? 0.38 : ignoredByGit ? 0.5 : 1.0
 
     function directoryForPath(filePath) {
         var normalized = String(filePath || "").split("\\").join("/")
@@ -55,6 +62,7 @@ Item {
         case "deleted": return "#f85149"
         case "renamed": return "#a371f7"
         case "conflicted": return "#ff7b72"
+        case "ignored": return "#77726a"
         default: return root.theme.mutedText
         }
     }
@@ -67,18 +75,20 @@ Item {
         case "deleted": return "D"
         case "renamed": return "R"
         case "conflicted": return "U"
+        case "ignored": return ""
         default: return ""
         }
     }
 
     function iconTone() {
-        switch (String(root.gitStatus || "")) {
+        switch (String(root.visualGitStatus || "")) {
         case "modified": return "info"
         case "added": return "warning"
         case "untracked": return "success"
         case "deleted": return "danger"
         case "renamed": return "purple"
         case "conflicted": return "danger"
+        case "ignored": return "muted"
         default:
             return root.active || root.hovered || root.dropHighlighted
                 ? "accent"
@@ -257,38 +267,18 @@ Item {
             }
         }
 
-        Rectangle {
+        Item {
             x: 7 + root.depth * 14
             anchors.verticalCenter: parent.verticalCenter
             width: 19
-            height: 17
-            radius: 3
-            color: root.folder
-                ? root.theme.controlSurfaceBg
-                : root.showsStatus
-                    ? Qt.rgba(
-                        root.statusColor.r,
-                        root.statusColor.g,
-                        root.statusColor.b,
-                        0.12
-                    )
-                    : root.theme.controlSurfaceBg
-            border.width: 1
-            border.color: root.showsStatus
-                ? Qt.rgba(
-                    root.statusColor.r,
-                    root.statusColor.g,
-                    root.statusColor.b,
-                    0.34
-                )
-                : root.theme.quietBorder
+            height: 18
 
             AppIcon {
                 anchors.centerIn: parent
                 visible: root.folder
                 name: root.expanded ? "folder-open" : "folder"
                 tone: root.iconTone()
-                iconSize: 14
+                iconSize: 15
                 accessibleLabel: root.title + " folder"
             }
 
@@ -297,10 +287,10 @@ Item {
                 visible: !root.folder
                 iconId: root.iconId
                 fileName: root.title
-                tone: root.showsStatus ? root.iconTone() : ""
+                tone: root.hasGitDecoration ? root.iconTone() : ""
                 active: root.active
                 hovered: root.hovered
-                iconSize: 14
+                iconSize: 16
                 accessibleLabel: root.title
             }
         }
@@ -317,7 +307,7 @@ Item {
             )
             height: parent.height
             text: root.title
-            color: root.showsStatus
+            color: root.hasGitDecoration
                 ? root.statusColor
                 : root.muted
                     ? "#756e63"
