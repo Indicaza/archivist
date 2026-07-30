@@ -1705,7 +1705,7 @@ Item {
 
             }
 
-            Text {
+            Item {
                 id: fileGlyph
 
                 parent: tabVisual
@@ -1714,19 +1714,31 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 16
                 height: 18
-                text: root.glyphFor(
-                    tabItem.tabType,
-                    tabItem.title,
-                    tabItem.extension
-                )
-                color: tabItem.active || tabItem.hovered
-                    ? root.theme.accentBright
-                    : root.theme.mutedText
-                opacity: tabItem.active || tabItem.hovered ? 1 : 0.92
-                font.pixelSize: root.theme.textCaptionSize
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+                opacity: tabItem.active || tabItem.hovered ? 1 : 0.86
                 z: 3
+
+                LanguageIcon {
+                    anchors.centerIn: parent
+                    visible: tabItem.tabType === "file"
+                    fileName: tabItem.title
+                    extension: tabItem.extension
+                    tone: "brand"
+                    active: tabItem.active
+                    hovered: tabItem.hovered
+                    iconSize: 15
+                    accessibleLabel: tabItem.title
+                }
+
+                AppIcon {
+                    anchors.centerIn: parent
+                    visible: tabItem.tabType === "chat"
+                    name: "chat"
+                    tone: tabItem.active || tabItem.hovered
+                        ? "accent"
+                        : "muted"
+                    iconSize: 15
+                    accessibleLabel: "Chat"
+                }
             }
 
             Text {
@@ -1948,16 +1960,23 @@ Item {
                                 border.width: 1
                                 border.color: root.theme.quietBorder
 
-                                Text {
+                                LanguageIcon {
                                     anchors.centerIn: parent
-                                    text: root.glyphFor(
-                                        tabItem.tabType,
-                                        tabItem.title,
-                                        tabItem.extension
-                                    )
-                                    color: root.theme.accentBright
-                                    font.pixelSize: root.theme.typeSize(10)
-                                    font.weight: Font.DemiBold
+                                    visible: tabItem.tabType === "file"
+                                    fileName: tabItem.title
+                                    extension: tabItem.extension
+                                    tone: "brand"
+                                    iconSize: 18
+                                    accessibleLabel: tabItem.title
+                                }
+
+                                AppIcon {
+                                    anchors.centerIn: parent
+                                    visible: tabItem.tabType === "chat"
+                                    name: "chat"
+                                    tone: "accent"
+                                    iconSize: 18
+                                    accessibleLabel: "Chat"
                                 }
                             }
 
