@@ -102,7 +102,10 @@ function classifyStatus(
     return "deleted";
   }
 
-  if (indexStatus === "A" || worktreeStatus === "A") {
+  // Any index-side change has been staged through `git add` (or an
+  // equivalent Git operation). Keep that visually distinct from working-tree
+  // modifications and untracked files.
+  if (indexStatus !== ".") {
     return "added";
   }
 
