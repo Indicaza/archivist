@@ -1757,6 +1757,7 @@ Item {
                 id: tabHover
 
                 property bool dragCandidate: false
+                property bool revealInExplorerOnRelease: false
                 property real pressedRootX: 0
                 property real pressedContentX: 0
                 property real pressedLocalX: 0
@@ -1774,6 +1775,7 @@ Item {
                 onPressed: function(mouse) {
                     if (mouse.button === Qt.RightButton) {
                         dragCandidate = false
+                        revealInExplorerOnRelease = false
                         root.openTabContextMenu(
                             tabItem.index,
                             tabItem.x + mouse.x - tabList.contentX,
@@ -1790,6 +1792,11 @@ Item {
                     )
 
                     dragCandidate = true
+                    // Qt maps the macOS Command key to ControlModifier.
+                    // MetaModifier is the physical Control key on Apple platforms.
+                    revealInExplorerOnRelease = Boolean(
+                        mouse.modifiers & Qt.ControlModifier
+                    )
                     pressedRootX = rootPoint.x
                     pressedContentX = contentPoint.x
                     pressedLocalX = mouse.x
@@ -1835,21 +1842,24 @@ Item {
 
                     var wasDragging = root.tabDragActive
                         && root.draggedTabKey === tabItem.tabKey
+                    var revealInExplorer = revealInExplorerOnRelease
 
                     dragCandidate = false
+                    revealInExplorerOnRelease = false
 
                     if (wasDragging) {
                         root.finishTabDrag(true)
                     } else {
                         root.activateTab(
                             tabItem.index,
-                            Boolean(mouse.modifiers & Qt.MetaModifier)
+                            revealInExplorer
                         )
                     }
                 }
 
                 onCanceled: {
                     dragCandidate = false
+                    revealInExplorerOnRelease = false
 
                     if (
                         root.tabDragActive
