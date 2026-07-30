@@ -157,7 +157,7 @@ Item {
         height: 28
         theme: root.theme
         title: "CHATS"
-        glyph: "▱"
+        iconName: "chat"
         count: ChatStore.loadingChats ? 0 : root.scopedChats.length
         expanded: root.expanded
         primaryVisible: true
@@ -287,7 +287,7 @@ Item {
                         anchors.right: manageChatButton.left
                         anchors.rightMargin: 4
                         anchors.verticalCenter: parent.verticalCenter
-                        width: agentCountLabel.implicitWidth + 12
+                        width: agentCountLabel.implicitWidth + 28
                         height: 22
                         hoverEnabled: true
                         padding: 0
@@ -300,19 +300,32 @@ Item {
                             chatDelegate.modelData
                         )
 
-                        contentItem: Text {
-                            id: agentCountLabel
+                        contentItem: Row {
+                            anchors.centerIn: parent
+                            spacing: 4
 
-                            text: "♙ " + String(
-                                chatDelegate.attachedAgents.length
-                            )
-                            color: chatDelegate.selected || parent.hovered
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(7)
-                            font.weight: Font.DemiBold
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                            AppIcon {
+                                name: "agent"
+                                tone: chatDelegate.selected || agentCount.hovered
+                                    ? "accent"
+                                    : "muted"
+                                iconSize: 12
+                                accessibleLabel: "Attached Agents"
+                            }
+
+                            Text {
+                                id: agentCountLabel
+
+                                text: String(
+                                    chatDelegate.attachedAgents.length
+                                )
+                                color: chatDelegate.selected || agentCount.hovered
+                                    ? root.theme.accentBright
+                                    : root.theme.mutedText
+                                font.pixelSize: root.theme.typeSize(7)
+                                font.weight: Font.DemiBold
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
 
                         background: Rectangle {
@@ -329,7 +342,7 @@ Item {
                         }
                     }
 
-                    Button {
+                    IconButton {
                         id: manageChatButton
 
                         anchors.right: parent.right
@@ -337,36 +350,15 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 24
                         height: 24
-                        text: "•••"
+                        theme: root.theme
+                        iconName: "more"
+                        iconSize: 13
                         enabled: !ChatStore.mutating
                             && !ChatStore.responding
-                        hoverEnabled: true
-                        padding: 0
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Manage Chat"
+                        toolTipText: "Manage Chat"
                         onClicked: chatEditor.openForChat(
                             chatDelegate.modelData
                         )
-
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.hovered
-                                ? root.theme.appText
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(7)
-                            font.weight: Font.Bold
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        background: Rectangle {
-                            radius: 4
-                            color: parent.hovered
-                                ? root.theme.surfaceBg
-                                : "transparent"
-                            border.width: parent.hovered ? 1 : 0
-                            border.color: root.theme.panelBorder
-                        }
                     }
 
                     HoverHandler {
@@ -388,11 +380,10 @@ Item {
         }
 
         Button {
+            id: archivedToggleButton
+
             Layout.fillWidth: true
             Layout.preferredHeight: 25
-            text: (root.archivedOpen ? "▾" : "▸")
-                + "  Archived  "
-                + String(ChatStore.archivedChats.length)
             enabled: !ChatStore.mutating
             hoverEnabled: true
             padding: 0
@@ -403,15 +394,32 @@ Item {
                 }
             }
 
-            contentItem: Text {
-                text: parent.text
-                color: parent.hovered
-                    ? root.theme.appText
-                    : root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(8)
-                font.weight: Font.DemiBold
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: 7
+            contentItem: RowLayout {
+                spacing: 6
+
+                AppIcon {
+                    Layout.leftMargin: 7
+                    name: root.archivedOpen
+                        ? "chevron-down"
+                        : "chevron-right"
+                    tone: archivedToggleButton.hovered ? "normal" : "muted"
+                    iconSize: 11
+                    accessibleLabel: root.archivedOpen
+                        ? "Collapse archived Chats"
+                        : "Expand archived Chats"
+                }
+
+                Text {
+                    text: "Archived  " + String(
+                        ChatStore.archivedChats.length
+                    )
+                    color: archivedToggleButton.hovered
+                        ? root.theme.appText
+                        : root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(8)
+                    font.weight: Font.DemiBold
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
 
             background: Rectangle {
@@ -460,13 +468,14 @@ Item {
                     elide: Text.ElideRight
                 }
 
-                Text {
+                AppIcon {
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "✎"
-                    color: root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(9)
+                    name: "edit"
+                    tone: archivedChatHover.hovered ? "normal" : "muted"
+                    iconSize: 13
+                    accessibleLabel: "Edit archived Chat"
                 }
 
                 HoverHandler {

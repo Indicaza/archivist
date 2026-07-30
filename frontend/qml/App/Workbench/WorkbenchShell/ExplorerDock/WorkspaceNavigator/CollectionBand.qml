@@ -58,7 +58,7 @@ Item {
         height: 36
         theme: root.theme
         title: "COLLECTIONS"
-        glyph: "▦"
+        iconName: "collection"
         count: CollectionStore.loading
             ? 0
             : CollectionStore.collections.length
@@ -157,12 +157,14 @@ Item {
                     anchors.rightMargin: 9
                     spacing: 7
 
-                    Text {
-                        text: collectionDelegate.depth > 0 ? "└" : "▦"
-                        color: collectionDelegate.selected
-                            ? root.theme.accentBright
-                            : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(9)
+                    AppIcon {
+                        name: "collection"
+                        tone: collectionDelegate.selected
+                            || collectionHover.hovered
+                                ? "accent"
+                                : "muted"
+                        iconSize: 15
+                        accessibleLabel: "Collection"
                     }
 
                     Text {

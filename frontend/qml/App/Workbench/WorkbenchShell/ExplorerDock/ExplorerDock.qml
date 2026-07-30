@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "WorkspaceNavigator"
 
@@ -763,7 +764,8 @@ Rectangle {
                         id: directoryId,
                         parentId: parentId,
                         title: parts[directoryIndex],
-                        glyph: "▰",
+                        glyph: "",
+                        iconId: "folder",
                         folder: true,
                         fileId: "",
                         relativePath: directoryPath,
@@ -814,6 +816,10 @@ Rectangle {
                     file.name,
                     file.extension
                 ),
+                iconId: FileIdentity.iconIdFor({
+                    fileName: file.name,
+                    extension: file.extension
+                }),
                 folder: false,
                 fileId: String(file.id),
                 relativePath: relativePath,
@@ -851,6 +857,9 @@ Rectangle {
                 parentId: appendDirectoryPath(deletedDirectory),
                 title: deletedName,
                 glyph: placeholderGlyphForFile(deletedName, ""),
+                iconId: FileIdentity.iconIdFor({
+                    fileName: deletedName
+                }),
                 folder: false,
                 fileId: "",
                 relativePath: deletedPath,
@@ -1018,6 +1027,7 @@ Rectangle {
                 nodeId: node.id,
                 itemTitle: node.title,
                 itemGlyph: node.glyph,
+                itemIconId: String(node.iconId || "file"),
                 itemDepth: depth,
                 itemSelected: selectedNodeId === node.id,
                 itemMuted: node.muted === true,
@@ -2055,14 +2065,16 @@ Rectangle {
                         anchors.rightMargin: 10
                         spacing: 8
 
-                        Text {
-                            text: String(
-                                workspaceDragSession.payload.glyph || "▤"
+                        LanguageIcon {
+                            iconId: String(
+                                workspaceDragSession.payload.iconId || "file"
                             )
-                            color: workspaceDragSession.dropAllowed
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(12)
+                            fileName: workspaceDragSession.sourceLabel
+                            tone: workspaceDragSession.dropAllowed
+                                ? "accent"
+                                : "muted"
+                            iconSize: 16
+                            accessibleLabel: workspaceDragSession.sourceLabel
                         }
 
                         Text {
@@ -2316,46 +2328,24 @@ Rectangle {
                             }
                         }
 
-                        Button {
+                        IconButton {
                             id: addLibraryButton
 
-                            Layout.preferredWidth: 22
-                            Layout.preferredHeight: 22
-                            text: LibraryStore.creatingLibrary ? "…" : "+"
+                            theme: root.theme
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            width: 24
+                            height: 24
+                            iconName: "add"
+                            iconTone: enabled && hovered ? "accent" : "normal"
+                            iconSize: 14
+                            toolTipText: CollectionStore.selectedCollectionId.length === 0
+                                ? "Select a Collection before adding a Library"
+                                : "Add a folder as a Library"
                             enabled: CollectionStore.selectedCollectionId.length > 0
                                 && !LibraryStore.creatingLibrary
                                 && !CollectionStore.mutating
-                            hoverEnabled: true
-                            padding: 0
                             onClicked: root.openLibraryFolderDialog()
-                            ToolTip.visible: hovered
-                            ToolTip.text: CollectionStore.selectedCollectionId.length === 0
-                                ? "Select a Collection before adding a Library"
-                                : "Add a folder as a Library"
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.enabled
-                                    ? parent.hovered
-                                        ? root.theme.accentBright
-                                        : root.theme.appText
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                font.weight: Font.DemiBold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered
-                                    ? root.theme.activeBg
-                                    : "transparent"
-                                border.width: 1
-                                border.color: parent.hovered
-                                    ? root.theme.accent
-                                    : root.theme.quietBorder
-                            }
                         }
 
                         Rectangle {
@@ -2374,16 +2364,18 @@ Rectangle {
                             }
                         }
 
-                        Button {
+                        IconButton {
                             id: collapseAllButton
 
+                            theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: "⌃"
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Collapse all"
+                            width: 24
+                            height: 24
+                            iconName: "chevron-up"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 13
+                            toolTipText: "Collapse all folders"
                             onClicked: root.collapseAll()
                             onHoveredChanged: root.updateToolbarHover(0, hovered)
                             scale: root.magnifierScale(
@@ -2402,31 +2394,20 @@ Rectangle {
                                     easing.type: Easing.OutCubic
                                 }
                             }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                            }
                         }
 
-                        Button {
+                        IconButton {
                             id: expandAllButton
 
+                            theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: "⌄"
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Expand all"
+                            width: 24
+                            height: 24
+                            iconName: "chevron-down"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 13
+                            toolTipText: "Expand all folders"
                             onClicked: root.expandAll()
                             onHoveredChanged: root.updateToolbarHover(1, hovered)
                             scale: root.magnifierScale(
@@ -2445,32 +2426,24 @@ Rectangle {
                                     easing.type: Easing.OutCubic
                                 }
                             }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                            }
                         }
 
-                        Button {
+                        IconButton {
                             id: refreshLibrariesButton
 
+                            theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: LibraryStore.scanning ? "…" : "↻"
-                            enabled: LibraryStore.selectedLibraryId.length > 0 && !LibraryStore.scanning
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Rescan selected Library"
+                            width: 24
+                            height: 24
+                            iconName: "refresh"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 14
+                            toolTipText: LibraryStore.scanning
+                                ? "Scanning Library"
+                                : "Rescan selected Library"
+                            enabled: LibraryStore.selectedLibraryId.length > 0
+                                && !LibraryStore.scanning
                             onClicked: LibraryStore.scanSelectedLibrary()
                             onHoveredChanged: root.updateToolbarHover(2, hovered)
                             scale: root.magnifierScale(
@@ -2488,19 +2461,6 @@ Rectangle {
                                         : root.theme.motionHoverExit
                                     easing.type: Easing.OutCubic
                                 }
-                            }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(15)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
                             }
                         }
                     }
@@ -2559,33 +2519,18 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                         }
 
-                        Button {
+                        IconButton {
+                            theme: root.theme
                             Layout.preferredWidth: 20
                             Layout.preferredHeight: 20
-                            text: LibraryStore.loadingGitStatus ? "…" : "↻"
+                            width: 20
+                            height: 20
+                            iconName: "refresh"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 11
+                            toolTipText: "Refresh Git status"
                             enabled: !LibraryStore.loadingGitStatus
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Refresh Git status"
                             onClicked: LibraryStore.refreshSelectedGitStatus()
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered
-                                    ? root.theme.appText
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(11)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
-                            }
                         }
                     }
                 }
@@ -2607,7 +2552,7 @@ Rectangle {
                         placeholderTextColor: root.theme.mutedText
                         color: root.theme.appText
                         font.pixelSize: root.theme.typeSize(11)
-                        leftPadding: 8
+                        leftPadding: 30
                         rightPadding: 8
                         selectByMouse: true
                         onTextChanged: {
@@ -2642,6 +2587,16 @@ Rectangle {
                             ) {
                                 root.filterField = null
                             }
+                        }
+
+                        AppIcon {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 9
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "search"
+                            tone: parent.activeFocus ? "accent" : "muted"
+                            iconSize: 13
+                            accessibleLabel: "Filter files"
                         }
 
                         background: Rectangle {
@@ -2691,6 +2646,7 @@ Rectangle {
                         required property string nodeId
                         required property string itemTitle
                         required property string itemGlyph
+                        required property string itemIconId
                         required property int itemDepth
                         required property bool itemSelected
                         required property bool itemMuted
@@ -2707,6 +2663,7 @@ Rectangle {
                         theme: root.theme
                         title: itemTitle
                         glyph: itemGlyph
+                        iconId: itemIconId
                         depth: itemDepth
                         selected: itemSelected
                         active: itemActive

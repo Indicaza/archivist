@@ -10,6 +10,7 @@ Item {
     required property bool dragEnabled
     required property string title
     required property string glyph
+    required property string iconId
     required property int depth
     required property bool selected
     required property bool active
@@ -70,6 +71,21 @@ Item {
         }
     }
 
+    function iconTone() {
+        switch (String(root.gitStatus || "")) {
+        case "modified": return "info"
+        case "added": return "warning"
+        case "untracked": return "success"
+        case "deleted": return "danger"
+        case "renamed": return "purple"
+        case "conflicted": return "danger"
+        default:
+            return root.active || root.hovered || root.dropHighlighted
+                ? "accent"
+                : "muted"
+        }
+    }
+
     function canAcceptDrop() {
         return root.folder
             && root.dragEnabled
@@ -100,7 +116,8 @@ Item {
                         relativePath: root.relativePath,
                         sourceDirectory: root.sourceDirectory,
                         title: root.title,
-                        glyph: root.glyph
+                        glyph: root.glyph,
+                        iconId: root.iconId
                     },
                     root.title
                 )
@@ -240,22 +257,8 @@ Item {
             }
         }
 
-        Text {
-            x: 6 + root.depth * 14
-            width: 12
-            height: parent.height
-            visible: root.folder
-            text: root.expanded ? "⌄" : "›"
-            color: root.hovered || root.dropHighlighted
-                ? root.theme.appText
-                : root.theme.mutedText
-            font.pixelSize: root.theme.typeSize(12)
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-
         Rectangle {
-            x: 20 + root.depth * 14
+            x: 7 + root.depth * 14
             anchors.verticalCenter: parent.verticalCenter
             width: 19
             height: 17
@@ -280,25 +283,32 @@ Item {
                 )
                 : root.theme.quietBorder
 
-            Text {
+            AppIcon {
                 anchors.centerIn: parent
-                text: root.glyph
-                color: root.showsStatus
-                    ? root.statusColor
-                    : root.muted
-                        ? "#756e63"
-                        : root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(
-                    root.glyph.length > 1 ? 7 : 9
-                )
-                font.weight: Font.DemiBold
+                visible: root.folder
+                name: root.expanded ? "folder-open" : "folder"
+                tone: root.iconTone()
+                iconSize: 14
+                accessibleLabel: root.title + " folder"
+            }
+
+            LanguageIcon {
+                anchors.centerIn: parent
+                visible: !root.folder
+                iconId: root.iconId
+                fileName: root.title
+                tone: root.showsStatus ? root.iconTone() : ""
+                active: root.active
+                hovered: root.hovered
+                iconSize: 14
+                accessibleLabel: root.title
             }
         }
 
         Text {
             id: titleText
 
-            x: 44 + root.depth * 14
+            x: 32 + root.depth * 14
             width: Math.max(
                 0,
                 parent.width - x - (
@@ -338,14 +348,15 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        Text {
+        AppIcon {
             anchors.right: parent.right
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             visible: root.warning && !root.showsStatus
-            text: "△"
-            color: root.theme.mutedText
-            font.pixelSize: root.theme.typeSize(10)
+            name: "warning"
+            tone: "warning"
+            iconSize: 13
+            accessibleLabel: "File warning"
         }
     }
 }
