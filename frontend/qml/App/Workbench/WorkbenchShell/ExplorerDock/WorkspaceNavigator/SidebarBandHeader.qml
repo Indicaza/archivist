@@ -7,17 +7,17 @@ Rectangle {
 
     required property var theme
     required property string title
-    required property string glyph
+    required property string iconName
     required property int count
     required property bool expanded
 
     property bool primaryVisible: false
     property bool primaryEnabled: true
-    property string primaryText: "+"
+    property string primaryIconName: "add"
     property string primaryToolTip: ""
     property bool secondaryVisible: false
     property bool secondaryEnabled: true
-    property string secondaryText: "•••"
+    property string secondaryIconName: "more"
     property string secondaryToolTip: ""
 
     signal toggleRequested()
@@ -52,24 +52,18 @@ Rectangle {
             contentItem: RowLayout {
                 spacing: 7
 
-                Text {
-                    text: root.expanded ? "▾" : "▸"
-                    color: toggleButton.hovered
-                        ? root.theme.appText
-                        : root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(9)
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                AppIcon {
+                    iconSize: 11
+                    name: root.expanded ? "chevron-down" : "chevron-right"
+                    tone: toggleButton.hovered ? "normal" : "muted"
+                    accessibleLabel: root.expanded ? "Collapse" : "Expand"
                 }
 
-                Text {
-                    text: root.glyph
-                    color: root.expanded
-                        ? root.theme.accentBright
-                        : root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(10)
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                AppIcon {
+                    iconSize: 15
+                    name: root.iconName
+                    tone: root.expanded ? "accent" : "muted"
+                    accessibleLabel: root.title
                 }
 
                 Text {
@@ -113,72 +107,36 @@ Rectangle {
             }
         }
 
-        Button {
+        IconButton {
             id: primaryButton
 
             visible: root.primaryVisible
             Layout.preferredWidth: visible ? 24 : 0
             Layout.preferredHeight: 24
-            text: root.primaryText
+            width: 24
+            height: 24
+            theme: root.theme
+            iconName: root.primaryIconName
+            iconSize: 14
             enabled: root.primaryEnabled
-            hoverEnabled: true
-            padding: 0
-            ToolTip.visible: hovered && root.primaryToolTip.length > 0
-            ToolTip.text: root.primaryToolTip
+            toolTipText: root.primaryToolTip
             onClicked: root.primaryRequested()
-
-            contentItem: Text {
-                text: parent.text
-                color: parent.enabled && parent.hovered
-                    ? root.theme.appText
-                    : root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(12)
-                font.weight: Font.DemiBold
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                opacity: parent.enabled ? 1 : 0.42
-            }
-
-            background: Rectangle {
-                radius: 4
-                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                border.width: parent.hovered ? 1 : 0
-                border.color: root.theme.panelBorder
-            }
         }
 
-        Button {
+        IconButton {
             id: secondaryButton
 
             visible: root.secondaryVisible
             Layout.preferredWidth: visible ? 24 : 0
             Layout.preferredHeight: 24
-            text: root.secondaryText
+            width: 24
+            height: 24
+            theme: root.theme
+            iconName: root.secondaryIconName
+            iconSize: 14
             enabled: root.secondaryEnabled
-            hoverEnabled: true
-            padding: 0
-            ToolTip.visible: hovered && root.secondaryToolTip.length > 0
-            ToolTip.text: root.secondaryToolTip
+            toolTipText: root.secondaryToolTip
             onClicked: root.secondaryRequested()
-
-            contentItem: Text {
-                text: parent.text
-                color: parent.enabled && parent.hovered
-                    ? root.theme.appText
-                    : root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(8)
-                font.weight: Font.Bold
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                opacity: parent.enabled ? 1 : 0.42
-            }
-
-            background: Rectangle {
-                radius: 4
-                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                border.width: parent.hovered ? 1 : 0
-                border.color: root.theme.panelBorder
-            }
         }
     }
 }

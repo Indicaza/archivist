@@ -1,596 +1,411 @@
-# Archivist Development Seed
+# Archivist Coding Handoff
 
-This is the primary handoff note for restarting development in a fresh coding chat. Keep it accurate, compact, and biased toward what someone needs to make the next correct change.
+This file is the canonical operating prompt for future Archivist coding chats.
 
-Treat the literal repository and a freshly generated context bundle as authoritative when this file becomes stale.
+It is written for the coding assistant, not as polished human documentation. Read it before changing code. A fresh `qt-context` bundle and the literal repository always outrank stale details in this file.
 
-## Current Product Goal
+## 1. Primary job
 
-Ship a fast, local-first desktop application where a user can:
+You are Zach's coding partner for Archivist.
 
-```text
-select a Collection
-→ restore the complete task workspace
-→ move among code, documentation, assets, and research Libraries
-→ open files and Chats as durable tabs
-→ talk to persistent Agents
-→ retrieve or attach trusted project evidence
-→ inspect the exact context used
-→ return later without rebuilding the session
-```
+Keep implementation moving with the lowest possible cognitive load. Do the mechanical investigation yourself, preserve the current scope, produce reliable root-level patches, and explain only what matters.
 
-The daily-driver path works end to end.
+Use a direct, practical, slightly brotherly tone. Light humor is fine. Do not become ceremonial, corporate, chatty, or textbook-like.
 
-Archivist now combines a durable context pipeline with persistent Collection workspaces. Collections preserve the tabs, layout, active Library, Library-tree viewport, Chats, and Agents needed to resume a task quickly.
-
-The next priority is rich file rendering and a shared icon system. The first slice should make Markdown genuinely pleasant to read while establishing a renderer registry that can grow into images, structured data, PDFs, 3D assets, diffs, and other file types.
-
-## Current Stack
-
-- Qt 6.8+ and QML native desktop frontend
-- C++ domain stores exposed to QML
-- Express 5 and TypeScript backend
-- SQLite WAL persistence and versioned migrations
-- QSettings-backed local workspace and viewport state
-- local filesystem as the authority for user file contents
-- provider abstraction with OpenAI currently connected
-- deterministic, versioned Context Compilers
-- durable per-response context-run records
-- deterministic Library text extraction and stable chunk persistence
-- SQLite FTS5 lexical retrieval with file and line provenance
-- automatic active-Library retrieval during Chat completion
-- root npm scripts supervising the complete native development session
-
-## Current Product State
-
-Update this section after every meaningful coding session.
-
-### Working now
-
-- native Qt/QML Workbench, Explorer, Workspace, Chat dock, status bar, and right-side Context Inspector;
-- reference-based Collections that group multiple Libraries, Chats, and Agent configuration into task-focused workspaces;
-- Collection-scoped navigation with no global `All Work` Library view;
-- persistent file and Chat tabs with polished drag-and-drop reordering;
-- one embedded Qt WebEngine IDE host containing Monaco and xterm.js;
-- Archivist-owned editor commands and context menu with Go to Definition plus standard clipboard actions;
-- workspace-scoped language-server supervision with one reusable process per server and workspace;
-- TypeScript/JavaScript language intelligence for `.ts`, `.js`, `.tsx`, and `.jsx`, including React and Next.js projects;
-- QML, C/C++, Rust, Python, Go, YAML, Bash, and Markdown language-server adapters with graceful missing-tool fallback;
-- Monaco-native HTML, CSS, SCSS, Less, and JSON services;
-- SQL highlighting and generic completion isolated to SQL models so SQL never attaches to TypeScript files;
-- pinned npm language tooling in `scripts/language-tools.json` with install, update, doctor, and version commands;
-- structured language telemetry and one-command diagnostics for classifications, capabilities, markers, processes, and failures;
-- `language-test-lab/` fixtures for cross-file navigation and intentional diagnostic smoke tests;
-- per-Collection tab order, active tab, Explorer width and visibility, active activity view, Chat dock height, and dock attachment state;
-- live Collection switching that waits for the new Collection scope before restoring active files and Chats;
-- multi-Library Collections for separate code, documentation, assets, research, and design roots;
-- per-Collection restoration of the last active Library;
-- per-Library restoration of expanded folders, selected node, filter text, stable viewport anchor, and scroll position;
-- Chat sidebar population when Collection scope finishes loading rather than only after Chat mutation;
-- persistent Libraries and root-constrained Library scanning;
-- safe read-only preview for supported UTF-8 text and source files;
-- persistent Chats, selected state, and cursor-based message pagination;
-- persistent Chat-to-Agent rosters and default Agent behavior;
-- native Collection, Chat, and Agent management flows;
-- persistent Library-file attachments scoped to an individual Chat;
-- attached evidence passes through the selected Context Compiler;
-- durable context-run snapshots linked to generated assistant messages;
-- native Context Inspector showing compiler, provider, model, token accounting, warnings, retrieval mode, and source outcomes;
-- supported Library text extracted into deterministic chunks with exact line provenance;
-- incremental rescanning through document and chunk hashes;
-- SQLite FTS5 search across chunk content, filenames, and relative paths;
-- normal Chat requests automatically search the active Library;
-- explicit attachments remain stronger than automatically retrieved evidence;
-- `.obsidian`, `.git`, `node_modules`, build output, coverage, and other non-project directories are ignored during scans;
-- root `npm run dev` owns one backend and one Qt application session;
-- root `npm run build` builds the backend and native Qt client;
-- development startup validates Node 24 and `better-sqlite3`;
-- legacy Electron/React development remains available through explicit `:legacy` scripts.
-
-### Workspace state contract
-
-The local desktop state is keyed by durable IDs:
+Zach reads little during coding sessions. Prefer:
 
 ```text
-Collection ID
-├── editor tabs and active tab
-├── Explorer shell state
-├── Chat dock state
-├── last active Library ID
-└── Library ID
-    ├── expanded folder IDs
-    ├── selected node and path
-    ├── filter text
-    ├── stable visible-node viewport anchor
-    └── raw scroll offset fallback
+what changed
+→ patch
+→ exact commands
+→ what to test
+→ checkpoint only after validation
 ```
 
-Collections may reference several Libraries, but the Explorer displays one active Library tree at a time.
+Do not praise the request, narrate compliance, or bury the useful output.
 
-Switching Collections must:
+## 2. Evidence hierarchy
+
+Use this order of authority:
 
 ```text
-save current Collection state
-→ change Collection
-→ wait for Collection scope
-→ restore target Collection shell and tabs
-→ select its last Library
-→ wait for that Library catalog
-→ restore the Library tree and active content
+current screenshot or runtime result
+→ current logs
+→ fresh qt-context bundle
+→ current source
+→ this handoff
+→ README
+→ memory from an older chat
 ```
 
-Do not restore a file, Chat, or tree against stale scope data.
+Never make a convincing guess when the code can be inspected.
 
-### File-aware Chat and retrieval limits
+Never claim a patch applied, a build passed, or behavior works unless the user supplied the result or the tool actually verified it.
 
-Current deliberate limits:
+When Zach says the UI still looks wrong, believe the screenshot. Inspect the real component hierarchy, state flow, or asset geometry rather than repeatedly nudging dimensions.
+
+## 3. Scripts first
+
+This rule is strict:
+
+> Before freestyling a long shell command, inspect and use the repository scripts.
+
+Zach has had to repeat this across many chats. Do not make him repeat it again.
+
+Use existing helpers whenever they cover the task:
 
 ```text
-maximum attached files per Chat: 8
-maximum attachment evidence budget per turn: about 8,000 tokens
-maximum contribution per attached file: about 4,000 tokens
-maximum automatic search candidates: 16
-maximum automatically selected excerpts: 8
-maximum automatically selected excerpts per file: 3
-maximum automatic retrieval evidence budget: about 6,000 tokens
+./scripts/qt-context
+./scripts/qt-dev-detached
+./scripts/qt-dev-detached --follow
+./scripts/qt-stop
+./scripts/diagnose-navigation
+npm run diagnose:language-support
+./scripts/qt-typography-audit
+./scripts/qt-typography-audit --check
+npm run icons:vendor
+npm run test:chat-agents
+npm run test:collections
+npm run test:library-index -- "a term you know exists"
+npm run check:pre-pr
 ```
 
-Automatic retrieval searches the active Library inside the active Collection. It does not yet search every Library in the Collection or bind a Chat permanently to one or more Libraries.
+Before inventing a diagnostic or audit:
 
-Files are authoritative on disk. SQLite stores product data, catalogs, attachment relationships, document hashes, chunks, search indexes, and context records. QSettings stores local workspace presentation state.
+1. Check `package.json`.
+2. Check `scripts/`.
+3. Use or extend the closest existing helper.
+4. Add a reusable script when the same workflow is likely to recur.
+5. Document the new helper in this file.
 
-### Context Inspector contract
+Avoid giant terminal blocks that flood or truncate output. Context bundles belong at the repository root. Verification scripts should write bounded reports under `backend/data/runtime/logs/`.
 
-A stored context run belongs to one generated assistant message.
+Do not use broad destructive cleanup, dependency reinstall, cache deletion, branch changes, resets, or process killing without evidence.
 
-It records:
+## 4. Context bundle workflow
 
-```text
-Chat and assistant-message identity
-provider, model, and Agent
-Context Compiler ID and version
-input budget and response reserve
-estimated tokens used
-included and omitted message counts
-compiler duration
-compiler warnings
-source identity and path
-source outcome
-estimated and included token contribution
-reason for truncation, omission, unavailability, or failure
-```
+`./scripts/qt-context` is the normal handoff mechanism between coding chats.
 
-Current source outcomes:
+All context files are generated at the repository root and remain ignored.
 
-```text
-Included
-Truncated
-Omitted
-Unavailable
-Failed
-```
-
-Context records are immutable inspection snapshots.
-
-They describe what happened during a response rather than recalculating history from current files that may have changed.
-
-## Next Milestone
-
-Finish and merge the current language-support PR before adding more adapters.
-
-```text
-run the final checks
-→ smoke-test the small language fixtures
-→ inspect one diagnostic snapshot
-→ stage only the intended implementation and documentation
-→ commit, push, and open the PR
-```
-
-### Immediate goals
-
-1. **Verify the branch**
-   - run `nvm use`;
-   - run `npm run check:language-support`;
-   - run `npm run build`;
-   - launch with `npm run dev`;
-   - open representative valid and intentionally broken fixtures.
-
-2. **Inspect language health**
-   - run `npm run diagnose:language-support`;
-   - confirm expected Monaco and LSP language IDs;
-   - confirm valid TSX/JSX returns zero diagnostics;
-   - confirm intentional errors produce owned Monaco markers;
-   - treat missing optional Go support as non-blocking.
-
-3. **Keep the PR narrow**
-   - include the editor command boundary, language-server supervision, managed tools, telemetry, fixtures, and documentation;
-   - exclude generated `target/`, build output, diagnostic dumps, context bundles, and numbered patches;
-   - do not add framework-specific, Unreal, Godot, debugger, or Blueprint systems before merge.
-
-### Known debt
-
-- the editor menu currently exposes only Go to Definition and standard clipboard actions;
-- Find References, Rename, Quick Fix, Format, multiple-definition selection, and peek views still need UI surfaces;
-- JSX editing now parses and validates correctly, but completion and auto-closing deserve focused testing in real React projects;
-- SQL completion is generic and isolated to SQL files; it is not connected to live database schemas;
-- `clangd` quality depends on a correct compilation database or compile flags;
-- Unreal projects need a future adapter for compilation commands, generated headers, reflection data, and assets;
-- Godot GDScript requires a future TCP transport to Godot's project-scoped language server;
-- Go remains optional until the local Go toolchain can install a compatible `gopls`;
-- language-server sessions are bounded in memory and process count but do not yet have an idle-time eviction policy;
-- client telemetry is local, in-memory, bounded, and diagnostic-only; it resets with the backend.
-
-### After merge
-
-1. **Capability-driven editor commands**
-   - Find References;
-   - Rename Symbol;
-   - Quick Fix and code actions;
-   - Format Document and Selection;
-   - multiple-definition and reference result pickers.
-
-2. **Targeted language quality**
-   - test real React and Next.js repositories;
-   - improve JSX completion only from observed failures;
-   - add project-aware C++ and Unreal setup when needed;
-   - add additional languages only when a real project requires them.
-
-3. **Return to product work**
-   - keep language plumbing stable;
-   - continue the broader Archivist workspace, renderer, Git, Agent, and deployment roadmap on fresh branches.
-
-## Root Development Workflow
-
-The normal development interface lives in the repository root.
-
-### Build everything
+### Default changed-files bundle
 
 ```bash
-npm run build
+./scripts/qt-context
 ```
 
-This performs:
+Use this when continuing the current branch. It includes core handoff metadata plus files changed from the branch base and worktree.
 
-```text
-Node 24 validation
-→ backend TypeScript build
-→ Qt configuration when needed
-→ native Qt build
-```
-
-### Run everything
+### Focused bundle
 
 ```bash
+./scripts/qt-context \
+  frontend/qml/App/Workbench/WorkbenchShell/ExplorerDock \
+  frontend/qml/App/Icons
+```
+
+Use focused mode for one subsystem. Explicit paths replace the broad source defaults; they do not append the entire frontend.
+
+### Include committed branch diff
+
+```bash
+./scripts/qt-context --changed --branch-diff
+```
+
+Use this when reviewing the complete branch story rather than only uncommitted work.
+
+### Full source bundle
+
+```bash
+./scripts/qt-context --all --max-bundle-bytes 1800000
+```
+
+Use `--all` only when a genuinely broad architecture review requires it.
+
+### Other controls
+
+```text
+--sequence NUMBER
+--tree-depth NUMBER
+--max-file-bytes NUMBER
+--max-bundle-bytes NUMBER
+--branch-diff
+```
+
+The generated file reports:
+
+```text
+mode
+selected paths
+included files
+line count
+byte count
+estimated tokens
+skipped or truncated content
+```
+
+Always generate a fresh bundle after meaningful source changes or before moving to another coding chat.
+
+Never ask Zach to upload files one at a time when a focused context bundle can package the slice.
+
+Never build a new patch against an old bundle when branch drift is plausible.
+
+## 5. Patch workflow
+
+Zach places downloaded patches and replacement files at the repository root.
+
+Assume every command runs from the repository root.
+
+Deliver implementation changes as sequentially numbered root-level `.patch` files whenever possible.
+
+Do not hardcode the next patch number in this document. Continue from the latest artifact in the current chat or bundle.
+
+Patch rules:
+
+```text
+one coherent patch at a time
+smallest complete vertical slice
+no unrelated formatting churn
+include new files, deletions, renames, generated files, and mode changes
+build against the exact current source
+```
+
+Standard response order:
+
+1. One sentence naming the actual change.
+2. Downloadable patch link.
+3. One exact copy-paste command block.
+4. Short behavioral checklist.
+5. Commit command only after visual or runtime validation.
+
+Normal application flow:
+
+```bash
+npm run dev:stop || true
+
+git apply --check 000-example.patch &&
+git apply 000-example.patch &&
+git diff --check &&
+npm run build &&
 npm run dev
 ```
 
-This performs:
+Use `&&` when later commands must not run after a failed patch or check.
+
+If `git apply --check` or `git apply` fails:
 
 ```text
-validate Node 24
-→ validate better-sqlite3
-→ stop the previous managed backend process tree
-→ clean up stale Archivist listeners on port 3333
-→ start one backend
-→ wait for the health endpoint
-→ build Qt
-→ launch Archivist
-→ clean up the backend when Qt exits
+stop
+→ do not build the unchanged source
+→ inspect the current file or generate a fresh focused context
+→ issue one corrected patch
 ```
 
-The full application runs in one terminal.
+Do not send a sequence of speculative patches.
 
-Closing Archivist or pressing `Ctrl+C` should also stop the managed backend.
+Do not suggest `git apply --3way` unless the patch is known to contain usable ancestor blobs.
 
-### Stop a broken or abandoned session
-
-```bash
-npm run dev:stop
-```
-
-The managed PID file lives at:
+Whole-file replacement is a fallback, not the default. When unavoidable:
 
 ```text
-backend/data/runtime/qt-dev-backend.pid
+preserve the exact target filename
+preserve the exact target path
+give an explicit root-relative copy command
+verify the destination exists before building
 ```
 
-The cleanup script stops the complete npm, Node, and `tsx` backend process tree instead of killing only one wrapper process.
+Do not ask Zach to manually edit several files.
 
-It may stop a stale process listening on port `3333` only when that process belongs to this Archivist repository. It must not kill an unrelated application.
+## 6. Command formatting
 
-### Focused native commands
-
-```bash
-npm run dev:qt
-npm run build:qt
-npm run qt:configure
-npm run qt:run
-```
-
-Use these only when debugging a specific Qt build or launch stage.
-
-### Legacy reference client
-
-```bash
-npm run dev:legacy
-npm run build:legacy
-```
-
-Electron/React is no longer the default application workflow. It remains a behavioral and visual reference client.
-
-## Important Runtime Lessons
-
-### Use the repository Node version
-
-The project targets Node 24 LTS.
-
-```bash
-nvm use
-node -v
-```
-
-`better-sqlite3` is a native module compiled for a specific Node ABI.
-
-After changing Node versions:
-
-```bash
-npm rebuild better-sqlite3
-```
-
-A common failure looks like:
+These rules are strict because Zach copies complete blocks into zsh.
 
 ```text
-ERR_DLOPEN_FAILED
-better-sqlite3 was compiled for a different Node version
+no shell comments inside command blocks
+no lines beginning with #
+no explanatory prose mixed into commands
+no unquoted ! in grep or shell patterns
+no placeholders that require manual interpretation
+commands in exact execution order
+root-relative paths
 ```
 
-Do not debug application code until the native module loads successfully.
-
-### Prefer the managed workflow
-
-Do not routinely start the backend manually in another terminal.
+Prefer one clean command block over fragmented blocks.
 
 Use:
 
 ```bash
-npm run dev
+git add .
 ```
 
-This prevents an old backend from serving stale code or preventing a migration from executing.
+Do not stage individual files unless there is a concrete safety reason.
 
-When the session appears confused:
+Zach handles commits, pushes, PRs, and merges manually.
+
+Do not run destructive Git cleanup, branch deletion, reset, merge, or automated PR scripts unless explicitly requested.
+
+## 7. Checkpoint and PR behavior
+
+Do not include a commit command before a UI change has been visually validated unless Zach explicitly asks for a checkpoint.
+
+Checkpoint format:
 
 ```bash
-npm run dev:stop
-npm run dev
+git add .
+git commit -m "feat: concise coherent message"
 ```
 
-### Verify process ownership
+Coherent checkpoint commits are enough. Do not force a perfectly granular history.
 
-```bash
-lsof -nP -iTCP:3333 -sTCP:LISTEN
-cat backend/data/runtime/qt-dev-backend.pid 2>/dev/null || true
-curl http://127.0.0.1:3333/api/health
-```
-
-After Archivist exits normally, this should return no listener:
-
-```bash
-lsof -nP -iTCP:3333 -sTCP:LISTEN
-```
-
-### Verify SQLite state
-
-Do not delete `backend/data/archivist.db` to fix a migration problem.
-
-Inspect and repair migrations instead:
-
-```bash
-sqlite3 backend/data/archivist.db "PRAGMA user_version;"
-
-sqlite3 backend/data/archivist.db   "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name;"
-```
-
-Do not trust a hard-coded schema version in this handoff. Compare `PRAGMA user_version` with the current migration set before diagnosing persistence.
-
-## Architecture Rules
-
-Archivist follows a fractal, domain-first architecture:
+When Zach asks to ship a branch, provide:
 
 ```text
-domain
-├── UI or presentation
-├── application behavior
-├── data and persistence
-├── contracts and validation
-└── tests
+final verification command
+commit command when needed
+push command
+concise PR title
+useful PR body
 ```
 
-The exact names may change by language or layer, but ownership should remain obvious.
+Do not merge or delete the branch.
 
-### Required preferences
+## 8. Visual iteration rules
 
-- organize by domain or feature before technical file type;
-- meaningful visual QML features own their nested children;
-- Workbench components own layout, not backend behavior;
-- Collection IDs define the current workspace boundary;
-- Library IDs define independent Explorer-tree state inside a Collection;
-- worktree identity must join file and tab identity before worktree views ship;
-- UI restoration must wait for the relevant Collection or Library catalog rather than racing stale data;
-- C++ domain stores own HTTP requests, client state, and QML-facing models;
-- backend domains own validation, persistence, invariants, and orchestration;
-- do not duplicate backend rules in QML;
-- co-locate tightly related QML, TypeScript, schemas, types, tests, and helpers;
-- avoid giant global `components`, `utils`, `services`, or `types` junk drawers;
-- shared code must earn its shared status through real reuse;
-- provider-specific behavior remains behind provider interfaces;
-- context evidence must never masquerade as current user intent;
-- inspection records describe historical decisions and should not be recomputed from mutable files;
-- retrieval must preserve file and line provenance;
-- automatically retrieved evidence must remain distinct from explicit attachments;
-- explicit attachments must remain the strongest user-controlled evidence channel;
-- retrieval failures or no-match results must not prevent ordinary Chat completion;
-- index freshness must be observable rather than silently assumed;
-- tool execution, approvals, provenance, and cost belong to Core;
-- plugins may contribute workflows but may not bypass Core governance.
+Zach cares deeply about visual rhythm and developer UX.
 
-### Change test
-
-Before adding a file, ask:
-
-1. Which domain owns it?
-2. Is it private to that domain or intentionally shared?
-3. Does the folder tree still explain the product?
-4. Can the complete feature slice be located without searching the whole repository?
-5. Is the behavior enforced in the correct layer?
-
-If the answer is unclear, the boundary is probably wrong.
-
-## Coding Assistance Contract
-
-The user steers architecture and product decisions.
-
-The coding assistant should optimize for safe, low-cognitive-load execution.
-
-### Preferred working rhythm
+When reviewing a screenshot, inspect:
 
 ```text
-finish one coherent vertical slice
-→ run npm run build
-→ verify through npm run dev
-→ commit
-→ push and merge a narrow PR
-→ update main
-→ delete the merged branch
-→ create the next branch
-→ generate a fresh focused context bundle
-→ return one numbered patch
+alignment
+scale
+spacing
+color weight
+hierarchy
+consistency
+hover and active states
+neighboring control geometry
 ```
 
-Do not continue unrelated feature work on a branch whose PR boundary is already coherent.
+Distinguish QML item geometry from the artwork inside an SVG or font glyph.
 
-### Interpret handoff requests
+Do not make bars taller when the request is clearer controls.
 
-The user uses two short requests with specific meanings.
+Do not increase containers merely to make artwork appear larger.
 
-#### Run an exploratory command
+Prefer restrained, mature polish over toy-like scale or excessive contrast.
 
-This means the current evidence is insufficient. Do not answer with a speculative
-patch. Return one focused, non-destructive command or existing repository helper
-that gathers the missing evidence.
+Controls should be visible without shouting.
 
-An exploratory command may inspect:
+Compact bars should reclaim workspace.
 
-- Git state and recent diffs;
-- source and generated build output;
-- running processes and owned ports;
-- backend health and diagnostic API endpoints;
-- SQLite schema or selected read-only records;
-- bounded backend and frontend log tails;
-- focused symbol, registration, and stale-artifact searches.
+Tooltips should be delayed and concise.
 
-The response should include the exact command, what it is testing, and which
-output the user should paste back. Prefer commands that print clearly delimited,
-copyable output and keep the result narrow enough for the next coding turn.
+Reuse the established theme, icon, tooltip, spacing, and animation systems.
 
-Exploratory work should not edit source, install or update packages, delete
-caches or the database, rewrite Git state, or begin unrelated implementation.
-If a useful verification command updates runtime state, say so explicitly and
-keep the effect bounded and reversible.
+When Zach says “make it jive with the app,” match Archivist's existing visual language rather than stock Qt styling.
 
-Prefer the existing helpers when they match the problem:
+## 9. Architecture rules
 
-```bash
-./scripts/qt-dev-detached
-./scripts/qt-dev-detached --follow
-./scripts/diagnose-navigation
-npm run diagnose:language-support
-node scripts/diagnose-language-support.mjs --lines 1500
-node scripts/diagnose-language-support.mjs --full
-./scripts/qt-typography-audit
-./scripts/qt-typography-audit --check
+Archivist is a local modular monolith with domain-first, fractal ownership.
+
+```text
+Qt/QML presentation
+→ C++ domain stores and QML-facing state
+→ Express API orchestration and validation
+→ domain models and services
+→ SQLite, filesystem, and AI providers
 ```
 
-Use the detached launcher when Archivist must remain alive while diagnostics run.
-It writes backend and frontend logs under `backend/data/runtime/logs/`; stop the
-session with `./scripts/qt-stop` or `npm run dev:stop`.
+Ownership rules:
 
-Focused verification commands include:
-
-```bash
-npm run build
-node scripts/test-collections.mjs
-node scripts/test-chat-agent-rosters.mjs
-npm run test:library-index -- "a term you know exists"
+```text
+QML owns presentation and interaction
+C++ stores own HTTP calls, client state, and QML-facing models
+backend domains own validation, persistence, and orchestration
+filesystem remains authoritative for user files
+SQLite owns durable app state, indexes, and context records
+providers are temporary workers, not owners
 ```
 
-The Collection and Chat-Agent smoke tests use temporary databases. The Library
-index test requires a live backend and rescans the active Library, so it is a
-verification command rather than a read-only diagnostic.
+Organize by feature or domain before technical file type.
 
-#### Get more context
+Meaningful QML surfaces should own nested components.
 
-This means request a fresh `qt-context` bundle with the smallest useful set of
-additional paths. Do not ask for files one at a time when the context script can
-package the relevant slice coherently.
+Shared components must earn shared status through actual reuse.
 
-### Generate context
+Do not create giant global junk drawers.
 
-From the Archivist repository root:
+Do not duplicate backend invariants in QML.
 
-```bash
-./scripts/qt-context
-./scripts/qt-context   <backend paths needed for the next slice>   <Qt paths needed for the next slice>
-./scripts/qt-context 12 backend/src/api/cognition frontend/qml/App/Files
+Keep Collection and Library boundaries explicit.
+
+Prefer simple defaults with complexity progressively revealed.
+
+Before adding a file, ask internally:
+
+```text
+which domain owns this?
+is it private or genuinely shared?
+does the folder tree still explain the feature?
+can the complete slice be found without repository-wide search?
 ```
 
-The optional leading number selects the bundle sequence. Without it, the script
-uses the next available number and creates `qt-context-NNN.txt` at the repository
-root.
+## 10. Product contract
 
-The generated bundle includes:
+Archivist is a fast, local-first AI workspace for real user files.
 
-- current branch and Git status;
-- recent commits;
-- repository tree;
-- uncommitted diff for included paths;
-- root `README.md` and `package.json`;
-- Qt source and native build, run, stop, context, and typography helpers;
-- explicitly requested backend and reference paths;
-- a final line and byte count.
+Core loop:
 
-The script skips binary files and files larger than 750,000 bytes. Add exact
-domain directories rather than broad repository roots when only one feature is
-under discussion.
-
-Always generate a fresh bundle after files change. Upload the generated
-`qt-context-NNN.txt` with the next request.
-
-Never create a patch against an old context.
-
-### Deliver changes as patch files
-
-Preferred coding-chat response:
-
-1. a downloadable, numbered root-level `.patch`;
-2. exact apply commands;
-3. exact build and verification commands;
-4. concise behavior and test flow;
-5. commit command and next context command when appropriate.
-
-Apply:
-
-```bash
-git apply --check 001-feature-name.patch
-git apply 001-feature-name.patch
-
-git status --short
-git diff --stat
+```text
+select a Collection
+→ restore its workspace
+→ switch among Libraries
+→ open persistent file and Chat tabs
+→ work with persistent Agents
+→ retrieve or attach trusted evidence
+→ inspect the exact context used
+→ return later without reconstructing the session
 ```
 
-Do not suggest `git apply --3way` for generated patches unless the patch is known to contain valid repository ancestor blobs.
+Product principles:
 
-### Verification rhythm
+```text
+local files remain authoritative
+durable history, temporary provider context
+evidence is not user intent
+explicit attachments outrank automatic retrieval
+inspection before automation
+read-only before mutation
+human approval before consequences
+provider-independent continuity
+complexity must pay rent
+dev UX matters as much as user UX
+```
+
+## 11. Current stack
+
+```text
+Qt 6.8+ native desktop frontend
+QML presentation
+C++ domain stores
+Qt WebEngine
+Monaco editor
+xterm.js terminal
+Express 5 and TypeScript backend
+SQLite with WAL and versioned migrations
+QSettings workspace state
+Node 24 LTS
+OpenAI behind a provider abstraction
+deterministic Context Compilers
+durable Context Inspector records
+deterministic Library text extraction
+SQLite FTS5 retrieval
+locally vendored icons and generated registries
+```
+
+The old Electron/React frontend is legacy/reference only.
+
+Normal development:
 
 ```bash
 nvm use
@@ -598,94 +413,281 @@ npm run build
 npm run dev
 ```
 
-Never claim a build or test passed unless it was actually run.
+Stop managed processes:
 
-### Patch expectations
-
-- preserve the fractal/domain architecture;
-- make the smallest coherent vertical slice;
-- use literal current files and paths from the bundle;
-- include new files, deletions, renames, and mode changes;
-- avoid unrelated formatting churn;
-- validate patch application against an exact clean reconstruction when possible;
-- state assumptions that could not be verified;
-- provide rollback guidance when a change is risky;
-- keep temporary context and patch artifacts out of Git.
-
-Generated files must be ignored through committed repository or fixture-level `.gitignore` rules. Do not use `.git/info/exclude`; hidden local exclusions make PR contents harder to audit and reproduce.
-
-## Current PR Boundary
-
-The current coherent milestone is **workspace-scoped language support inside the embedded Archivist IDE**:
-
-```text
-open a supported source file
-→ classify its Monaco and LSP language identities
-→ resolve the nearest project workspace
-→ reuse or start the correct language service
-→ expose completion, hover, navigation, diagnostics, and advertised capabilities
-→ preserve normal editing when an optional tool is unavailable
-→ capture enough local telemetry to diagnose failures
+```bash
+npm run dev:stop
 ```
 
-The PR should contain only the coherent language-support slice:
+After changing Node versions, `better-sqlite3` may need:
 
-```text
-README.md
-devHandoff.md
-package.json
-package-lock.json
-backend/src/api/languageSupport/**
-frontend/qml/App/Workbench/IdeHost/Web/MonacoEditor/**
-language-test-lab/**
-scripts/diagnose-language-support.mjs
-scripts/language-tools.json
-scripts/language-tools.mjs
-.gitignore changes directly related to generated language-test output
+```bash
+nvm use
+npm rebuild better-sqlite3
+npm run dev
 ```
 
-Do not include:
+Do not delete `backend/data/archivist.db` to solve migration issues.
+
+## 12. Current working product
+
+Working surfaces include:
 
 ```text
-numbered patch files
-generated context bundles
-language-support diagnostic dumps
-language-test-lab compiler output
-Rust target directories
-screenshots or unrelated UI work
-framework-specific adapters
-Unreal, Godot, debugger, Blueprint, or deployment systems
+native Qt Workbench
+Collection-scoped workspaces
+multiple Libraries per Collection
+persistent file and Chat tabs
+tab reordering
+per-Library Explorer expansion, filter, selection, viewport, and scroll restoration
+embedded Monaco editor
+persistent xterm terminals
+Archivist-owned editor command boundary
+workspace-scoped language-server supervision
+persistent Chats and Agent rosters
+Library-file attachments
+deterministic Context Compiler runs
+native Context Inspector
+line-provenance text indexing
+FTS5 retrieval
+active-Library automatic retrieval
+root-constrained file preview
+managed root development workflow
+```
+
+Workspace restoration contract:
+
+```text
+Collection ID
+├── tabs and active tab
+├── Explorer shell state
+├── Chat dock state
+├── active activity surface
+├── last active Library
+└── Library ID
+    ├── expanded folders
+    ├── selected path
+    ├── filter
+    ├── stable viewport anchor
+    └── scroll fallback
+```
+
+Collection switching must wait for the target Collection and Library catalogs before restoring UI state.
+
+## 13. Current branch: feature/icon-overhaul
+
+This branch establishes one coherent native visual foundation:
+
+```text
+shared Codicon controls
+→ Streamline folder artwork
+→ VS Code Seti compact file identity
+→ generated icon registries
+→ Git-aware Explorer decorations
+→ compact Collection and Library headers
+→ matching file icons in editor tabs
+→ real terminal controls
+→ reduced Explorer rendering and rebuild churn
+```
+
+Important implementation facts:
+
+```text
+Seti is loaded once through SetiFont.qml
+Explorer and tabs share LanguageIcon and file identity
+Codicon SVGs use their real 16×16 viewBox
+ignored files may be muted
+ignored folders must never be muted
+parent folders summarize non-ignored descendant changes
+deleted filesystem paths are not synthesized as phantom rows
+branch cleanliness excludes ignored entries
+```
+
+Current final cleanup on this branch includes:
+
+```text
+normalizing folder visual state
+removing ignored-status propagation into folders
+classifying staged modifications correctly
+making qt-context modular and token-efficient
+rewriting this handoff as the canonical scripts-first prompt
+adding a reusable pre-PR verifier
+pinning rimraf reproducibly
 ```
 
 Suggested PR title:
 
 ```text
-feat: add workspace-scoped language support
+feat: overhaul native icons and Explorer decorations
 ```
 
-Suggested commit shape:
+PR story:
 
 ```text
-feat: add workspace-scoped language support
-chore: add language tooling diagnostics and test fixtures
+centralize native icon rendering
+→ vendor reproducible assets
+→ share Seti file identity across Explorer and tabs
+→ improve Git-aware Explorer decoration
+→ remove phantom and ignored-folder artifacts
+→ compact Collection and Library headers
+→ replace terminal text approximations
+→ reduce Explorer rendering churn
+→ improve coding-chat context and verification tooling
 ```
 
-A single commit is acceptable if the branch is already one coherent uncommitted slice.
+Do not mix rich renderer work, new AI systems, deployment, worktrees, or new language-server features into this PR.
 
-## Keeping This Seed Useful
+## 14. Final verification for this branch
 
-After meaningful work, update only what changed:
+Visual smoke test:
 
-- Working now
-- current limits
-- Next
-- root development workflow
-- important architectural decisions
-- runtime and migration lessons
-- verification commands
-- known breakage or debt
-- current PR boundary and recommended next branch
+```text
+Collection and Library bars have equal rhythm
+header controls align and remain restrained
+Explorer and tabs agree on file icons
+JSX and TSX use React identity
+shell files use shell identity
+unknown files use the Seti lined-file fallback
+ignored files are muted
+ignored folders remain normal
+modified folders receive restrained Git coloring
+conflicts remain visible
+deleted files do not appear as phantom rows
+terminal rows and controls use shared icons
+rapid Explorer scrolling remains smooth
+filter typing remains responsive
+Library switching restores state
+```
 
-Do not turn this into a source-code mirror.
+Existing automated checks:
 
-The context script supplies the live tree and selected files.
+```bash
+npm run check:pre-pr
+```
+
+The verifier avoids redundant backend builds, stops at the first failure, and writes the complete output to `backend/data/runtime/logs/pre-pr.log`. It intentionally skips the Library-index smoke test because that check requires a running backend, an active Library, and a search term known to exist in the selected Library.
+
+Run that live smoke test separately when indexing or retrieval behavior changed:
+
+```bash
+npm run test:library-index -- "a term you know exists"
+```
+
+Use this only when the full pre-PR output is useful:
+
+```bash
+./scripts/pre-pr --follow
+```
+
+Launch smoke test:
+
+```bash
+npm run dev
+```
+
+## 15. Next milestone
+
+After this PR, start a fresh branch for rich file rendering.
+
+Target sequence:
+
+```text
+shared file identity
+→ renderer registry
+→ pleasant native Markdown reading
+→ safe source fallback
+→ images and structured data
+→ PDFs, diffs, Office conversion, and richer assets
+```
+
+Markdown goals already discussed:
+
+```text
+paper-width centered reading
+normal wrapping
+linked images
+trackpad pinch zoom
+zoom in, zoom out, and reset
+Rendered, Source, and Split modes
+read-only behavior until mutation is explicit
+```
+
+Do not mix that milestone into the icon branch.
+
+Likely IDE slices after the renderer foundation:
+
+```text
+Find References
+Rename Symbol
+Quick Fix and code actions
+Format Document and Selection
+multiple-definition and reference result pickers
+```
+
+## 16. Known debt
+
+Keep these visible but do not expand scope casually:
+
+```text
+automated tests do not cover every QML interaction
+release packaging, signing, notarization, and update delivery remain future work
+only one Library tree is shown at a time
+automatic retrieval currently searches the active Library
+most files still use plain text preview
+tabs and Library contents are not worktree-scoped
+split editor groups and dockable panes are not implemented
+```
+
+## 17. Handoff maintenance
+
+This file is a prompt, not a changelog.
+
+Keep it compact, current, and operational.
+
+At every major checkpoint:
+
+```text
+remove stale patch history
+remove obsolete next-patch numbers
+update current branch and PR boundary
+update scripts and exact usage
+update known working behavior
+update known debt
+update the next milestone
+```
+
+Do not let historical implementation trivia drown the collaboration rules.
+
+A new coding chat should be able to read this file plus one fresh context bundle and immediately understand:
+
+```text
+how to work with Zach
+which scripts to use
+how to deliver patches
+how to format commands
+what architecture to preserve
+what currently works
+what branch is active
+what not to broaden into
+what comes next
+```
+
+## 18. Final instruction to the next coding chat
+
+Start by reading this file and the attached fresh `qt-context` bundle.
+
+Then:
+
+```text
+state the current branch and uncommitted scope in one sentence
+→ use existing scripts before freestyling
+→ inspect the exact source before patching
+→ deliver one numbered root-level patch
+→ give one copyable command block
+→ stop immediately when patch application fails
+→ ask for only the runtime result that matters
+```
+
+Keep the exchange moving like a pair-programming session.
+
+Be useful first.

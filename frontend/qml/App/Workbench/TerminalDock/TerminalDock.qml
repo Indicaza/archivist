@@ -634,46 +634,23 @@ Rectangle {
                 }
             }
 
-            Button {
+            IconButton {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.rightMargin: 4
                 anchors.topMargin: 4
                 width: 24
-                height: 28
+                height: 24
                 visible: !root.panelOpen
                 z: 20
-                text: "‹"
-                hoverEnabled: true
-                padding: 0
-                ToolTip.visible: hovered
-                ToolTip.text: "Show Terminals"
+                theme: root.theme
+                iconName: "chevron-left"
+                iconSize: 14
+                toolTipText: "Show Terminals"
+                circular: true
+                idleBackgroundColor: root.theme.controlSurfaceBg
+                hoverBackgroundColor: root.theme.hoverBg
                 onClicked: root.panelOpen = true
-
-                contentItem: Text {
-                    text: parent.text
-                    color: parent.hovered
-                        ? root.theme.appText
-                        : root.theme.mutedText
-                    font.family:
-                        root.theme.bodyFontFamily
-                    font.pixelSize:
-                        root.theme.textControlSize
-                    horizontalAlignment:
-                        Text.AlignHCenter
-                    verticalAlignment:
-                        Text.AlignVCenter
-                }
-
-                background: Rectangle {
-                    radius: 3
-                    color: parent.hovered
-                        ? root.theme.hoverBg
-                        : root.theme.controlSurfaceBg
-                    border.width: 1
-                    border.color:
-                        root.theme.quietBorder
-                }
             }
 
             Text {
@@ -826,6 +803,15 @@ Rectangle {
                         anchors.rightMargin: 3
                         spacing: 7
 
+                        AppIcon {
+                            Layout.preferredWidth: 16
+                            Layout.preferredHeight: 16
+                            name: "terminal"
+                            tone: "muted"
+                            iconSize: 15
+                            accessibleLabel: "Terminals"
+                        }
+
                         Text {
                             text: "TERMINALS"
                             color: root.theme.appText
@@ -855,83 +841,31 @@ Rectangle {
                             opacity: 0.76
                         }
 
-                        Button {
+                        IconButton {
                             Layout.preferredWidth: 22
                             Layout.preferredHeight: 22
-                            text: "+"
-                            enabled:
-                                root.terminalContextAvailable
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: enabled
+                            theme: root.theme
+                            iconName: "add"
+                            iconSize: 14
+                            enabled: root.terminalContextAvailable
+                            toolTipText: enabled
                                 ? "New Terminal"
                                 : "Select a Library first"
-                            onClicked:
-                                root.createTerminal()
-
-                            contentItem: Text {
-                                text: parent.text
-                                color:
-                                    parent.enabled
-                                    && parent.hovered
-                                        ? root.theme.appText
-                                        : root.theme
-                                            .mutedText
-                                font.family:
-                                    root.theme
-                                        .bodyFontFamily
-                                font.pixelSize:
-                                    root.theme
-                                        .textControlSize
-                                horizontalAlignment:
-                                    Text.AlignHCenter
-                                verticalAlignment:
-                                    Text.AlignVCenter
-                                opacity:
-                                    parent.enabled ? 1 : 0.42
-                            }
-
-                            background: Rectangle {
-                                radius: 3
-                                color: parent.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
-                            }
+                            circular: true
+                            hoverBackgroundColor: root.theme.hoverBg
+                            onClicked: root.createTerminal()
                         }
 
-                        Button {
+                        IconButton {
                             Layout.preferredWidth: 22
                             Layout.preferredHeight: 22
-                            text: "›"
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Hide Terminals"
-                            onClicked:
-                                root.panelOpen = false
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered
-                                    ? root.theme.appText
-                                    : root.theme.mutedText
-                                font.family:
-                                    root.theme.bodyFontFamily
-                                font.pixelSize:
-                                    root.theme.textControlSize
-                                horizontalAlignment:
-                                    Text.AlignHCenter
-                                verticalAlignment:
-                                    Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 3
-                                color: parent.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
-                            }
+                            theme: root.theme
+                            iconName: "chevron-right"
+                            iconSize: 14
+                            toolTipText: "Hide Terminals"
+                            circular: true
+                            hoverBackgroundColor: root.theme.hoverBg
+                            onClicked: root.panelOpen = false
                         }
                     }
                 }
@@ -997,36 +931,22 @@ Rectangle {
                             z: 4
                         }
 
-                        Text {
+                        AppIcon {
                             id: terminalGlyph
 
                             anchors.left: parent.left
                             anchors.leftMargin: 9
-                            anchors.verticalCenter:
-                                parent.verticalCenter
+                            anchors.verticalCenter: parent.verticalCenter
                             width: 18
-                            text: "›_"
-                            color:
-                                terminalRow.terminalState
-                                    === "error"
-                                    ? root.theme.danger
-                                    : terminalRow.selected
-                                        || terminalHover.hovered
-                                        ? root.theme
-                                            .accentBright
-                                        : root.theme
-                                            .mutedText
-                            font.family:
-                                root.theme
-                                    .monospaceFontFamily
-                            font.pixelSize:
-                                root.theme
-                                    .textMetadataSize
-                            font.weight:
-                                root.theme
-                                    .textWeightStrong
-                            horizontalAlignment:
-                                Text.AlignHCenter
+                            height: 18
+                            name: "terminal"
+                            tone: terminalRow.terminalState === "error"
+                                ? "danger"
+                                : terminalRow.selected || terminalHover.hovered
+                                    ? "accent"
+                                    : "muted"
+                            iconSize: 15
+                            accessibleLabel: "Terminal"
                         }
 
                         Text {
@@ -1149,57 +1069,24 @@ Rectangle {
                             }
                         }
 
-                        Button {
+                        IconButton {
                             id: closeTerminalButton
 
                             anchors.right: parent.right
                             anchors.rightMargin: 3
-                            anchors.verticalCenter:
-                                parent.verticalCenter
+                            anchors.verticalCenter: parent.verticalCenter
                             width: 24
                             height: 24
-                            visible:
-                                terminalRow.selected
+                            visible: terminalRow.selected
                                 || terminalHover.hovered
                                 || hovered
-                            text: "×"
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text:
-                                "Kill Terminal"
-                            onClicked:
-                                root.closeTerminal(
-                                    terminalRow.sessionId
-                                )
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered
-                                    ? root.theme.appText
-                                    : root.theme
-                                        .mutedText
-                                font.family:
-                                    root.theme
-                                        .bodyFontFamily
-                                font.pixelSize:
-                                    root.theme
-                                        .textControlSize
-                                font.weight:
-                                    root.theme
-                                        .textWeightStrong
-                                horizontalAlignment:
-                                    Text.AlignHCenter
-                                verticalAlignment:
-                                    Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 3
-                                color: parent.hovered
-                                    ? root.theme.surfaceBg
-                                    : "transparent"
-                            }
+                            theme: root.theme
+                            iconName: "close"
+                            iconSize: 13
+                            toolTipText: "Kill Terminal"
+                            circular: true
+                            hoverBackgroundColor: root.theme.surfaceBg
+                            onClicked: root.closeTerminal(terminalRow.sessionId)
                         }
 
                         Item {

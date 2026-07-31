@@ -1,24 +1,149 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "Error: scripts/qt-context must run inside the Archivist Git repository." >&2
+  printf 'Error: scripts/qt-context must run inside the Archivist Git repository.\n' >&2
   exit 1
 fi
 
-sequence=""
+usage() {
+  cat <<'EOF'
+Archivist context bundle generator
 
-if [[ $# -gt 0 && "$1" =~ ^[0-9]{1,3}$ ]]; then
-  sequence="$(printf "%03d" "$1")"
-  shift
+Usage:
+  ./scripts/qt-context
+  ./scripts/qt-context path [path ...]
+  ./scripts/qt-context --changed
+  ./scripts/qt-context --all
+  ./scripts/qt-context [options] path [path ...]
+
+Modes:
+  --changed              Include files changed on this branch and in the worktree.
+                         This is the default when no paths are supplied.
+  --all                  Include the full application source surface.
+  path [path ...]        Include only these focused paths plus the core handoff files.
+
+Options:
+  --sequence NUMBER      Use qt-context-NNN.txt instead of the next automatic number.
+  --tree-depth NUMBER    Focused tree depth. Default: 4.
+  --max-file-bytes N     Skip individual files larger than N bytes. Default: 180000.
+  --max-bundle-bytes N   Stop adding file bodies after N bytes. Default: 450000.
+  --branch-diff          Include the selected committed branch diff as well as file bodies.
+  -h, --help             Show this help.
+
+Examples:
+  ./scripts/qt-context
+  ./scripts/qt-context frontend/qml/App/Workbench/WorkbenchShell/ExplorerDock
+  ./scripts/qt-context --changed --branch-diff
+  ./scripts/qt-context --all --max-bundle-bytes 1800000
+
+Generated bundles are written at the repository root and are expected to remain ignored.
+EOF
+}
+
+mode="changed"
+sequence=""
+tree_depth=4
+max_file_bytes=180000
+max_bundle_bytes=450000
+include_branch_diff=false
+explicit_paths=()
+
+require_number() {
+  local option_name="$1"
+  local option_value="${2:-}"
+
+  if [[ ! "$option_value" =~ ^[0-9]+$ ]]; then
+    printf 'Error: %s requires a positive integer.\n' "$option_name" >&2
+    exit 1
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --changed)
+      mode="changed"
+      shift
+      ;;
+    --all)
+      mode="all"
+      shift
+      ;;
+    --sequence)
+      [[ $# -ge 2 ]] || {
+        printf 'Error: --sequence requires a number.\n' >&2
+        exit 1
+      }
+      require_number "--sequence" "$2"
+      sequence="$(printf '%03d' "$((10#$2))")"
+      shift 2
+      ;;
+    --tree-depth)
+      [[ $# -ge 2 ]] || {
+        printf 'Error: --tree-depth requires a number.\n' >&2
+        exit 1
+      }
+      require_number "--tree-depth" "$2"
+      tree_depth="$2"
+      shift 2
+      ;;
+    --max-file-bytes)
+      [[ $# -ge 2 ]] || {
+        printf 'Error: --max-file-bytes requires a number.\n' >&2
+        exit 1
+      }
+      require_number "--max-file-bytes" "$2"
+      max_file_bytes="$2"
+      shift 2
+      ;;
+    --max-bundle-bytes)
+      [[ $# -ge 2 ]] || {
+        printf 'Error: --max-bundle-bytes requires a number.\n' >&2
+        exit 1
+      }
+      require_number "--max-bundle-bytes" "$2"
+      max_bundle_bytes="$2"
+      shift 2
+      ;;
+    --branch-diff)
+      include_branch_diff=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        explicit_paths+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      explicit_paths+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if (( ${#explicit_paths[@]} > 0 )); then
+  mode="focus"
 fi
 
-if [[ -z "$sequence" ]]; then
-  next_number=1
+next_sequence() {
+  local next_number=1
+  local existing_file
+  local candidate
+  local candidate_number
 
   for existing_file in qt-context-*.txt; do
     [[ -e "$existing_file" ]] || continue
@@ -35,68 +160,208 @@ if [[ -z "$sequence" ]]; then
     fi
   done
 
-  sequence="$(printf "%03d" "$next_number")"
+  printf '%03d' "$next_number"
+}
+
+if [[ -z "$sequence" ]]; then
+  sequence="$(next_sequence)"
 fi
 
 output_file="qt-context-${sequence}.txt"
 
 if [[ -e "$output_file" ]]; then
-  echo "Error: $output_file already exists." >&2
-  echo "Pass a different number or remove the old bundle." >&2
+  printf 'Error: %s already exists.\n' "$output_file" >&2
+  printf 'Use --sequence with another number or remove the old bundle.\n' >&2
   exit 1
 fi
 
-paths=(
+temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/archivist-qt-context.XXXXXX")"
+temporary_file="$temporary_dir/context.txt"
+selected_path_file="$temporary_dir/selected-paths.txt"
+candidate_path_file="$temporary_dir/candidate-paths.txt"
+file_list="$temporary_dir/files.txt"
+skipped_file="$temporary_dir/skipped.txt"
+trap 'rm -rf "$temporary_dir"' EXIT
+
+: > "$temporary_file"
+: > "$selected_path_file"
+: > "$candidate_path_file"
+: > "$file_list"
+: > "$skipped_file"
+
+core_paths=(
+  "devHandoff.md"
   "README.md"
   "package.json"
-  "frontend"
-  "scripts/qt-build"
-  "scripts/qt-configure"
+  "frontend/CMakeLists.txt"
   "scripts/qt-context"
-  "scripts/qt-typography-audit"
-  "scripts/typography-legacy-baseline.txt"
-  "scripts/qt-dev"
-  "scripts/qt-run"
-  "scripts/qt-stop"
 )
 
-for extra_path in "$@"; do
-  paths+=("$extra_path")
-done
+all_paths=(
+  "backend/src"
+  "frontend/qml/App"
+  "frontend/src"
+  "language-test-lab"
+  "scripts"
+)
 
-temporary_file="$(mktemp "${TMPDIR:-/tmp}/archivist-qt-context.XXXXXX")"
-trap 'rm -f "$temporary_file"' EXIT
+base_ref() {
+  if git show-ref --verify --quiet refs/heads/main; then
+    printf 'main'
+    return
+  fi
 
-section() {
-  printf "\n\n===== %s =====\n\n" "$1" >> "$temporary_file"
+  if git show-ref --verify --quiet refs/remotes/origin/main; then
+    printf 'origin/main'
+    return
+  fi
+
+  if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+    printf 'HEAD^'
+    return
+  fi
+
+  printf 'HEAD'
 }
 
-printf "===== ARCHIVIST QT CONTEXT %s =====\n" "$sequence" >> "$temporary_file"
+branch_base="$(base_ref)"
 
-section "GENERATED"
-date >> "$temporary_file"
+append_changed_paths() {
+  git diff --name-only --diff-filter=ACMRTUXB "$branch_base"...HEAD 2>/dev/null \
+    >> "$candidate_path_file" \
+    || true
+  git diff --name-only --diff-filter=ACMRTUXB \
+    >> "$candidate_path_file"
+  git diff --cached --name-only --diff-filter=ACMRTUXB \
+    >> "$candidate_path_file"
+  git ls-files --others --exclude-standard \
+    >> "$candidate_path_file"
+}
 
-section "GIT BRANCH"
-git branch --show-current >> "$temporary_file"
+printf '%s\n' "${core_paths[@]}" >> "$candidate_path_file"
 
-section "GIT STATUS"
-git status --short >> "$temporary_file"
+case "$mode" in
+  focus)
+    printf '%s\n' "${explicit_paths[@]}" >> "$candidate_path_file"
+    ;;
+  all)
+    printf '%s\n' "${all_paths[@]}" >> "$candidate_path_file"
+    ;;
+  changed)
+    append_changed_paths
+    ;;
+esac
 
-section "RECENT COMMITS"
-git log --oneline -10 >> "$temporary_file"
+awk 'NF && !seen[$0]++' "$candidate_path_file" > "$selected_path_file"
 
-section "REQUESTED PATHS"
-printf "%s\n" "${paths[@]}" >> "$temporary_file"
+selected_paths=()
 
-section "REPOSITORY TREE"
+while IFS= read -r selected_path; do
+  selected_paths+=("$selected_path")
+done < "$selected_path_file"
 
-if command -v tree >/dev/null 2>&1; then
-  tree \
-    -a \
-    -L 6 \
-    -I '.git|node_modules|dist|build|coverage|backend/data|CMakeFiles|*.db|*.db-*|qt-context-*.txt|*.patch' \
+section() {
+  printf '\n\n===== %s =====\n\n' "$1" >> "$temporary_file"
+}
+
+append_note() {
+  printf '%s\n' "$1" >> "$temporary_file"
+}
+
+current_bundle_bytes() {
+  wc -c < "$temporary_file" | tr -d ' '
+}
+
+record_skip() {
+  printf '%s\n' "$1" >> "$skipped_file"
+}
+
+append_capped_text_file() {
+  local label="$1"
+  local source_file="$2"
+  local section_limit="${3:-120000}"
+  local source_size
+  local current_size
+  local remaining
+  local allowed
+
+  [[ -s "$source_file" ]] || {
+    printf '(none)\n' >> "$temporary_file"
+    return
+  }
+
+  source_size="$(wc -c < "$source_file" | tr -d ' ')"
+  current_size="$(current_bundle_bytes)"
+  remaining=$((max_bundle_bytes - current_size))
+  allowed="$section_limit"
+
+  if (( remaining < allowed )); then
+    allowed="$remaining"
+  fi
+
+  if (( allowed <= 0 )); then
+    record_skip "$label — bundle byte budget reached"
+    printf '(omitted: bundle byte budget reached)\n' >> "$temporary_file"
+    return
+  fi
+
+  if (( source_size <= allowed )); then
+    cat "$source_file" >> "$temporary_file"
+    return
+  fi
+
+  head -c "$allowed" "$source_file" >> "$temporary_file"
+  printf '\n\n[TRUNCATED: %s exceeded its section or bundle byte budget]\n' "$label" \
     >> "$temporary_file"
-else
+  record_skip "$label — truncated at ${allowed} bytes"
+}
+
+append_source_file() {
+  local file_path="$1"
+  local file_size
+  local current_size
+  local projected_size
+
+  [[ -f "$file_path" ]] || {
+    record_skip "$file_path — missing, deleted, or not a regular file"
+    return
+  }
+
+  file_size="$(wc -c < "$file_path" | tr -d ' ')"
+
+  if (( file_size > max_file_bytes )); then
+    record_skip "$file_path — ${file_size} bytes exceeds per-file limit ${max_file_bytes}"
+    return
+  fi
+
+  if [[ -s "$file_path" ]] && ! LC_ALL=C grep -Iq . "$file_path"; then
+    record_skip "$file_path — binary"
+    return
+  fi
+
+  current_size="$(current_bundle_bytes)"
+  projected_size=$((current_size + file_size + 96))
+
+  if (( projected_size > max_bundle_bytes )); then
+    record_skip "$file_path — bundle byte budget reached"
+    return
+  fi
+
+  printf '===== FILE: %s =====\n\n' "$file_path" >> "$temporary_file"
+  cat "$file_path" >> "$temporary_file"
+  printf '\n\n' >> "$temporary_file"
+}
+
+print_compact_tree() {
+  if command -v tree >/dev/null 2>&1; then
+    tree \
+      -a \
+      -L 2 \
+      -I '.git|node_modules|dist|build|coverage|backend/data|CMakeFiles|*.db|*.db-*|qt-context-*.txt|*.patch|.DS_Store' \
+      >> "$temporary_file"
+    return
+  fi
+
   find . \
     \( \
       -path './.git' -o \
@@ -107,58 +372,150 @@ else
       -path './build' -o \
       -path './coverage' -o \
       -path './backend/data' -o \
-      -path './frontend/build' -o \
       -name CMakeFiles \
     \) -prune -o \
-    -maxdepth 6 \
+    -maxdepth 2 \
     -print \
     | sort \
     >> "$temporary_file"
-fi
+}
+
+print_focused_trees() {
+  local requested_path
+
+  while IFS= read -r requested_path; do
+    [[ -d "$requested_path" ]] || continue
+
+    printf '\n--- %s ---\n' "$requested_path" >> "$temporary_file"
+
+    if command -v tree >/dev/null 2>&1; then
+      tree \
+        -a \
+        -L "$tree_depth" \
+        -I '.git|node_modules|dist|build|coverage|backend/data|CMakeFiles|*.db|*.db-*|qt-context-*.txt|*.patch|.DS_Store' \
+        "$requested_path" \
+        >> "$temporary_file"
+    else
+      find "$requested_path" \
+        \( \
+          -name .git -o \
+          -name node_modules -o \
+          -name dist -o \
+          -name build -o \
+          -name coverage -o \
+          -name CMakeFiles \
+        \) -prune -o \
+        -maxdepth "$tree_depth" \
+        -print \
+        | sort \
+        >> "$temporary_file"
+    fi
+  done < "$selected_path_file"
+}
+
+collect_files() {
+  local requested_path
+
+  while IFS= read -r requested_path; do
+    if [[ -f "$requested_path" ]]; then
+      printf '%s\n' "$requested_path"
+      continue
+    fi
+
+    git ls-files \
+      --cached \
+      --others \
+      --exclude-standard \
+      -- "$requested_path"
+  done < "$selected_path_file" \
+    | awk 'NF && !seen[$0]++' \
+    | sort \
+    > "$file_list"
+}
+
+printf '===== ARCHIVIST QT CONTEXT %s =====\n' "$sequence" >> "$temporary_file"
+
+section "GENERATED"
+date >> "$temporary_file"
+
+section "CONTEXT MODE"
+printf 'Mode: %s\n' "$mode" >> "$temporary_file"
+printf 'Base ref: %s\n' "$branch_base" >> "$temporary_file"
+printf 'Tree depth: %s\n' "$tree_depth" >> "$temporary_file"
+printf 'Per-file byte limit: %s\n' "$max_file_bytes" >> "$temporary_file"
+printf 'Bundle byte limit: %s\n' "$max_bundle_bytes" >> "$temporary_file"
+printf 'Committed branch diff included: %s\n' "$include_branch_diff" >> "$temporary_file"
+
+section "GIT BRANCH"
+git branch --show-current >> "$temporary_file"
+
+section "GIT STATUS"
+git status --short >> "$temporary_file"
+
+section "RECENT COMMITS"
+git log --oneline -10 >> "$temporary_file"
+
+section "SELECTED PATHS"
+cat "$selected_path_file" >> "$temporary_file"
+
+section "COMPACT REPOSITORY TREE"
+print_compact_tree
+
+section "FOCUSED TREES"
+print_focused_trees
+
+section "BRANCH DIFF SUMMARY"
+git diff --stat "$branch_base"...HEAD -- "${selected_paths[@]}" \
+  >> "$temporary_file" 2>/dev/null \
+  || append_note "(no committed branch diff)"
 
 section "UNCOMMITTED DIFF"
-git diff -- "${paths[@]}" >> "$temporary_file"
+uncommitted_diff="$temporary_dir/uncommitted.diff"
+git diff -- "${selected_paths[@]}" > "$uncommitted_diff"
+git diff --cached -- "${selected_paths[@]}" >> "$uncommitted_diff"
+append_capped_text_file "uncommitted diff" "$uncommitted_diff" 120000
+
+if [[ "$include_branch_diff" == "true" ]]; then
+  section "COMMITTED BRANCH DIFF"
+  branch_diff="$temporary_dir/branch.diff"
+  git diff "$branch_base"...HEAD -- "${selected_paths[@]}" > "$branch_diff" \
+    || true
+  append_capped_text_file "committed branch diff" "$branch_diff" 160000
+fi
 
 section "FILES"
+collect_files
 
-git ls-files \
-  --cached \
-  --others \
-  --exclude-standard \
-  -- "${paths[@]}" \
-  | sort -u \
-  | while IFS= read -r file_path; do
-      [[ -f "$file_path" ]] || continue
+while IFS= read -r file_path; do
+  append_source_file "$file_path"
+done < "$file_list"
 
-      file_size="$(wc -c < "$file_path" | tr -d ' ')"
-
-      if (( file_size > 750000 )); then
-        printf "===== SKIPPED LARGE FILE: %s (%s bytes) =====\n\n" \
-          "$file_path" \
-          "$file_size" \
-          >> "$temporary_file"
-        continue
-      fi
-
-      if [[ -s "$file_path" ]] && ! LC_ALL=C grep -Iq . "$file_path"; then
-        printf "===== SKIPPED BINARY FILE: %s =====\n\n" \
-          "$file_path" \
-          >> "$temporary_file"
-        continue
-      fi
-
-      printf "===== FILE: %s =====\n\n" "$file_path" >> "$temporary_file"
-      cat "$file_path" >> "$temporary_file"
-      printf "\n\n" >> "$temporary_file"
-    done
+if [[ -s "$skipped_file" ]]; then
+  section "SKIPPED OR TRUNCATED CONTENT"
+  cat "$skipped_file" >> "$temporary_file"
+fi
 
 section "CONTEXT SUMMARY"
-printf "Lines: %s\n" "$(wc -l < "$temporary_file" | tr -d ' ')" >> "$temporary_file"
-printf "Bytes: %s\n" "$(wc -c < "$temporary_file" | tr -d ' ')" >> "$temporary_file"
+bundle_lines="$(wc -l < "$temporary_file" | tr -d ' ')"
+bundle_bytes="$(wc -c < "$temporary_file" | tr -d ' ')"
+estimated_tokens=$((bundle_bytes / 4))
+
+printf 'Mode: %s\n' "$mode" >> "$temporary_file"
+printf 'Selected paths: %s\n' "$(wc -l < "$selected_path_file" | tr -d ' ')" \
+  >> "$temporary_file"
+printf 'Included files: %s\n' "$(grep -c '^===== FILE:' "$temporary_file" || true)" \
+  >> "$temporary_file"
+printf 'Lines: %s\n' "$bundle_lines" >> "$temporary_file"
+printf 'Bytes: %s\n' "$bundle_bytes" >> "$temporary_file"
+printf 'Estimated tokens: ~%s\n' "$estimated_tokens" >> "$temporary_file"
 
 mv "$temporary_file" "$output_file"
 trap - EXIT
+rm -rf "$temporary_dir"
 
-echo "Created $output_file"
-echo
-echo "Upload that file with the next requested change."
+printf 'Created %s\n' "$output_file"
+printf 'Mode: %s\n' "$mode"
+printf 'Size: %s bytes (~%s tokens)\n' \
+  "$(wc -c < "$output_file" | tr -d ' ')" \
+  "$(( $(wc -c < "$output_file" | tr -d ' ') / 4 ))"
+printf '\nUpload that file with the next requested change.\n'

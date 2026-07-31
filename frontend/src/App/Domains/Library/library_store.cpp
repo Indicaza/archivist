@@ -195,7 +195,14 @@ LibraryStore::LibraryStore(QObject *parent)
         &m_gitStatusRefreshTimer,
         &QTimer::timeout,
         this,
-        &LibraryStore::refreshSelectedGitStatus
+        [this]() {
+            if (m_scanning) {
+                m_gitStatusRefreshTimer.start();
+                return;
+            }
+
+            refreshSelectedGitStatus();
+        }
     );
 }
 
@@ -836,6 +843,10 @@ void LibraryStore::scanSelectedLibrary()
     const QString requestedLibraryId = m_selectedLibraryId;
     const quint64 requestRevision = ++m_fileRequestRevision;
 
+    ++m_gitStatusRequestRevision;
+    m_gitStatusRefreshTimer.stop();
+    setLoadingGitStatus(true);
+
     m_fileToReloadAfterScanId =
         m_activeFileLibraryId == requestedLibraryId
             ? m_selectedFileId
@@ -866,11 +877,18 @@ void LibraryStore::scanSelectedLibrary()
 
             if (!result.ok) {
                 setLoadingFiles(false);
+                setLoadingGitStatus(false);
                 setErrorMessage(result.errorMessage);
                 m_fileToReloadAfterScanId.clear();
                 return;
             }
 
+            setGitStatus(
+                result.object.value(QStringLiteral("gitStatus"))
+                    .toObject()
+                    .toVariantMap()
+            );
+            setLoadingGitStatus(false);
             setFiles(
                 result.object.value(QStringLiteral("files")).toArray().toVariantList()
             );
@@ -886,7 +904,7 @@ void LibraryStore::scanSelectedLibrary()
             setLatestScan(scan);
             setLoadingFiles(false);
             rebuildFileWatchers();
-            refreshSelectedGitStatus();
+            m_gitStatusRefreshTimer.stop();
 
             const QString fileIdToReload =
                 m_fileToReloadAfterScanId;

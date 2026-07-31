@@ -143,6 +143,7 @@ export const postLibraryScan: RequestHandler = async (request, response) => {
     ok: true,
     ...result,
     directories: await listLibraryDirectories(libraryId),
+    gitStatus: await readLibraryGitStatus(libraryId),
   });
 };
 

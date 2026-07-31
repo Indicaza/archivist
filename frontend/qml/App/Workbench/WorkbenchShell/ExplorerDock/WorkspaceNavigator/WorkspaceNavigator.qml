@@ -107,7 +107,7 @@ Item {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 38
+            Layout.preferredHeight: 30
             color: root.theme.controlSurfaceBg
 
             Rectangle {
@@ -121,23 +121,16 @@ Item {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 8
-                anchors.rightMargin: 5
-                spacing: 4
-
-                Text {
-                    text: "COLLECTION"
-                    color: root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(8)
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.65
-                }
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
+                spacing: 3
 
                 ComboBox {
                     id: collectionSelector
 
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 28
+                    Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
                     model: root.collectionOptions
                     textRole: "path"
                     valueRole: "id"
@@ -147,6 +140,11 @@ Item {
                     hoverEnabled: true
                     leftPadding: 8
                     rightPadding: 22
+
+                    ToolTip.visible: hovered && !popup.visible
+                    ToolTip.text: "Collections"
+                    ToolTip.delay: 3000
+                    ToolTip.timeout: 2400
 
                     Binding {
                         target: collectionSelector
@@ -181,12 +179,16 @@ Item {
                         elide: Text.ElideMiddle
                     }
 
-                    indicator: Text {
-                        x: parent.width - width - 7
-                        y: (parent.height - height) / 2
-                        text: "⌄"
-                        color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(10)
+                    indicator: AppIcon {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 7
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "chevron-down"
+                        tone: collectionSelector.popup.visible
+                            ? "accent"
+                            : "muted"
+                        iconSize: 14
+                        accessibleLabel: "Choose Collection"
                     }
 
                     background: Rectangle {
@@ -272,77 +274,60 @@ Item {
                     }
                 }
 
-                Button {
+                IconButton {
                     id: createCollectionButton
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    text: "+"
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 24
+                    height: 24
+                    theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
+                    iconName: "add"
+                    iconSize: 15
                     enabled: !CollectionStore.mutating
-                    hoverEnabled: true
-                    padding: 0
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Create Collection"
+                    toolTipText: "Create Collection"
                     onClicked: collectionEditor.openForCreate()
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(13)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 4
-                        color: parent.hovered ? root.theme.hoverBg : "transparent"
-                    }
                 }
 
-                Button {
+                IconButton {
                     id: manageCollectionButton
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    text: "•••"
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 24
+                    height: 24
+                    theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
+                    iconName: "more"
+                    iconSize: 15
                     visible: CollectionStore.selectedCollectionId.length > 0
                     enabled: !CollectionStore.mutating
-                    hoverEnabled: true
-                    padding: 0
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Manage Collection"
-                    onClicked: collectionEditor.openForEdit(CollectionStore.selectedCollection)
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(8)
-                        font.weight: Font.Bold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 4
-                        color: parent.hovered ? root.theme.hoverBg : "transparent"
-                    }
+                    toolTipText: "Manage Collection"
+                    onClicked: collectionEditor.openForEdit(
+                        CollectionStore.selectedCollection
+                    )
                 }
 
-                Button {
+                IconButton {
                     id: closeExplorerButton
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    text: "‹"
-                    hoverEnabled: true
-                    padding: 0
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Close Explorer"
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 24
+                    height: 24
+                    theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
+                    iconName: "chevron-left"
+                    iconSize: 15
+                    toolTipText: "Close Explorer"
                     onClicked: root.closeRequested()
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(16)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: 4
-                        color: parent.hovered ? root.theme.hoverBg : "transparent"
-                    }
                 }
             }
         }
@@ -413,16 +398,22 @@ Item {
                 onClicked: root.worktreesExpanded = !root.worktreesExpanded
                 contentItem: RowLayout {
                     spacing: 5
-                    Text {
+                    AppIcon {
                         Layout.leftMargin: 8
-                        text: root.worktreesExpanded ? "⌄" : "›"
-                        color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(12)
+                        name: root.worktreesExpanded
+                            ? "chevron-down"
+                            : "chevron-right"
+                        tone: worktreeHeader.hovered ? "normal" : "muted"
+                        iconSize: 11
+                        accessibleLabel: root.worktreesExpanded
+                            ? "Collapse Worktrees"
+                            : "Expand Worktrees"
                     }
-                    Text {
-                        text: "⑂"
-                        color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(11)
+                    AppIcon {
+                        name: "git-branch"
+                        tone: "muted"
+                        iconSize: 14
+                        accessibleLabel: "Worktrees"
                     }
                     Text {
                         Layout.fillWidth: true

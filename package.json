@@ -45,12 +45,18 @@
     "audit": "npm audit --workspaces",
     "clean": "rimraf node_modules frontend/node_modules backend/node_modules frontend/dist/ide build/frontend-debug build/qt-debug package-lock.json frontend/package-lock.json backend/package-lock.json",
     "build:ide": "node scripts/build-ide.mjs --force",
-    "build:ide:cached": "node scripts/build-ide.mjs"
+    "build:ide:cached": "node scripts/build-ide.mjs",
+    "icons:vendor": "node scripts/vendor-icons.mjs",
+    "check:pre-pr": "./scripts/pre-pr"
   },
   "devDependencies": {
+    "@iconify-json/codicon": "1.2.63",
+    "@iconify-json/devicon-plain": "1.2.57",
+    "@iconify-json/file-icons": "1.2.1",
+    "@iconify-json/streamline-flex": "1.2.3",
     "bash-language-server": "5.6.0",
     "pyright": "1.1.411",
-    "rimraf": "latest",
+    "rimraf": "6.1.3",
     "typescript": "6.0.2",
     "typescript-language-server": "5.3.0",
     "yaml-language-server": "1.24.0"

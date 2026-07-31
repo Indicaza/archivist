@@ -10,6 +10,7 @@ Item {
     required property bool dragEnabled
     required property string title
     required property string glyph
+    required property string iconId
     required property int depth
     required property bool selected
     required property bool active
@@ -17,7 +18,6 @@ Item {
     required property bool folder
     required property bool expanded
     required property bool warning
-    required property bool neighborHovered
     required property string fileId
     required property string relativePath
     required property string gitStatus
@@ -27,10 +27,18 @@ Item {
     readonly property bool hovered: rowHover.hovered
     readonly property bool dragging: fileDrag.active
     readonly property string sourceDirectory: directoryForPath(relativePath)
-    readonly property color statusColor: gitColor(gitStatus)
-    readonly property string statusText: gitLabel(gitStatus)
-    readonly property bool showsStatus: gitStatus.length > 0
-        || (folder && gitCount > 0)
+    readonly property string visualGitStatus:
+        normalizedGitStatus(gitStatus)
+    readonly property bool effectiveMuted: !folder && muted
+    readonly property color statusColor: gitColor(visualGitStatus)
+    readonly property string statusText: gitLabel(visualGitStatus)
+    readonly property bool hasGitDecoration:
+        visualGitStatus.length > 0
+    readonly property bool ignoredByGit:
+        visualGitStatus === "ignored"
+    readonly property bool showsStatus: folder
+        ? gitCount > 0 && hasGitDecoration
+        : statusText.length > 0
 
     signal activated()
     signal contextRequested()
@@ -38,7 +46,36 @@ Item {
 
     width: parent ? parent.width : 220
     height: 26
-    opacity: dragging ? 0.38 : 1.0
+    opacity: dragging
+        ? 0.38
+        : ignoredByGit
+            ? 0.5
+            : 1.0
+
+    function normalizedGitStatus(status) {
+        var value = String(status || "")
+
+        if (
+            root.folder
+            && (value === "deleted" || value === "renamed")
+        ) {
+            return "modified"
+        }
+
+        switch (value) {
+        case "modified":
+        case "added":
+        case "untracked":
+        case "deleted":
+        case "renamed":
+        case "conflicted":
+            return value
+        case "ignored":
+            return root.folder ? "" : "ignored"
+        default:
+            return ""
+        }
+    }
 
     function directoryForPath(filePath) {
         var normalized = String(filePath || "").split("\\").join("/")
@@ -54,6 +91,7 @@ Item {
         case "deleted": return "#f85149"
         case "renamed": return "#a371f7"
         case "conflicted": return "#ff7b72"
+        case "ignored": return "#77726a"
         default: return root.theme.mutedText
         }
     }
@@ -66,7 +104,26 @@ Item {
         case "deleted": return "D"
         case "renamed": return "R"
         case "conflicted": return "U"
+        case "ignored": return ""
         default: return ""
+        }
+    }
+
+    function iconTone() {
+        switch (String(root.visualGitStatus || "")) {
+        case "modified": return "info"
+        case "added": return "warning"
+        case "untracked": return "success"
+        case "deleted": return "danger"
+        case "renamed": return "purple"
+        case "conflicted": return "danger"
+        case "ignored": return "muted"
+        default:
+            return root.active || root.hovered || root.dropHighlighted
+                ? "accent"
+                : root.folder
+                    ? "normal"
+                    : "muted"
         }
     }
 
@@ -100,7 +157,8 @@ Item {
                         relativePath: root.relativePath,
                         sourceDirectory: root.sourceDirectory,
                         title: root.title,
-                        glyph: root.glyph
+                        glyph: root.glyph,
+                        iconId: root.iconId
                     },
                     root.title
                 )
@@ -212,16 +270,12 @@ Item {
 
     Item {
         anchors.fill: parent
-        x: root.hovered ? 2 : root.neighborHovered ? 1 : 0
+        x: root.hovered ? 1 : 0
 
         Behavior on x {
             NumberAnimation {
-                duration: root.hovered || root.neighborHovered
-                    ? root.theme.motionHover
-                    : root.theme.motionHoverExit
-                easing.type: root.hovered || root.neighborHovered
-                    ? Easing.OutBack
-                    : Easing.OutCubic
+                duration: root.theme.motionFast
+                easing.type: Easing.OutCubic
             }
         }
 
@@ -240,65 +294,40 @@ Item {
             }
         }
 
-        Text {
-            x: 6 + root.depth * 14
-            width: 12
-            height: parent.height
-            visible: root.folder
-            text: root.expanded ? "⌄" : "›"
-            color: root.hovered || root.dropHighlighted
-                ? root.theme.appText
-                : root.theme.mutedText
-            font.pixelSize: root.theme.typeSize(12)
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-
-        Rectangle {
-            x: 20 + root.depth * 14
+        Item {
+            x: 7 + root.depth * 14
             anchors.verticalCenter: parent.verticalCenter
             width: 19
-            height: 17
-            radius: 3
-            color: root.folder
-                ? root.theme.controlSurfaceBg
-                : root.showsStatus
-                    ? Qt.rgba(
-                        root.statusColor.r,
-                        root.statusColor.g,
-                        root.statusColor.b,
-                        0.12
-                    )
-                    : root.theme.controlSurfaceBg
-            border.width: 1
-            border.color: root.showsStatus
-                ? Qt.rgba(
-                    root.statusColor.r,
-                    root.statusColor.g,
-                    root.statusColor.b,
-                    0.34
-                )
-                : root.theme.quietBorder
+            height: 18
 
-            Text {
+            AppIcon {
                 anchors.centerIn: parent
-                text: root.glyph
-                color: root.showsStatus
-                    ? root.statusColor
-                    : root.muted
-                        ? "#756e63"
-                        : root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(
-                    root.glyph.length > 1 ? 7 : 9
-                )
-                font.weight: Font.DemiBold
+                visible: root.folder
+                name: root.expanded ? "folder-open" : "folder"
+                tone: root.hasGitDecoration
+                    ? root.iconTone()
+                    : "normal"
+                iconSize: 15
+                accessibleLabel: root.title + " folder"
+            }
+
+            LanguageIcon {
+                anchors.centerIn: parent
+                visible: !root.folder
+                iconId: root.iconId
+                fileName: root.title
+                tone: root.hasGitDecoration ? root.iconTone() : ""
+                active: root.active
+                hovered: root.hovered
+                iconSize: 16
+                accessibleLabel: root.title
             }
         }
 
         Text {
             id: titleText
 
-            x: 44 + root.depth * 14
+            x: 32 + root.depth * 14
             width: Math.max(
                 0,
                 parent.width - x - (
@@ -307,9 +336,9 @@ Item {
             )
             height: parent.height
             text: root.title
-            color: root.showsStatus
+            color: root.hasGitDecoration
                 ? root.statusColor
-                : root.muted
+                : root.effectiveMuted
                     ? "#756e63"
                     : root.active
                         ? root.theme.appText
@@ -320,7 +349,8 @@ Item {
             font.weight: root.folder || root.active
                 ? Font.DemiBold
                 : Font.Normal
-            font.strikeout: root.muted || root.gitStatus === "deleted"
+            font.strikeout: root.effectiveMuted
+                || root.visualGitStatus === "deleted"
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
         }
@@ -338,14 +368,15 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        Text {
+        AppIcon {
             anchors.right: parent.right
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             visible: root.warning && !root.showsStatus
-            text: "△"
-            color: root.theme.mutedText
-            font.pixelSize: root.theme.typeSize(10)
+            name: "warning"
+            tone: "warning"
+            iconSize: 13
+            accessibleLabel: "File warning"
         }
     }
 }

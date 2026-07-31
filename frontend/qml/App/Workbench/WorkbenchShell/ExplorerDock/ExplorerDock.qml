@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import Archivist.Services 1.0
+import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "WorkspaceNavigator"
 
@@ -21,7 +22,6 @@ Rectangle {
     property var childrenByParent: ({})
     property var filterMatchCache: ({})
     property string selectedNodePath: ""
-    property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
     property string contextNodeId: ""
     property string contextFileId: ""
@@ -52,6 +52,8 @@ Rectangle {
         offset: 0
     })
     property var filterField: null
+    property bool scheduledNodeReveal: false
+    property bool scheduledNodeStateSave: false
     readonly property var selectedCollectionScope: CollectionStore.scope || ({})
     readonly property var selectedCollectionLibraryIds:
         selectedCollectionScope.libraryIds || []
@@ -202,6 +204,8 @@ Rectangle {
     function beginLibraryTreeRestore(libraryId) {
         var targetLibraryId = String(libraryId || "")
 
+        cancelScheduledNodeRebuild()
+        filterRebuildTimer.stop()
         restoringLibraryTreeState = true
         treeStateLibraryId = targetLibraryId
         selectedNodeId = ""
@@ -265,6 +269,7 @@ Rectangle {
         }
 
         restoringLibraryTreeState = true
+        cancelScheduledNodeRebuild()
         rebuildNodesFromFiles(false)
         var anchor = pendingTreeViewport
         treeStateRestorePending = false
@@ -620,6 +625,7 @@ Rectangle {
         case "added": return 30
         case "untracked": return 20
         case "modified": return 10
+        case "ignored": return 1
         default: return 0
         }
     }
@@ -660,9 +666,46 @@ Rectangle {
         return label
     }
 
+    function gitChangeCount() {
+        var status = LibraryStore.gitStatus || ({})
+        var counts = status.counts || ({})
+        var keys = [
+            "modified",
+            "added",
+            "deleted",
+            "renamed",
+            "conflicted",
+            "untracked"
+        ]
+        var count = 0
+
+        for (var index = 0; index < keys.length; index += 1) {
+            count += Number(counts[keys[index]] || 0)
+        }
+
+        if (count > 0 || !status.entries) {
+            return count
+        }
+
+        for (
+            var entryIndex = 0;
+            entryIndex < status.entries.length;
+            entryIndex += 1
+        ) {
+            if (
+                String(status.entries[entryIndex].status || "")
+                !== "ignored"
+            ) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
     function gitChangeLabel() {
         var status = LibraryStore.gitStatus || ({})
-        var count = status.entries ? status.entries.length : 0
+        var count = gitChangeCount()
 
         if (!status.repository || count === 0) {
             return status.repository ? "Clean" : ""
@@ -671,15 +714,49 @@ Rectangle {
         return count === 1 ? "1 change" : String(count) + " changes"
     }
 
+    function scheduleNodeRebuild(
+        applyReveal,
+        saveTreeState
+    ) {
+        scheduledNodeReveal =
+            scheduledNodeReveal || Boolean(applyReveal)
+        scheduledNodeStateSave =
+            scheduledNodeStateSave || Boolean(saveTreeState)
+        nodeRebuildTimer.restart()
+    }
+
+    function cancelScheduledNodeRebuild() {
+        nodeRebuildTimer.stop()
+        scheduledNodeReveal = false
+        scheduledNodeStateSave = false
+    }
+
+    function performScheduledNodeRebuild() {
+        var shouldReveal = scheduledNodeReveal
+        var shouldSave = scheduledNodeStateSave
+
+        scheduledNodeReveal = false
+        scheduledNodeStateSave = false
+        rebuildNodesFromFiles(true)
+
+        if (shouldReveal) {
+            applyPendingReveal()
+        }
+
+        if (shouldSave) {
+            scheduleLibraryTreeStateSave()
+        }
+    }
+
     function rebuildNodesFromFiles(preserveViewport) {
         var nodes = []
         var directories = ({})
-        var catalogPaths = ({})
         var catalogDirectories = LibraryStore.directories || []
         var files = LibraryStore.files || []
         var gitEntries = (LibraryStore.gitStatus || ({})).entries || []
         var gitByPath = ({})
         var folderGit = ({})
+        var ignoredDirectoryPaths = ({})
 
         function normalizedPath(value) {
             return String(value || "")
@@ -689,10 +766,44 @@ Rectangle {
                 .replace(/^\/+|\/+$/g, "")
         }
 
-        function aggregateFolderStatus(filePath, status) {
-            var parts = normalizedPath(filePath).split("/")
-            parts.pop()
+        function pathIsIgnored(relativePath) {
+            var parts = normalizedPath(relativePath).split("/")
             var pathParts = []
+
+            for (var index = 0; index < parts.length; index += 1) {
+                if (parts[index].length === 0) {
+                    continue
+                }
+
+                pathParts.push(parts[index])
+                if (
+                    ignoredDirectoryPaths[pathParts.join("/")]
+                    === true
+                ) {
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        function aggregateFolderStatus(
+            filePath,
+            status,
+            includesDirectory
+        ) {
+            var parts = normalizedPath(filePath).split("/")
+            if (!includesDirectory) {
+                parts.pop()
+            }
+            var pathParts = []
+            var normalizedStatus = String(status || "")
+
+            // Ignored entries decorate leaf files only. They must never
+            // contribute a visual status to parent folders.
+            if (normalizedStatus === "ignored") {
+                return
+            }
 
             for (var index = 0; index < parts.length; index += 1) {
                 if (parts[index].length === 0) {
@@ -703,15 +814,59 @@ Rectangle {
                 var directoryPath = pathParts.join("/")
                 var aggregate = folderGit[directoryPath] || {
                     count: 0,
-                    status: ""
+                    statuses: ({})
                 }
+
                 aggregate.count += 1
-                aggregate.status = strongerGitStatus(
-                    aggregate.status,
-                    status
-                )
+                aggregate.statuses[normalizedStatus] =
+                    Number(
+                        aggregate.statuses[normalizedStatus]
+                        || 0
+                    ) + 1
+
                 folderGit[directoryPath] = aggregate
             }
+        }
+
+        function dominantFolderStatus(aggregate) {
+            var value = aggregate || ({})
+            var statuses = value.statuses || ({})
+            var conflictedCount = Number(statuses.conflicted || 0)
+            var untrackedCount = Number(statuses.untracked || 0)
+            var addedCount = Number(statuses.added || 0)
+            var changedCount = Number(statuses.modified || 0)
+                + Number(statuses.renamed || 0)
+                + Number(statuses.deleted || 0)
+
+            if (conflictedCount > 0) {
+                return "conflicted"
+            }
+
+            if (
+                untrackedCount > 0
+                && addedCount === 0
+                && changedCount === 0
+            ) {
+                return "untracked"
+            }
+
+            if (
+                addedCount > 0
+                && untrackedCount === 0
+                && changedCount === 0
+            ) {
+                return "added"
+            }
+
+            if (
+                changedCount > 0
+                || addedCount > 0
+                || untrackedCount > 0
+            ) {
+                return "modified"
+            }
+
+            return ""
         }
 
         for (var gitIndex = 0; gitIndex < gitEntries.length; gitIndex += 1) {
@@ -727,7 +882,19 @@ Rectangle {
                 gitByPath[gitPath],
                 gitState
             )
-            aggregateFolderStatus(gitPath, gitState)
+
+            if (
+                gitState === "ignored"
+                && gitEntry.directory === true
+            ) {
+                ignoredDirectoryPaths[gitPath] = true
+            }
+
+            aggregateFolderStatus(
+                gitPath,
+                gitState,
+                gitEntry.directory === true
+            )
         }
 
         function appendDirectoryPath(relativePath) {
@@ -759,17 +926,21 @@ Rectangle {
                 if (directories[directoryId] !== true) {
                     directories[directoryId] = true
                     var aggregate = folderGit[directoryPath] || ({})
+                    var folderStatus =
+                        dominantFolderStatus(aggregate)
+
                     nodes.push({
                         id: directoryId,
                         parentId: parentId,
                         title: parts[directoryIndex],
-                        glyph: "▰",
+                        glyph: "",
+                        iconId: "folder",
                         folder: true,
                         fileId: "",
                         relativePath: directoryPath,
                         muted: false,
                         warning: false,
-                        gitStatus: String(aggregate.status || ""),
+                        gitStatus: folderStatus,
                         gitCount: Number(aggregate.count || 0)
                     })
                 }
@@ -805,7 +976,16 @@ Rectangle {
                 : ""
             var parentId = appendDirectoryPath(directoryPath)
 
-            catalogPaths[relativePath] = true
+            var fileGitStatus = String(
+                gitByPath[relativePath] || ""
+            )
+            if (
+                fileGitStatus.length === 0
+                && pathIsIgnored(relativePath)
+            ) {
+                fileGitStatus = "ignored"
+            }
+
             nodes.push({
                 id: "file:" + String(file.id),
                 parentId: parentId,
@@ -814,49 +994,16 @@ Rectangle {
                     file.name,
                     file.extension
                 ),
+                iconId: FileIdentity.iconIdFor({
+                    fileName: file.name,
+                    extension: file.extension
+                }),
                 folder: false,
                 fileId: String(file.id),
                 relativePath: relativePath,
                 muted: file.status !== "available",
                 warning: file.status !== "available",
-                gitStatus: String(gitByPath[relativePath] || ""),
-                gitCount: 0
-            })
-        }
-
-        // Keep deleted files visible until the next commit even though the
-        // Library catalog correctly stops treating them as openable files.
-        for (var deletedIndex = 0; deletedIndex < gitEntries.length; deletedIndex += 1) {
-            var deletedEntry = gitEntries[deletedIndex] || ({})
-            var deletedPath = normalizedPath(deletedEntry.path)
-
-            if (
-                String(deletedEntry.status || "") !== "deleted"
-                || deletedPath.length === 0
-                || catalogPaths[deletedPath] === true
-            ) {
-                continue
-            }
-
-            var deletedSeparator = deletedPath.lastIndexOf("/")
-            var deletedDirectory = deletedSeparator >= 0
-                ? deletedPath.slice(0, deletedSeparator)
-                : ""
-            var deletedName = deletedSeparator >= 0
-                ? deletedPath.slice(deletedSeparator + 1)
-                : deletedPath
-
-            nodes.push({
-                id: "git-deleted:" + deletedPath,
-                parentId: appendDirectoryPath(deletedDirectory),
-                title: deletedName,
-                glyph: placeholderGlyphForFile(deletedName, ""),
-                folder: false,
-                fileId: "",
-                relativePath: deletedPath,
-                muted: true,
-                warning: false,
-                gitStatus: "deleted",
+                gitStatus: fileGitStatus,
                 gitCount: 0
             })
         }
@@ -1018,6 +1165,7 @@ Rectangle {
                 nodeId: node.id,
                 itemTitle: node.title,
                 itemGlyph: node.glyph,
+                itemIconId: String(node.iconId || "file"),
                 itemDepth: depth,
                 itemSelected: selectedNodeId === node.id,
                 itemMuted: node.muted === true,
@@ -1161,7 +1309,6 @@ Rectangle {
         treeViewportRevision += 1
         var revision = treeViewportRevision
 
-        hoveredTreeIndex = -1
         visibleTree.clear()
         filterMatchCache = ({})
         appendVisibleChildren("", 0, filterText.trim().toLowerCase())
@@ -1463,8 +1610,7 @@ Rectangle {
 
         function onDirectoriesChanged() {
             if (!root.treeStateRestorePending) {
-                root.rebuildNodesFromFiles(true)
-                root.scheduleLibraryTreeStateSave()
+                root.scheduleNodeRebuild(false, true)
             }
         }
 
@@ -1483,6 +1629,7 @@ Rectangle {
             }
 
             Qt.callLater(function() {
+                root.cancelScheduledNodeRebuild()
                 root.rebuildNodesFromFiles(true)
                 var nodeId = String(kind) === "directory"
                     ? "folder:" + path
@@ -1501,6 +1648,7 @@ Rectangle {
             name
         ) {
             Qt.callLater(function() {
+                root.cancelScheduledNodeRebuild()
                 root.rebuildNodesFromFiles(true)
                 root.selectedNodeId =
                     "file:" + String(fileId || "")
@@ -1517,6 +1665,7 @@ Rectangle {
             name
         ) {
             Qt.callLater(function() {
+                root.cancelScheduledNodeRebuild()
                 root.rebuildNodesFromFiles(true)
                 root.activateNode(
                     "file:" + String(fileId || ""),
@@ -1542,9 +1691,7 @@ Rectangle {
                 return
             }
 
-            root.rebuildNodesFromFiles(true)
-            root.applyPendingReveal()
-            root.scheduleLibraryTreeStateSave()
+            root.scheduleNodeRebuild(true, true)
         }
 
         function onSelectedLibraryIdChanged() {
@@ -1647,9 +1794,7 @@ Rectangle {
                 return
             }
 
-            root.rebuildNodesFromFiles(true)
-            root.applyPendingReveal()
-            root.scheduleLibraryTreeStateSave()
+            root.scheduleNodeRebuild(true, true)
         }
 
         function onSelectedFileIdChanged() {
@@ -1661,9 +1806,36 @@ Rectangle {
         }
 
         function onGitStatusChanged() {
-            if (!root.treeStateRestorePending) {
-                root.rebuildNodesFromFiles(true)
+            if (
+                !root.treeStateRestorePending
+                && !LibraryStore.loadingFiles
+            ) {
+                root.scheduleNodeRebuild(false, false)
             }
+        }
+    }
+
+    Timer {
+        id: nodeRebuildTimer
+
+        interval: 24
+        repeat: false
+        onTriggered: root.performScheduledNodeRebuild()
+    }
+
+    Timer {
+        id: filterRebuildTimer
+
+        interval: 70
+        repeat: false
+        onTriggered: {
+            root.rebuildTree(false)
+            root.restoreTreeViewport(({
+                contentY: 0,
+                nodeId: "",
+                offset: 0
+            }))
+            root.scheduleLibraryTreeStateSave()
         }
     }
 
@@ -2055,14 +2227,16 @@ Rectangle {
                         anchors.rightMargin: 10
                         spacing: 8
 
-                        Text {
-                            text: String(
-                                workspaceDragSession.payload.glyph || "▤"
+                        LanguageIcon {
+                            iconId: String(
+                                workspaceDragSession.payload.iconId || "file"
                             )
-                            color: workspaceDragSession.dropAllowed
-                                ? root.theme.accentBright
-                                : root.theme.mutedText
-                            font.pixelSize: root.theme.typeSize(12)
+                            fileName: workspaceDragSession.sourceLabel
+                            tone: workspaceDragSession.dropAllowed
+                                ? "accent"
+                                : "muted"
+                            iconSize: 16
+                            accessibleLabel: workspaceDragSession.sourceLabel
                         }
 
                         Text {
@@ -2085,7 +2259,7 @@ Rectangle {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 34
+                    Layout.preferredHeight: 30
                     color: root.theme.controlSurfaceBg
 
                     Rectangle {
@@ -2148,22 +2322,28 @@ Rectangle {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 9
+                        anchors.leftMargin: 6
                         anchors.rightMargin: 6
-                        spacing: 4
+                        spacing: 3
 
                         ComboBox {
                             id: librarySelector
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
                             model: root.scopedLibraries
                             textRole: "name"
                             valueRole: "id"
                             enabled: !LibraryStore.loadingLibraries && count > 0
                             hoverEnabled: true
-                            leftPadding: 7
+                            leftPadding: 8
                             rightPadding: 22
+
+                            ToolTip.visible: hovered && !popup.visible
+                            ToolTip.text: "Libraries"
+                            ToolTip.delay: 3000
+                            ToolTip.timeout: 2400
 
                             Binding {
                                 target: librarySelector
@@ -2191,25 +2371,37 @@ Rectangle {
                                 elide: Text.ElideRight
                             }
 
-                            indicator: Text {
-                                x: parent.width - width - 7
-                                y: (parent.height - height) / 2
-                                text: librarySelector.popup.visible ? "⌃" : "⌄"
-                                color: librarySelector.popup.visible
-                                    ? root.theme.accentBright
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(10)
+                            indicator: AppIcon {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 7
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: librarySelector.popup.visible
+                                    ? "chevron-up"
+                                    : "chevron-down"
+                                tone: librarySelector.popup.visible
+                                    ? "accent"
+                                    : "muted"
+                                iconSize: 14
+                                accessibleLabel: "Choose Library"
                             }
 
                             background: Rectangle {
-                                radius: 4
+                                radius: 5
                                 color: parent.popup.visible
                                     ? root.theme.activeBg
                                     : parent.hovered
                                         ? root.theme.hoverBg
-                                        : "transparent"
-                                border.width: parent.popup.visible ? 1 : 0
-                                border.color: root.theme.panelBorder
+                                        : root.theme.surfaceBg
+                                border.width: 1
+                                border.color: parent.popup.visible
+                                    ? "#554a7b"
+                                    : root.theme.quietBorder
+
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: root.theme.motionFast
+                                    }
+                                }
                             }
 
                             popup: Popup {
@@ -2316,74 +2508,47 @@ Rectangle {
                             }
                         }
 
-                        Button {
+                        IconButton {
                             id: addLibraryButton
 
-                            Layout.preferredWidth: 22
-                            Layout.preferredHeight: 22
-                            text: LibraryStore.creatingLibrary ? "…" : "+"
+                            theme: root.theme
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 24
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 24
+                            height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
+                            iconName: "add"
+                            iconTone: enabled && hovered ? "accent" : "normal"
+                            iconSize: 15
+                            toolTipText: CollectionStore.selectedCollectionId.length === 0
+                                ? "Select a Collection before adding a Library"
+                                : "Add a folder as a Library"
                             enabled: CollectionStore.selectedCollectionId.length > 0
                                 && !LibraryStore.creatingLibrary
                                 && !CollectionStore.mutating
-                            hoverEnabled: true
-                            padding: 0
                             onClicked: root.openLibraryFolderDialog()
-                            ToolTip.visible: hovered
-                            ToolTip.text: CollectionStore.selectedCollectionId.length === 0
-                                ? "Select a Collection before adding a Library"
-                                : "Add a folder as a Library"
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.enabled
-                                    ? parent.hovered
-                                        ? root.theme.accentBright
-                                        : root.theme.appText
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                font.weight: Font.DemiBold
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered
-                                    ? root.theme.activeBg
-                                    : "transparent"
-                                border.width: 1
-                                border.color: parent.hovered
-                                    ? root.theme.accent
-                                    : root.theme.quietBorder
-                            }
                         }
 
-                        Rectangle {
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 17
-                            radius: 9
-                            color: "#26231e"
 
-                            Text {
-                                anchors.centerIn: parent
-                                text: LibraryStore.loadingFiles
-                                    ? "…"
-                                    : String(LibraryStore.files.length)
-                                color: root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(8)
-                            }
-                        }
-
-                        Button {
+                        IconButton {
                             id: collapseAllButton
 
+                            theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: "⌃"
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Collapse all"
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 24
+                            height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
+                            iconName: "chevron-up"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 15
+                            toolTipText: "Collapse all folders"
                             onClicked: root.collapseAll()
                             onHoveredChanged: root.updateToolbarHover(0, hovered)
                             scale: root.magnifierScale(
@@ -2402,31 +2567,24 @@ Rectangle {
                                     easing.type: Easing.OutCubic
                                 }
                             }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                            }
                         }
 
-                        Button {
+                        IconButton {
                             id: expandAllButton
 
+                            theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: "⌄"
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Expand all"
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 24
+                            height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
+                            iconName: "chevron-down"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 15
+                            toolTipText: "Expand all folders"
                             onClicked: root.expandAll()
                             onHoveredChanged: root.updateToolbarHover(1, hovered)
                             scale: root.magnifierScale(
@@ -2445,32 +2603,28 @@ Rectangle {
                                     easing.type: Easing.OutCubic
                                 }
                             }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(14)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
-                            }
                         }
 
-                        Button {
+                        IconButton {
                             id: refreshLibrariesButton
 
+                            theme: root.theme
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            text: LibraryStore.scanning ? "…" : "↻"
-                            enabled: LibraryStore.selectedLibraryId.length > 0 && !LibraryStore.scanning
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Rescan selected Library"
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 24
+                            height: 24
+                            circular: true
+                            idleBackgroundColor: root.theme.surfaceBg
+                            hoverBackgroundColor: root.theme.hoverBg
+                            iconName: "refresh"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 15
+                            toolTipText: LibraryStore.scanning
+                                ? "Scanning Library"
+                                : "Rescan selected Library"
+                            enabled: LibraryStore.selectedLibraryId.length > 0
+                                && !LibraryStore.scanning
                             onClicked: LibraryStore.scanSelectedLibrary()
                             onHoveredChanged: root.updateToolbarHover(2, hovered)
                             scale: root.magnifierScale(
@@ -2488,19 +2642,6 @@ Rectangle {
                                         : root.theme.motionHoverExit
                                     easing.type: Easing.OutCubic
                                 }
-                            }
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered ? root.theme.appText : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(15)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered ? root.theme.hoverBg : "transparent"
                             }
                         }
                     }
@@ -2559,33 +2700,18 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                         }
 
-                        Button {
+                        IconButton {
+                            theme: root.theme
                             Layout.preferredWidth: 20
                             Layout.preferredHeight: 20
-                            text: LibraryStore.loadingGitStatus ? "…" : "↻"
+                            width: 20
+                            height: 20
+                            iconName: "refresh"
+                            iconTone: hovered ? "normal" : "muted"
+                            iconSize: 11
+                            toolTipText: "Refresh Git status"
                             enabled: !LibraryStore.loadingGitStatus
-                            hoverEnabled: true
-                            padding: 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Refresh Git status"
                             onClicked: LibraryStore.refreshSelectedGitStatus()
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.hovered
-                                    ? root.theme.appText
-                                    : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(11)
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: parent.hovered
-                                    ? root.theme.hoverBg
-                                    : "transparent"
-                            }
                         }
                     }
                 }
@@ -2607,7 +2733,7 @@ Rectangle {
                         placeholderTextColor: root.theme.mutedText
                         color: root.theme.appText
                         font.pixelSize: root.theme.typeSize(11)
-                        leftPadding: 8
+                        leftPadding: 30
                         rightPadding: 8
                         selectByMouse: true
                         onTextChanged: {
@@ -2616,13 +2742,7 @@ Rectangle {
                             if (
                                 !root.restoringLibraryTreeState
                             ) {
-                                root.rebuildTree(false)
-                                root.restoreTreeViewport(({
-                                    contentY: 0,
-                                    nodeId: "",
-                                    offset: 0
-                                }))
-                                root.scheduleLibraryTreeStateSave()
+                                filterRebuildTimer.restart()
                             }
                         }
 
@@ -2642,6 +2762,16 @@ Rectangle {
                             ) {
                                 root.filterField = null
                             }
+                        }
+
+                        AppIcon {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 9
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "search"
+                            tone: parent.activeFocus ? "accent" : "muted"
+                            iconSize: 13
+                            accessibleLabel: "Filter files"
                         }
 
                         background: Rectangle {
@@ -2691,6 +2821,7 @@ Rectangle {
                         required property string nodeId
                         required property string itemTitle
                         required property string itemGlyph
+                        required property string itemIconId
                         required property int itemDepth
                         required property bool itemSelected
                         required property bool itemMuted
@@ -2707,6 +2838,7 @@ Rectangle {
                         theme: root.theme
                         title: itemTitle
                         glyph: itemGlyph
+                        iconId: itemIconId
                         depth: itemDepth
                         selected: itemSelected
                         active: itemActive
@@ -2721,15 +2853,6 @@ Rectangle {
                         dragEnabled: !LibraryStore.movingFile
                         fileId: itemFileId
                         relativePath: itemRelativePath
-                        neighborHovered: root.hoveredTreeIndex >= 0
-                            && Math.abs(root.hoveredTreeIndex - index) === 1
-                        onHoveredChanged: {
-                            if (hovered) {
-                                root.hoveredTreeIndex = index
-                            } else if (root.hoveredTreeIndex === index) {
-                                root.hoveredTreeIndex = -1
-                            }
-                        }
                         onActivated: root.activateNode(nodeId, itemFolder, itemFileId)
                         onContextRequested: root.showNodeContext(
                             nodeId,

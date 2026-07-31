@@ -34,20 +34,20 @@ Rectangle {
 
         Repeater {
             model: ListModel {
-                ListElement { glyphValue: "▦"; labelValue: "Workspace Navigator" }
-                ListElement { glyphValue: "▤"; labelValue: "Archived Libraries" }
-                ListElement { glyphValue: "⌕"; labelValue: "Library Search" }
-                ListElement { glyphValue: "◇"; labelValue: "Plugins" }
-                ListElement { glyphValue: "⚒"; labelValue: "Tools" }
+                ListElement { iconNameValue: "workspace"; labelValue: "Workspace Navigator" }
+                ListElement { iconNameValue: "archive"; labelValue: "Archived Libraries" }
+                ListElement { iconNameValue: "search"; labelValue: "Library Search" }
+                ListElement { iconNameValue: "plugin"; labelValue: "Plugins" }
+                ListElement { iconNameValue: "tools"; labelValue: "Tools" }
             }
 
             delegate: RailButton {
                 required property int index
-                required property string glyphValue
+                required property string iconNameValue
                 required property string labelValue
 
                 theme: root.theme
-                glyph: glyphValue
+                iconName: iconNameValue
                 label: labelValue
                 active: root.panelOpen && root.activeViewIndex === index
                 neighborHovered: root.hoveredButtonIndex >= 0

@@ -5,7 +5,7 @@ Button {
     id: root
 
     required property var theme
-    required property string glyph
+    required property string iconName
     required property string label
     required property bool active
     required property bool neighborHovered
@@ -29,13 +29,12 @@ Button {
     ToolTip.text: label
     ToolTip.delay: 350
 
-    contentItem: Text {
-        text: root.glyph
-        color: root.active || root.hovered ? root.theme.appText : root.theme.mutedText
-        font.pixelSize: root.theme.typeSize(17)
-        font.weight: Font.DemiBold
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
+    contentItem: AppIcon {
+        anchors.centerIn: parent
+        name: root.iconName
+        tone: root.active || root.hovered ? "normal" : "muted"
+        iconSize: 18
+        accessibleLabel: root.label
     }
 
     background: Rectangle {

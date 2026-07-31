@@ -11,6 +11,14 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Network Pdf Quick QuickControls2 QuickD
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
 
+file(GLOB_RECURSE ARCHIVIST_ICON_ASSETS
+    CONFIGURE_DEPENDS
+    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "qml/App/Icons/Assets/*.svg"
+    "qml/App/Icons/Assets/*.json"
+    "qml/App/Icons/Assets/*.ttf"
+)
+
 qt_add_executable(archivist-qt
     src/main.cpp
     src/App/Domains/Agent/agent_store.cpp
@@ -29,12 +37,24 @@ qt_add_executable(archivist-qt
     src/App/Services/workspace_state_store.h
 )
 
+set_source_files_properties(
+    qml/App/Icons/SetiFont.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE
+)
+
 qt_add_qml_module(archivist-qt
     URI Archivist
     VERSION 1.0
     QML_FILES
         qml/App.qml
         qml/App/Theme/Theme.qml
+        qml/App/Icons/AppIcon.qml
+        qml/App/Icons/LanguageIcon.qml
+        qml/App/Icons/SetiFont.qml
+        qml/App/Icons/IconButton.qml
+        qml/App/Icons/IconRegistry.js
+        qml/App/Icons/LanguageRegistry.js
+        qml/App/Icons/GeneratedSetiRegistry.js
         qml/App/Files/FileIdentity.js
         qml/App/Files/RendererRegistry.js
         qml/App/Files/Renderers/PlainTextRenderer.qml
@@ -80,6 +100,8 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ArtifactDrawer/ContextInspector/ContextInspector.qml
     RESOURCES
         qml/App/Files/Renderers/Assets/checkerboard.svg
+        qml/App/Icons/THIRD_PARTY_ICONS.md
+        ${ARCHIVIST_ICON_ASSETS}
 )
 
 target_link_libraries(archivist-qt
