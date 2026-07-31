@@ -25,13 +25,15 @@ Archivist is under active development. The native Qt/QML application in `fronten
 ## Core features
 
 - **Collection workspaces** — group multiple Libraries, Chats, and Agents into task-specific environments that can be switched without rebuilding the session.
-- **Persistent editor tabs** — open files and Chats as first-class tabs, reorder them with polished drag-and-drop, and restore their order and active state after restart.
+- **Persistent editor tabs** — open files and Chats as first-class tabs, reorder them with polished drag-and-drop, restore their order and active state after restart, and reuse the same file identity and icon mapping as the Explorer.
 - **Embedded development workspace** — edit source through Monaco, run persistent terminals through xterm.js, and keep navigation inside Archivist tabs.
 - **Workspace-scoped language support** — supervise local language servers per project for TypeScript/JavaScript, React/Next, QML, C/C++, Rust, Python, Go, YAML, Bash, and Markdown.
 - **Built-in web and SQL tooling** — use Monaco workers for HTML, CSS/SCSS/Less, and JSON, with SQL highlighting and completion isolated to SQL files.
 - **Archivist editor commands** — own the editor command registry and context menu instead of depending on Monaco private APIs.
 - **Multi-Library Collections** — attach separate code, documentation, asset, research, or design Libraries to the same Collection.
 - **Persistent Library trees** — remember the selected Library, expanded folders, selected node, filter text, and scroll position independently for every Library.
+- **Git-aware Explorer** — merge Library scans with repository status, decorate existing files and folders, mute ignored paths, summarize descendant changes on folders, and never resurrect deleted files as phantom tree rows.
+- **Shared native icon system** — use locally vendored Codicons for controls, Streamline artwork for folders, and the actual VS Code Seti font for compact file icons across the Explorer and editor tabs.
 - **Local-first Libraries** — register folders, scan their contents, and browse cataloged files without surrendering ownership of the filesystem.
 - **Safe native file preview** — open supported text and source files through a root-constrained, read-only backend boundary.
 - **Deterministic text indexing** — extract supported UTF-8 files, split them into stable chunks, preserve line provenance, and index them with SQLite FTS5.
@@ -166,6 +168,7 @@ Archivist/
 ├── backend/              Express 5, TypeScript, SQLite, AI and cognition domains
 ├── frontend/             Primary Qt 6 / QML desktop frontend
 │   ├── qml/App/          Workbench, Explorer, Chat, previews, inspectors and editors
+│   ├── qml/App/Icons/    Shared controls, file resolvers, generated Seti registry and licenses
 │   ├── qml/App/Workbench/IdeHost/Web/
 │   │                     Embedded Monaco and xterm.js feature
 │   └── src/App/Domains/  C++ Library, Chat and Agent stores
@@ -254,6 +257,14 @@ npm run build:qt
 npm run qt:configure
 npm run qt:run
 ```
+
+Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
+
+```bash
+npm run icons:vendor
+```
+
+The generated assets live under `frontend/qml/App/Icons/Assets/`. Keep `frontend/qml/App/Icons/THIRD_PARTY_ICONS.md` synchronized with every vendored source.
 
 ### Diagnostics and context handoffs
 
@@ -408,8 +419,10 @@ Archivist currently has:
 ```text
 native Qt Workbench
 → Collection-scoped task workspaces
-→ draggable persistent file and Chat tabs
+→ draggable persistent file and Chat tabs with shared Seti file icons
 → multiple Libraries per Collection
+→ Git-aware Explorer decorations without phantom deleted files
+→ compact Collection and Library controls with native iconography
 → independently restored Library trees and scroll positions
 → durable Chats and Agent rosters
 → safe Library file preview
@@ -432,22 +445,24 @@ select a Collection
 → inspect the evidence and context used
 ```
 
-The next editor milestone is **capability-driven commands and targeted quality**:
+The next product milestone is **rich file rendering on top of the shared icon and file-identity system**:
 
 ```text
-Find References and Rename
-→ Quick Fix and formatting actions
-→ multiple-definition picker
-→ focused JSX completion testing
-→ project adapters only when real work requires them
+pleasant native Markdown reading
+→ renderer selection by file type
+→ images and structured data
+→ PDFs, diffs, and richer asset previews
+→ keep source files read-only until mutation workflows are explicit
 ```
+
+Capability-driven editor commands such as Find References, Rename, Quick Fix, and formatting remain the next focused IDE slice after the renderer foundation.
 
 Current deliberate limits:
 
 - only one Library tree is displayed at a time, even when a Collection references several Libraries;
 - automatic retrieval searches the active Library rather than every Library in the Collection;
 - most files still use a plain text preview;
-- file-type glyphs are temporary and not yet driven by a shared icon registry;
+- the shared icon registry currently covers the Explorer, editor tabs, navigation controls, and terminal workbench; larger branded surfaces and preview-specific artwork remain future work;
 - tabs and Library contents are not yet worktree-scoped;
 - split editor groups and dockable panes are not implemented yet.
 

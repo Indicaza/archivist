@@ -28,7 +28,7 @@ Item {
         resolvedLanguageIcon
     )
     readonly property bool hasLanguageIcon: resolvedGlyph.length > 0
-        && setiFont.status === FontLoader.Ready
+        && SetiFont.ready
     readonly property string fallbackIconName:
         LanguageRegistry.fallbackAppIconName(root.iconId)
     readonly property string defaultFileGlyph: SetiRegistry.glyph("default")
@@ -36,7 +36,7 @@ Item {
         !root.hasLanguageIcon
         && root.fallbackIconName === "file"
         && root.defaultFileGlyph.length > 0
-        && setiFont.status === FontLoader.Ready
+        && SetiFont.ready
     readonly property bool usesSetiGlyph:
         root.hasLanguageIcon || root.hasDefaultFileIcon
 
@@ -47,12 +47,6 @@ Item {
 
     Accessible.role: Accessible.Graphic
     Accessible.name: accessibleLabel
-
-    FontLoader {
-        id: setiFont
-
-        source: Qt.resolvedUrl("Assets/fonts/seti.ttf")
-    }
 
     Text {
         anchors.centerIn: parent
@@ -68,12 +62,12 @@ Item {
                 : "default",
             root.resolvedTone
         )
-        font.family: setiFont.name
+        font.family: SetiFont.family
         font.pixelSize: root.iconSize * 1.28
         font.hintingPreference: Font.PreferFullHinting
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        renderType: Text.NativeRendering
+        renderType: Text.QtRendering
     }
 
     AppIcon {

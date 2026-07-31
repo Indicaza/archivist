@@ -22,7 +22,6 @@ Rectangle {
     property var childrenByParent: ({})
     property var filterMatchCache: ({})
     property string selectedNodePath: ""
-    property int hoveredTreeIndex: -1
     property int toolbarHoverIndex: -1
     property string contextNodeId: ""
     property string contextFileId: ""
@@ -53,6 +52,8 @@ Rectangle {
         offset: 0
     })
     property var filterField: null
+    property bool scheduledNodeReveal: false
+    property bool scheduledNodeStateSave: false
     readonly property var selectedCollectionScope: CollectionStore.scope || ({})
     readonly property var selectedCollectionLibraryIds:
         selectedCollectionScope.libraryIds || []
@@ -203,6 +204,8 @@ Rectangle {
     function beginLibraryTreeRestore(libraryId) {
         var targetLibraryId = String(libraryId || "")
 
+        cancelScheduledNodeRebuild()
+        filterRebuildTimer.stop()
         restoringLibraryTreeState = true
         treeStateLibraryId = targetLibraryId
         selectedNodeId = ""
@@ -266,6 +269,7 @@ Rectangle {
         }
 
         restoringLibraryTreeState = true
+        cancelScheduledNodeRebuild()
         rebuildNodesFromFiles(false)
         var anchor = pendingTreeViewport
         treeStateRestorePending = false
@@ -708,6 +712,40 @@ Rectangle {
         }
 
         return count === 1 ? "1 change" : String(count) + " changes"
+    }
+
+    function scheduleNodeRebuild(
+        applyReveal,
+        saveTreeState
+    ) {
+        scheduledNodeReveal =
+            scheduledNodeReveal || Boolean(applyReveal)
+        scheduledNodeStateSave =
+            scheduledNodeStateSave || Boolean(saveTreeState)
+        nodeRebuildTimer.restart()
+    }
+
+    function cancelScheduledNodeRebuild() {
+        nodeRebuildTimer.stop()
+        scheduledNodeReveal = false
+        scheduledNodeStateSave = false
+    }
+
+    function performScheduledNodeRebuild() {
+        var shouldReveal = scheduledNodeReveal
+        var shouldSave = scheduledNodeStateSave
+
+        scheduledNodeReveal = false
+        scheduledNodeStateSave = false
+        rebuildNodesFromFiles(true)
+
+        if (shouldReveal) {
+            applyPendingReveal()
+        }
+
+        if (shouldSave) {
+            scheduleLibraryTreeStateSave()
+        }
     }
 
     function rebuildNodesFromFiles(preserveViewport) {
@@ -1278,7 +1316,6 @@ Rectangle {
         treeViewportRevision += 1
         var revision = treeViewportRevision
 
-        hoveredTreeIndex = -1
         visibleTree.clear()
         filterMatchCache = ({})
         appendVisibleChildren("", 0, filterText.trim().toLowerCase())
@@ -1580,8 +1617,7 @@ Rectangle {
 
         function onDirectoriesChanged() {
             if (!root.treeStateRestorePending) {
-                root.rebuildNodesFromFiles(true)
-                root.scheduleLibraryTreeStateSave()
+                root.scheduleNodeRebuild(false, true)
             }
         }
 
@@ -1600,6 +1636,7 @@ Rectangle {
             }
 
             Qt.callLater(function() {
+                root.cancelScheduledNodeRebuild()
                 root.rebuildNodesFromFiles(true)
                 var nodeId = String(kind) === "directory"
                     ? "folder:" + path
@@ -1618,6 +1655,7 @@ Rectangle {
             name
         ) {
             Qt.callLater(function() {
+                root.cancelScheduledNodeRebuild()
                 root.rebuildNodesFromFiles(true)
                 root.selectedNodeId =
                     "file:" + String(fileId || "")
@@ -1634,6 +1672,7 @@ Rectangle {
             name
         ) {
             Qt.callLater(function() {
+                root.cancelScheduledNodeRebuild()
                 root.rebuildNodesFromFiles(true)
                 root.activateNode(
                     "file:" + String(fileId || ""),
@@ -1659,9 +1698,7 @@ Rectangle {
                 return
             }
 
-            root.rebuildNodesFromFiles(true)
-            root.applyPendingReveal()
-            root.scheduleLibraryTreeStateSave()
+            root.scheduleNodeRebuild(true, true)
         }
 
         function onSelectedLibraryIdChanged() {
@@ -1764,9 +1801,7 @@ Rectangle {
                 return
             }
 
-            root.rebuildNodesFromFiles(true)
-            root.applyPendingReveal()
-            root.scheduleLibraryTreeStateSave()
+            root.scheduleNodeRebuild(true, true)
         }
 
         function onSelectedFileIdChanged() {
@@ -1782,8 +1817,32 @@ Rectangle {
                 !root.treeStateRestorePending
                 && !LibraryStore.loadingFiles
             ) {
-                root.rebuildNodesFromFiles(true)
+                root.scheduleNodeRebuild(false, false)
             }
+        }
+    }
+
+    Timer {
+        id: nodeRebuildTimer
+
+        interval: 24
+        repeat: false
+        onTriggered: root.performScheduledNodeRebuild()
+    }
+
+    Timer {
+        id: filterRebuildTimer
+
+        interval: 70
+        repeat: false
+        onTriggered: {
+            root.rebuildTree(false)
+            root.restoreTreeViewport(({
+                contentY: 0,
+                nodeId: "",
+                offset: 0
+            }))
+            root.scheduleLibraryTreeStateSave()
         }
     }
 
@@ -2690,13 +2749,7 @@ Rectangle {
                             if (
                                 !root.restoringLibraryTreeState
                             ) {
-                                root.rebuildTree(false)
-                                root.restoreTreeViewport(({
-                                    contentY: 0,
-                                    nodeId: "",
-                                    offset: 0
-                                }))
-                                root.scheduleLibraryTreeStateSave()
+                                filterRebuildTimer.restart()
                             }
                         }
 
@@ -2807,15 +2860,6 @@ Rectangle {
                         dragEnabled: !LibraryStore.movingFile
                         fileId: itemFileId
                         relativePath: itemRelativePath
-                        neighborHovered: root.hoveredTreeIndex >= 0
-                            && Math.abs(root.hoveredTreeIndex - index) === 1
-                        onHoveredChanged: {
-                            if (hovered) {
-                                root.hoveredTreeIndex = index
-                            } else if (root.hoveredTreeIndex === index) {
-                                root.hoveredTreeIndex = -1
-                            }
-                        }
                         onActivated: root.activateNode(nodeId, itemFolder, itemFileId)
                         onContextRequested: root.showNodeContext(
                             nodeId,

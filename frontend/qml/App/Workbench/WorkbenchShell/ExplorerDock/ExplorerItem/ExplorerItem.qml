@@ -18,7 +18,6 @@ Item {
     required property bool folder
     required property bool expanded
     required property bool warning
-    required property bool neighborHovered
     required property string fileId
     required property string relativePath
     required property string gitStatus
@@ -239,16 +238,12 @@ Item {
 
     Item {
         anchors.fill: parent
-        x: root.hovered ? 2 : root.neighborHovered ? 1 : 0
+        x: root.hovered ? 1 : 0
 
         Behavior on x {
             NumberAnimation {
-                duration: root.hovered || root.neighborHovered
-                    ? root.theme.motionHover
-                    : root.theme.motionHoverExit
-                easing.type: root.hovered || root.neighborHovered
-                    ? Easing.OutBack
-                    : Easing.OutCubic
+                duration: root.theme.motionFast
+                easing.type: Easing.OutCubic
             }
         }
 

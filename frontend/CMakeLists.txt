@@ -37,6 +37,11 @@ qt_add_executable(archivist-qt
     src/App/Services/workspace_state_store.h
 )
 
+set_source_files_properties(
+    qml/App/Icons/SetiFont.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE
+)
+
 qt_add_qml_module(archivist-qt
     URI Archivist
     VERSION 1.0
@@ -45,6 +50,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Theme/Theme.qml
         qml/App/Icons/AppIcon.qml
         qml/App/Icons/LanguageIcon.qml
+        qml/App/Icons/SetiFont.qml
         qml/App/Icons/IconButton.qml
         qml/App/Icons/IconRegistry.js
         qml/App/Icons/LanguageRegistry.js
