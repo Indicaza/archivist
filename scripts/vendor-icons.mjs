@@ -96,6 +96,7 @@ const codiconUiIcons = {
   search: "search",
   library: "folder-library",
   collection: "files",
+  terminal: "terminal",
   "chevron-left": "chevron-left",
   "chevron-right": "chevron-right",
   "chevron-up": "chevron-up",
@@ -200,6 +201,7 @@ const compactFileIconCandidates = {
 };
 
 const setiRepresentativeFiles = {
+  default: "file",
   markdown: "README.md",
   json: "settings.json",
   yaml: "config.yaml",
@@ -280,6 +282,14 @@ const setiRepresentativeFiles = {
   linux: "script.sh",
   apple: "App.swift",
   windows: "Program.cs",
+};
+
+
+const setiLanguageIds = {
+  javascriptreact: "javascriptreact",
+  typescriptreact: "typescriptreact",
+  react: "javascriptreact",
+  shell: "shellscript",
 };
 
 const setiPalette = {
@@ -389,6 +399,7 @@ const languageBrandColors = {
 };
 
 const languageIcons = {
+  default: ["file"],
   markdown: ["markdown"],
   json: ["json"],
   yaml: ["yaml"],
@@ -845,11 +856,13 @@ function vendorLanguageIcons() {
 
   for (const logicalName of Object.keys(languageIcons)) {
     const representativeFile = setiRepresentativeFiles[logicalName] ?? `file.${logicalName}`;
-    const definitionName = setiDefinitionForFile(
-      theme,
-      representativeFile,
-      logicalName,
-    );
+    const setiLanguageId = setiLanguageIds[logicalName] ?? logicalName;
+    const definitionName = (theme.languageIds ?? {})[setiLanguageId]
+      ?? setiDefinitionForFile(
+        theme,
+        representativeFile,
+        setiLanguageId,
+      );
     const definition = (theme.iconDefinitions ?? {})[definitionName]
       ?? (theme.iconDefinitions ?? {})[theme.file]
       ?? (theme.iconDefinitions ?? {})._default;

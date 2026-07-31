@@ -11,7 +11,9 @@ var iconIds = {
     "language-sass": "sass",
     "language-less": "less",
     "language-javascript": "javascript",
+    "language-javascriptreact": "react",
     "language-typescript": "typescript",
+    "language-typescriptreact": "react",
     "language-python": "python",
     "language-rust": "rust",
     "language-go": "go",
@@ -50,6 +52,11 @@ var languageAliases = {
     "shellscript": "shell",
     "bash": "shell",
     "zsh": "shell",
+    "fish": "shell",
+    "ksh": "shell",
+    "csh": "shell",
+    "tcsh": "shell",
+    "command": "shell",
     "dockerfile": "docker",
     "node": "nodejs"
 }
@@ -92,7 +99,16 @@ var fileNames = {
     "vagrantfile": "ruby",
     "podfile": "ruby",
     "jenkinsfile": "groovy",
-    "project.godot": "godot"
+    "project.godot": "godot",
+    ".bashrc": "shell",
+    ".bash_profile": "shell",
+    ".bash_login": "shell",
+    ".profile": "shell",
+    ".zshrc": "shell",
+    ".zprofile": "shell",
+    ".zshenv": "shell",
+    ".zlogin": "shell",
+    ".kshrc": "shell"
 }
 
 var extensions = {
@@ -152,6 +168,11 @@ var extensions = {
     "sh": "shell",
     "bash": "shell",
     "zsh": "shell",
+    "fish": "shell",
+    "ksh": "shell",
+    "csh": "shell",
+    "tcsh": "shell",
+    "command": "shell",
     "ps1": "powershell",
     "sql": "sql",
     "cmake": "cmake",

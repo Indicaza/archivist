@@ -29,6 +29,16 @@ Item {
     )
     readonly property bool hasLanguageIcon: resolvedGlyph.length > 0
         && setiFont.status === FontLoader.Ready
+    readonly property string fallbackIconName:
+        LanguageRegistry.fallbackAppIconName(root.iconId)
+    readonly property string defaultFileGlyph: SetiRegistry.glyph("default")
+    readonly property bool hasDefaultFileIcon:
+        !root.hasLanguageIcon
+        && root.fallbackIconName === "file"
+        && root.defaultFileGlyph.length > 0
+        && setiFont.status === FontLoader.Ready
+    readonly property bool usesSetiGlyph:
+        root.hasLanguageIcon || root.hasDefaultFileIcon
 
     implicitWidth: iconSize
     implicitHeight: iconSize
@@ -48,10 +58,14 @@ Item {
         anchors.centerIn: parent
         width: root.iconSize * 1.45
         height: root.iconSize * 1.45
-        visible: root.hasLanguageIcon
-        text: root.resolvedGlyph
+        visible: root.usesSetiGlyph
+        text: root.hasLanguageIcon
+            ? root.resolvedGlyph
+            : root.defaultFileGlyph
         color: SetiRegistry.color(
-            root.resolvedLanguageIcon,
+            root.hasLanguageIcon
+                ? root.resolvedLanguageIcon
+                : "default",
             root.resolvedTone
         )
         font.family: setiFont.name
@@ -64,8 +78,8 @@ Item {
 
     AppIcon {
         anchors.centerIn: parent
-        visible: !root.hasLanguageIcon
-        name: LanguageRegistry.fallbackAppIconName(root.iconId)
+        visible: !root.usesSetiGlyph
+        name: root.fallbackIconName
         tone: root.resolvedTone === "brand" ? "accent" : root.resolvedTone
         iconSize: root.iconSize
         accessibleLabel: root.accessibleLabel

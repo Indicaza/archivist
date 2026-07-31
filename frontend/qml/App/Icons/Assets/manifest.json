@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T20:03:15.203Z",
+  "generatedAt": "2026-07-31T00:07:40.215Z",
   "ui": {
     "workspace": "streamline-flex:workspace-desk",
     "archive": "streamline-flex:archive-box",
@@ -10,7 +10,7 @@
     "collection": "codicon:files",
     "chat": "streamline-flex:help-chat-1",
     "agent": "streamline-flex:new-file",
-    "terminal": "streamline-flex:new-file",
+    "terminal": "codicon:terminal",
     "file": "streamline-flex:new-file",
     "file-text": "streamline-flex:text-file",
     "file-markdown": "streamline-flex:new-file",
@@ -68,7 +68,8 @@
     "context-memory": "streamline-flex:database"
   },
   "languages": {
-    "markdown": "seti-font:_info",
+    "default": "seti-font:_default",
+    "markdown": "seti-font:_markdown",
     "json": "seti-font:_json",
     "yaml": "seti-font:_yml",
     "toml": "seti-font:_config",
@@ -93,7 +94,7 @@
     "cpp": "seti-font:_cpp",
     "csharp": "seti-font:_c-sharp",
     "qml": "seti-font:_default",
-    "shell": "seti-font:_default",
+    "shell": "seti-font:_shell",
     "powershell": "seti-font:_powershell",
     "sql": "seti-font:_db",
     "cmake": "seti-font:_makefile_3",
@@ -103,7 +104,7 @@
     "pnpm": "seti-font:_default",
     "yarn": "seti-font:_yarn",
     "bun": "seti-font:_default",
-    "react": "seti-font:_default",
+    "react": "seti-font:_react",
     "vue": "seti-font:_vue",
     "nextjs": "seti-font:_default",
     "nuxt": "seti-font:_default",
@@ -155,7 +156,7 @@
     "googlecloud": "seti-font:_default",
     "kubernetes": "seti-font:_default",
     "unreal": "seti-font:_default",
-    "godot": "seti-font:_godot_1",
+    "godot": "seti-font:_godot",
     "unity": "seti-font:_default",
     "blender": "seti-font:_default",
     "maya": "seti-font:_default",

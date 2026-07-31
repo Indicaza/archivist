@@ -1,7 +1,8 @@
 .pragma library
 
 var glyphs = {
-    "markdown": "\uE04D",
+    "default": "\uE023",
+    "markdown": "\uE060",
     "json": "\uE055",
     "yaml": "\uE0A7",
     "toml": "\uE019",
@@ -26,7 +27,7 @@ var glyphs = {
     "cpp": "\uE01A",
     "csharp": "\uE00B",
     "qml": "\uE023",
-    "shell": "\uE023",
+    "shell": "\uE089",
     "powershell": "\uE074",
     "sql": "\uE022",
     "cmake": "\uE05F",
@@ -36,7 +37,7 @@ var glyphs = {
     "pnpm": "\uE023",
     "yarn": "\uE0A6",
     "bun": "\uE023",
-    "react": "\uE023",
+    "react": "\uE07D",
     "vue": "\uE09D",
     "nextjs": "\uE023",
     "nuxt": "\uE023",
@@ -98,6 +99,7 @@ var glyphs = {
 }
 
 var brandColors = {
+    "default": "#d4d7d6",
     "markdown": "#519aba",
     "json": "#cbcb41",
     "yaml": "#a074c4",
@@ -123,7 +125,7 @@ var brandColors = {
     "cpp": "#519aba",
     "csharp": "#519aba",
     "qml": "#d4d7d6",
-    "shell": "#d4d7d6",
+    "shell": "#8dc149",
     "powershell": "#519aba",
     "sql": "#f55385",
     "cmake": "#519aba",
@@ -133,7 +135,7 @@ var brandColors = {
     "pnpm": "#d4d7d6",
     "yarn": "#519aba",
     "bun": "#d4d7d6",
-    "react": "#d4d7d6",
+    "react": "#519aba",
     "vue": "#8dc149",
     "nextjs": "#d4d7d6",
     "nuxt": "#d4d7d6",
@@ -185,7 +187,7 @@ var brandColors = {
     "googlecloud": "#d4d7d6",
     "kubernetes": "#d4d7d6",
     "unreal": "#d4d7d6",
-    "godot": "#cc3e44",
+    "godot": "#519aba",
     "unity": "#d4d7d6",
     "blender": "#d4d7d6",
     "maya": "#d4d7d6",
