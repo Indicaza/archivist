@@ -799,6 +799,12 @@ Rectangle {
             var pathParts = []
             var normalizedStatus = String(status || "")
 
+            // Ignored entries decorate leaf files only. They must never
+            // contribute a visual status to parent folders.
+            if (normalizedStatus === "ignored") {
+                return
+            }
+
             for (var index = 0; index < parts.length; index += 1) {
                 if (parts[index].length === 0) {
                     continue
@@ -808,20 +814,15 @@ Rectangle {
                 var directoryPath = pathParts.join("/")
                 var aggregate = folderGit[directoryPath] || {
                     count: 0,
-                    ignoredCount: 0,
                     statuses: ({})
                 }
 
-                if (normalizedStatus === "ignored") {
-                    aggregate.ignoredCount += 1
-                } else {
-                    aggregate.count += 1
-                    aggregate.statuses[normalizedStatus] =
-                        Number(
-                            aggregate.statuses[normalizedStatus]
-                            || 0
-                        ) + 1
-                }
+                aggregate.count += 1
+                aggregate.statuses[normalizedStatus] =
+                    Number(
+                        aggregate.statuses[normalizedStatus]
+                        || 0
+                    ) + 1
 
                 folderGit[directoryPath] = aggregate
             }
@@ -865,9 +866,7 @@ Rectangle {
                 return "modified"
             }
 
-            return Number(value.ignoredCount || 0) > 0
-                ? "ignored"
-                : ""
+            return ""
         }
 
         for (var gitIndex = 0; gitIndex < gitEntries.length; gitIndex += 1) {
@@ -929,12 +928,6 @@ Rectangle {
                     var aggregate = folderGit[directoryPath] || ({})
                     var folderStatus =
                         dominantFolderStatus(aggregate)
-                    if (
-                        folderStatus.length === 0
-                        && pathIsIgnored(directoryPath)
-                    ) {
-                        folderStatus = "ignored"
-                    }
 
                     nodes.push({
                         id: directoryId,

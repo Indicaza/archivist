@@ -27,16 +27,17 @@ Item {
     readonly property bool hovered: rowHover.hovered
     readonly property bool dragging: fileDrag.active
     readonly property string sourceDirectory: directoryForPath(relativePath)
-    readonly property string visualGitStatus: folder
-        && (gitStatus === "deleted" || gitStatus === "renamed")
-            ? "modified"
-            : gitStatus
+    readonly property string visualGitStatus:
+        normalizedGitStatus(gitStatus)
+    readonly property bool effectiveMuted: !folder && muted
     readonly property color statusColor: gitColor(visualGitStatus)
-    readonly property string statusText: gitLabel(gitStatus)
-    readonly property bool hasGitDecoration: visualGitStatus.length > 0
-    readonly property bool ignoredByGit: visualGitStatus === "ignored"
+    readonly property string statusText: gitLabel(visualGitStatus)
+    readonly property bool hasGitDecoration:
+        visualGitStatus.length > 0
+    readonly property bool ignoredByGit:
+        visualGitStatus === "ignored"
     readonly property bool showsStatus: folder
-        ? gitCount > 0
+        ? gitCount > 0 && hasGitDecoration
         : statusText.length > 0
 
     signal activated()
@@ -45,7 +46,36 @@ Item {
 
     width: parent ? parent.width : 220
     height: 26
-    opacity: dragging ? 0.38 : ignoredByGit ? 0.5 : 1.0
+    opacity: dragging
+        ? 0.38
+        : ignoredByGit
+            ? 0.5
+            : 1.0
+
+    function normalizedGitStatus(status) {
+        var value = String(status || "")
+
+        if (
+            root.folder
+            && (value === "deleted" || value === "renamed")
+        ) {
+            return "modified"
+        }
+
+        switch (value) {
+        case "modified":
+        case "added":
+        case "untracked":
+        case "deleted":
+        case "renamed":
+        case "conflicted":
+            return value
+        case "ignored":
+            return root.folder ? "" : "ignored"
+        default:
+            return ""
+        }
+    }
 
     function directoryForPath(filePath) {
         var normalized = String(filePath || "").split("\\").join("/")
@@ -91,7 +121,9 @@ Item {
         default:
             return root.active || root.hovered || root.dropHighlighted
                 ? "accent"
-                : "muted"
+                : root.folder
+                    ? "normal"
+                    : "muted"
         }
     }
 
@@ -272,7 +304,9 @@ Item {
                 anchors.centerIn: parent
                 visible: root.folder
                 name: root.expanded ? "folder-open" : "folder"
-                tone: root.iconTone()
+                tone: root.hasGitDecoration
+                    ? root.iconTone()
+                    : "normal"
                 iconSize: 15
                 accessibleLabel: root.title + " folder"
             }
@@ -304,7 +338,7 @@ Item {
             text: root.title
             color: root.hasGitDecoration
                 ? root.statusColor
-                : root.muted
+                : root.effectiveMuted
                     ? "#756e63"
                     : root.active
                         ? root.theme.appText
@@ -315,7 +349,8 @@ Item {
             font.weight: root.folder || root.active
                 ? Font.DemiBold
                 : Font.Normal
-            font.strikeout: root.muted || root.gitStatus === "deleted"
+            font.strikeout: root.effectiveMuted
+                || root.visualGitStatus === "deleted"
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
         }

@@ -101,6 +101,10 @@ function classifyStatus(
     return "untracked";
   }
 
+  if (indexStatus === "C" || worktreeStatus === "C") {
+    return "added";
+  }
+
   if (recordType === "2" || indexStatus === "R" || worktreeStatus === "R") {
     return "renamed";
   }
@@ -109,10 +113,7 @@ function classifyStatus(
     return "deleted";
   }
 
-  // Any index-side change has been staged through `git add` (or an
-  // equivalent Git operation). Keep that visually distinct from working-tree
-  // modifications and untracked files.
-  if (indexStatus !== ".") {
+  if (indexStatus === "A" || worktreeStatus === "A") {
     return "added";
   }
 

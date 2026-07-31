@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="$ROOT/backend/data/runtime/logs"
+REPORT="$LOG_DIR/pre-pr.log"
+TEMP_DIR=""
+FOLLOW=false
+
+usage() {
+  cat <<'EOF'
+Archivist pre-PR verifier
+
+Usage:
+  npm run check:pre-pr
+  ./scripts/pre-pr --follow
+
+Options:
+  --follow     Stream full command output while also writing the report.
+  -h, --help   Show this help.
+
+The default view stays compact. Full output is written to:
+  backend/data/runtime/logs/pre-pr.log
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --follow)
+      FOLLOW=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Error: unknown option: %s\n\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+cd "$ROOT"
+mkdir -p "$LOG_DIR"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/archivist-pre-pr.XXXXXX")"
+trap 'rm -rf "$TEMP_DIR"' EXIT
+: > "$REPORT"
+
+printf 'Archivist pre-PR verification\n' | tee -a "$REPORT"
+printf 'Started: %s\n' "$(date)" >> "$REPORT"
+printf 'Branch: %s\n' "$(git branch --show-current)" >> "$REPORT"
+printf 'Report: %s\n\n' "${REPORT#$ROOT/}"
+
+run_step() {
+  local label="$1"
+  shift
+
+  printf '%-34s' "$label"
+  {
+    printf '\n\n===== %s =====\n' "$label"
+    printf '$'
+    printf ' %q' "$@"
+    printf '\n\n'
+  } >> "$REPORT"
+
+  if [[ "$FOLLOW" == "true" ]]; then
+    printf '\n'
+    if "$@" 2>&1 | tee -a "$REPORT"; then
+      printf '%-34s%s\n' "$label" 'PASS'
+      return 0
+    fi
+  elif "$@" >> "$REPORT" 2>&1; then
+    printf '%s\n' 'PASS'
+    return 0
+  fi
+
+  printf '%s\n' 'FAIL'
+  printf '\nLast report lines:\n'
+  tail -n 30 "$REPORT"
+  printf '\nFull report: %s\n' "${REPORT#$ROOT/}"
+  return 1
+}
+
+snapshot_icon_state() {
+  local destination="$1"
+  local icon_paths=(
+    frontend/qml/App/Icons
+    frontend/CMakeLists.txt
+  )
+
+  {
+    git status --porcelain=v1 -- "${icon_paths[@]}"
+    git diff --binary -- "${icon_paths[@]}"
+    git diff --cached --binary -- "${icon_paths[@]}"
+  } > "$destination"
+}
+
+verify_vendored_icons() {
+  local before="$TEMP_DIR/icons-before.txt"
+  local after="$TEMP_DIR/icons-after.txt"
+
+  snapshot_icon_state "$before"
+  npm run icons:vendor
+  snapshot_icon_state "$after"
+
+  if cmp -s "$before" "$after"; then
+    return 0
+  fi
+
+  printf '\nVendored icon output changed the working tree.\n'
+  printf 'Review and commit regenerated assets before rerunning this check.\n\n'
+  git status --short -- frontend/qml/App/Icons frontend/CMakeLists.txt
+  return 1
+}
+
+verify_diff_hygiene() {
+  git diff --check
+  git diff --cached --check
+}
+
+run_step 'Node version' npm run check-node || exit 1
+run_step 'Backend build' npm run build -w backend || exit 1
+run_step 'Chat Agent tests' node scripts/test-chat-agent-rosters.mjs || exit 1
+run_step 'Collection tests' node scripts/test-collections.mjs || exit 1
+printf '%-34s%s\n' 'Library index smoke test' 'SKIP'
+{
+  printf '\n\n===== Library index smoke test =====\n'
+  printf 'SKIP — requires a running backend, an active Library, and a known search term.\n'
+  printf 'Run manually: npm run test:library-index -- \"a term you know exists\"\n'
+} >> "$REPORT"
+run_step 'IDE typecheck' npm run check:ide -w frontend || exit 1
+run_step 'Language tools' npm run lsp:doctor || exit 1
+run_step 'Vendored icons' verify_vendored_icons || exit 1
+run_step 'Typography audit' ./scripts/qt-typography-audit --check || exit 1
+run_step 'Diff hygiene' verify_diff_hygiene || exit 1
+run_step 'IDE production build' npm run build:ide || exit 1
+run_step 'Native frontend build' npm run build:frontend || exit 1
+
+{
+  printf '\n\n===== RESULT =====\n'
+  printf 'PASS\n'
+  printf 'Completed: %s\n' "$(date)"
+} >> "$REPORT"
+
+printf '\nPRE-PR VERIFICATION PASSED\n'
+printf 'Full report: %s\n' "${REPORT#$ROOT/}"
