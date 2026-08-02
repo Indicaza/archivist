@@ -66,6 +66,7 @@ npm run diagnose:language-support
 npm run icons:vendor
 npm run test:chat-agents
 npm run test:collections
+npm run test:ai-runtime
 npm run test:library-index -- "a term you know exists"
 npm run check:pre-pr
 ```

@@ -27,6 +27,11 @@ export type GenerateTextResult = {
   model: string;
 };
 
+export type StreamTextOptions = {
+  signal?: AbortSignal;
+  onDelta?: (delta: string) => void | Promise<void>;
+};
+
 export type DiscoveredAIModel = {
   provider: string;
   modelId: string;
@@ -51,6 +56,11 @@ export interface AIProvider {
   readonly displayName: string;
 
   generateText(input: GenerateTextInput): Promise<GenerateTextResult>;
+
+  streamText(
+    input: GenerateTextInput,
+    options?: StreamTextOptions,
+  ): Promise<GenerateTextResult>;
 
   discoverModels(): Promise<DiscoveredAIModel[]>;
 

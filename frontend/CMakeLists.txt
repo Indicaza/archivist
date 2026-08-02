@@ -85,6 +85,8 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Workspace/FilePreview/FilePreview.qml
         qml/App/Workbench/Workspace/CodeEditor/CodeEditor.qml
         qml/App/Workbench/Workspace/ChatMessage/ChatMessage.qml
+        qml/App/Workbench/Workspace/ChatMessage/RunActivityCard.qml
+        qml/App/Workbench/Workspace/ChatMessage/RunActivityRow.qml
         qml/App/Workbench/Workspace/ChatMessage/CodeBlock.qml
         qml/App/Workbench/Workspace/ChatMessage/CometGlyph.qml
         qml/App/Workbench/Workspace/ChatMessage/RichMessageContent.qml

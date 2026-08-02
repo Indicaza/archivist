@@ -7,6 +7,7 @@ import type {
   GenerateTextInput,
   GenerateTextResult,
   ProviderHealth,
+  StreamTextOptions,
 } from "../AIProvider.js";
 
 const openAIClient = new OpenAI({
@@ -33,28 +34,50 @@ export class OpenAIProvider implements AIProvider {
   readonly displayName = "OpenAI";
 
   async generateText(input: GenerateTextInput): Promise<GenerateTextResult> {
-    const response = await openAIClient.responses.create({
-      model: input.generation.model,
+    return this.streamText(input);
+  }
 
-      instructions: input.instructions,
+  async streamText(
+    input: GenerateTextInput,
+    options: StreamTextOptions = {},
+  ): Promise<GenerateTextResult> {
+    const stream = await openAIClient.responses.create(
+      {
+        model: input.generation.model,
+        instructions: input.instructions,
+        input: buildInput(input.messages),
+        max_output_tokens: input.generation.maxOutputTokens ?? undefined,
+        temperature: input.generation.temperature ?? undefined,
+        top_p: input.generation.topP ?? undefined,
+        stream: true,
+      },
+      {
+        signal: options.signal,
+      },
+    );
 
-      input: buildInput(input.messages),
+    let text = "";
 
-      max_output_tokens: input.generation.maxOutputTokens ?? undefined,
+    for await (const event of stream) {
+      if (
+        event.type !== "response.output_text.delta" &&
+        event.type !== "response.refusal.delta"
+      ) {
+        continue;
+      }
 
-      temperature: input.generation.temperature ?? undefined,
+      text += event.delta;
+      await options.onDelta?.(event.delta);
+    }
 
-      top_p: input.generation.topP ?? undefined,
-    });
+    const completedText = text.trim();
 
-    const text = response.output_text.trim();
-
-    if (!text) {
+    if (!completedText) {
       throw new Error("OpenAI returned an empty response.");
     }
 
     return {
-      text,
+      text: completedText,
       provider: this.providerId,
       model: input.generation.model,
     };

@@ -1,12 +1,15 @@
 #include "chat_store.h"
 
+#include <algorithm>
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QNetworkReply>
 #include <QSet>
+#include <QTimer>
 #include <QUuid>
 
 namespace
@@ -180,6 +183,15 @@ ChatStore::ChatStore(QObject *parent)
     : QObject(parent)
     , m_baseUrl(QStringLiteral("http://127.0.0.1:3333/api"))
 {
+    m_runDeltaFlushTimer.setInterval(120);
+    m_runDeltaFlushTimer.setSingleShot(true);
+
+    connect(
+        &m_runDeltaFlushTimer,
+        &QTimer::timeout,
+        this,
+        &ChatStore::flushPendingRunDelta
+    );
 }
 
 QVariantList ChatStore::chats() const
@@ -271,6 +283,78 @@ bool ChatStore::responding() const
     return m_responding;
 }
 
+QString ChatStore::activeRunId() const
+{
+    return m_activeRunId;
+}
+
+QString ChatStore::activeRunAssistantMessageId() const
+{
+    return m_activeRunAssistantMessageId;
+}
+
+QString ChatStore::activeRunContent() const
+{
+    return m_activeRunContent;
+}
+
+QString ChatStore::runPhase() const
+{
+    return m_runPhase;
+}
+
+QString ChatStore::runPhaseLabel() const
+{
+    if (m_cancellingRun) {
+        return QStringLiteral("Stopping Run…");
+    }
+
+    if (m_runPhase == QStringLiteral("run.started")) {
+        return QStringLiteral("Starting Run…");
+    }
+
+    if (m_runPhase == QStringLiteral("retrieval.started")) {
+        return QStringLiteral("Searching Library…");
+    }
+
+    if (m_runPhase == QStringLiteral("retrieval.completed")) {
+        return QStringLiteral("Reviewing evidence…");
+    }
+
+    if (m_runPhase == QStringLiteral("context.started")) {
+        return QStringLiteral("Compiling context…");
+    }
+
+    if (m_runPhase == QStringLiteral("context.completed")) {
+        return QStringLiteral("Context ready…");
+    }
+
+    if (
+        m_runPhase == QStringLiteral("model.started")
+        || m_runPhase == QStringLiteral("model.delta")
+    ) {
+        return QStringLiteral("Writing response…");
+    }
+
+    if (m_runPhase == QStringLiteral("model.completed")) {
+        return QStringLiteral("Finalizing response…");
+    }
+
+    return m_responding
+        ? QStringLiteral("Archivist is working…")
+        : QString{};
+}
+
+QVariantMap ChatStore::runActivity() const
+{
+    return m_runActivity;
+}
+
+bool ChatStore::cancellingRun() const
+{
+    return m_cancellingRun;
+}
+
 bool ChatStore::assigningAgent() const
 {
     return m_assigningAgent;
@@ -317,6 +401,750 @@ QNetworkRequest ChatStore::requestFor(const QString &path) const
     QNetworkRequest request{QUrl(m_baseUrl.toString() + path)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     return request;
+}
+
+void ChatStore::resumeActiveRunForSelectedChat()
+{
+    if (m_selectedChatId.isEmpty() || m_responding) {
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+    const QString path = QStringLiteral("/chats/%1/runs")
+        .arg(encodedPathSegment(requestedChatId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+
+        if (
+            !result.ok
+            || requestedChatId != m_selectedChatId
+            || m_responding
+        ) {
+            return;
+        }
+
+        const QJsonArray runs = result.object.value(QStringLiteral("runs")).toArray();
+
+        for (const QJsonValue &value : runs) {
+            const QJsonObject run = value.toObject();
+
+            if (run.value(QStringLiteral("status")).toString() != QStringLiteral("running")) {
+                continue;
+            }
+
+            setActiveRun(run);
+            setCompletionMetadata(
+                run.value(QStringLiteral("provider")).toString(),
+                run.value(QStringLiteral("model")).toString()
+            );
+            subscribeToRunEvents(m_activeRunId);
+            return;
+        }
+    });
+}
+
+void ChatStore::subscribeToRunEvents(const QString &runId, int afterSequence)
+{
+    if (runId.isEmpty() || runId != m_activeRunId) {
+        return;
+    }
+
+    if (m_runEventReply) {
+        m_runEventReply->disconnect(this);
+        m_runEventReply->abort();
+        m_runEventReply->deleteLater();
+        m_runEventReply = nullptr;
+    }
+
+    m_runEventBuffer.clear();
+
+    const QString path = QStringLiteral("/runs/%1/events?after=%2")
+        .arg(encodedPathSegment(runId))
+        .arg(std::max(0, afterSequence));
+    QNetworkRequest request = requestFor(path);
+    request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("text/event-stream"));
+
+    QNetworkReply *reply = m_network.get(request);
+    m_runEventReply = reply;
+    ++m_runDiagnosticSubscriptions;
+
+    qInfo().noquote()
+        << "[AIRunClient] subscribe"
+        << "runId=" + runId
+        << "afterSequence=" + QString::number(std::max(0, afterSequence))
+        << "subscription=" + QString::number(m_runDiagnosticSubscriptions);
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, runId]() {
+        if (reply != m_runEventReply || runId != m_activeRunId) {
+            reply->readAll();
+            return;
+        }
+
+        processRunEventStream();
+    });
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, runId]() {
+        const bool currentReply = reply == m_runEventReply;
+
+        if (currentReply) {
+            processRunEventStream();
+            m_runEventReply = nullptr;
+        }
+
+        reply->deleteLater();
+
+        if (
+            !currentReply
+            || runId != m_activeRunId
+            || m_runSnapshotPending
+        ) {
+            return;
+        }
+
+        requestRunSnapshot(runId, true);
+    });
+}
+
+void ChatStore::processRunEventStream()
+{
+    if (!m_runEventReply) {
+        return;
+    }
+
+    m_runEventBuffer.append(m_runEventReply->readAll());
+    m_runEventBuffer.replace(QByteArrayLiteral("\r\n"), QByteArrayLiteral("\n"));
+
+    int boundary = m_runEventBuffer.indexOf(QByteArrayLiteral("\n\n"));
+
+    while (boundary >= 0) {
+        const QByteArray eventBlock = m_runEventBuffer.left(boundary);
+        m_runEventBuffer.remove(0, boundary + 2);
+
+        if (!eventBlock.trimmed().isEmpty()) {
+            processRunEventBlock(eventBlock);
+        }
+
+        boundary = m_runEventBuffer.indexOf(QByteArrayLiteral("\n\n"));
+    }
+}
+
+void ChatStore::processRunEventBlock(const QByteArray &eventBlock)
+{
+    QByteArray data;
+    QString declaredEventType;
+
+    for (const QByteArray &line : eventBlock.split('\n')) {
+        if (line.startsWith(QByteArrayLiteral("event:"))) {
+            declaredEventType = QString::fromUtf8(line.mid(6).trimmed());
+            continue;
+        }
+
+        if (!line.startsWith(QByteArrayLiteral("data:"))) {
+            continue;
+        }
+
+        if (!data.isEmpty()) {
+            data.append('\n');
+        }
+
+        data.append(line.mid(5).trimmed());
+    }
+
+    if (data.isEmpty()) {
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
+
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return;
+    }
+
+    QJsonObject event = document.object();
+
+    if (event.value(QStringLiteral("eventType")).toString().isEmpty()) {
+        event.insert(QStringLiteral("eventType"), declaredEventType);
+    }
+
+    handleRunEvent(event);
+}
+
+void ChatStore::handleRunEvent(const QJsonObject &event)
+{
+    const QString runId = event.value(QStringLiteral("runId")).toString();
+    const int sequence = event.value(QStringLiteral("sequence")).toInt();
+    const QString eventType = event.value(QStringLiteral("eventType")).toString();
+
+    if (
+        runId.isEmpty()
+        || runId != m_activeRunId
+        || eventType.isEmpty()
+        || sequence <= m_lastRunEventSequence
+    ) {
+        return;
+    }
+
+    m_lastRunEventSequence = sequence;
+    m_runReconnectAttempts = 0;
+    ++m_runDiagnosticEventCount;
+
+    const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+
+    setRunPhase(eventType);
+
+    if (eventType != QStringLiteral("model.delta")) {
+        updateRunActivity(eventType, payload);
+    }
+
+    if (eventType == QStringLiteral("model.delta")) {
+        const QString delta = payload.value(QStringLiteral("delta")).toString();
+        ++m_runDiagnosticDeltaCount;
+        m_runDiagnosticDeltaCharacters += delta.size();
+        m_pendingRunDelta.append(delta);
+
+        if (!m_runDeltaFlushTimer.isActive()) {
+            m_runDeltaFlushTimer.start();
+        }
+
+        return;
+    }
+
+    qInfo().noquote()
+        << "[AIRunClient] event"
+        << "runId=" + runId
+        << "sequence=" + QString::number(sequence)
+        << "event=" + eventType
+        << "elapsedMs=" + QString::number(
+            m_activeRunClock.isValid() ? m_activeRunClock.elapsed() : -1
+        );
+
+    if (
+        eventType == QStringLiteral("run.completed")
+        || eventType == QStringLiteral("run.cancelled")
+        || eventType == QStringLiteral("run.failed")
+    ) {
+        flushPendingRunDelta();
+    }
+
+    if (eventType == QStringLiteral("run.completed")) {
+        updateMessageStatus(
+            m_activeRunAssistantMessageId,
+            QStringLiteral("complete")
+        );
+        requestRunSnapshot(runId, false);
+        return;
+    }
+
+    if (eventType == QStringLiteral("run.cancelled")) {
+        setCancellingRun(false);
+        updateMessageStatus(
+            m_activeRunAssistantMessageId,
+            QStringLiteral("cancelled")
+        );
+        requestRunSnapshot(runId, false);
+        return;
+    }
+
+    if (eventType == QStringLiteral("run.failed")) {
+        updateMessageStatus(
+            m_activeRunAssistantMessageId,
+            QStringLiteral("failed")
+        );
+
+        const QString message = payload.value(QStringLiteral("message")).toString();
+
+        if (!message.isEmpty()) {
+            setErrorMessage(message);
+        }
+
+        requestRunSnapshot(runId, false);
+    }
+}
+
+void ChatStore::requestRunSnapshot(
+    const QString &runId,
+    bool reconnectIfRunning
+)
+{
+    if (
+        runId.isEmpty()
+        || runId != m_activeRunId
+        || m_runSnapshotPending
+    ) {
+        return;
+    }
+
+    m_runSnapshotPending = true;
+
+    const QString path = QStringLiteral("/runs/%1")
+        .arg(encodedPathSegment(runId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, runId, reconnectIfRunning]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
+
+            if (runId != m_activeRunId) {
+                return;
+            }
+
+            m_runSnapshotPending = false;
+
+            if (!result.ok) {
+                if (reconnectIfRunning && m_runReconnectAttempts < 3) {
+                    ++m_runReconnectAttempts;
+                    const int delay = 300 * m_runReconnectAttempts;
+
+                    QTimer::singleShot(delay, this, [this, runId]() {
+                        if (runId == m_activeRunId && m_responding) {
+                            subscribeToRunEvents(runId, m_lastRunEventSequence);
+                        }
+                    });
+                    return;
+                }
+
+                setErrorMessage(
+                    QStringLiteral(
+                        "Lost the live AI Run connection. Refresh this Chat to reconnect."
+                    )
+                );
+                clearActiveRun();
+                return;
+            }
+
+            const QJsonObject run = result.object
+                .value(QStringLiteral("run"))
+                .toObject();
+            const QString status = run.value(QStringLiteral("status")).toString();
+
+            applyRunSnapshot(run);
+
+            if (
+                status == QStringLiteral("running")
+                && reconnectIfRunning
+                && runId == m_activeRunId
+            ) {
+                if (m_runReconnectAttempts >= 3) {
+                    setErrorMessage(
+                        QStringLiteral(
+                            "Lost the live AI Run connection. Refresh this Chat to reconnect."
+                        )
+                    );
+                    clearActiveRun();
+                    return;
+                }
+
+                ++m_runReconnectAttempts;
+                const int delay = 300 * m_runReconnectAttempts;
+
+                QTimer::singleShot(delay, this, [this, runId]() {
+                    if (runId == m_activeRunId && m_responding) {
+                        subscribeToRunEvents(runId, m_lastRunEventSequence);
+                    }
+                });
+            }
+        }
+    );
+}
+
+void ChatStore::applyRunSnapshot(const QJsonObject &run)
+{
+    const QString runId = run.value(QStringLiteral("id")).toString();
+
+    if (runId.isEmpty() || runId != m_activeRunId) {
+        return;
+    }
+
+    const QString assistantMessageId = run
+        .value(QStringLiteral("assistantMessageId"))
+        .toString();
+
+    if (!assistantMessageId.isEmpty()) {
+        m_activeRunAssistantMessageId = assistantMessageId;
+    }
+
+    const QJsonValue finalResponse = run.value(QStringLiteral("finalResponse"));
+
+    if (finalResponse.isString()) {
+        const QString responseContent = finalResponse.toString();
+
+        if (m_activeRunContent != responseContent) {
+            m_activeRunContent = responseContent;
+            emit activeRunContentChanged();
+        }
+
+        updateMessageContent(
+            m_activeRunAssistantMessageId,
+            responseContent
+        );
+    }
+
+    const QString phase = run.value(QStringLiteral("phase")).toString();
+
+    if (!phase.isEmpty()) {
+        setRunPhase(phase);
+    }
+
+    setCompletionMetadata(
+        run.value(QStringLiteral("provider")).toString(),
+        run.value(QStringLiteral("model")).toString()
+    );
+
+    const QString status = run.value(QStringLiteral("status")).toString();
+
+    if (status == QStringLiteral("running")) {
+        setResponding(true);
+        return;
+    }
+
+    qInfo().noquote()
+        << "[AIRunClient] terminal"
+        << "runId=" + runId
+        << "status=" + status
+        << "phase=" + phase
+        << "elapsedMs=" + QString::number(
+            m_activeRunClock.isValid() ? m_activeRunClock.elapsed() : -1
+        )
+        << "events=" + QString::number(m_runDiagnosticEventCount)
+        << "deltas=" + QString::number(m_runDiagnosticDeltaCount)
+        << "characters=" + QString::number(m_runDiagnosticDeltaCharacters)
+        << "subscriptions=" + QString::number(m_runDiagnosticSubscriptions);
+
+    if (status == QStringLiteral("completed")) {
+        updateMessageStatus(
+            m_activeRunAssistantMessageId,
+            QStringLiteral("complete")
+        );
+    } else if (status == QStringLiteral("cancelled")) {
+        updateMessageStatus(
+            m_activeRunAssistantMessageId,
+            QStringLiteral("cancelled")
+        );
+    } else {
+        updateMessageStatus(
+            m_activeRunAssistantMessageId,
+            QStringLiteral("failed")
+        );
+
+        const QString message = run.value(QStringLiteral("errorMessage")).toString();
+
+        if (!message.isEmpty()) {
+            setErrorMessage(message);
+        }
+    }
+
+    promoteSelectedChat();
+    clearActiveRun();
+}
+
+void ChatStore::setActiveRun(const QJsonObject &run)
+{
+    const QString runId = run.value(QStringLiteral("id")).toString();
+
+    if (runId.isEmpty()) {
+        return;
+    }
+
+    const bool changed = runId != m_activeRunId;
+    const QString assistantMessageId = run
+        .value(QStringLiteral("assistantMessageId"))
+        .toString();
+
+    m_activeRunId = runId;
+    m_activeRunAssistantMessageId = assistantMessageId;
+    m_runPhase = run.value(QStringLiteral("phase")).toString();
+    m_cancellingRun = false;
+    m_runSnapshotPending = false;
+
+    if (changed) {
+        QString initialContent;
+
+        m_runActivity = {
+            {
+                QStringLiteral("provider"),
+                run.value(QStringLiteral("provider")).toString()
+            },
+            {
+                QStringLiteral("model"),
+                run.value(QStringLiteral("model")).toString()
+            },
+        };
+
+        for (const QVariant &value : m_messages) {
+            const QVariantMap message = value.toMap();
+
+            if (
+                message.value(QStringLiteral("id")).toString()
+                == assistantMessageId
+            ) {
+                initialContent = message
+                    .value(QStringLiteral("content"))
+                    .toString();
+                break;
+            }
+        }
+
+        m_runDeltaFlushTimer.stop();
+        m_pendingRunDelta.clear();
+        m_activeRunContent = initialContent;
+        m_lastRunEventSequence = 0;
+        m_runReconnectAttempts = 0;
+        m_runDiagnosticEventCount = 0;
+        m_runDiagnosticDeltaCount = 0;
+        m_runDiagnosticDeltaCharacters = 0;
+        m_runDiagnosticSubscriptions = 0;
+        m_runEventBuffer.clear();
+        m_activeRunClock.restart();
+        emit activeRunContentChanged();
+
+        qInfo().noquote()
+            << "[AIRunClient] attached"
+            << "runId=" + runId
+            << "assistantMessageId=" + assistantMessageId
+            << "phase=" + m_runPhase;
+    }
+
+    setResponding(
+        run.value(QStringLiteral("status")).toString()
+            == QStringLiteral("running")
+    );
+    emit activeRunChanged();
+}
+
+void ChatStore::setRunPhase(const QString &phase)
+{
+    if (m_runPhase == phase) {
+        return;
+    }
+
+    m_runPhase = phase;
+    emit activeRunChanged();
+}
+
+void ChatStore::updateRunActivity(
+    const QString &eventType,
+    const QJsonObject &payload
+)
+{
+    QVariantMap nextActivity = m_runActivity;
+
+    if (eventType == QStringLiteral("run.started")) {
+        nextActivity.insert(
+            QStringLiteral("attachedFiles"),
+            payload.value(QStringLiteral("attachedFiles")).toArray().toVariantList()
+        );
+        nextActivity.insert(
+            QStringLiteral("provider"),
+            payload.value(QStringLiteral("provider")).toString()
+        );
+        nextActivity.insert(
+            QStringLiteral("model"),
+            payload.value(QStringLiteral("model")).toString()
+        );
+    } else if (eventType == QStringLiteral("retrieval.started")) {
+        nextActivity.insert(QStringLiteral("retrievalStarted"), true);
+    } else if (eventType == QStringLiteral("retrieval.completed")) {
+        nextActivity.insert(QStringLiteral("retrievalComplete"), true);
+        nextActivity.insert(
+            QStringLiteral("attachedSourceCount"),
+            payload.value(QStringLiteral("attachedSourceCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("attachedSources"),
+            payload.value(QStringLiteral("attachedSources")).toArray().toVariantList()
+        );
+        nextActivity.insert(
+            QStringLiteral("retrievedSourceCount"),
+            payload.value(QStringLiteral("retrievedSourceCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("retrievedFileCount"),
+            payload.value(QStringLiteral("retrievedFileCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("retrievedSources"),
+            payload.value(QStringLiteral("retrievedSources")).toArray().toVariantList()
+        );
+        nextActivity.insert(
+            QStringLiteral("warningCount"),
+            payload.value(QStringLiteral("warningCount")).toInt()
+        );
+    } else if (eventType == QStringLiteral("context.started")) {
+        nextActivity.insert(QStringLiteral("contextStarted"), true);
+    } else if (eventType == QStringLiteral("context.completed")) {
+        nextActivity.insert(QStringLiteral("contextComplete"), true);
+        nextActivity.insert(
+            QStringLiteral("includedMessageCount"),
+            payload.value(QStringLiteral("includedMessageCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("omittedMessageCount"),
+            payload.value(QStringLiteral("omittedMessageCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("estimatedInputTokens"),
+            payload.value(QStringLiteral("estimatedInputTokens")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("sourceCount"),
+            payload.value(QStringLiteral("sourceCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("warningCount"),
+            payload.value(QStringLiteral("warningCount")).toInt()
+        );
+    } else if (eventType == QStringLiteral("model.started")) {
+        nextActivity.insert(QStringLiteral("modelStarted"), true);
+        nextActivity.insert(
+            QStringLiteral("provider"),
+            payload.value(QStringLiteral("provider")).toString()
+        );
+        nextActivity.insert(
+            QStringLiteral("model"),
+            payload.value(QStringLiteral("model")).toString()
+        );
+    } else if (eventType == QStringLiteral("model.completed")) {
+        nextActivity.insert(QStringLiteral("modelComplete"), true);
+    }
+
+    if (nextActivity == m_runActivity) {
+        return;
+    }
+
+    m_runActivity = nextActivity;
+    emit activeRunChanged();
+}
+
+void ChatStore::setCancellingRun(bool cancelling)
+{
+    if (m_cancellingRun == cancelling) {
+        return;
+    }
+
+    m_cancellingRun = cancelling;
+    emit activeRunChanged();
+}
+
+void ChatStore::clearActiveRun()
+{
+    if (m_runEventReply) {
+        m_runEventReply->disconnect(this);
+        m_runEventReply->abort();
+        m_runEventReply->deleteLater();
+        m_runEventReply = nullptr;
+    }
+
+    const bool hadRun = !m_activeRunId.isEmpty()
+        || !m_runPhase.isEmpty()
+        || !m_runActivity.isEmpty()
+        || m_cancellingRun;
+    const bool hadActiveContent = !m_activeRunContent.isEmpty();
+
+    if (
+        !m_activeRunAssistantMessageId.isEmpty()
+        && hadActiveContent
+    ) {
+        updateMessageContent(
+            m_activeRunAssistantMessageId,
+            m_activeRunContent
+        );
+    }
+
+    m_runDeltaFlushTimer.stop();
+    m_activeRunId.clear();
+    m_activeRunAssistantMessageId.clear();
+    m_activeRunContent.clear();
+    m_runPhase.clear();
+    m_runActivity.clear();
+    m_pendingRunDelta.clear();
+    m_runEventBuffer.clear();
+    m_lastRunEventSequence = 0;
+    m_runReconnectAttempts = 0;
+    m_runDiagnosticEventCount = 0;
+    m_runDiagnosticDeltaCount = 0;
+    m_runDiagnosticDeltaCharacters = 0;
+    m_runDiagnosticSubscriptions = 0;
+    m_activeRunClock.invalidate();
+    m_cancellingRun = false;
+    m_runSnapshotPending = false;
+    setResponding(false);
+
+    if (hadActiveContent) {
+        emit activeRunContentChanged();
+    }
+
+    if (hadRun) {
+        emit activeRunChanged();
+    }
+}
+
+void ChatStore::flushPendingRunDelta()
+{
+    if (m_pendingRunDelta.isEmpty()) {
+        return;
+    }
+
+    m_activeRunContent.append(m_pendingRunDelta);
+    m_pendingRunDelta.clear();
+    emit activeRunContentChanged();
+}
+
+void ChatStore::updateMessageContent(
+    const QString &messageId,
+    const QString &content
+)
+{
+    if (messageId.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextMessages = m_messages;
+
+    for (qsizetype index = 0; index < nextMessages.size(); ++index) {
+        QVariantMap message = nextMessages.at(index).toMap();
+
+        if (message.value(QStringLiteral("id")).toString() != messageId) {
+            continue;
+        }
+
+        message.insert(QStringLiteral("content"), content);
+        nextMessages[index] = message;
+        setMessages(nextMessages);
+        return;
+    }
+}
+
+void ChatStore::updateMessageStatus(
+    const QString &messageId,
+    const QString &status
+)
+{
+    if (messageId.isEmpty() || status.isEmpty()) {
+        return;
+    }
+
+    QVariantList nextMessages = m_messages;
+
+    for (qsizetype index = 0; index < nextMessages.size(); ++index) {
+        QVariantMap message = nextMessages.at(index).toMap();
+
+        if (message.value(QStringLiteral("id")).toString() != messageId) {
+            continue;
+        }
+
+        message.insert(QStringLiteral("status"), status);
+        nextMessages[index] = message;
+        setMessages(nextMessages);
+        return;
+    }
 }
 
 void ChatStore::refresh()
@@ -542,6 +1370,7 @@ void ChatStore::refreshSelectedMessages()
         const MessagePage page = mapMessagePage(result.object);
         setMessages(page.messages);
         setMessagePageState(page.hasMore, page.nextBeforeMessageId);
+        resumeActiveRunForSelectedChat();
     });
 }
 
@@ -681,88 +1510,182 @@ void ChatStore::sendMessage(const QString &content)
         return;
     }
 
+    const QString requestedChatId = m_selectedChatId;
+    const QString optimisticUserId = QStringLiteral("optimistic-user-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString optimisticAssistantId = QStringLiteral("optimistic-assistant-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+
     setErrorMessage({});
     setResponding(true);
+    setRunPhase(QStringLiteral("run.started"));
 
     QVariantList nextMessages = m_messages;
     nextMessages.append(optimisticMessage(
-        QStringLiteral("optimistic-user-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)),
-        m_selectedChatId,
+        optimisticUserId,
+        requestedChatId,
         QStringLiteral("user"),
         trimmedContent
     ));
     nextMessages.append(optimisticMessage(
-        QStringLiteral("optimistic-assistant-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)),
-        m_selectedChatId,
+        optimisticAssistantId,
+        requestedChatId,
         QStringLiteral("assistant"),
-        QStringLiteral("Thinking…")
+        QString{}
     ));
     setMessages(nextMessages);
 
     QJsonObject body;
     body.insert(QStringLiteral("content"), trimmedContent);
 
-    const QString path = QStringLiteral("/chats/%1/respond")
-        .arg(encodedPathSegment(m_selectedChatId));
+    const QString path = QStringLiteral("/chats/%1/runs")
+        .arg(encodedPathSegment(requestedChatId));
     QNetworkReply *reply = m_network.post(
         requestFor(path),
         QJsonDocument(body).toJson(QJsonDocument::Compact)
     );
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setResponding(false);
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [
+            this,
+            reply,
+            requestedChatId,
+            optimisticUserId,
+            optimisticAssistantId
+        ]() {
+            const JsonReplyResult result = consumeJsonReply(reply);
+            reply->deleteLater();
 
-        if (!result.ok) {
-            QVariantList failedMessages;
-            failedMessages.reserve(m_messages.size());
-
-            for (const QVariant &value : m_messages) {
-                QVariantMap message = value.toMap();
-                const QString id = message.value(QStringLiteral("id")).toString();
-
-                if (id.startsWith(QStringLiteral("optimistic-assistant-"))) {
-                    continue;
-                }
-
-                if (id.startsWith(QStringLiteral("optimistic-user-"))) {
-                    message.insert(QStringLiteral("status"), QStringLiteral("failed"));
-                }
-
-                failedMessages.append(message);
+            if (requestedChatId != m_selectedChatId) {
+                clearActiveRun();
+                return;
             }
 
-            setMessages(failedMessages);
-            setErrorMessage(result.errorMessage);
+            if (!result.ok) {
+                QVariantList failedMessages;
+                failedMessages.reserve(m_messages.size());
+
+                for (const QVariant &value : m_messages) {
+                    QVariantMap message = value.toMap();
+                    const QString id = message
+                        .value(QStringLiteral("id"))
+                        .toString();
+
+                    if (id == optimisticAssistantId) {
+                        continue;
+                    }
+
+                    if (id == optimisticUserId) {
+                        message.insert(
+                            QStringLiteral("status"),
+                            QStringLiteral("failed")
+                        );
+                    }
+
+                    failedMessages.append(message);
+                }
+
+                setMessages(failedMessages);
+                clearActiveRun();
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            QVariantList storedMessages;
+            storedMessages.reserve(m_messages.size());
+
+            for (const QVariant &value : m_messages) {
+                const QString id = value
+                    .toMap()
+                    .value(QStringLiteral("id"))
+                    .toString();
+
+                if (
+                    id != optimisticUserId
+                    && id != optimisticAssistantId
+                ) {
+                    storedMessages.append(value);
+                }
+            }
+
+            const QJsonObject userMessage = result.object
+                .value(QStringLiteral("userMessage"))
+                .toObject();
+            const QJsonObject assistantMessage = result.object
+                .value(QStringLiteral("assistantMessage"))
+                .toObject();
+            const QJsonObject run = result.object
+                .value(QStringLiteral("run"))
+                .toObject();
+
+            storedMessages.append(mapMessage(userMessage));
+            storedMessages.append(mapMessage(assistantMessage));
+            setMessages(storedMessages);
+            setActiveRun(run);
+            setCompletionMetadata(
+                run.value(QStringLiteral("provider")).toString(),
+                run.value(QStringLiteral("model")).toString()
+            );
+
+            if (m_activeRunId.isEmpty()) {
+                clearActiveRun();
+                setErrorMessage(
+                    QStringLiteral("Archivist API returned an invalid AI Run.")
+                );
+                return;
+            }
+
+            subscribeToRunEvents(m_activeRunId);
+        }
+    );
+}
+
+void ChatStore::cancelActiveRun()
+{
+    if (
+        m_activeRunId.isEmpty()
+        || !m_responding
+        || m_cancellingRun
+    ) {
+        return;
+    }
+
+    const QString runId = m_activeRunId;
+    setCancellingRun(true);
+
+    qInfo().noquote()
+        << "[AIRunClient] cancel requested"
+        << "runId=" + runId
+        << "characters=" + QString::number(m_activeRunContent.size())
+        << "elapsedMs=" + QString::number(
+            m_activeRunClock.isValid() ? m_activeRunClock.elapsed() : -1
+        );
+
+    const QString path = QStringLiteral("/runs/%1/cancel")
+        .arg(encodedPathSegment(runId));
+    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, runId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+
+        if (runId != m_activeRunId) {
             return;
         }
 
-        QVariantList storedMessages;
-        storedMessages.reserve(m_messages.size());
-
-        for (const QVariant &value : m_messages) {
-            const QString id = value.toMap().value(QStringLiteral("id")).toString();
-            if (!id.startsWith(QStringLiteral("optimistic-"))) {
-                storedMessages.append(value);
-            }
+        if (!result.ok) {
+            setCancellingRun(false);
+            setErrorMessage(result.errorMessage);
+            requestRunSnapshot(runId, true);
+            return;
         }
 
-        storedMessages.append(mapMessage(
-            result.object.value(QStringLiteral("userMessage")).toObject()
-        ));
-        QVariantMap assistantMessage = mapMessage(
-            result.object.value(QStringLiteral("assistantMessage")).toObject()
+        applyRunSnapshot(
+            result.object.value(QStringLiteral("run")).toObject()
         );
-        assistantMessage.insert(QStringLiteral("animateReveal"), true);
-        storedMessages.append(assistantMessage);
-        setMessages(storedMessages);
-        setCompletionMetadata(
-            result.object.value(QStringLiteral("provider")).toString(),
-            result.object.value(QStringLiteral("model")).toString(),
-            result.object.value(QStringLiteral("attachmentSources")).toArray().toVariantList()
-        );
-        promoteSelectedChat();
     });
 }
 

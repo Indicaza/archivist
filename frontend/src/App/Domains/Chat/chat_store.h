@@ -1,12 +1,18 @@
 #pragma once
 
+#include <QByteArray>
+#include <QElapsedTimer>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+
+class QNetworkReply;
 
 class ChatStore final : public QObject
 {
@@ -28,6 +34,13 @@ class ChatStore final : public QObject
     Q_PROPERTY(bool loadingOlderMessages READ loadingOlderMessages NOTIFY loadingOlderMessagesChanged)
     Q_PROPERTY(bool hasOlderMessages READ hasOlderMessages NOTIFY hasOlderMessagesChanged)
     Q_PROPERTY(bool responding READ responding NOTIFY respondingChanged)
+    Q_PROPERTY(QString activeRunId READ activeRunId NOTIFY activeRunChanged)
+    Q_PROPERTY(QString activeRunAssistantMessageId READ activeRunAssistantMessageId NOTIFY activeRunChanged)
+    Q_PROPERTY(QString activeRunContent READ activeRunContent NOTIFY activeRunContentChanged)
+    Q_PROPERTY(QString runPhase READ runPhase NOTIFY activeRunChanged)
+    Q_PROPERTY(QString runPhaseLabel READ runPhaseLabel NOTIFY activeRunChanged)
+    Q_PROPERTY(QVariantMap runActivity READ runActivity NOTIFY activeRunChanged)
+    Q_PROPERTY(bool cancellingRun READ cancellingRun NOTIFY activeRunChanged)
     Q_PROPERTY(bool assigningAgent READ assigningAgent NOTIFY assigningAgentChanged)
     Q_PROPERTY(bool mutating READ mutating NOTIFY mutatingChanged)
     Q_PROPERTY(bool mutatingAttachment READ mutatingAttachment NOTIFY mutatingAttachmentChanged)
@@ -56,6 +69,13 @@ public:
     [[nodiscard]] bool loadingOlderMessages() const;
     [[nodiscard]] bool hasOlderMessages() const;
     [[nodiscard]] bool responding() const;
+    [[nodiscard]] QString activeRunId() const;
+    [[nodiscard]] QString activeRunAssistantMessageId() const;
+    [[nodiscard]] QString activeRunContent() const;
+    [[nodiscard]] QString runPhase() const;
+    [[nodiscard]] QString runPhaseLabel() const;
+    [[nodiscard]] QVariantMap runActivity() const;
+    [[nodiscard]] bool cancellingRun() const;
     [[nodiscard]] bool assigningAgent() const;
     [[nodiscard]] bool mutating() const;
     [[nodiscard]] bool mutatingAttachment() const;
@@ -76,6 +96,7 @@ public:
     Q_INVOKABLE void refreshSelectedAttachments();
     Q_INVOKABLE void loadOlderMessages();
     Q_INVOKABLE void sendMessage(const QString &content);
+    Q_INVOKABLE void cancelActiveRun();
     Q_INVOKABLE void finishMessageReveal(const QString &messageId);
     Q_INVOKABLE void assignAgentToSelectedChat(const QString &agentId);
     Q_INVOKABLE void attachAgentToSelectedChat(const QString &agentId);
@@ -106,6 +127,8 @@ signals:
     void loadingOlderMessagesChanged();
     void hasOlderMessagesChanged();
     void respondingChanged();
+    void activeRunChanged();
+    void activeRunContentChanged();
     void assigningAgentChanged();
     void mutatingChanged();
     void mutatingAttachmentChanged();
@@ -126,6 +149,21 @@ signals:
 private:
     [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
     void fetchAppState();
+    void resumeActiveRunForSelectedChat();
+    void subscribeToRunEvents(const QString &runId, int afterSequence = 0);
+    void processRunEventStream();
+    void processRunEventBlock(const QByteArray &eventBlock);
+    void handleRunEvent(const QJsonObject &event);
+    void requestRunSnapshot(const QString &runId, bool reconnectIfRunning);
+    void applyRunSnapshot(const QJsonObject &run);
+    void setActiveRun(const QJsonObject &run);
+    void setRunPhase(const QString &phase);
+    void updateRunActivity(const QString &eventType, const QJsonObject &payload);
+    void setCancellingRun(bool cancelling);
+    void clearActiveRun();
+    void flushPendingRunDelta();
+    void updateMessageContent(const QString &messageId, const QString &content);
+    void updateMessageStatus(const QString &messageId, const QString &status);
     void setChats(const QVariantList &chats);
     void setArchivedChats(const QVariantList &chats);
     void setSelectedChatId(const QString &chatId);
@@ -163,6 +201,9 @@ private:
     [[nodiscard]] bool containsChat(const QString &chatId) const;
 
     QNetworkAccessManager m_network;
+    QElapsedTimer m_activeRunClock;
+    QNetworkReply *m_runEventReply = nullptr;
+    QTimer m_runDeltaFlushTimer;
     QUrl m_baseUrl;
     QVariantList m_chats;
     QVariantList m_archivedChats;
@@ -180,6 +221,21 @@ private:
     bool m_loadingOlderMessages = false;
     bool m_hasOlderMessages = false;
     bool m_responding = false;
+    bool m_cancellingRun = false;
+    bool m_runSnapshotPending = false;
+    QString m_activeRunId;
+    QString m_activeRunAssistantMessageId;
+    QString m_activeRunContent;
+    QString m_runPhase;
+    QVariantMap m_runActivity;
+    QString m_pendingRunDelta;
+    QByteArray m_runEventBuffer;
+    int m_lastRunEventSequence = 0;
+    int m_runReconnectAttempts = 0;
+    int m_runDiagnosticEventCount = 0;
+    int m_runDiagnosticDeltaCount = 0;
+    int m_runDiagnosticDeltaCharacters = 0;
+    int m_runDiagnosticSubscriptions = 0;
     bool m_assigningAgent = false;
     bool m_mutating = false;
     bool m_mutatingAttachment = false;

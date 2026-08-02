@@ -5,6 +5,7 @@ import {
   getChat,
   getChatMessageContext,
   getChatMessages,
+  getChatRuns,
   getChats,
   patchChat,
   patchSelectedChat,
@@ -14,6 +15,7 @@ import {
   postChat,
   postChatMessage,
   postChatResponse,
+  postChatRun,
   postRestoreChat,
   removeChat,
   removeChatAgent,
@@ -69,3 +71,5 @@ chatRouter.get(
 chatRouter.post("/:chatId/messages", postChatMessage);
 
 chatRouter.post("/:chatId/respond", postChatResponse);
+chatRouter.get("/:chatId/runs", getChatRuns);
+chatRouter.post("/:chatId/runs", postChatRun);

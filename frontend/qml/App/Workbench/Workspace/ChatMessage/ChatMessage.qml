@@ -10,6 +10,9 @@ Item {
     required property string content
     required property string timestamp
     required property string status
+    required property string progressLabel
+    required property var activity
+    required property var attachedFiles
     required property bool animateReveal
     required property real leftObstruction
 
@@ -20,9 +23,15 @@ Item {
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
     readonly property bool providerWaiting: status === "streaming"
+    readonly property bool waitingForFirstOutput: providerWaiting
+        && content.trim().length === 0
     readonly property bool streamingMessage: providerWaiting
         || richContent.revealing
     readonly property bool failedMessage: status === "failed"
+    readonly property bool cancelledMessage: status === "cancelled"
+    readonly property string activityLabel: progressLabel.trim().length > 0
+        ? progressLabel
+        : "Working…"
     readonly property real idealContentZoneWidth: Math.min(
         Math.max(0, width - theme.messageHorizontalInset * 2),
         theme.transcriptContentWidth
@@ -119,15 +128,27 @@ Item {
                         Text {
                             text: root.failedMessage
                                 ? "FAILED"
-                                : root.streamingMessage
-                                    ? "WORKING"
-                                    : root.timestamp
+                                : root.cancelledMessage
+                                    ? "STOPPED"
+                                    : root.streamingMessage
+                                        ? root.activityLabel
+                                        : root.timestamp
                             color: root.failedMessage
                                 ? root.theme.danger
-                                : root.theme.mutedText
+                                : root.cancelledMessage
+                                    ? root.theme.accentBright
+                                    : root.streamingMessage
+                                        ? root.theme.accentBright
+                                        : root.theme.mutedText
                             font.family: root.theme.chatFontFamily
                             font.pixelSize: root.theme.typeSize(9)
-                            opacity: root.failedMessage ? 0.9 : 0.52
+                            opacity: root.failedMessage
+                                ? 0.9
+                                : root.cancelledMessage
+                                    ? 0.72
+                                    : root.streamingMessage
+                                        ? 0.78
+                                        : 0.52
                         }
                     }
 
@@ -139,6 +160,8 @@ Item {
                         visible: !root.userMessage
                             && !root.systemMessage
                             && !root.streamingMessage
+                            && !root.failedMessage
+                            && !root.cancelledMessage
                             && root.messageId.length > 0
                         text: "Context"
                         hoverEnabled: true
@@ -184,12 +207,46 @@ Item {
                 }
             }
 
+            RunActivityCard {
+                id: activityCard
+
+                visible: root.waitingForFirstOutput
+                    && !root.userMessage
+                    && !root.systemMessage
+                width: parent.width
+                height: visible ? implicitHeight : 0
+                opacity: visible ? 1 : 0
+                theme: root.theme
+                activity: root.activity
+                attachedFiles: root.attachedFiles
+                progressLabel: root.activityLabel
+
+                Behavior on height {
+                    NumberAnimation {
+                        duration: root.theme.motionHover
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: root.theme.motionHover
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+
             Item {
                 id: surfaceFrame
 
+                visible: !root.waitingForFirstOutput
                 width: parent.width
-                height: richContent.implicitHeight
-                    + (root.userMessage ? 30 : root.systemMessage ? 32 : 4)
+                height: visible
+                    ? (root.providerWaiting
+                        ? streamingContent.contentHeight
+                        : richContent.implicitHeight)
+                        + (root.userMessage ? 30 : root.systemMessage ? 32 : 4)
+                    : 0
 
                 Rectangle {
                     x: 0
@@ -218,11 +275,13 @@ Item {
                     border.width: root.userMessage || root.systemMessage ? 1 : 0
                     border.color: root.failedMessage
                         ? root.theme.danger
-                        : root.userMessage
+                        : root.cancelledMessage
                             ? root.theme.quietBorder
-                            : root.systemMessage
+                            : root.userMessage
                                 ? root.theme.quietBorder
-                                : root.theme.panelBorder
+                                : root.systemMessage
+                                    ? root.theme.quietBorder
+                                    : root.theme.panelBorder
                     antialiasing: true
                     clip: root.userMessage || root.systemMessage
                     opacity: root.providerWaiting ? 0.82 : 1
@@ -237,8 +296,45 @@ Item {
                         radius: 1
                         color: root.failedMessage
                             ? root.theme.danger
-                            : root.theme.accent
-                        opacity: root.failedMessage ? 0.82 : 0
+                            : root.cancelledMessage
+                                ? root.theme.accentBright
+                                : root.theme.accent
+                        opacity: root.failedMessage
+                            ? 0.82
+                            : root.cancelledMessage
+                                ? 0.48
+                                : 0
+                    }
+
+                    TextEdit {
+                        id: streamingContent
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        visible: root.providerWaiting
+                        height: visible ? contentHeight : 0
+                        text: visible ? root.content : ""
+                        color: root.theme.appText
+                        font.family: root.theme.chatFontFamily
+                        font.pixelSize: root.theme.typeBody
+                        font.weight: Font.Normal
+                        font.letterSpacing: 0.08
+                        font.kerning: true
+                        font.contextFontMerging: true
+                        font.hintingPreference: Font.PreferNoHinting
+                        font.preferTypoLineMetrics: true
+                        textFormat: TextEdit.PlainText
+                        textMargin: 0
+                        wrapMode: TextEdit.Wrap
+                        readOnly: true
+                        selectByMouse: true
+                        selectByKeyboard: true
+                        persistentSelection: true
+                        cursorVisible: false
+                        selectionColor: root.theme.messageSelectionBg
+                        selectedTextColor: root.theme.messageSelectionText
+                        renderType: TextEdit.NativeRendering
                     }
 
                     RichMessageContent {
@@ -262,8 +358,9 @@ Item {
                             : root.systemMessage
                                 ? 16
                                 : 0
+                        visible: !root.providerWaiting
                         theme: root.theme
-                        content: root.content
+                        content: root.providerWaiting ? "" : root.content
                         compact: root.userMessage || root.systemMessage
                         animateReveal: root.animateReveal
                             && !root.userMessage

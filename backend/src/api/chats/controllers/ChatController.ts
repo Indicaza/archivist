@@ -1,5 +1,7 @@
 import type { RequestHandler } from "express";
 import { requireContextRunByAssistantMessage } from "../../cognition/contextRuns/models/ContextRun.js";
+import { listAIRunsByChatId } from "../../cognition/runs/models/AIRun.js";
+import { startChatRun } from "../../cognition/runs/services/ChatRunService.js";
 import { AppError } from "../../../errors/app-error.js";
 import {
   createChatFileAttachment,
@@ -315,6 +317,33 @@ export const postChatResponse: RequestHandler = async (request, response) => {
   response.status(201).json({
     ok: true,
     ...result,
+  });
+};
+
+export const getChatRuns: RequestHandler = (request, response) => {
+  const chatId = parseChatId(request.params);
+
+  if (!getChatById(chatId)) {
+    throw new AppError(404, "Chat not found.");
+  }
+
+  response.json({
+    ok: true,
+    runs: listAIRunsByChatId(chatId),
+  });
+};
+
+export const postChatRun: RequestHandler = (request, response) => {
+  const chatId = parseChatId(request.params);
+  const body = completeChatTurnSchema.safeParse(request.body);
+
+  if (!body.success) {
+    throw new AppError(400, "Invalid Chat message.", body.error.flatten());
+  }
+
+  response.status(202).json({
+    ok: true,
+    ...startChatRun(chatId, body.data.content),
   });
 };
 

@@ -13,6 +13,7 @@ import type {
   CreateMessageInput,
   DeleteChatResult,
   UpdateChatInput,
+  UpdateMessageInput,
 } from "../types/ChatTypes.js";
 
 type ChatRow = {
@@ -687,6 +688,62 @@ export function createMessage(
   });
 
   return createTransaction();
+}
+
+export function getMessageById(messageId: string): ChatMessage | null {
+  const row = database
+    .prepare(
+      `
+        SELECT
+          id,
+          chat_id,
+          role,
+          content,
+          status,
+          created_at,
+          updated_at
+        FROM messages
+        WHERE id = ?
+      `,
+    )
+    .get(messageId) as MessageRow | undefined;
+
+  return row ? mapMessage(row) : null;
+}
+
+export function updateMessage(
+  messageId: string,
+  input: UpdateMessageInput,
+): ChatMessage {
+  const currentMessage = getMessageById(messageId);
+
+  if (!currentMessage) {
+    throw new AppError(404, "Message not found.");
+  }
+
+  const content = input.content ?? currentMessage.content;
+  const status = input.status ?? currentMessage.status;
+
+  database
+    .prepare(
+      `
+        UPDATE messages
+        SET
+          content = ?,
+          status = ?,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE id = ?
+      `,
+    )
+    .run(content, status, messageId);
+
+  const updatedMessage = getMessageById(messageId);
+
+  if (!updatedMessage) {
+    throw new Error("The updated message could not be loaded.");
+  }
+
+  return updatedMessage;
 }
 
 export function selectChat(chatId: string | null): string | null {

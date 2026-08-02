@@ -363,6 +363,7 @@ Rectangle {
     function scheduleChatViewportSave() {
         if (
             root.restoringChatViewport
+            || ChatStore.responding
             || root.trackedChatViewportKey.length === 0
             || !root.hasSelectedChat
         ) {
@@ -598,6 +599,21 @@ Rectangle {
         }
     }
 
+    function followActiveRunToEnd() {
+        if (
+            !ChatStore.responding
+            || !root.revealFollowEnabled
+            || transcript.count === 0
+            || transcript.dragging
+            || transcript.flicking
+        ) {
+            return
+        }
+
+        transcript.forceLayout()
+        transcript.positionViewAtEnd()
+    }
+
     function canPrefetchHistory() {
         return transcript.visible
             && ChatStore.hasOlderMessages
@@ -723,6 +739,18 @@ Rectangle {
                 return
             }
 
+            if (ChatStore.responding) {
+                if (
+                    root.revealFollowEnabled
+                    || transcript.nearEnd
+                    || ChatStore.runPhase === "run.started"
+                ) {
+                    root.revealFollowEnabled = true
+                    liveRunFollowTimer.restart()
+                }
+                return
+            }
+
             root.scheduleScrollToEnd()
         }
 
@@ -816,6 +844,14 @@ Rectangle {
         interval: 16
         repeat: false
         onTriggered: root.positionAtEnd()
+    }
+
+    Timer {
+        id: liveRunFollowTimer
+
+        interval: 16
+        repeat: false
+        onTriggered: root.followActiveRunToEnd()
     }
 
     SmoothedAnimation {
@@ -933,7 +969,7 @@ Rectangle {
                                 ? "Preview unavailable"
                                 : "Read-only preview"
                     : ChatStore.responding
-                        ? "Archivist is thinking"
+                        ? ChatStore.runPhaseLabel
                         : ChatStore.lastModel.length > 0
                             ? ChatStore.lastProvider + "  ·  " + ChatStore.lastModel
                             : root.hasSelectedChat
@@ -1347,7 +1383,12 @@ Rectangle {
         }
 
         onContentHeightChanged: {
-            if (root.scrollToEndPending) {
+            if (
+                ChatStore.responding
+                && root.revealFollowEnabled
+            ) {
+                liveRunFollowTimer.restart()
+            } else if (root.scrollToEndPending) {
                 scrollToEndTimer.restart()
             }
         }
@@ -1395,9 +1436,27 @@ Rectangle {
             theme: root.theme
             messageId: String(modelData.id || "")
             role: String(modelData.role || "system")
-            content: String(modelData.content || "")
+            content: String(modelData.id || "")
+                    === ChatStore.activeRunAssistantMessageId
+                ? ChatStore.activeRunContent
+                : String(modelData.content || "")
             timestamp: String(modelData.displayTimestamp || "")
             status: String(modelData.status || "complete")
+            progressLabel: String(modelData.id || "")
+                    === ChatStore.activeRunAssistantMessageId
+                ? ChatStore.runPhaseLabel
+                : String(modelData.role || "") === "assistant"
+                    && String(modelData.status || "") === "streaming"
+                    ? "Starting Run…"
+                    : ""
+            activity: String(modelData.id || "")
+                    === ChatStore.activeRunAssistantMessageId
+                ? ChatStore.runActivity
+                : ({})
+            attachedFiles: String(modelData.role || "") === "assistant"
+                    && String(modelData.status || "") === "streaming"
+                ? ChatStore.attachments
+                : []
             animateReveal: Boolean(modelData.animateReveal || false)
             leftObstruction: root.leftObstruction
             onContextInspectionRequested: function(messageId) {

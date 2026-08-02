@@ -16,6 +16,7 @@
     "check-node": "node scripts/check-node-version.mjs",
     "test:chat-agents": "npm run check-node && npm run build -w backend && node scripts/test-chat-agent-rosters.mjs",
     "test:collections": "npm run check-node && npm run build -w backend && node scripts/test-collections.mjs",
+    "test:ai-runtime": "npm run check-node && npm run build -w backend && node scripts/test-ai-runtime.mjs",
     "test:library-index": "npm run check-node && node scripts/test-library-index.mjs",
     "dev": "./scripts/qt-dev-detached --follow",
     "dev:detached": "./scripts/qt-dev-detached",

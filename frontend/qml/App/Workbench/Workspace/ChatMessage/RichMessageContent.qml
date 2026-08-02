@@ -133,9 +133,7 @@ Item {
         })
     }
 
-    Component.onCompleted: Qt.callLater(function() {
-        root.configureReveal()
-    })
+    Component.onCompleted: revealSetupTimer.start()
 
     onAnimateRevealChanged: {
         if (revealInitialized) {
@@ -144,9 +142,19 @@ Item {
     }
 
     onContentChanged: {
-        if (revealInitialized) {
-            configureReveal()
+        if (!revealInitialized) {
+            return
         }
+
+        if (animateReveal) {
+            configureReveal()
+            return
+        }
+
+        revealTimer.stop()
+        revealFinishTimer.stop()
+        revealPosition = totalRevealLength
+        revealing = false
     }
 
     function fenceDescriptor(line) {
@@ -654,6 +662,14 @@ Item {
         id: cometGlyphComponent
 
         CometGlyph {}
+    }
+
+    Timer {
+        id: revealSetupTimer
+
+        interval: 0
+        repeat: false
+        onTriggered: root.configureReveal()
     }
 
     Timer {

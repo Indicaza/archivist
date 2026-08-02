@@ -82,6 +82,11 @@ export type CreateMessageInput = {
   status?: MessageStatus;
 };
 
+export type UpdateMessageInput = {
+  content?: string;
+  status?: MessageStatus;
+};
+
 export type ArchiveChatResult = {
   chat: Chat;
   selectedChatId: string | null;
