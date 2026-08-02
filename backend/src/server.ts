@@ -4,9 +4,11 @@ import { closeDatabase } from "./database/database.js";
 import { recoverInterruptedLibraryScans } from "./api/libraries/models/LibraryFile.js";
 import { installTerminalSocketServer } from "./api/terminals/services/TerminalSocketServer.js";
 import { languageSupportSocketServer } from "./api/languageSupport/services/LanguageSupportSocketServer.js";
+import { recoverInterruptedAIRuns } from "./api/cognition/runs/models/AIRun.js";
 
 const port = Number(process.env.PORT ?? 3333);
 const recoveredScanCount = recoverInterruptedLibraryScans();
+const recoveredRunCount = recoverInterruptedAIRuns();
 
 await languageSupportSocketServer.start();
 
@@ -15,6 +17,14 @@ if (recoveredScanCount > 0) {
     `[Library scan] Recovered ${recoveredScanCount} interrupted scan${
       recoveredScanCount === 1 ? "" : "s"
     }.`,
+  );
+}
+
+if (recoveredRunCount > 0) {
+  console.warn(
+    `[AI Run] Marked ${recoveredRunCount} interrupted Run${
+      recoveredRunCount === 1 ? "" : "s"
+    } as failed.`,
   );
 }
 

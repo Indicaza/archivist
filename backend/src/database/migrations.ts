@@ -1018,6 +1018,86 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 17,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE ai_runs (
+          id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          library_id TEXT,
+          agent_id TEXT NOT NULL,
+          user_message_id TEXT NOT NULL UNIQUE,
+          assistant_message_id TEXT NOT NULL UNIQUE,
+          context_run_id TEXT,
+          context_compiler_id TEXT NOT NULL,
+          context_compiler_version INTEGER NOT NULL CHECK (
+            context_compiler_version > 0
+          ),
+          status TEXT NOT NULL DEFAULT 'running' CHECK (
+            status IN ('running', 'completed', 'cancelled', 'failed')
+          ),
+          phase TEXT NOT NULL DEFAULT 'run.started',
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          final_response TEXT,
+          error_code TEXT,
+          error_message TEXT,
+          started_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          completed_at TEXT,
+          cancelled_at TEXT,
+          FOREIGN KEY (chat_id)
+            REFERENCES chats(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE SET NULL,
+          FOREIGN KEY (user_message_id)
+            REFERENCES messages(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (assistant_message_id)
+            REFERENCES messages(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (context_run_id)
+            REFERENCES context_runs(id)
+            ON DELETE SET NULL
+        );
+
+        CREATE INDEX ai_runs_chat_started_at_index
+          ON ai_runs(chat_id, started_at DESC);
+
+        CREATE INDEX ai_runs_status_started_at_index
+          ON ai_runs(status, started_at ASC);
+
+        CREATE UNIQUE INDEX ai_runs_one_active_per_chat
+          ON ai_runs(chat_id)
+          WHERE status = 'running';
+
+        CREATE TABLE ai_run_events (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL CHECK (sequence > 0),
+          event_type TEXT NOT NULL CHECK (length(trim(event_type)) > 0),
+          payload_json TEXT NOT NULL DEFAULT '{}' CHECK (
+            json_valid(payload_json)
+          ),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (run_id)
+            REFERENCES ai_runs(id)
+            ON DELETE CASCADE,
+          UNIQUE (run_id, sequence)
+        );
+
+        CREATE INDEX ai_run_events_run_sequence_index
+          ON ai_run_events(run_id, sequence ASC);
+      `);
+    },
+  },
+
 ];
 
 export function runMigrations(database: Database.Database): void {

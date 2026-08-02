@@ -1178,7 +1178,7 @@ Rectangle {
                             && !ChatStore.mutating
                             && !ChatStore.mutatingAttachment
                         placeholderText: ChatStore.responding
-                            ? "Archivist is thinking…"
+                            ? ChatStore.runPhaseLabel
                             : ChatStore.selectedChatId.length > 0
                                 ? "Message " + root.selectedChatTitle + "…"
                                 : "Select a Chat to begin…"
@@ -1298,7 +1298,7 @@ Rectangle {
                                         : ChatStore.mutatingAttachment
                                             ? "Updating attached sources…"
                                             : ChatStore.responding
-                                            ? "Archivist is thinking…"
+                                            ? ChatStore.runPhaseLabel
                                             : ChatStore.selectedChatId.length === 0
                                                 ? "Select a Chat"
                                                 : ChatStore.lastSources.length > 0
@@ -1334,11 +1334,27 @@ Rectangle {
 
                                 Layout.preferredWidth: 74
                                 Layout.preferredHeight: 30
-                                text: ChatStore.responding ? "Working" : "➤  Send"
-                                enabled: root.canSubmit
+                                text: ChatStore.responding
+                                    ? ChatStore.activeRunId.length === 0
+                                        ? "Starting…"
+                                        : ChatStore.cancellingRun
+                                            ? "Stopping…"
+                                            : "■  Stop"
+                                    : "➤  Send"
+                                enabled: ChatStore.responding
+                                    ? ChatStore.activeRunId.length > 0
+                                        && !ChatStore.cancellingRun
+                                    : root.canSubmit
                                 hoverEnabled: true
                                 padding: 0
-                                onClicked: root.submitDraft()
+                                onClicked: {
+                                    if (ChatStore.responding) {
+                                        ChatStore.cancelActiveRun()
+                                        return
+                                    }
+
+                                    root.submitDraft()
+                                }
                                 onHoveredChanged: root.updateHoverIndex(
                                     "composer",
                                     3,
@@ -1364,7 +1380,9 @@ Rectangle {
                                 contentItem: Text {
                                     text: parent.text
                                     color: parent.enabled
-                                        ? root.theme.appText
+                                        ? ChatStore.responding
+                                            ? root.theme.danger
+                                            : root.theme.appText
                                         : root.theme.mutedText
                                     font.pixelSize: root.theme.typeSize(10)
                                     font.weight: Font.Bold
@@ -1375,9 +1393,13 @@ Rectangle {
                                 background: Rectangle {
                                     radius: 4
                                     color: parent.enabled
-                                        ? parent.hovered
-                                            ? "#302d28"
-                                            : "#28251f"
+                                        ? ChatStore.responding
+                                            ? parent.hovered
+                                                ? "#3a2424"
+                                                : "#2d2020"
+                                            : parent.hovered
+                                                ? "#302d28"
+                                                : "#28251f"
                                         : "#1f1d19"
                                     border.width: 0
                                 }
