@@ -209,11 +209,23 @@ export async function completeChatTurnSession(
       attachedFileIds,
     );
 
+    const retrievedFileIds = new Set(
+      retrievalEvidence.manifestSources
+        .map((source) => source.metadata.fileId)
+        .filter(
+          (fileId): fileId is string =>
+            typeof fileId === "string" && fileId.length > 0,
+        ),
+    );
+
     emitEvent(options, {
       type: "retrieval.completed",
       payload: {
         attachedSourceCount: attachmentEvidence.sources.length,
+        attachedSources: attachmentEvidence.sources,
         retrievedSourceCount: retrievalEvidence.manifestSources.length,
+        retrievedFileCount: retrievedFileIds.size,
+        retrievedSources: retrievalEvidence.manifestSources,
         warningCount:
           attachmentEvidence.warnings.length + retrievalEvidence.warnings.length,
       },

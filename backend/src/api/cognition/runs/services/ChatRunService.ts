@@ -3,6 +3,7 @@ import {
   getMessageById,
   updateMessage,
 } from "../../../chats/models/Chat.js";
+import { getChatFileAttachments } from "../../../chats/models/ChatAttachment.js";
 import {
   beginChatTurn,
   completeChatTurnSession,
@@ -142,6 +143,15 @@ export function startChatRun(
   }
 
   const session = beginChatTurn(chatId, content);
+  const attachedFiles = getChatFileAttachments(chatId).map((attachment) => ({
+    attachmentId: attachment.id,
+    libraryId: attachment.libraryId,
+    libraryName: attachment.libraryName,
+    fileId: attachment.fileId,
+    fileName: attachment.fileName,
+    relativePath: attachment.relativePath,
+    fileStatus: attachment.fileStatus,
+  }));
   const run = createAIRun({
     chatId,
     libraryId: session.libraryId,
@@ -165,6 +175,7 @@ export function startChatRun(
     contextCompiler: session.agent.context.compiler,
     provider: session.agent.generation.provider,
     model: session.agent.generation.model,
+    attachedFiles,
   });
 
   queueMicrotask(() => {

@@ -39,6 +39,7 @@ class ChatStore final : public QObject
     Q_PROPERTY(QString activeRunContent READ activeRunContent NOTIFY activeRunContentChanged)
     Q_PROPERTY(QString runPhase READ runPhase NOTIFY activeRunChanged)
     Q_PROPERTY(QString runPhaseLabel READ runPhaseLabel NOTIFY activeRunChanged)
+    Q_PROPERTY(QVariantMap runActivity READ runActivity NOTIFY activeRunChanged)
     Q_PROPERTY(bool cancellingRun READ cancellingRun NOTIFY activeRunChanged)
     Q_PROPERTY(bool assigningAgent READ assigningAgent NOTIFY assigningAgentChanged)
     Q_PROPERTY(bool mutating READ mutating NOTIFY mutatingChanged)
@@ -73,6 +74,7 @@ public:
     [[nodiscard]] QString activeRunContent() const;
     [[nodiscard]] QString runPhase() const;
     [[nodiscard]] QString runPhaseLabel() const;
+    [[nodiscard]] QVariantMap runActivity() const;
     [[nodiscard]] bool cancellingRun() const;
     [[nodiscard]] bool assigningAgent() const;
     [[nodiscard]] bool mutating() const;
@@ -156,6 +158,7 @@ private:
     void applyRunSnapshot(const QJsonObject &run);
     void setActiveRun(const QJsonObject &run);
     void setRunPhase(const QString &phase);
+    void updateRunActivity(const QString &eventType, const QJsonObject &payload);
     void setCancellingRun(bool cancelling);
     void clearActiveRun();
     void flushPendingRunDelta();
@@ -224,6 +227,7 @@ private:
     QString m_activeRunAssistantMessageId;
     QString m_activeRunContent;
     QString m_runPhase;
+    QVariantMap m_runActivity;
     QString m_pendingRunDelta;
     QByteArray m_runEventBuffer;
     int m_lastRunEventSequence = 0;

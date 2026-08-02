@@ -11,6 +11,8 @@ Item {
     required property string timestamp
     required property string status
     required property string progressLabel
+    required property var activity
+    required property var attachedFiles
     required property bool animateReveal
     required property real leftObstruction
 
@@ -21,6 +23,8 @@ Item {
     readonly property bool userMessage: role === "user"
     readonly property bool systemMessage: role === "system"
     readonly property bool providerWaiting: status === "streaming"
+    readonly property bool waitingForFirstOutput: providerWaiting
+        && content.trim().length === 0
     readonly property bool streamingMessage: providerWaiting
         || richContent.revealing
     readonly property bool failedMessage: status === "failed"
@@ -203,14 +207,46 @@ Item {
                 }
             }
 
+            RunActivityCard {
+                id: activityCard
+
+                visible: root.waitingForFirstOutput
+                    && !root.userMessage
+                    && !root.systemMessage
+                width: parent.width
+                height: visible ? implicitHeight : 0
+                opacity: visible ? 1 : 0
+                theme: root.theme
+                activity: root.activity
+                attachedFiles: root.attachedFiles
+                progressLabel: root.activityLabel
+
+                Behavior on height {
+                    NumberAnimation {
+                        duration: root.theme.motionHover
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: root.theme.motionHover
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+
             Item {
                 id: surfaceFrame
 
+                visible: !root.waitingForFirstOutput
                 width: parent.width
-                height: (root.providerWaiting
-                    ? streamingContent.contentHeight
-                    : richContent.implicitHeight)
-                    + (root.userMessage ? 30 : root.systemMessage ? 32 : 4)
+                height: visible
+                    ? (root.providerWaiting
+                        ? streamingContent.contentHeight
+                        : richContent.implicitHeight)
+                        + (root.userMessage ? 30 : root.systemMessage ? 32 : 4)
+                    : 0
 
                 Rectangle {
                     x: 0

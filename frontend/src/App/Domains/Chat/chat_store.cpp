@@ -345,6 +345,11 @@ QString ChatStore::runPhaseLabel() const
         : QString{};
 }
 
+QVariantMap ChatStore::runActivity() const
+{
+    return m_runActivity;
+}
+
 bool ChatStore::cancellingRun() const
 {
     return m_cancellingRun;
@@ -586,9 +591,14 @@ void ChatStore::handleRunEvent(const QJsonObject &event)
     m_lastRunEventSequence = sequence;
     m_runReconnectAttempts = 0;
     ++m_runDiagnosticEventCount;
-    setRunPhase(eventType);
 
     const QJsonObject payload = event.value(QStringLiteral("payload")).toObject();
+
+    setRunPhase(eventType);
+
+    if (eventType != QStringLiteral("model.delta")) {
+        updateRunActivity(eventType, payload);
+    }
 
     if (eventType == QStringLiteral("model.delta")) {
         const QString delta = payload.value(QStringLiteral("delta")).toString();
@@ -857,6 +867,17 @@ void ChatStore::setActiveRun(const QJsonObject &run)
     if (changed) {
         QString initialContent;
 
+        m_runActivity = {
+            {
+                QStringLiteral("provider"),
+                run.value(QStringLiteral("provider")).toString()
+            },
+            {
+                QStringLiteral("model"),
+                run.value(QStringLiteral("model")).toString()
+            },
+        };
+
         for (const QVariant &value : m_messages) {
             const QVariantMap message = value.toMap();
 
@@ -908,6 +929,100 @@ void ChatStore::setRunPhase(const QString &phase)
     emit activeRunChanged();
 }
 
+void ChatStore::updateRunActivity(
+    const QString &eventType,
+    const QJsonObject &payload
+)
+{
+    QVariantMap nextActivity = m_runActivity;
+
+    if (eventType == QStringLiteral("run.started")) {
+        nextActivity.insert(
+            QStringLiteral("attachedFiles"),
+            payload.value(QStringLiteral("attachedFiles")).toArray().toVariantList()
+        );
+        nextActivity.insert(
+            QStringLiteral("provider"),
+            payload.value(QStringLiteral("provider")).toString()
+        );
+        nextActivity.insert(
+            QStringLiteral("model"),
+            payload.value(QStringLiteral("model")).toString()
+        );
+    } else if (eventType == QStringLiteral("retrieval.started")) {
+        nextActivity.insert(QStringLiteral("retrievalStarted"), true);
+    } else if (eventType == QStringLiteral("retrieval.completed")) {
+        nextActivity.insert(QStringLiteral("retrievalComplete"), true);
+        nextActivity.insert(
+            QStringLiteral("attachedSourceCount"),
+            payload.value(QStringLiteral("attachedSourceCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("attachedSources"),
+            payload.value(QStringLiteral("attachedSources")).toArray().toVariantList()
+        );
+        nextActivity.insert(
+            QStringLiteral("retrievedSourceCount"),
+            payload.value(QStringLiteral("retrievedSourceCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("retrievedFileCount"),
+            payload.value(QStringLiteral("retrievedFileCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("retrievedSources"),
+            payload.value(QStringLiteral("retrievedSources")).toArray().toVariantList()
+        );
+        nextActivity.insert(
+            QStringLiteral("warningCount"),
+            payload.value(QStringLiteral("warningCount")).toInt()
+        );
+    } else if (eventType == QStringLiteral("context.started")) {
+        nextActivity.insert(QStringLiteral("contextStarted"), true);
+    } else if (eventType == QStringLiteral("context.completed")) {
+        nextActivity.insert(QStringLiteral("contextComplete"), true);
+        nextActivity.insert(
+            QStringLiteral("includedMessageCount"),
+            payload.value(QStringLiteral("includedMessageCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("omittedMessageCount"),
+            payload.value(QStringLiteral("omittedMessageCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("estimatedInputTokens"),
+            payload.value(QStringLiteral("estimatedInputTokens")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("sourceCount"),
+            payload.value(QStringLiteral("sourceCount")).toInt()
+        );
+        nextActivity.insert(
+            QStringLiteral("warningCount"),
+            payload.value(QStringLiteral("warningCount")).toInt()
+        );
+    } else if (eventType == QStringLiteral("model.started")) {
+        nextActivity.insert(QStringLiteral("modelStarted"), true);
+        nextActivity.insert(
+            QStringLiteral("provider"),
+            payload.value(QStringLiteral("provider")).toString()
+        );
+        nextActivity.insert(
+            QStringLiteral("model"),
+            payload.value(QStringLiteral("model")).toString()
+        );
+    } else if (eventType == QStringLiteral("model.completed")) {
+        nextActivity.insert(QStringLiteral("modelComplete"), true);
+    }
+
+    if (nextActivity == m_runActivity) {
+        return;
+    }
+
+    m_runActivity = nextActivity;
+    emit activeRunChanged();
+}
+
 void ChatStore::setCancellingRun(bool cancelling)
 {
     if (m_cancellingRun == cancelling) {
@@ -929,6 +1044,7 @@ void ChatStore::clearActiveRun()
 
     const bool hadRun = !m_activeRunId.isEmpty()
         || !m_runPhase.isEmpty()
+        || !m_runActivity.isEmpty()
         || m_cancellingRun;
     const bool hadActiveContent = !m_activeRunContent.isEmpty();
 
@@ -947,6 +1063,7 @@ void ChatStore::clearActiveRun()
     m_activeRunAssistantMessageId.clear();
     m_activeRunContent.clear();
     m_runPhase.clear();
+    m_runActivity.clear();
     m_pendingRunDelta.clear();
     m_runEventBuffer.clear();
     m_lastRunEventSequence = 0;

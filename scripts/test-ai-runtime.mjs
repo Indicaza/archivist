@@ -14,7 +14,12 @@ const originalWorkingDirectory = process.cwd();
 fs.mkdirSync(libraryPath);
 fs.writeFileSync(
   path.join(libraryPath, "runtime.md"),
-  "# Runtime verification\n\nThe AI Run harness must stream, persist, cancel, replay, and recover honestly.\n",
+  "# Attached runtime evidence\n\nThis file is explicitly attached to the Chat.\n",
+  "utf8",
+);
+fs.writeFileSync(
+  path.join(libraryPath, "retrieval.md"),
+  "# Copper orchard\n\nCopper orchard evidence must be discovered through automatic Library retrieval.\n",
   "utf8",
 );
 
@@ -276,6 +281,18 @@ async function main() {
       }),
     })
   ).library;
+  await requestJson(baseUrl, `/libraries/${library.id}/scan`, {
+    method: "POST",
+  });
+  const libraryFiles = (
+    await requestJson(baseUrl, `/libraries/${library.id}/files`)
+  ).files;
+  const attachedFile = libraryFiles.find(
+    (file) => file.relativePath === "runtime.md",
+  );
+
+  assert(attachedFile, "The runtime attachment fixture must be indexed.");
+
   const chat = (
     await requestJson(baseUrl, "/chats", {
       method: "POST",
@@ -286,9 +303,19 @@ async function main() {
     })
   ).chat;
 
+  await requestJson(baseUrl, `/chats/${chat.id}/attachments`, {
+    method: "POST",
+    body: JSON.stringify({
+      libraryId: library.id,
+      fileId: attachedFile.id,
+    }),
+  });
+
   const completedStart = await requestJson(baseUrl, `/chats/${chat.id}/runs`, {
     method: "POST",
-    body: JSON.stringify({ content: "Verify the AI runtime." }),
+    body: JSON.stringify({
+      content: "Verify the copper orchard AI runtime evidence.",
+    }),
   });
   const completedEvents = await collectRunEvents(
     baseUrl,
@@ -306,6 +333,40 @@ async function main() {
     "model.completed",
     "run.completed",
   ]);
+
+  const startedEvent = completedEvents.find(
+    (event) => event.eventType === "run.started",
+  );
+  const retrievalEvent = completedEvents.find(
+    (event) => event.eventType === "retrieval.completed",
+  );
+  const contextEvent = completedEvents.find(
+    (event) => event.eventType === "context.completed",
+  );
+
+  assert(
+    startedEvent?.payload?.attachedFiles?.some(
+      (file) => file.relativePath === "runtime.md",
+    ),
+    "Run activity must snapshot user-attached file names.",
+  );
+  assert(
+    retrievalEvent?.payload?.attachedSources?.some(
+      (source) => source.relativePath === "runtime.md",
+    ),
+    "Run activity must report attached files that entered context.",
+  );
+  assert(
+    retrievalEvent?.payload?.retrievedSources?.some(
+      (source) => source.metadata?.relativePath === "retrieval.md",
+    ),
+    "Run activity must report automatically retrieved Library sources.",
+  );
+  assert(
+    Number(contextEvent?.payload?.sourceCount ?? 0) >= 2 &&
+      Number(contextEvent?.payload?.estimatedInputTokens ?? 0) > 0,
+    "Run activity must report compiled source and token counts.",
+  );
 
   const completedDelta = completedEvents
     .filter((event) => event.eventType === "model.delta")
@@ -450,6 +511,7 @@ async function main() {
   console.log("AI runtime smoke test: PASS");
   console.log(`  completion: ${eventTimeline(completedEvents)}`);
   console.log(`  cancellation: ${eventTimeline(cancelledEvents)}`);
+  console.log("  attachment and retrieval activity metadata");
   console.log("  durable SSE replay");
   console.log("  one active Run per Chat");
   console.log("  partial response persistence");

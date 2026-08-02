@@ -1445,7 +1445,18 @@ Rectangle {
             progressLabel: String(modelData.id || "")
                     === ChatStore.activeRunAssistantMessageId
                 ? ChatStore.runPhaseLabel
-                : ""
+                : String(modelData.role || "") === "assistant"
+                    && String(modelData.status || "") === "streaming"
+                    ? "Starting Run…"
+                    : ""
+            activity: String(modelData.id || "")
+                    === ChatStore.activeRunAssistantMessageId
+                ? ChatStore.runActivity
+                : ({})
+            attachedFiles: String(modelData.role || "") === "assistant"
+                    && String(modelData.status || "") === "streaming"
+                ? ChatStore.attachments
+                : []
             animateReveal: Boolean(modelData.animateReveal || false)
             leftObstruction: root.leftObstruction
             onContextInspectionRequested: function(messageId) {
