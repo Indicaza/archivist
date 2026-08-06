@@ -330,9 +330,34 @@ QString ChatStore::runPhaseLabel() const
     }
 
     if (
-        m_runPhase == QStringLiteral("model.started")
-        || m_runPhase == QStringLiteral("model.delta")
+        m_runPhase == QStringLiteral("tool.requested")
+        || m_runPhase == QStringLiteral("tool.started")
     ) {
+        const QString toolName = m_runActivity
+            .value(QStringLiteral("activeToolName"))
+            .toString();
+
+        return toolName.isEmpty()
+            ? QStringLiteral("Using Library tools…")
+            : QStringLiteral("Using %1…").arg(toolName);
+    }
+
+    if (m_runPhase == QStringLiteral("tool.completed")) {
+        return QStringLiteral("Reviewing tool result…");
+    }
+
+    if (
+        m_runPhase == QStringLiteral("tool.failed")
+        || m_runPhase == QStringLiteral("tool.cancelled")
+    ) {
+        return QStringLiteral("Continuing after tool issue…");
+    }
+
+    if (m_runPhase == QStringLiteral("model.started")) {
+        return QStringLiteral("Planning response…");
+    }
+
+    if (m_runPhase == QStringLiteral("model.delta")) {
         return QStringLiteral("Writing response…");
     }
 
@@ -596,7 +621,12 @@ void ChatStore::handleRunEvent(const QJsonObject &event)
 
     setRunPhase(eventType);
 
-    if (eventType != QStringLiteral("model.delta")) {
+    if (
+        eventType != QStringLiteral("model.delta")
+        || !m_runActivity
+            .value(QStringLiteral("modelOutputStarted"))
+            .toBool()
+    ) {
         updateRunActivity(eventType, payload);
     }
 
@@ -1011,8 +1041,140 @@ void ChatStore::updateRunActivity(
             QStringLiteral("model"),
             payload.value(QStringLiteral("model")).toString()
         );
+        nextActivity.insert(
+            QStringLiteral("toolsEnabled"),
+            payload.value(QStringLiteral("toolsEnabled")).toBool(false)
+        );
+        nextActivity.insert(
+            QStringLiteral("availableToolCount"),
+            payload.value(QStringLiteral("toolCount")).toInt()
+        );
+    } else if (eventType == QStringLiteral("model.delta")) {
+        nextActivity.insert(QStringLiteral("modelOutputStarted"), true);
+    } else if (
+        eventType == QStringLiteral("tool.requested")
+        || eventType == QStringLiteral("tool.started")
+        || eventType == QStringLiteral("tool.completed")
+        || eventType == QStringLiteral("tool.failed")
+        || eventType == QStringLiteral("tool.cancelled")
+    ) {
+        QVariantList executions = nextActivity
+            .value(QStringLiteral("toolExecutions"))
+            .toList();
+        const QString executionId = payload
+            .value(QStringLiteral("executionId"))
+            .toString();
+        int executionIndex = -1;
+
+        for (qsizetype index = 0; index < executions.size(); ++index) {
+            if (
+                executions.at(index)
+                    .toMap()
+                    .value(QStringLiteral("executionId"))
+                    .toString()
+                == executionId
+            ) {
+                executionIndex = static_cast<int>(index);
+                break;
+            }
+        }
+
+        QVariantMap execution = executionIndex >= 0
+            ? executions.at(executionIndex).toMap()
+            : QVariantMap{};
+        execution.insert(QStringLiteral("executionId"), executionId);
+        execution.insert(
+            QStringLiteral("toolId"),
+            payload.value(QStringLiteral("toolId")).toString()
+        );
+
+        const QString toolName = payload
+            .value(QStringLiteral("toolName"))
+            .toString();
+
+        if (!toolName.isEmpty()) {
+            execution.insert(QStringLiteral("toolName"), toolName);
+        }
+
+        if (eventType == QStringLiteral("tool.requested")) {
+            execution.insert(QStringLiteral("status"), QStringLiteral("requested"));
+        } else if (eventType == QStringLiteral("tool.started")) {
+            execution.insert(QStringLiteral("status"), QStringLiteral("running"));
+            execution.insert(
+                QStringLiteral("input"),
+                payload.value(QStringLiteral("input")).toObject().toVariantMap()
+            );
+        } else if (eventType == QStringLiteral("tool.completed")) {
+            execution.insert(QStringLiteral("status"), QStringLiteral("completed"));
+            execution.insert(
+                QStringLiteral("output"),
+                payload.value(QStringLiteral("output")).toObject().toVariantMap()
+            );
+            execution.insert(
+                QStringLiteral("durationMs"),
+                payload.value(QStringLiteral("durationMs")).toDouble()
+            );
+        } else if (eventType == QStringLiteral("tool.cancelled")) {
+            execution.insert(QStringLiteral("status"), QStringLiteral("cancelled"));
+            execution.insert(
+                QStringLiteral("errorCode"),
+                payload.value(QStringLiteral("errorCode")).toString()
+            );
+            execution.insert(
+                QStringLiteral("message"),
+                payload.value(QStringLiteral("message")).toString()
+            );
+        } else {
+            execution.insert(QStringLiteral("status"), QStringLiteral("failed"));
+            execution.insert(
+                QStringLiteral("errorCode"),
+                payload.value(QStringLiteral("errorCode")).toString()
+            );
+            execution.insert(
+                QStringLiteral("message"),
+                payload.value(QStringLiteral("message")).toString()
+            );
+        }
+
+        if (executionIndex >= 0) {
+            executions[executionIndex] = execution;
+        } else {
+            executions.append(execution);
+        }
+
+        nextActivity.insert(QStringLiteral("toolExecutions"), executions);
+        nextActivity.insert(QStringLiteral("toolCallCount"), executions.size());
+
+        if (
+            eventType == QStringLiteral("tool.requested")
+            || eventType == QStringLiteral("tool.started")
+        ) {
+            nextActivity.insert(QStringLiteral("activeToolExecutionId"), executionId);
+            nextActivity.insert(
+                QStringLiteral("activeToolName"),
+                execution.value(QStringLiteral("toolName")).toString()
+            );
+        } else if (
+            nextActivity
+                .value(QStringLiteral("activeToolExecutionId"))
+                .toString()
+            == executionId
+        ) {
+            nextActivity.remove(QStringLiteral("activeToolExecutionId"));
+            nextActivity.remove(QStringLiteral("activeToolName"));
+        }
     } else if (eventType == QStringLiteral("model.completed")) {
         nextActivity.insert(QStringLiteral("modelComplete"), true);
+        nextActivity.insert(
+            QStringLiteral("toolCallCount"),
+            payload.value(QStringLiteral("toolCallCount")).toInt(
+                nextActivity.value(QStringLiteral("toolCallCount")).toInt()
+            )
+        );
+        nextActivity.insert(
+            QStringLiteral("toolRoundCount"),
+            payload.value(QStringLiteral("toolRoundCount")).toInt()
+        );
     }
 
     if (nextActivity == m_runActivity) {

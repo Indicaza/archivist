@@ -9,6 +9,11 @@ export type AIRunEventType =
   | "model.started"
   | "model.delta"
   | "model.completed"
+  | "tool.requested"
+  | "tool.started"
+  | "tool.completed"
+  | "tool.failed"
+  | "tool.cancelled"
   | "run.cancelled"
   | "run.failed"
   | "run.completed";

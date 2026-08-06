@@ -47,6 +47,7 @@ async function executeChatRun(
 ): Promise<void> {
   try {
     const result = await completeChatTurnSession(session, {
+      runId,
       signal: controller.signal,
       onEvent(event) {
         if (

@@ -25,11 +25,38 @@ export type GenerateTextResult = {
   text: string;
   provider: string;
   model: string;
+  toolCallCount?: number;
+  toolRoundCount?: number;
 };
 
 export type StreamTextOptions = {
   signal?: AbortSignal;
   onDelta?: (delta: string) => void | Promise<void>;
+};
+
+export type AIProviderToolDefinition = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+export type AIProviderToolCall = {
+  callId: string;
+  name: string;
+  arguments: unknown;
+  round: number;
+};
+
+export type AIProviderToolResult = {
+  output: unknown;
+};
+
+export type StreamTextWithToolsOptions = StreamTextOptions & {
+  tools: AIProviderToolDefinition[];
+  maxToolRounds?: number;
+  onToolCall: (
+    call: AIProviderToolCall,
+  ) => Promise<AIProviderToolResult>;
 };
 
 export type DiscoveredAIModel = {
@@ -60,6 +87,11 @@ export interface AIProvider {
   streamText(
     input: GenerateTextInput,
     options?: StreamTextOptions,
+  ): Promise<GenerateTextResult>;
+
+  streamTextWithTools?(
+    input: GenerateTextInput,
+    options: StreamTextWithToolsOptions,
   ): Promise<GenerateTextResult>;
 
   discoverModels(): Promise<DiscoveredAIModel[]>;

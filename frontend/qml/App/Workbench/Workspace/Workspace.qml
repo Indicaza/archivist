@@ -9,6 +9,7 @@ import "JumpToLatestButton"
 import "FilePreview"
 import "CodeEditor"
 import "EditorTabs"
+import "ChatViewportPolicy.js" as ChatViewportPolicy
 
 Rectangle {
     id: root
@@ -31,9 +32,13 @@ Rectangle {
     property int historyPrependedCount: 0
     property int historyRestorePass: 0
     property bool scrollToEndPending: false
-    property int scrollToEndPass: 0
+    property bool jumpToEndPending: false
+    property real scrollToEndTargetY: 0
+    property int scrollToEndDuration: 140
+    property int scrollToEndSettlePass: 0
     property bool revealFollowEnabled: false
-    property real revealFollowTargetY: 0
+    property bool programmaticScrollWrite: false
+    property bool historyRestoreDeferred: false
     property string trackedChatViewportKey: ""
     property var pendingChatViewportState: ({})
     property bool chatViewportRestorePending: false
@@ -220,8 +225,8 @@ Rectangle {
     }
 
     readonly property real historyPrefetchDistance: Math.max(
-        6000,
-        transcript.height * 6
+        48,
+        transcript.height * 0.06
     )
 
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "No Chat Selected"
@@ -363,6 +368,8 @@ Rectangle {
     function scheduleChatViewportSave() {
         if (
             root.restoringChatViewport
+            || root.programmaticScrollWrite
+            || scrollToEndAnimation.running
             || ChatStore.responding
             || root.trackedChatViewportKey.length === 0
             || !root.hasSelectedChat
@@ -456,6 +463,44 @@ Rectangle {
         }
     }
 
+    function clampedTranscriptContentY(value) {
+        return ChatViewportPolicy.clampContentY(
+            transcript.originY,
+            transcript.contentHeight,
+            transcript.height,
+            transcript.topMargin,
+            transcript.bottomMargin,
+            value
+        )
+    }
+
+    function placeTranscriptAnchor(index, offset) {
+        if (index < 0 || index >= ChatStore.messages.length) {
+            return false
+        }
+
+        transcript.forceLayout()
+
+        var anchorItem = transcript.itemAtIndex(index)
+
+        if (!anchorItem) {
+            root.beginProgrammaticScrollWrite()
+            transcript.positionViewAtIndex(index, ListView.Beginning)
+            transcript.forceLayout()
+            anchorItem = transcript.itemAtIndex(index)
+        }
+
+        if (!anchorItem) {
+            return false
+        }
+
+        root.beginProgrammaticScrollWrite()
+        transcript.contentY = root.clampedTranscriptContentY(
+            anchorItem.y - Number(offset || 0)
+        )
+        return true
+    }
+
     function restoreChatViewport() {
         if (!root.chatViewportRestorePending) {
             return
@@ -467,8 +512,7 @@ Rectangle {
         }
 
         if (transcript.count === 0) {
-            root.chatViewportRestorePending = false
-            root.restoringChatViewport = false
+            root.finishChatViewportRestore()
             return
         }
 
@@ -478,150 +522,247 @@ Rectangle {
             : Boolean(state.atEnd)
 
         if (shouldFollowEnd) {
-            root.chatViewportRestorePending = false
-            root.restoringChatViewport = false
-            root.scheduleScrollToEnd()
+            root.finishChatViewportRestore()
+            root.scheduleScrollToEnd(true, false)
             return
         }
 
         root.cancelScrollToEnd()
         root.stopRevealFollow()
         transcript.cancelFlick()
-        transcript.forceLayout()
 
         var anchorIndex = root.messageIndexForId(state.anchorMessageId)
+        var anchorPlaced = root.placeTranscriptAnchor(
+            anchorIndex,
+            state.anchorOffset
+        )
 
-        if (anchorIndex >= 0) {
-            transcript.positionViewAtIndex(anchorIndex, ListView.Beginning)
-            transcript.forceLayout()
-
-            var anchorItem = transcript.itemAtIndex(anchorIndex)
-            if (anchorItem) {
-                transcript.contentY = anchorItem.y
-                    - Number(state.anchorOffset || 0)
-            }
-        } else {
+        if (!anchorPlaced) {
             var distanceFromEnd = Math.max(
                 0,
                 Number(state.distanceFromEnd || 0)
             )
-            transcript.contentY = root.transcriptEndY() - distanceFromEnd
+            transcript.forceLayout()
+            root.beginProgrammaticScrollWrite()
+            transcript.contentY = root.clampedTranscriptContentY(
+                root.transcriptEndY() - distanceFromEnd
+            )
         }
 
-        transcript.returnToBounds()
-        root.chatViewportRestorePass += 1
-
-        if (root.chatViewportRestorePass < 4) {
-            chatViewportRestoreTimer.restart()
-        } else {
-            root.chatViewportRestorePending = false
-            root.restoringChatViewport = false
-        }
+        root.finishChatViewportRestore()
     }
 
-    function scheduleScrollToEnd() {
-        if (ChatStore.messages.length === 0) {
+    function finishChatViewportRestore() {
+        chatViewportRestoreTimer.stop()
+        root.chatViewportRestorePending = false
+        root.restoringChatViewport = false
+        root.chatViewportRestorePass = 0
+    }
+
+    function cancelChatViewportRestore() {
+        if (
+            !root.chatViewportRestorePending
+            && !root.restoringChatViewport
+        ) {
             return
         }
 
-        revealFollowAnimation.stop()
-        root.revealFollowEnabled = true
-        root.scrollToEndPending = true
-        root.scrollToEndPass = 0
-        scrollToEndTimer.restart()
+        root.finishChatViewportRestore()
     }
 
-    function cancelScrollToEnd() {
-        scrollToEndTimer.stop()
-        root.scrollToEndPending = false
-        root.scrollToEndPass = 0
+    function beginProgrammaticScrollWrite(holdOpen) {
+        root.programmaticScrollWrite = true
+
+        if (holdOpen === true) {
+            programmaticScrollReleaseTimer.stop()
+            return
+        }
+
+        programmaticScrollReleaseTimer.restart()
     }
 
-    function positionAtEnd() {
+    function takeManualScrollOwnership() {
+        historyPrefetchTimer.stop()
+        root.cancelScrollToEnd()
+        root.stopRevealFollow()
+        root.cancelChatViewportRestore()
+
+        if (
+            root.historyLoadPending
+            && root.historyPrependedCount > 0
+        ) {
+            historyRestoreTimer.stop()
+            root.historyRestoreDeferred = true
+        }
+    }
+
+    function updateScrollToEndTarget() {
+        transcript.forceLayout()
+        root.scrollToEndTargetY = root.clampedTranscriptContentY(
+            root.transcriptEndY()
+        )
+    }
+
+    function startScrollToEndAnimation() {
         if (!root.scrollToEndPending || transcript.count === 0) {
             return
         }
 
-        transcript.forceLayout()
-        transcript.positionViewAtEnd()
-
-        root.scrollToEndPass += 1
-
-        if (root.scrollToEndPass < 3) {
-            scrollToEndTimer.restart()
+        if (
+            !root.jumpToEndPending
+            && !root.shouldFollowTranscript()
+        ) {
+            root.cancelScrollToEnd()
             return
         }
 
+        root.updateScrollToEndTarget()
+        var distance = Math.abs(
+            root.scrollToEndTargetY - transcript.contentY
+        )
+
+        if (distance <= 0.5) {
+            root.finishScrollToEnd()
+            return
+        }
+
+        root.scrollToEndDuration = ChatViewportPolicy.scrollDuration(
+            distance,
+            root.jumpToEndPending
+        )
+        root.beginProgrammaticScrollWrite(true)
+
+        if (!scrollToEndAnimation.running) {
+            scrollToEndAnimation.start()
+        }
+    }
+
+    function scheduleScrollToEnd(forceFollow, explicitJump) {
+        if (forceFollow === true) {
+            root.revealFollowEnabled = true
+        }
+
+        if (explicitJump === true) {
+            root.jumpToEndPending = true
+            root.scrollToEndSettlePass = 0
+        }
+
+        if (
+            ChatStore.messages.length === 0
+            || (
+                !root.jumpToEndPending
+                && (
+                    root.restoringChatViewport
+                    || root.historyLoadPending
+                    || !root.revealFollowEnabled
+                )
+            )
+        ) {
+            return
+        }
+
+        historyPrefetchTimer.stop()
+        root.scrollToEndPending = true
+        root.startScrollToEndAnimation()
+    }
+
+    function cancelScrollToEnd() {
         root.scrollToEndPending = false
-        root.scrollToEndPass = 0
+        root.jumpToEndPending = false
+        root.scrollToEndSettlePass = 0
+        scrollToEndAnimation.stop()
+        programmaticScrollReleaseTimer.restart()
+    }
+
+    function finishScrollToEnd() {
+        if (!root.scrollToEndPending) {
+            programmaticScrollReleaseTimer.restart()
+            return
+        }
+
+        transcript.forceLayout()
+        root.updateScrollToEndTarget()
+        var remaining = Math.abs(
+            root.scrollToEndTargetY - transcript.contentY
+        )
+
+        if (remaining > 0.75 && root.scrollToEndSettlePass < 3) {
+            root.scrollToEndSettlePass += 1
+            root.scrollToEndDuration = ChatViewportPolicy.scrollDuration(
+                remaining,
+                root.jumpToEndPending
+            )
+            root.beginProgrammaticScrollWrite(true)
+            scrollToEndAnimation.start()
+            return
+        }
+
+        root.beginProgrammaticScrollWrite(false)
+        transcript.contentY = root.scrollToEndTargetY
+        root.scrollToEndPending = false
+        root.jumpToEndPending = false
+        root.scrollToEndSettlePass = 0
     }
 
     function jumpToLatest() {
+        historyPrefetchTimer.stop()
+        historyRestoreTimer.stop()
+        root.historyRestoreDeferred = false
+        root.clearHistoryAnchor(ChatStore.loadingOlderMessages)
+        root.cancelChatViewportRestore()
         transcript.cancelFlick()
         root.revealFollowEnabled = true
-        root.scheduleScrollToEnd()
+        root.scheduleScrollToEnd(true, true)
     }
 
     function transcriptEndY() {
-        return Math.max(
-            transcript.originY - transcript.topMargin,
-            transcript.originY
-                + transcript.contentHeight
-                - transcript.height
-                + transcript.bottomMargin
+        return ChatViewportPolicy.transcriptEndY(
+            transcript.originY,
+            transcript.contentHeight,
+            transcript.height,
+            transcript.topMargin,
+            transcript.bottomMargin
         )
     }
 
+    function shouldFollowTranscript() {
+        return ChatViewportPolicy.shouldFollow({
+            autoFollow: root.revealFollowEnabled,
+            dragging: transcript.dragging,
+            flicking: transcript.flicking,
+            restoringViewport: root.restoringChatViewport,
+            restoringHistory: root.historyLoadPending
+        })
+    }
+
     function stopRevealFollow() {
-        revealFollowAnimation.stop()
         root.revealFollowEnabled = false
     }
 
     function followRevealSmoothly() {
-        if (
-            !root.revealFollowEnabled
-            || transcript.count === 0
-            || transcript.dragging
-            || transcript.flicking
-        ) {
+        if (!root.shouldFollowTranscript() || transcript.count === 0) {
             return
         }
 
-        transcript.forceLayout()
-        root.revealFollowTargetY = root.transcriptEndY()
-
-        if (root.revealFollowTargetY <= transcript.contentY + 0.5) {
-            return
-        }
-
-        if (!revealFollowAnimation.running) {
-            revealFollowAnimation.start()
-        }
-    }
-
-    function followActiveRunToEnd() {
-        if (
-            !ChatStore.responding
-            || !root.revealFollowEnabled
-            || transcript.count === 0
-            || transcript.dragging
-            || transcript.flicking
-        ) {
-            return
-        }
-
-        transcript.forceLayout()
-        transcript.positionViewAtEnd()
+        root.scheduleScrollToEnd(false, false)
     }
 
     function canPrefetchHistory() {
-        return transcript.visible
-            && ChatStore.hasOlderMessages
-            && !ChatStore.loadingMessages
-            && !ChatStore.loadingOlderMessages
-            && !root.historyLoadPending
-            && transcript.contentY
-                <= transcript.originY + root.historyPrefetchDistance
+        return ChatViewportPolicy.shouldPrefetchHistory({
+            visible: transcript.visible,
+            hasOlderMessages: ChatStore.hasOlderMessages,
+            nearBeginning: transcript.nearBeginning,
+            loadingMessages: ChatStore.loadingMessages,
+            loadingOlderMessages: ChatStore.loadingOlderMessages,
+            historyLoadPending: root.historyLoadPending,
+            restoringViewport: root.restoringChatViewport,
+            responding: ChatStore.responding,
+            autoFollow: root.revealFollowEnabled,
+            scrollToEndPending: root.scrollToEndPending,
+            interacting: transcript.moving
+                || transcript.dragging
+                || transcript.flicking
+        })
     }
 
     function scheduleHistoryPrefetch() {
@@ -640,8 +781,11 @@ Rectangle {
     }
 
     function captureHistoryAnchor(count) {
+        if (root.jumpToEndPending) {
+            return
+        }
+
         root.cancelScrollToEnd()
-        transcript.cancelFlick()
         transcript.forceLayout()
 
         const sampleY = transcript.contentY + Math.min(
@@ -670,29 +814,23 @@ Rectangle {
             return
         }
 
-        const targetIndex = root.historyAnchorIndex + root.historyPrependedCount
-
-        transcript.forceLayout()
-
-        if (targetIndex >= 0 && targetIndex < ChatStore.messages.length) {
-            transcript.positionViewAtIndex(targetIndex, ListView.Beginning)
-            transcript.forceLayout()
-
-            const anchorItem = transcript.itemAtIndex(targetIndex)
-            if (anchorItem) {
-                transcript.contentY = anchorItem.y - root.historyAnchorOffset
-            } else {
-                transcript.contentY = root.historyAnchorContentY
-                    + transcript.contentHeight
-                    - root.historyAnchorContentHeight
-            }
-        } else {
-            transcript.contentY = root.historyAnchorContentY
-                + transcript.contentHeight
-                - root.historyAnchorContentHeight
+        if (transcript.moving || transcript.dragging || transcript.flicking) {
+            root.historyRestoreDeferred = true
+            return
         }
 
-        transcript.returnToBounds()
+        const targetIndex = root.historyAnchorIndex + root.historyPrependedCount
+        const anchorPlaced = root.placeTranscriptAnchor(
+            targetIndex,
+            root.historyAnchorOffset
+        )
+
+        if (anchorPlaced) {
+            root.clearHistoryAnchor()
+            root.scheduleHistoryPrefetch()
+            return
+        }
+
         root.historyRestorePass += 1
 
         if (root.historyRestorePass < 4) {
@@ -700,19 +838,27 @@ Rectangle {
             return
         }
 
+        transcript.forceLayout()
+        root.beginProgrammaticScrollWrite()
+        transcript.contentY = root.clampedTranscriptContentY(
+            root.historyAnchorContentY
+                + transcript.contentHeight
+                - root.historyAnchorContentHeight
+        )
         root.clearHistoryAnchor()
         root.scheduleHistoryPrefetch()
     }
 
-    function clearHistoryAnchor() {
+    function clearHistoryAnchor(keepLoadPending) {
         historyRestoreTimer.stop()
-        root.historyLoadPending = false
+        root.historyLoadPending = keepLoadPending === true
         root.historyAnchorIndex = -1
         root.historyAnchorOffset = 0
         root.historyAnchorContentY = 0
         root.historyAnchorContentHeight = 0
         root.historyPrependedCount = 0
         root.historyRestorePass = 0
+        root.historyRestoreDeferred = false
     }
 
     Component.onCompleted: {
@@ -739,19 +885,18 @@ Rectangle {
                 return
             }
 
+            if (!root.revealFollowEnabled) {
+                return
+            }
+
             if (ChatStore.responding) {
-                if (
-                    root.revealFollowEnabled
-                    || transcript.nearEnd
-                    || ChatStore.runPhase === "run.started"
-                ) {
-                    root.revealFollowEnabled = true
-                    liveRunFollowTimer.restart()
+                if (root.shouldFollowTranscript()) {
+                    root.scheduleScrollToEnd(false, false)
                 }
                 return
             }
 
-            root.scheduleScrollToEnd()
+            root.scheduleScrollToEnd(false, false)
         }
 
         function onSelectedChatIdChanged() {
@@ -766,24 +911,50 @@ Rectangle {
                 if (root.chatViewportRestorePending) {
                     chatViewportRestoreTimer.restart()
                 } else {
-                    root.scheduleScrollToEnd()
+                    root.scheduleScrollToEnd(true, false)
                 }
             }
         }
 
         function onOlderMessagesWillPrepend(count) {
+            if (root.jumpToEndPending) {
+                root.clearHistoryAnchor(true)
+                return
+            }
+
             root.captureHistoryAnchor(count)
         }
 
         function onOlderMessagesPrepended(count) {
+            if (root.jumpToEndPending) {
+                root.clearHistoryAnchor(ChatStore.loadingOlderMessages)
+                root.startScrollToEndAnimation()
+                return
+            }
+
             root.historyPrependedCount = count
+
+            if (transcript.moving) {
+                root.historyRestoreDeferred = true
+                return
+            }
+
             historyRestoreTimer.restart()
         }
 
         function onLoadingOlderMessagesChanged() {
+            if (ChatStore.loadingOlderMessages) {
+                return
+            }
+
+            if (root.jumpToEndPending) {
+                root.clearHistoryAnchor(false)
+                root.startScrollToEndAnimation()
+                return
+            }
+
             if (
-                !ChatStore.loadingOlderMessages
-                && root.historyLoadPending
+                root.historyLoadPending
                 && root.historyPrependedCount <= 0
             ) {
                 Qt.callLater(function() {
@@ -825,7 +996,7 @@ Rectangle {
     Timer {
         id: historyPrefetchTimer
 
-        interval: 55
+        interval: 280
         repeat: false
         onTriggered: root.requestOlderMessages()
     }
@@ -838,32 +1009,26 @@ Rectangle {
         onTriggered: root.restoreHistoryAnchor()
     }
 
-    Timer {
-        id: scrollToEndTimer
-
-        interval: 16
-        repeat: false
-        onTriggered: root.positionAtEnd()
-    }
-
-    Timer {
-        id: liveRunFollowTimer
-
-        interval: 16
-        repeat: false
-        onTriggered: root.followActiveRunToEnd()
-    }
-
     SmoothedAnimation {
-        id: revealFollowAnimation
+        id: scrollToEndAnimation
 
         target: transcript
         property: "contentY"
-        to: root.revealFollowTargetY
-        duration: root.theme.chatRevealFollowDuration
+        to: root.scrollToEndTargetY
+        duration: root.scrollToEndDuration
         velocity: -1
-        maximumEasingTime: root.theme.chatRevealFollowMaximumEasingTime
+        maximumEasingTime: Math.min(220, root.scrollToEndDuration)
         reversingMode: SmoothedAnimation.Immediate
+        onStarted: root.beginProgrammaticScrollWrite(true)
+        onStopped: root.finishScrollToEnd()
+    }
+
+    Timer {
+        id: programmaticScrollReleaseTimer
+
+        interval: 32
+        repeat: false
+        onTriggered: root.programmaticScrollWrite = false
     }
 
     Rectangle {
@@ -1354,7 +1519,24 @@ Rectangle {
     ListView {
         id: transcript
 
-        readonly property bool nearEnd: count === 0 || atYEnd
+        readonly property real distanceFromEnd: ChatViewportPolicy.distanceFromEnd(
+            originY,
+            contentHeight,
+            height,
+            topMargin,
+            bottomMargin,
+            contentY
+        )
+        readonly property bool nearEnd: count === 0
+            || ChatViewportPolicy.isNearEnd(
+                originY,
+                contentHeight,
+                height,
+                topMargin,
+                bottomMargin,
+                contentY,
+                96
+            )
         readonly property bool nearBeginning: contentY
             <= originY + root.historyPrefetchDistance
 
@@ -1372,24 +1554,26 @@ Rectangle {
         cacheBuffer: Math.max(8000, height * 7)
         displayMarginBeginning: 1200
         displayMarginEnd: 800
-        reuseItems: true
+        reuseItems: false
         boundsBehavior: Flickable.StopAtBounds
         model: ChatStore.messages
 
         onCountChanged: {
             if (root.scrollToEndPending) {
-                scrollToEndTimer.restart()
+                root.updateScrollToEndTarget()
+                root.startScrollToEndAnimation()
             }
         }
 
         onContentHeightChanged: {
-            if (
-                ChatStore.responding
-                && root.revealFollowEnabled
-            ) {
-                liveRunFollowTimer.restart()
-            } else if (root.scrollToEndPending) {
-                scrollToEndTimer.restart()
+            if (root.scrollToEndPending) {
+                root.updateScrollToEndTarget()
+                root.startScrollToEndAnimation()
+                return
+            }
+
+            if (root.shouldFollowTranscript()) {
+                root.scheduleScrollToEnd(false, false)
             }
         }
 
@@ -1402,28 +1586,43 @@ Rectangle {
         }
 
         onMovementStarted: {
-            if (!revealFollowAnimation.running) {
-                root.cancelScrollToEnd()
-                root.stopRevealFollow()
-            }
-            root.scheduleHistoryPrefetch()
+            root.takeManualScrollOwnership()
         }
 
         onDraggingChanged: {
             if (dragging) {
-                root.cancelScrollToEnd()
-                root.stopRevealFollow()
+                root.takeManualScrollOwnership()
             }
         }
 
         onFlickingChanged: {
             if (flicking) {
-                root.cancelScrollToEnd()
-                root.stopRevealFollow()
+                root.takeManualScrollOwnership()
             }
         }
 
         onMovementEnded: {
+            if (
+                root.historyRestoreDeferred
+                && root.historyLoadPending
+                && root.historyPrependedCount > 0
+            ) {
+                root.historyRestoreDeferred = false
+                historyRestoreTimer.restart()
+                root.scheduleChatViewportSave()
+                return
+            }
+            if (
+                ChatViewportPolicy.shouldEnableFollow({
+                    autoFollow: root.revealFollowEnabled,
+                    nearEnd: transcript.nearEnd,
+                    restoringViewport: root.restoringChatViewport,
+                    restoringHistory: root.historyLoadPending
+                })
+            ) {
+                root.revealFollowEnabled = true
+            }
+
             root.scheduleHistoryPrefetch()
             root.scheduleChatViewportSave()
         }

@@ -28,12 +28,26 @@ Item {
         entrance.restart()
     }
 
-    onShownChanged: Qt.callLater(function() {
-        root.reveal()
-    })
-    Component.onCompleted: Qt.callLater(function() {
-        root.reveal()
-    })
+    onShownChanged: {
+        if (shown) {
+            revealTimer.restart()
+            return
+        }
+
+        revealTimer.stop()
+        entrance.stop()
+        rowBody.opacity = 0
+    }
+
+    Component.onCompleted: revealTimer.start()
+
+    Timer {
+        id: revealTimer
+
+        interval: 0
+        repeat: false
+        onTriggered: root.reveal()
+    }
 
     Item {
         id: rowBody
