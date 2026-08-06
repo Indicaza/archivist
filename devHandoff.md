@@ -66,7 +66,10 @@ npm run diagnose:language-support
 npm run icons:vendor
 npm run test:chat-agents
 npm run test:collections
+npm run test:ai-tools
+npm run test:ai-tool-loop
 npm run test:ai-runtime
+node scripts/test-chat-workspace.mjs
 npm run test:library-index -- "a term you know exists"
 npm run check:pre-pr
 ```
@@ -449,9 +452,14 @@ persistent Chats and Agent rosters
 Library-file attachments
 deterministic Context Compiler runs
 native Context Inspector
+durable AI Run and tool-execution traces
+typed read-only Library tools
+provider-neutral model tool loops
 line-provenance text indexing
-FTS5 retrieval
+subject-aware FTS5 retrieval
+bounded batched range verification
 active-Library automatic retrieval
+smooth interruptible transcript follow and jump-to-latest
 root-constrained file preview
 managed root development workflow
 ```
@@ -475,89 +483,80 @@ Collection ID
 
 Collection switching must wait for the target Collection and Library catalogs before restoring UI state.
 
-## 13. Current branch: feature/icon-overhaul
+## 13. Current branch: feature/ai-tools-trace
 
-This branch establishes one coherent native visual foundation:
+This branch establishes Archivist's first grounded, inspectable AI tool boundary and hardens the Chat surface around it:
 
 ```text
-shared Codicon controls
-→ Streamline folder artwork
-→ VS Code Seti compact file identity
-→ generated icon registries
-→ Git-aware Explorer decorations
-→ compact Collection and Library headers
-→ matching file icons in editor tabs
-→ real terminal controls
-→ reduced Explorer rendering and rebuild churn
+typed read-only Library tool registry
+→ safe file-ID and Library-relative-path resolution
+→ durable tool execution records and visible Run activity
+→ provider-neutral model tool loops
+→ retrieval-aware discovery suppression
+→ bounded batched verification reads
+→ subject-aware retrieval and implementation-file pruning
+→ focused context and cost diagnostics
+→ stable, smooth, interruptible Chat scrolling
 ```
 
 Important implementation facts:
 
 ```text
-Seti is loaded once through SetiFont.qml
-Explorer and tabs share LanguageIcon and file identity
-Codicon SVGs use their real 16×16 viewBox
-ignored files may be muted
-ignored folders must never be muted
-parent folders summarize non-ignored descendant changes
-deleted filesystem paths are not synthesized as phantom rows
-branch cleanliness excludes ignored entries
-```
-
-Current final cleanup on this branch includes:
-
-```text
-normalizing folder visual state
-removing ignored-status propagation into folders
-classifying staged modifications correctly
-making qt-context modular and token-efficient
-rewriting this handoff as the canonical scripts-first prompt
-adding a reusable pre-PR verifier
-pinning rimraf reproducibly
+all current model tools are read-only
+filesystem access remains constrained to the selected Library
+tool requests, results, failures, and cancellation are durably recorded
+automatic retrieval suppresses duplicate discovery tools
+sufficient retrieved evidence answers directly without a tool round
+explicit verification is limited to one bounded read_file_ranges batch
+named lore subjects outrank generic tool wording and implementation files
+manual scrolling owns the transcript immediately
+jump-to-latest and streaming follow share one smooth scroll controller
+Chat viewport restoration and history prepend must not race live following
 ```
 
 Suggested PR title:
 
 ```text
-feat: overhaul native icons and Explorer decorations
+feat: add grounded AI tools and stabilize chat execution
 ```
 
 PR story:
 
 ```text
-centralize native icon rendering
-→ vendor reproducible assets
-→ share Seti file identity across Explorer and tabs
-→ improve Git-aware Explorer decoration
-→ remove phantom and ignored-folder artifacts
-→ compact Collection and Library headers
-→ replace terminal text approximations
-→ reduce Explorer rendering churn
-→ improve coding-chat context and verification tooling
+add typed read-only Library tools
+→ expose tools through provider-neutral model execution
+→ persist and display tool activity
+→ constrain all reads to safe Library paths
+→ reduce redundant discovery, history, and verification cost
+→ improve subject-aware grounded answers
+→ add durable AI and Chat regression coverage
+→ polish transcript restoration, following, and jump-to-latest
 ```
 
-Do not mix rich renderer work, new AI systems, deployment, worktrees, or new language-server features into this PR.
+Do not mix mutation tools, arbitrary shell access, swarms, embeddings, LSP model tools, rich renderers, deployment, or worktrees into this PR.
 
 ## 14. Final verification for this branch
 
-Visual smoke test:
+Manual AI smoke test:
 
 ```text
-Collection and Library bars have equal rhythm
-header controls align and remain restrained
-Explorer and tabs agree on file icons
-JSX and TSX use React identity
-shell files use shell identity
-unknown files use the Seti lined-file fallback
-ignored files are muted
-ignored folders remain normal
-modified folders receive restrained Git coloring
-conflicts remain visible
-deleted files do not appear as phantom rows
-terminal rows and controls use shared icons
-rapid Explorer scrolling remains smooth
-filter typing remains responsive
-Library switching restores state
+a normal grounded question answers directly when retrieved evidence is sufficient
+an explicit verification request performs at most one bounded read_file_ranges batch
+tool activity appears in the Run card and persists after completion
+tool failures and cancellation remain visible without fabricating success
+answers do not announce tool use or append unsolicited source inventories or offers
+```
+
+Manual Chat smoke test:
+
+```text
+jump-to-latest glides smoothly and lands exactly at the bottom
+trackpad, wheel, drag, or flick input interrupts automatic movement immediately
+streaming follows smoothly while already at the bottom
+streaming never pulls the viewport down after manual scrolling
+switching Chats restores the saved viewport without a jump
+loading older history preserves the visible anchor
+message columns remain centered in the unobstructed workspace
 ```
 
 Existing automated checks:
@@ -566,9 +565,9 @@ Existing automated checks:
 npm run check:pre-pr
 ```
 
-The verifier avoids redundant backend builds, stops at the first failure, and writes the complete output to `backend/data/runtime/logs/pre-pr.log`. It intentionally skips the Library-index smoke test because that check requires a running backend, an active Library, and a search term known to exist in the selected Library.
+The verifier builds the backend once, then runs AI tools, AI tool-loop, AI runtime, Chat Agent, Collection, and Chat workspace tests before IDE, language-tool, typography, diff-hygiene, and native frontend verification. It stops at the first failure and writes the complete output to `backend/data/runtime/logs/pre-pr.log`.
 
-Run that live smoke test separately when indexing or retrieval behavior changed:
+The Library-index smoke test remains intentionally separate because it requires a running backend, an active Library, and a search term known to exist:
 
 ```bash
 npm run test:library-index -- "a term you know exists"
@@ -613,7 +612,7 @@ Rendered, Source, and Split modes
 read-only behavior until mutation is explicit
 ```
 
-Do not mix that milestone into the icon branch.
+Do not mix that milestone into this AI-tools PR.
 
 Likely IDE slices after the renderer foundation:
 
@@ -631,6 +630,9 @@ Keep these visible but do not expand scope casually:
 
 ```text
 automated tests do not cover every QML interaction
+current model tools are read-only; mutation proposals, approval, undo, and deletion policy remain future work
+hybrid FTS plus embedding retrieval remains future work
+LSP-backed model tools such as definition, references, inspection, and rename remain future work
 release packaging, signing, notarization, and update delivery remain future work
 only one Library tree is shown at a time
 automatic retrieval currently searches the active Library

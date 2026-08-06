@@ -52,11 +52,14 @@ const libraryIndexReady =
   tableExists("library_documents") &&
   tableExists("library_chunks") &&
   tableExists("library_chunk_search");
+const aiToolTraceReady = tableExists("ai_tool_executions");
 
 console.info(
   `[Database] ${databasePath} · schema v${schemaVersion} · attachments ${
     attachmentTableReady ? "ready" : "missing"
-  } · Library index ${libraryIndexReady ? "ready" : "missing"}`,
+  } · Library index ${libraryIndexReady ? "ready" : "missing"} · AI tools ${
+    aiToolTraceReady ? "ready" : "missing"
+  }`,
 );
 
 export function closeDatabase(): void {

@@ -1098,6 +1098,59 @@ const migrations: Migration[] = [
     },
   },
 
+  {
+    version: 18,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE ai_tool_executions (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          tool_id TEXT NOT NULL CHECK (length(trim(tool_id)) > 0),
+          permission_level TEXT NOT NULL CHECK (
+            permission_level IN (
+              'read-only',
+              'safe-local-mutation',
+              'consequential',
+              'external-provider-action'
+            )
+          ),
+          status TEXT NOT NULL DEFAULT 'requested' CHECK (
+            status IN (
+              'requested',
+              'running',
+              'completed',
+              'failed',
+              'cancelled'
+            )
+          ),
+          input_json TEXT NOT NULL CHECK (json_valid(input_json)),
+          output_json TEXT CHECK (
+            output_json IS NULL OR json_valid(output_json)
+          ),
+          error_code TEXT,
+          error_message TEXT,
+          requested_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          started_at TEXT,
+          completed_at TEXT,
+          duration_ms REAL CHECK (
+            duration_ms IS NULL OR duration_ms >= 0
+          ),
+          FOREIGN KEY (run_id)
+            REFERENCES ai_runs(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX ai_tool_executions_run_requested_at_index
+          ON ai_tool_executions(run_id, requested_at ASC);
+
+        CREATE INDEX ai_tool_executions_tool_requested_at_index
+          ON ai_tool_executions(tool_id, requested_at DESC);
+      `);
+    },
+  },
+
 ];
 
 export function runMigrations(database: Database.Database): void {

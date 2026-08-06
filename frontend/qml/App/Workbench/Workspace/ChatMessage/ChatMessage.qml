@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "../ChatViewportPolicy.js" as ChatViewportPolicy
 
 Item {
     id: root
@@ -32,25 +33,14 @@ Item {
     readonly property string activityLabel: progressLabel.trim().length > 0
         ? progressLabel
         : "Working…"
-    readonly property real idealContentZoneWidth: Math.min(
-        Math.max(0, width - theme.messageHorizontalInset * 2),
+    readonly property var contentGeometry: ChatViewportPolicy.contentZone(
+        width,
+        leftObstruction,
+        theme.messageHorizontalInset,
         theme.transcriptContentWidth
     )
-    readonly property real centeredContentZoneX: Math.max(
-        theme.messageHorizontalInset,
-        (width - idealContentZoneWidth) / 2
-    )
-    readonly property real contentZoneX: Math.max(
-        centeredContentZoneX,
-        leftObstruction + theme.messageHorizontalInset
-    )
-    readonly property real contentZoneWidth: Math.max(
-        0,
-        Math.min(
-            idealContentZoneWidth,
-            width - theme.messageHorizontalInset - contentZoneX
-        )
-    )
+    readonly property real contentZoneX: Number(contentGeometry.x || 0)
+    readonly property real contentZoneWidth: Number(contentGeometry.width || 0)
     readonly property real desiredFrameWidth: userMessage
         ? Math.min(
             theme.userMessageWidth,
@@ -71,14 +61,6 @@ Item {
             : root.contentZoneX
         width: Math.min(root.contentZoneWidth, root.desiredFrameWidth)
         height: messageColumn.implicitHeight
-
-        Behavior on x {
-            SpringAnimation {
-                spring: root.theme.motionSpring
-                damping: root.theme.motionDamping
-                epsilon: 0.2
-            }
-        }
 
         Column {
             id: messageColumn
@@ -220,13 +202,6 @@ Item {
                 activity: root.activity
                 attachedFiles: root.attachedFiles
                 progressLabel: root.activityLabel
-
-                Behavior on height {
-                    NumberAnimation {
-                        duration: root.theme.motionHover
-                        easing.type: Easing.OutCubic
-                    }
-                }
 
                 Behavior on opacity {
                     NumberAnimation {

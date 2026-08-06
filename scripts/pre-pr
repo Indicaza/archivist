@@ -122,8 +122,12 @@ verify_diff_hygiene() {
 
 run_step 'Node version' npm run check-node || exit 1
 run_step 'Backend build' npm run build -w backend || exit 1
+run_step 'AI tool tests' node scripts/test-ai-tools.mjs || exit 1
+run_step 'AI tool-loop tests' node scripts/test-ai-tool-loop.mjs || exit 1
+run_step 'AI runtime tests' node scripts/test-ai-runtime.mjs || exit 1
 run_step 'Chat Agent tests' node scripts/test-chat-agent-rosters.mjs || exit 1
 run_step 'Collection tests' node scripts/test-collections.mjs || exit 1
+run_step 'Chat workspace tests' node scripts/test-chat-workspace.mjs || exit 1
 printf '%-34s%s\n' 'Library index smoke test' 'SKIP'
 {
   printf '\n\n===== Library index smoke test =====\n'

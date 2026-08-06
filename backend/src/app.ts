@@ -12,6 +12,7 @@ import { contextRetrievalRouter } from "./api/cognition/contextRetrieval/routes/
 import { aiRunRouter } from "./api/cognition/runs/routes/AIRunRoutes.js";
 import { languageSupportRouter } from "./api/languageSupport/routes/LanguageSupportRoutes.js";
 import { libraryRouter } from "./api/libraries/routes/LibraryRoutes.js";
+import { registerBuiltInAITools } from "./core/tools/registerBuiltInAITools.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const currentDirectory = path.dirname(
@@ -21,6 +22,8 @@ const ideDistributionPath = path.resolve(
   currentDirectory,
   "../../frontend/dist/ide",
 );
+
+registerBuiltInAITools();
 
 export const app = express();
 

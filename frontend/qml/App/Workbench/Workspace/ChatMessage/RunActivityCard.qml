@@ -87,6 +87,93 @@ Rectangle {
         return String(Math.round(count))
     }
 
+    function humanizeToolId(value) {
+        return String(value || "Library tool")
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, function(character) {
+                return character.toUpperCase()
+            })
+    }
+
+    function toolLabel(execution) {
+        return String(
+            execution.toolName
+            || root.humanizeToolId(execution.toolId)
+        )
+    }
+
+    function toolRowState(execution) {
+        var status = String(execution.status || "requested")
+
+        if (status === "requested" || status === "running") {
+            return "active"
+        }
+
+        if (status === "failed" || status === "cancelled") {
+            return "warning"
+        }
+
+        return "complete"
+    }
+
+    function toolDetail(execution) {
+        var status = String(execution.status || "requested")
+        var output = execution.output || ({})
+        var toolId = String(execution.toolId || "")
+
+        if (status === "requested") {
+            return "Queued"
+        }
+
+        if (status === "running") {
+            return "Reading Library"
+        }
+
+        if (status === "failed" || status === "cancelled") {
+            return String(execution.errorCode || status)
+                .replace(/_/g, " ")
+        }
+
+        if (toolId === "search_library") {
+            return Number(output.matchCount || 0) + " passages · "
+                + Number(output.fileCount || 0) + " files"
+        }
+
+        if (toolId === "search_filenames") {
+            return Number(output.matchCount || 0) + " files"
+        }
+
+        if (toolId === "list_directory") {
+            return Number(output.entryCount || 0) + " entries"
+        }
+
+        if (toolId === "read_file_range") {
+            return String(output.relativePath || "File range")
+                + " · " + Number(output.startLine || 0)
+                + "-" + Number(output.endLine || 0)
+        }
+
+        if (toolId === "read_file") {
+            return String(output.relativePath || "File read")
+        }
+
+        return "Complete"
+    }
+
+    function hasActiveTool(executions) {
+        var values = root.listValue(executions)
+
+        for (var index = 0; index < values.length; index += 1) {
+            var status = String(values[index].status || "")
+
+            if (status === "requested" || status === "running") {
+                return true
+            }
+        }
+
+        return false
+    }
+
     readonly property var runActivity: activity || ({})
     readonly property var activityAttachedFiles: {
         var snapshot = root.listValue(root.runActivity.attachedFiles)
@@ -118,6 +205,19 @@ Rectangle {
     )
     readonly property int warningCount: Number(
         runActivity.warningCount || 0
+    )
+    readonly property var toolExecutions: root.listValue(
+        runActivity.toolExecutions
+    )
+    readonly property int visibleToolCount: Math.min(
+        4,
+        toolExecutions.length
+    )
+    readonly property var visibleToolExecutions: toolExecutions.slice(
+        Math.max(0, toolExecutions.length - visibleToolCount)
+    )
+    readonly property bool activeToolPresent: root.hasActiveTool(
+        toolExecutions
     )
     readonly property string modelLabel: {
         var provider = String(root.runActivity.provider || "")
@@ -374,13 +474,53 @@ Rectangle {
 
             RunActivityRow {
                 theme: root.theme
-                shown: Boolean(root.runActivity.modelStarted)
-                label: "Writing response"
-                detail: String(root.runActivity.model || "Model started")
-                rowState: "active"
+                shown: root.toolExecutions.length > root.visibleToolCount
+                label: "+" + (
+                    root.toolExecutions.length - root.visibleToolCount
+                ) + " earlier tool "
+                    + (root.toolExecutions.length
+                        - root.visibleToolCount === 1
+                        ? "call"
+                        : "calls")
+                detail: "Recorded in Run"
+                rowState: "quiet"
                 entranceOrder: root.visibleAttachmentCount
                     + root.visibleRetrievedCount
                     + 5
+            }
+
+            Repeater {
+                model: root.visibleToolExecutions
+
+                delegate: RunActivityRow {
+                    required property var modelData
+                    required property int index
+
+                    theme: root.theme
+                    label: root.toolLabel(modelData)
+                    detail: root.toolDetail(modelData)
+                    rowState: root.toolRowState(modelData)
+                    entranceOrder: root.visibleAttachmentCount
+                        + root.visibleRetrievedCount
+                        + index
+                        + 6
+                }
+            }
+
+            RunActivityRow {
+                theme: root.theme
+                shown: Boolean(root.runActivity.modelStarted)
+                label: Boolean(root.runActivity.modelOutputStarted)
+                    ? "Writing response"
+                    : root.toolExecutions.length > 0
+                        ? "Reviewing tool results"
+                        : "Planning response"
+                detail: String(root.runActivity.model || "Model started")
+                rowState: root.activeToolPresent ? "quiet" : "active"
+                entranceOrder: root.visibleAttachmentCount
+                    + root.visibleRetrievedCount
+                    + root.visibleToolCount
+                    + 6
             }
         }
     }
