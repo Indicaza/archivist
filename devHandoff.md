@@ -68,6 +68,8 @@ npm run test:chat-agents
 npm run test:collections
 npm run test:ai-tools
 npm run test:ai-tool-loop
+npm run test:ai-edit-proposals
+npm run test:ai-edit-transactions
 npm run test:ai-runtime
 node scripts/test-chat-workspace.mjs
 npm run test:library-index -- "a term you know exists"
@@ -455,6 +457,10 @@ native Context Inspector
 durable AI Run and tool-execution traces
 typed read-only Library tools
 provider-neutral model tool loops
+proposal-only Library mutation tools
+durable AI edit proposals with native Chat review
+human approval, partial approval, rejection, stale-state protection, and undo
+post-edit catalog, text-index, directory, and Git synchronization
 line-provenance text indexing
 subject-aware FTS5 retrieval
 bounded batched range verification
@@ -483,80 +489,77 @@ Collection ID
 
 Collection switching must wait for the target Collection and Library catalogs before restoring UI state.
 
-## 13. Current branch: feature/ai-tools-trace
+## 13. Current branch: feature/ai-edit-transactions
 
-This branch establishes Archivist's first grounded, inspectable AI tool boundary and hardens the Chat surface around it:
+This branch adds Archivist's first human-approved local mutation boundary on top of the grounded AI tool runtime:
 
 ```text
-typed read-only Library tool registry
-→ safe file-ID and Library-relative-path resolution
-→ durable tool execution records and visible Run activity
-→ provider-neutral model tool loops
-→ retrieval-aware discovery suppression
-→ bounded batched verification reads
-→ subject-aware retrieval and implementation-file pruning
-→ focused context and cost diagnostics
-→ stable, smooth, interruptible Chat scrolling
+proposal-only create_file, patch_file, create_directory, rename_file, and move_file tools
+→ exact source/content/hash or absent-target preconditions
+→ durable edit proposals and ordered operations tied to the originating AI Run
+→ native Chat review card
+→ approve all, approve selected, reject, or undo
+→ full-batch stale preflight plus per-operation revalidation
+→ rollback-backed filesystem execution
+→ post-edit catalog, text-index, directory, and Git synchronization
+→ durable edit lifecycle trace events
 ```
 
 Important implementation facts:
 
 ```text
-all current model tools are read-only
-filesystem access remains constrained to the selected Library
-tool requests, results, failures, and cancellation are durably recorded
-automatic retrieval suppresses duplicate discovery tools
-sufficient retrieved evidence answers directly without a tool round
-explicit verification is limited to one bounded read_file_ranges batch
-named lore subjects outrank generic tool wording and implementation files
-manual scrolling owns the transcript immediately
-jump-to-latest and streaming follow share one smooth scroll controller
-Chat viewport restoration and history prepend must not race live following
+model mutation tools use executionMode=proposal and never write during the model turn
+human approval is required before filesystem mutation
+all edit paths remain Library-relative and root-constrained
+symlink sources are rejected rather than followed
+patch, rename, and move proposals snapshot exact SHA-256 preconditions
+partial approval permanently rejects the unselected operations in that proposal
+stale batches fail before the first write
+mid-execution stale state or failure rolls back completed operations when rollback succeeds
+rollback failure is retained explicitly as a failed transaction rather than hidden
+undo is allowed only for the latest completed transaction in a Library
+undo verifies Archivist's recorded post-state before reversing anything
+Archivist-created directories are removed by undo only while still empty
+post-write synchronization warnings do not pretend the filesystem transaction failed
+the current mutation set intentionally has no delete-file or arbitrary-shell operation
 ```
 
 Suggested PR title:
 
 ```text
-feat: add grounded AI tools and stabilize chat execution
+feat: add reviewable AI edit transactions
 ```
 
 PR story:
 
 ```text
-add typed read-only Library tools
-→ expose tools through provider-neutral model execution
-→ persist and display tool activity
-→ constrain all reads to safe Library paths
-→ reduce redundant discovery, history, and verification cost
-→ improve subject-aware grounded answers
-→ add durable AI and Chat regression coverage
-→ polish transcript restoration, following, and jump-to-latest
+add proposal-only safe-local-mutation tools
+→ persist exact reviewable operations with AI Run provenance
+→ require explicit human approval before writes
+→ fail closed over stale files and occupied targets
+→ execute approved batches with rollback protection
+→ support partial approval, rejection, and guarded undo
+→ refresh Library catalog, text index, directories, and Git state after changes
+→ surface durable proposal state directly in Chat
+→ cover proposal and transaction behavior with dedicated smoke tests
 ```
 
-Do not mix mutation tools, arbitrary shell access, swarms, embeddings, LSP model tools, rich renderers, deployment, or worktrees into this PR.
+Do not mix the Chat transcript refactor, forever-memory architecture, arbitrary shell access, swarms, embeddings, deployment, or worktrees into this branch.
 
 ## 14. Final verification for this branch
 
-Manual AI smoke test:
+Manual edit smoke test:
 
 ```text
-a normal grounded question answers directly when retrieved evidence is sufficient
-an explicit verification request performs at most one bounded read_file_ranges batch
-tool activity appears in the Run card and persists after completion
-tool failures and cancellation remain visible without fabricating success
-answers do not announce tool use or append unsolicited source inventories or offers
-```
-
-Manual Chat smoke test:
-
-```text
-jump-to-latest glides smoothly and lands exactly at the bottom
-trackpad, wheel, drag, or flick input interrupts automatic movement immediately
-streaming follows smoothly while already at the bottom
-streaming never pulls the viewport down after manual scrolling
-switching Chats restores the saved viewport without a jump
-loading older history preserves the visible anchor
-message columns remain centered in the unobstructed workspace
+ask Archivist to create or update a Library text file
+the assistant response produces a review card while the filesystem remains unchanged
+Approve applies the reviewed operation and refreshes the active Library
+Approve selected applies only selected operations and marks the rest rejected
+Reject performs zero filesystem writes
+changing a guarded source before approval makes the proposal stale with zero retained writes
+a completed latest transaction can be undone when its recorded post-state is still intact
+changing a completed file after approval makes undo fail closed without overwriting user changes
+switching away from and back to the Chat restores its durable proposal card and status
 ```
 
 Existing automated checks:
@@ -565,7 +568,7 @@ Existing automated checks:
 npm run check:pre-pr
 ```
 
-The verifier builds the backend once, then runs AI tools, AI tool-loop, AI runtime, Chat Agent, Collection, and Chat workspace tests before IDE, language-tool, typography, diff-hygiene, and native frontend verification. It stops at the first failure and writes the complete output to `backend/data/runtime/logs/pre-pr.log`.
+The verifier builds the backend once, then runs AI edit proposal, AI edit transaction, AI tools, AI tool-loop, AI runtime, Chat Agent, Collection, and Chat workspace tests before IDE, language-tool, typography, diff-hygiene, and native frontend verification. It stops at the first failure and writes the complete output to `backend/data/runtime/logs/pre-pr.log`.
 
 The Library-index smoke test remains intentionally separate because it requires a running backend, an active Library, and a search term known to exist:
 
@@ -587,42 +590,22 @@ npm run dev
 
 ## 15. Next milestone
 
-After this PR, start a fresh branch for rich file rendering.
+After this PR, stabilize Chat as the primary Archivist work surface before expanding the memory architecture.
 
 Target sequence:
 
 ```text
-shared file identity
-→ renderer registry
-→ pleasant native Markdown reading
-→ safe source fallback
-→ images and structured data
-→ PDFs, diffs, Office conversion, and richer assets
+shared animated transcript geometry
+→ extract ChatTranscript ownership from Workspace
+→ use one stable response renderer from first token through completion
+→ keep Run activity available as compact durable history
+→ simplify expensive per-glyph reveal effects and then revisit delegate reuse/cache
+→ introduce bounded active Sessions/Segments inside immortal Chats
+→ retrieve historical raw turns plus session capsules through the Context Compiler
+→ add User Profile, Library Memory, Chat Memory, heat, validity, and source-linked memory controls
 ```
 
-Markdown goals already discussed:
-
-```text
-paper-width centered reading
-normal wrapping
-linked images
-trackpad pinch zoom
-zoom in, zoom out, and reset
-Rendered, Source, and Split modes
-read-only behavior until mutation is explicit
-```
-
-Do not mix that milestone into this AI-tools PR.
-
-Likely IDE slices after the renderer foundation:
-
-```text
-Find References
-Rename Symbol
-Quick Fix and code actions
-Format Document and Selection
-multiple-definition and reference result pickers
-```
+Keep the first Chat patch visual and mechanical. Do not mix the forever-memory schema into the transcript-motion patch.
 
 ## 16. Known debt
 
@@ -630,13 +613,13 @@ Keep these visible but do not expand scope casually:
 
 ```text
 automated tests do not cover every QML interaction
-current model tools are read-only; mutation proposals, approval, undo, and deletion policy remain future work
+current mutation tools intentionally omit delete-file, arbitrary shell, and external-provider actions
 hybrid FTS plus embedding retrieval remains future work
+User Profile, durable memory extraction, session consolidation, and heat-based retrieval remain future work
 LSP-backed model tools such as definition, references, inspection, and rename remain future work
 release packaging, signing, notarization, and update delivery remain future work
 only one Library tree is shown at a time
 automatic retrieval currently searches the active Library
-most files still use plain text preview
 tabs and Library contents are not worktree-scoped
 split editor groups and dockable panes are not implemented
 ```

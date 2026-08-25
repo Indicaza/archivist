@@ -122,6 +122,8 @@ verify_diff_hygiene() {
 
 run_step 'Node version' npm run check-node || exit 1
 run_step 'Backend build' npm run build -w backend || exit 1
+run_step 'AI edit proposal tests' node scripts/test-ai-edit-proposals.mjs || exit 1
+run_step 'AI edit transaction tests' node scripts/test-ai-edit-transactions.mjs || exit 1
 run_step 'AI tool tests' node scripts/test-ai-tools.mjs || exit 1
 run_step 'AI tool-loop tests' node scripts/test-ai-tool-loop.mjs || exit 1
 run_step 'AI runtime tests' node scripts/test-ai-runtime.mjs || exit 1

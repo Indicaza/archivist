@@ -14,10 +14,16 @@ Item {
     required property string progressLabel
     required property var activity
     required property var attachedFiles
+    required property var editProposal
+    required property bool editProposalBusy
     required property bool animateReveal
     required property real leftObstruction
 
     signal contextInspectionRequested(string messageId)
+    signal editApproveAllRequested(string proposalId)
+    signal editApproveSelectedRequested(string proposalId, var operationIds)
+    signal editRejectRequested(string proposalId)
+    signal editUndoRequested(string proposalId)
     signal revealProgressed()
     signal revealFinished(string messageId)
 
@@ -343,6 +349,29 @@ Item {
                         onRevealProgressed: root.revealProgressed()
                         onRevealFinished: root.revealFinished(root.messageId)
                     }
+                }
+            }
+            AIEditProposalCard {
+                visible: !root.userMessage
+                    && !root.systemMessage
+                    && String(root.editProposal.id || "").length > 0
+                width: parent.width
+                height: visible ? implicitHeight : 0
+                theme: root.theme
+                proposal: root.editProposal
+                busy: root.editProposalBusy
+                reviewReady: !root.providerWaiting
+                onApproveAllRequested: function(proposalId) {
+                    root.editApproveAllRequested(proposalId)
+                }
+                onApproveSelectedRequested: function(proposalId, operationIds) {
+                    root.editApproveSelectedRequested(proposalId, operationIds)
+                }
+                onRejectRequested: function(proposalId) {
+                    root.editRejectRequested(proposalId)
+                }
+                onUndoRequested: function(proposalId) {
+                    root.editUndoRequested(proposalId)
                 }
             }
         }

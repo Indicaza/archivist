@@ -185,6 +185,35 @@ export function getLibraryFileById(
   return row ? mapLibraryFile(row) : null;
 }
 
+export function getLibraryFileByRelativePath(
+  libraryId: string,
+  relativePath: string,
+): LibraryFile | null {
+  const row = database
+    .prepare(
+      `
+        SELECT
+          id,
+          library_id,
+          relative_path,
+          name,
+          extension,
+          size_bytes,
+          modified_at,
+          status,
+          last_seen_at,
+          created_at,
+          updated_at
+        FROM library_files
+        WHERE library_id = ?
+          AND relative_path = ?
+      `,
+    )
+    .get(libraryId, relativePath) as LibraryFileRow | undefined;
+
+  return row ? mapLibraryFile(row) : null;
+}
+
 export function updateLibraryFileLocation(
   libraryId: string,
   fileId: string,

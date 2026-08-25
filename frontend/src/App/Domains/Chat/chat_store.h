@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -44,6 +45,8 @@ class ChatStore final : public QObject
     Q_PROPERTY(bool assigningAgent READ assigningAgent NOTIFY assigningAgentChanged)
     Q_PROPERTY(bool mutating READ mutating NOTIFY mutatingChanged)
     Q_PROPERTY(bool mutatingAttachment READ mutatingAttachment NOTIFY mutatingAttachmentChanged)
+    Q_PROPERTY(bool mutatingEditProposal READ mutatingEditProposal NOTIFY mutatingEditProposalChanged)
+    Q_PROPERTY(QString mutatingEditProposalId READ mutatingEditProposalId NOTIFY mutatingEditProposalChanged)
     Q_PROPERTY(bool loadingContext READ loadingContext NOTIFY loadingContextChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString contextErrorMessage READ contextErrorMessage NOTIFY contextErrorMessageChanged)
@@ -79,6 +82,8 @@ public:
     [[nodiscard]] bool assigningAgent() const;
     [[nodiscard]] bool mutating() const;
     [[nodiscard]] bool mutatingAttachment() const;
+    [[nodiscard]] bool mutatingEditProposal() const;
+    [[nodiscard]] QString mutatingEditProposalId() const;
     [[nodiscard]] bool loadingContext() const;
     [[nodiscard]] QString errorMessage() const;
     [[nodiscard]] QString contextErrorMessage() const;
@@ -103,6 +108,13 @@ public:
     Q_INVOKABLE void detachAgentFromSelectedChat(const QString &agentId);
     Q_INVOKABLE void attachFile(const QString &libraryId, const QString &fileId);
     Q_INVOKABLE void removeAttachment(const QString &attachmentId);
+    Q_INVOKABLE void approveEditProposal(const QString &proposalId);
+    Q_INVOKABLE void approveSelectedEditProposal(
+        const QString &proposalId,
+        const QVariantList &operationIds
+    );
+    Q_INVOKABLE void rejectEditProposal(const QString &proposalId);
+    Q_INVOKABLE void undoEditProposal(const QString &proposalId);
     Q_INVOKABLE void loadMessageContext(const QString &messageId);
     Q_INVOKABLE void clearInspectedContext();
     Q_INVOKABLE void updateChat(const QString &chatId, const QVariantMap &input);
@@ -132,6 +144,7 @@ signals:
     void assigningAgentChanged();
     void mutatingChanged();
     void mutatingAttachmentChanged();
+    void mutatingEditProposalChanged();
     void errorMessageChanged();
     void completionMetadataChanged();
     void inspectedContextChanged();
@@ -140,6 +153,7 @@ signals:
     void attachmentAdded(const QVariantMap &attachment);
     void attachmentRemoved(const QString &attachmentId);
     void agentAssigned(const QString &agentId);
+    void editTransactionSynchronized(const QString &libraryId);
     void chatCreated(const QVariantMap &chat);
     void chatUpdated(const QVariantMap &chat);
     void chatArchived(const QVariantMap &chat);
@@ -150,6 +164,18 @@ private:
     [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
     void fetchAppState();
     void resumeActiveRunForSelectedChat();
+    void refreshEditProposalsForSelectedChat();
+    void requestEditProposal(const QString &proposalId, const QString &runId);
+    void submitEditProposalAction(
+        const QString &proposalId,
+        const QString &action,
+        const QVariantList &operationIds = {},
+        bool includeOperationIds = false
+    );
+    void storeEditProposal(const QJsonObject &proposal);
+    [[nodiscard]] QVariantList messagesWithEditProposals(
+        const QVariantList &messages
+    ) const;
     void subscribeToRunEvents(const QString &runId, int afterSequence = 0);
     void processRunEventStream();
     void processRunEventBlock(const QByteArray &eventBlock);
@@ -179,6 +205,10 @@ private:
     void setAssigningAgent(bool assigning);
     void setMutating(bool mutating);
     void setMutatingAttachment(bool mutating);
+    void setMutatingEditProposal(
+        bool mutating,
+        const QString &proposalId = {}
+    );
     void setLoadingContext(bool loading);
     void setErrorMessage(const QString &message);
     void setContextErrorMessage(const QString &message);
@@ -210,6 +240,8 @@ private:
     QString m_selectedChatId;
     QVariantList m_messages;
     QVariantList m_attachments;
+    QHash<QString, QString> m_runAssistantMessageIds;
+    QHash<QString, QVariantMap> m_editProposalsByRunId;
     QVariantList m_lastSources;
     QVariantMap m_inspectedContext;
     QString m_inspectedMessageId;
@@ -239,6 +271,8 @@ private:
     bool m_assigningAgent = false;
     bool m_mutating = false;
     bool m_mutatingAttachment = false;
+    bool m_mutatingEditProposal = false;
+    QString m_mutatingEditProposalId;
     bool m_loadingContext = false;
     QString m_errorMessage;
     QString m_contextErrorMessage;

@@ -159,6 +159,7 @@ export class AIToolExecutor {
       toolId: tool.id,
       toolName: tool.name,
       permission: tool.permission,
+      executionMode: tool.executionMode ?? "direct",
     });
     logAITool("tool.requested", {
       executionId: execution.id,
@@ -167,6 +168,7 @@ export class AIToolExecutor {
       libraryId: request.libraryId,
       toolId: tool.id,
       permission: tool.permission,
+      executionMode: tool.executionMode ?? "direct",
     });
 
     const parsedInput = tool.inputSchema.safeParse(request.input);
@@ -191,8 +193,15 @@ export class AIToolExecutor {
 
     const grantedPermissions =
       request.grantedPermissions ?? defaultGrantedPermissions;
+    const implicitProposalPermission =
+      request.grantedPermissions === undefined
+      && tool.permission === "safe-local-mutation"
+      && tool.executionMode === "proposal";
 
-    if (!grantedPermissions.has(tool.permission)) {
+    if (
+      !grantedPermissions.has(tool.permission)
+      && !implicitProposalPermission
+    ) {
       const error = new AIToolError(
         "permission_denied",
         `AI tool "${tool.id}" requires ${tool.permission} permission.`,
@@ -222,12 +231,14 @@ export class AIToolExecutor {
       toolId: tool.id,
       toolName: tool.name,
       permission: tool.permission,
+      executionMode: tool.executionMode ?? "direct",
       input: inputSummary,
     });
     logAITool("tool.started", {
       executionId: execution.id,
       runId: request.runId,
       toolId: tool.id,
+      executionMode: tool.executionMode ?? "direct",
       timeoutMs: tool.timeoutMs,
       input: inputSummary,
     });

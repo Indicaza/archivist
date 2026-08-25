@@ -161,6 +161,32 @@ QVariantList withoutChat(const QVariantList &chats, const QString &chatId)
 }
 
 
+int editProposalStatusRank(const QString &status)
+{
+    if (status == QStringLiteral("undone")) {
+        return 3;
+    }
+
+    if (
+        status == QStringLiteral("completed")
+        || status == QStringLiteral("rejected")
+        || status == QStringLiteral("stale")
+        || status == QStringLiteral("failed")
+    ) {
+        return 2;
+    }
+
+    if (
+        status == QStringLiteral("approved")
+        || status == QStringLiteral("partially_approved")
+        || status == QStringLiteral("executing")
+    ) {
+        return 1;
+    }
+
+    return 0;
+}
+
 QVariantList withoutAttachment(
     const QVariantList &attachments,
     const QString &attachmentId
@@ -353,6 +379,10 @@ QString ChatStore::runPhaseLabel() const
         return QStringLiteral("Continuing after tool issue…");
     }
 
+    if (m_runPhase == QStringLiteral("edit.proposed")) {
+        return QStringLiteral("Preparing edit review…");
+    }
+
     if (m_runPhase == QStringLiteral("model.started")) {
         return QStringLiteral("Planning response…");
     }
@@ -396,6 +426,16 @@ bool ChatStore::mutatingAttachment() const
     return m_mutatingAttachment;
 }
 
+bool ChatStore::mutatingEditProposal() const
+{
+    return m_mutatingEditProposal;
+}
+
+QString ChatStore::mutatingEditProposalId() const
+{
+    return m_mutatingEditProposalId;
+}
+
 bool ChatStore::loadingContext() const
 {
     return m_loadingContext;
@@ -434,6 +474,8 @@ void ChatStore::resumeActiveRunForSelectedChat()
         return;
     }
 
+    refreshEditProposalsForSelectedChat();
+
     const QString requestedChatId = m_selectedChatId;
     const QString path = QStringLiteral("/chats/%1/runs")
         .arg(encodedPathSegment(requestedChatId));
@@ -452,6 +494,21 @@ void ChatStore::resumeActiveRunForSelectedChat()
         }
 
         const QJsonArray runs = result.object.value(QStringLiteral("runs")).toArray();
+        m_runAssistantMessageIds.clear();
+
+        for (const QJsonValue &value : runs) {
+            const QJsonObject run = value.toObject();
+            const QString runId = run.value(QStringLiteral("id")).toString();
+            const QString assistantMessageId = run
+                .value(QStringLiteral("assistantMessageId"))
+                .toString();
+
+            if (!runId.isEmpty() && !assistantMessageId.isEmpty()) {
+                m_runAssistantMessageIds.insert(runId, assistantMessageId);
+            }
+        }
+
+        setMessages(m_messages);
 
         for (const QJsonValue &value : runs) {
             const QJsonObject run = value.toObject();
@@ -469,6 +526,296 @@ void ChatStore::resumeActiveRunForSelectedChat()
             return;
         }
     });
+}
+
+void ChatStore::refreshEditProposalsForSelectedChat()
+{
+    if (m_selectedChatId.isEmpty()) {
+        m_editProposalsByRunId.clear();
+        setMessages(m_messages);
+        return;
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+    const QString path = QStringLiteral("/cognition/edits/chats/%1/proposals")
+        .arg(encodedPathSegment(requestedChatId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+
+        if (requestedChatId != m_selectedChatId) {
+            return;
+        }
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        m_editProposalsByRunId.clear();
+        const QJsonArray proposals = result.object
+            .value(QStringLiteral("proposals"))
+            .toArray();
+
+        for (const QJsonValue &value : proposals) {
+            if (!value.isObject()) {
+                continue;
+            }
+
+            const QJsonObject proposal = value.toObject();
+            storeEditProposal(proposal);
+
+            if (
+                proposal.value(QStringLiteral("status")).toString()
+                    == QStringLiteral("proposed")
+            ) {
+                requestEditProposal(
+                    proposal.value(QStringLiteral("id")).toString(),
+                    proposal.value(QStringLiteral("runId")).toString()
+                );
+            }
+        }
+
+        setMessages(m_messages);
+    });
+}
+
+void ChatStore::requestEditProposal(
+    const QString &proposalId,
+    const QString &runId
+)
+{
+    if (proposalId.isEmpty()) {
+        return;
+    }
+
+    if (
+        !runId.isEmpty()
+        && runId == m_activeRunId
+        && !m_activeRunAssistantMessageId.isEmpty()
+    ) {
+        m_runAssistantMessageIds.insert(
+            runId,
+            m_activeRunAssistantMessageId
+        );
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+    const QString path = QStringLiteral("/cognition/edits/proposals/%1")
+        .arg(encodedPathSegment(proposalId));
+    QNetworkReply *reply = m_network.get(requestFor(path));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+
+        if (requestedChatId != m_selectedChatId) {
+            return;
+        }
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        storeEditProposal(
+            result.object.value(QStringLiteral("proposal")).toObject()
+        );
+    });
+}
+
+void ChatStore::submitEditProposalAction(
+    const QString &proposalId,
+    const QString &action,
+    const QVariantList &operationIds,
+    bool includeOperationIds
+)
+{
+    if (
+        proposalId.isEmpty()
+        || action.isEmpty()
+        || m_mutatingEditProposal
+    ) {
+        return;
+    }
+
+    QJsonObject body;
+
+    if (includeOperationIds) {
+        if (operationIds.isEmpty()) {
+            setErrorMessage(
+                QStringLiteral("Select at least one proposed edit to approve.")
+            );
+            return;
+        }
+
+        body.insert(
+            QStringLiteral("operationIds"),
+            QJsonArray::fromVariantList(operationIds)
+        );
+    }
+
+    const QString requestedChatId = m_selectedChatId;
+    setErrorMessage({});
+    setMutatingEditProposal(true, proposalId);
+
+    const QString path = QStringLiteral("/cognition/edits/proposals/%1/%2")
+        .arg(encodedPathSegment(proposalId))
+        .arg(action);
+    QNetworkReply *reply = m_network.post(
+        requestFor(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
+        const JsonReplyResult result = consumeJsonReply(reply);
+        reply->deleteLater();
+        setMutatingEditProposal(false);
+
+        if (requestedChatId != m_selectedChatId) {
+            return;
+        }
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            return;
+        }
+
+        const QJsonObject proposal = result.object
+            .value(QStringLiteral("proposal"))
+            .toObject();
+
+        if (proposal.isEmpty()) {
+            setErrorMessage(
+                QStringLiteral("Archivist API returned an invalid edit proposal.")
+            );
+            return;
+        }
+
+        storeEditProposal(proposal);
+
+        const QString status = proposal.value(QStringLiteral("status")).toString();
+        const QString libraryId = proposal
+            .value(QStringLiteral("libraryId"))
+            .toString();
+
+        if (
+            !libraryId.isEmpty()
+            && (
+                status == QStringLiteral("completed")
+                || status == QStringLiteral("undone")
+            )
+        ) {
+            emit editTransactionSynchronized(libraryId);
+        }
+    });
+}
+
+void ChatStore::storeEditProposal(const QJsonObject &proposal)
+{
+    const QString runId = proposal.value(QStringLiteral("runId")).toString();
+
+    if (runId.isEmpty()) {
+        return;
+    }
+
+    const QVariantMap incoming = proposal.toVariantMap();
+    const auto existing = m_editProposalsByRunId.constFind(runId);
+
+    if (existing != m_editProposalsByRunId.cend()) {
+        const QString existingId = existing
+            .value()
+            .value(QStringLiteral("id"))
+            .toString();
+        const QString incomingId = incoming
+            .value(QStringLiteral("id"))
+            .toString();
+        const QString existingStatus = existing
+            .value()
+            .value(QStringLiteral("status"))
+            .toString();
+        const QString incomingStatus = incoming
+            .value(QStringLiteral("status"))
+            .toString();
+        const int existingRank = editProposalStatusRank(existingStatus);
+        const int incomingRank = editProposalStatusRank(incomingStatus);
+
+        if (
+            existingId == incomingId
+            && (
+                incomingRank < existingRank
+                || (
+                    existingRank >= 2
+                    && incomingRank == existingRank
+                    && existingStatus != incomingStatus
+                )
+                || (
+                    existingStatus == QStringLiteral("proposed")
+                    && incomingStatus == QStringLiteral("proposed")
+                    && incoming
+                        .value(QStringLiteral("operations"))
+                        .toList()
+                        .size()
+                        < existing
+                            .value()
+                            .value(QStringLiteral("operations"))
+                            .toList()
+                            .size()
+                )
+            )
+        ) {
+            return;
+        }
+    }
+
+    m_editProposalsByRunId.insert(runId, incoming);
+    setMessages(m_messages);
+}
+
+QVariantList ChatStore::messagesWithEditProposals(
+    const QVariantList &messages
+) const
+{
+    QHash<QString, QVariantMap> proposalsByMessageId;
+
+    for (
+        auto iterator = m_editProposalsByRunId.cbegin();
+        iterator != m_editProposalsByRunId.cend();
+        ++iterator
+    ) {
+        const QString assistantMessageId = m_runAssistantMessageIds
+            .value(iterator.key());
+
+        if (!assistantMessageId.isEmpty()) {
+            proposalsByMessageId.insert(
+                assistantMessageId,
+                iterator.value()
+            );
+        }
+    }
+
+    QVariantList result;
+    result.reserve(messages.size());
+
+    for (const QVariant &value : messages) {
+        QVariantMap message = value.toMap();
+        const QString messageId = message
+            .value(QStringLiteral("id"))
+            .toString();
+        message.remove(QStringLiteral("editProposal"));
+
+        const auto proposal = proposalsByMessageId.constFind(messageId);
+
+        if (proposal != proposalsByMessageId.cend()) {
+            message.insert(QStringLiteral("editProposal"), proposal.value());
+        }
+
+        result.append(message);
+    }
+
+    return result;
 }
 
 void ChatStore::subscribeToRunEvents(const QString &runId, int afterSequence)
@@ -628,6 +975,16 @@ void ChatStore::handleRunEvent(const QJsonObject &event)
             .toBool()
     ) {
         updateRunActivity(eventType, payload);
+    }
+
+    if (eventType.startsWith(QStringLiteral("edit."))) {
+        const QString proposalId = payload
+            .value(QStringLiteral("proposalId"))
+            .toString();
+
+        if (!proposalId.isEmpty()) {
+            requestEditProposal(proposalId, runId);
+        }
     }
 
     if (eventType == QStringLiteral("model.delta")) {
@@ -890,6 +1247,10 @@ void ChatStore::setActiveRun(const QJsonObject &run)
 
     m_activeRunId = runId;
     m_activeRunAssistantMessageId = assistantMessageId;
+
+    if (!assistantMessageId.isEmpty()) {
+        m_runAssistantMessageIds.insert(runId, assistantMessageId);
+    }
     m_runPhase = run.value(QStringLiteral("phase")).toString();
     m_cancellingRun = false;
     m_runSnapshotPending = false;
@@ -1453,7 +1814,15 @@ void ChatStore::fetchAppState()
 
 void ChatStore::selectChat(const QString &chatId)
 {
-    if (m_responding || m_assigningAgent || m_mutating || m_mutatingAttachment || chatId.isEmpty() || !containsChat(chatId)) {
+    if (
+        m_responding
+        || m_assigningAgent
+        || m_mutating
+        || m_mutatingAttachment
+        || m_mutatingEditProposal
+        || chatId.isEmpty()
+        || !containsChat(chatId)
+    ) {
         return;
     }
 
@@ -1647,7 +2016,7 @@ void ChatStore::loadOlderMessages()
                 }
 
                 emit olderMessagesWillPrepend(prependedMessages.size());
-                m_messages = nextMessages;
+                m_messages = messagesWithEditProposals(nextMessages);
                 emit messagesChanged();
                 emit olderMessagesPrepended(prependedMessages.size());
             }
@@ -1668,6 +2037,7 @@ void ChatStore::sendMessage(const QString &content)
         || m_assigningAgent
         || m_mutating
         || m_mutatingAttachment
+        || m_mutatingEditProposal
     ) {
         return;
     }
@@ -1802,6 +2172,43 @@ void ChatStore::sendMessage(const QString &content)
 
             subscribeToRunEvents(m_activeRunId);
         }
+    );
+}
+
+void ChatStore::approveEditProposal(const QString &proposalId)
+{
+    submitEditProposalAction(
+        proposalId,
+        QStringLiteral("approve")
+    );
+}
+
+void ChatStore::approveSelectedEditProposal(
+    const QString &proposalId,
+    const QVariantList &operationIds
+)
+{
+    submitEditProposalAction(
+        proposalId,
+        QStringLiteral("approve"),
+        operationIds,
+        true
+    );
+}
+
+void ChatStore::rejectEditProposal(const QString &proposalId)
+{
+    submitEditProposalAction(
+        proposalId,
+        QStringLiteral("reject")
+    );
+}
+
+void ChatStore::undoEditProposal(const QString &proposalId)
+{
+    submitEditProposalAction(
+        proposalId,
+        QStringLiteral("undo")
     );
 }
 
@@ -2390,6 +2797,8 @@ void ChatStore::setSelectedChatId(const QString &chatId)
     }
 
     m_selectedChatId = chatId;
+    m_runAssistantMessageIds.clear();
+    m_editProposalsByRunId.clear();
     resetMessagePageState();
     clearInspectedContext();
     setAttachments({});
@@ -2401,11 +2810,13 @@ void ChatStore::setSelectedChatId(const QString &chatId)
 
 void ChatStore::setMessages(const QVariantList &messages)
 {
-    if (m_messages == messages) {
+    const QVariantList enrichedMessages = messagesWithEditProposals(messages);
+
+    if (m_messages == enrichedMessages) {
         return;
     }
 
-    m_messages = messages;
+    m_messages = enrichedMessages;
     emit messagesChanged();
 }
 
@@ -2517,6 +2928,25 @@ void ChatStore::setMutatingAttachment(bool mutating)
 
     m_mutatingAttachment = mutating;
     emit mutatingAttachmentChanged();
+}
+
+void ChatStore::setMutatingEditProposal(
+    bool mutating,
+    const QString &proposalId
+)
+{
+    const QString nextProposalId = mutating ? proposalId : QString{};
+
+    if (
+        m_mutatingEditProposal == mutating
+        && m_mutatingEditProposalId == nextProposalId
+    ) {
+        return;
+    }
+
+    m_mutatingEditProposal = mutating;
+    m_mutatingEditProposalId = nextProposalId;
+    emit mutatingEditProposalChanged();
 }
 
 void ChatStore::setLoadingContext(bool loading)

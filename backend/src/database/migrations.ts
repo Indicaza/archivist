@@ -1151,6 +1151,116 @@ const migrations: Migration[] = [
     },
   },
 
+  {
+    version: 19,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE ai_edit_proposals (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          chat_id TEXT NOT NULL,
+          library_id TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          provider TEXT NOT NULL CHECK (length(trim(provider)) > 0),
+          model TEXT NOT NULL CHECK (length(trim(model)) > 0),
+          skill_id TEXT,
+          summary TEXT NOT NULL CHECK (length(trim(summary)) > 0),
+          status TEXT NOT NULL DEFAULT 'proposed' CHECK (
+            status IN (
+              'proposed',
+              'approved',
+              'partially_approved',
+              'rejected',
+              'stale',
+              'executing',
+              'completed',
+              'failed',
+              'undone'
+            )
+          ),
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          reviewed_at TEXT,
+          completed_at TEXT,
+          error_code TEXT,
+          error_message TEXT,
+          FOREIGN KEY (run_id)
+            REFERENCES ai_runs(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (chat_id)
+            REFERENCES chats(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX ai_edit_proposals_run_created_at_index
+          ON ai_edit_proposals(run_id, created_at ASC);
+
+        CREATE INDEX ai_edit_proposals_library_status_index
+          ON ai_edit_proposals(library_id, status, created_at DESC);
+
+        CREATE TABLE ai_edit_operations (
+          id TEXT PRIMARY KEY,
+          proposal_id TEXT NOT NULL,
+          ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+          operation_type TEXT NOT NULL CHECK (
+            operation_type IN (
+              'create_file',
+              'patch_file',
+              'rename_file',
+              'move_file',
+              'create_directory'
+            )
+          ),
+          status TEXT NOT NULL DEFAULT 'proposed' CHECK (
+            status IN (
+              'proposed',
+              'approved',
+              'rejected',
+              'completed',
+              'failed',
+              'undone'
+            )
+          ),
+          source_path TEXT,
+          destination_path TEXT,
+          expected_hash TEXT CHECK (
+            expected_hash IS NULL OR length(expected_hash) = 64
+          ),
+          before_content TEXT,
+          after_content TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          completed_at TEXT,
+          error_code TEXT,
+          error_message TEXT,
+          FOREIGN KEY (proposal_id)
+            REFERENCES ai_edit_proposals(id)
+            ON DELETE CASCADE,
+          UNIQUE (proposal_id, ordinal)
+        );
+
+        CREATE INDEX ai_edit_operations_proposal_ordinal_index
+          ON ai_edit_operations(proposal_id, ordinal ASC);
+      `);
+    },
+  },
+
+  {
+    version: 20,
+    migrate(database) {
+      database.exec(`
+        ALTER TABLE ai_edit_operations
+        ADD COLUMN after_hash TEXT CHECK (
+          after_hash IS NULL OR length(after_hash) = 64
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

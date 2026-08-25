@@ -32,6 +32,17 @@ int main(int argc, char *argv[])
     MarkdownDocumentBridge markdownDocumentBridge;
     ChatStore chatStore;
     WorkspaceStateStore workspaceState;
+
+    QObject::connect(
+        &chatStore,
+        &ChatStore::editTransactionSynchronized,
+        &libraryStore,
+        [&libraryStore](const QString &libraryId) {
+            if (libraryStore.selectedLibraryId() == libraryId) {
+                libraryStore.refreshSelectedFiles();
+            }
+        }
+    );
     qmlRegisterType<DocumentPreviewService>(
         "Archivist.Services",
         1,

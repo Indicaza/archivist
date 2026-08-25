@@ -1656,10 +1656,26 @@ Rectangle {
                     && String(modelData.status || "") === "streaming"
                 ? ChatStore.attachments
                 : []
+            editProposal: modelData.editProposal || ({})
+            editProposalBusy: ChatStore.mutatingEditProposal
+                && String(modelData.editProposal ? modelData.editProposal.id || "" : "")
+                    === ChatStore.mutatingEditProposalId
             animateReveal: Boolean(modelData.animateReveal || false)
             leftObstruction: root.leftObstruction
             onContextInspectionRequested: function(messageId) {
                 root.contextInspectionRequested(messageId)
+            }
+            onEditApproveAllRequested: function(proposalId) {
+                ChatStore.approveEditProposal(proposalId)
+            }
+            onEditApproveSelectedRequested: function(proposalId, operationIds) {
+                ChatStore.approveSelectedEditProposal(proposalId, operationIds)
+            }
+            onEditRejectRequested: function(proposalId) {
+                ChatStore.rejectEditProposal(proposalId)
+            }
+            onEditUndoRequested: function(proposalId) {
+                ChatStore.undoEditProposal(proposalId)
             }
             onRevealProgressed: {
                 if (index !== transcript.count - 1) {

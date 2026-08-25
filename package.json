@@ -50,7 +50,9 @@
     "icons:vendor": "node scripts/vendor-icons.mjs",
     "check:pre-pr": "./scripts/pre-pr",
     "test:ai-tools": "npm run check-node && npm run build -w backend && node scripts/test-ai-tools.mjs",
-    "test:ai-tool-loop": "npm run check-node && npm run build -w backend && node scripts/test-ai-tool-loop.mjs"
+    "test:ai-tool-loop": "npm run check-node && npm run build -w backend && node scripts/test-ai-tool-loop.mjs",
+    "test:ai-edit-proposals": "npm run check-node && npm run build -w backend && node scripts/test-ai-edit-proposals.mjs",
+    "test:ai-edit-transactions": "npm run check-node && npm run build -w backend && node scripts/test-ai-edit-transactions.mjs"
   },
   "devDependencies": {
     "@iconify-json/codicon": "1.2.63",

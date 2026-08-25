@@ -893,13 +893,30 @@ function vendorLanguageIcons() {
   return manifest;
 }
 
+const existingManifestPath = path.join(outputDirectory, "manifest.json");
+let existingManifest = null;
+
+try {
+  existingManifest = JSON.parse(fs.readFileSync(existingManifestPath, "utf8"));
+} catch {
+  existingManifest = null;
+}
+
 cleanOutput();
 const streamlineFlex = loadIconSet("@iconify-json/streamline-flex");
 const codicon = loadIconSet("@iconify-json/codicon");
+const ui = vendorUiIcons(streamlineFlex, codicon);
+const languages = vendorLanguageIcons();
+const generatedContentChanged =
+  JSON.stringify(existingManifest?.ui ?? null) !== JSON.stringify(ui)
+  || JSON.stringify(existingManifest?.languages ?? null) !== JSON.stringify(languages);
 const manifest = {
-  generatedAt: new Date().toISOString(),
-  ui: vendorUiIcons(streamlineFlex, codicon),
-  languages: vendorLanguageIcons(),
+  generatedAt:
+    generatedContentChanged || typeof existingManifest?.generatedAt !== "string"
+      ? new Date().toISOString()
+      : existingManifest.generatedAt,
+  ui,
+  languages,
 };
 writeFile("manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
 
