@@ -181,10 +181,15 @@ async function main() {
   assert(
     registeredIds.join(",") ===
       [
+        "create_directory",
+        "create_file",
         "list_directory",
+        "move_file",
+        "patch_file",
         "read_file",
         "read_file_range",
         "read_file_ranges",
+        "rename_file",
         "search_filenames",
         "search_library",
       ].join(","),

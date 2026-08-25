@@ -9,6 +9,7 @@ import { chatRouter } from "./api/chats/routes/ChatRoutes.js";
 import { collectionRouter } from "./api/collections/routes/CollectionRoutes.js";
 import { contextCompilerRouter } from "./api/cognition/contextCompilers/routes/ContextCompilerRoutes.js";
 import { contextRetrievalRouter } from "./api/cognition/contextRetrieval/routes/ContextRetrievalRoutes.js";
+import { aiEditRouter } from "./api/cognition/edits/routes/AIEditRoutes.js";
 import { aiRunRouter } from "./api/cognition/runs/routes/AIRunRoutes.js";
 import { languageSupportRouter } from "./api/languageSupport/routes/LanguageSupportRoutes.js";
 import { libraryRouter } from "./api/libraries/routes/LibraryRoutes.js";
@@ -58,6 +59,7 @@ app.use("/api/collections", collectionRouter);
 app.use("/api/app-state", appStateRouter);
 app.use("/api/cognition/context-compilers", contextCompilerRouter);
 app.use("/api/cognition/search", contextRetrievalRouter);
+app.use("/api/cognition/edits", aiEditRouter);
 app.use("/api/runs", aiRunRouter);
 
 app.use(errorHandler);

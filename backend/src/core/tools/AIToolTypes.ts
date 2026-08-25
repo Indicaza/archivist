@@ -6,6 +6,8 @@ export type AIToolPermissionLevel =
   | "consequential"
   | "external-provider-action";
 
+export type AIToolExecutionMode = "direct" | "proposal";
+
 export type AIToolExecutionStatus =
   | "requested"
   | "running"
@@ -35,6 +37,7 @@ export type AIToolDefinition<TInput, TOutput> = {
   name: string;
   description: string;
   permission: AIToolPermissionLevel;
+  executionMode?: AIToolExecutionMode;
   inputSchema: ZodType<TInput>;
   inputJsonSchema?: Record<string, unknown>;
   outputSchema: ZodType<TOutput>;

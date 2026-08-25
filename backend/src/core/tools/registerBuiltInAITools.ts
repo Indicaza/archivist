@@ -1,4 +1,5 @@
 import { aiToolRegistry, type AIToolRegistry } from "./AIToolRegistry.js";
+import { libraryEditProposalTools } from "./builtins/LibraryEditProposalTools.js";
 import { libraryReadTools } from "./builtins/LibraryReadTools.js";
 
 export function registerBuiltInAITools(
@@ -6,7 +7,7 @@ export function registerBuiltInAITools(
 ): void {
   const registeredToolIds: string[] = [];
 
-  for (const tool of libraryReadTools) {
+  for (const tool of [...libraryReadTools, ...libraryEditProposalTools]) {
     if (!registry.get(tool.id)) {
       registry.register(tool);
       registeredToolIds.push(tool.id);

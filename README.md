@@ -43,6 +43,7 @@ Archivist is under active development. The native Qt/QML application in `fronten
 - **Explicit file attachments** — attach specific Library files to an individual Chat when the user wants guaranteed evidence.
 - **Bounded context** — budget recent history, automatic retrieval, and attached evidence through the selected Context Compiler without replacing the user's current intent.
 - **Durable Context Inspector** — inspect the compiler, model, token accounting, warnings, message selection, retrieval mode, and source outcomes behind individual assistant responses.
+- **Reviewable AI edits** — let model tools propose bounded Library file creation, full-content patches, directory creation, renames, and moves without writing immediately; persist the proposal, require human approval, fail closed on stale state, synchronize derived Library state after execution, and support guarded undo.
 - **Configurable Agents** — create reusable AI identities and attach Agent rosters to conversations.
 - **Native management workflows** — create, rename, archive, restore, duplicate, and delete Collections, Chats, and Agents through the Qt client.
 - **Provider abstraction** — OpenAI is currently supported behind an adapter boundary so project continuity does not belong to one model vendor.

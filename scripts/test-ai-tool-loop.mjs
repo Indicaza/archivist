@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -189,9 +190,19 @@ async function main() {
 
   const verifiedText = "Mosslings fit the uncanny setting more closely than Gnomes.";
   const directText = "Mosslings fit the uncanny setting more closely than Gnomes.";
+  const createMutationText = "I proposed World_Setting/ToolDraft.md for review.";
+  const patchMutationText = "I proposed an update to World_Setting/Overview.md for review.";
+  const guardedMutationText =
+    "I created a reviewable Library edit proposal containing the requested changes. No file changes have been applied yet.";
+  const fakeCompletedMutationText =
+    "notes/shard-notes/shard/Characters/Races/Shardwrights.md\n\nFile complete.";
   let observedToolNames = [];
   let observedToolCalls = 0;
   let observedDirectCalls = 0;
+  let observedMutationToolNames = [];
+  let observedMutationToolCalls = 0;
+  let observedToolTestingToolNames = [];
+  let observedToolTestingToolCalls = 0;
 
   aiProviderRegistry.register({
     providerId: "openai",
@@ -228,6 +239,204 @@ async function main() {
       };
     },
     async streamTextWithTools(input, options) {
+      if (
+        input.instructions.includes(
+          "This turn is an explicit tool-usage test.",
+        )
+      ) {
+        observedToolTestingToolNames = options.tools
+          .map((tool) => tool.name)
+          .sort();
+
+        const expectedToolTestingNames = [
+          "create_directory",
+          "create_file",
+          "list_directory",
+          "move_file",
+          "patch_file",
+          "read_file",
+          "read_file_range",
+          "read_file_ranges",
+          "rename_file",
+          "search_filenames",
+          "search_library",
+        ];
+
+        assert(
+          observedToolTestingToolNames.join(",") ===
+            expectedToolTestingNames.join(",") &&
+            options.maxToolRounds === 6 &&
+            input.instructions.includes(
+              "Never claim a Library file was created",
+            ) &&
+            input.instructions.includes(
+              "Never invent file paths, source handles, or line ranges.",
+            ),
+          "Explicit tool testing must expose the bounded read and proposal tool surfaces with truthful-use instructions.",
+        );
+
+        const calls = [
+          {
+            callId: "call-test-list-races",
+            name: "list_directory",
+            arguments: {
+              path: "Characters/Races",
+              limit: 25,
+            },
+            round: 1,
+          },
+          {
+            callId: "call-test-search-race-files",
+            name: "search_filenames",
+            arguments: {
+              query: "Characters/Races",
+              limit: 25,
+            },
+            round: 1,
+          },
+          {
+            callId: "call-test-search-race-text",
+            name: "search_library",
+            arguments: {
+              query: "Mosslings Gnomes",
+              limit: 8,
+            },
+            round: 1,
+          },
+          {
+            callId: "call-test-read-gnomes",
+            name: "read_file",
+            arguments: {
+              fileId: "Characters/Races/Gnomes.md",
+            },
+            round: 2,
+          },
+          {
+            callId: "call-test-read-mosslings-range",
+            name: "read_file_range",
+            arguments: {
+              fileId: "Characters/Races/Mosslings.md",
+              startLine: 1,
+              endLine: 4,
+            },
+            round: 2,
+          },
+          {
+            callId: "call-test-read-setting-ranges",
+            name: "read_file_ranges",
+            arguments: {
+              ranges: [
+                {
+                  fileId: "World_Setting/Overview.md",
+                  startLine: 1,
+                  endLine: 4,
+                },
+                {
+                  fileId: "Characters/Races/Gnomes.md",
+                  startLine: 1,
+                  endLine: 4,
+                },
+              ],
+            },
+            round: 2,
+          },
+          {
+            callId: "call-test-create-shardwrights",
+            name: "create_file",
+            arguments: {
+              path: "Characters/Races/Shardwrights.md",
+              content:
+                "# Shardwrights\n\nShardwrights are wandering salvage artisans shaped by printed life and old machinery.\n",
+            },
+            round: 3,
+          },
+        ];
+
+        for (const call of calls) {
+          const result = await options.onToolCall(call);
+          observedToolTestingToolCalls += 1;
+          assert(
+            result.output?.ok === true,
+            `Tool-testing call ${call.name} must succeed.`,
+          );
+        }
+
+        await options.onDelta?.(fakeCompletedMutationText);
+
+        return {
+          text: fakeCompletedMutationText,
+          provider: "openai",
+          model: input.generation.model,
+          toolCallCount: calls.length,
+          toolRoundCount: 3,
+        };
+      }
+
+      if (
+        input.instructions.includes(
+          "The user explicitly requested a Library file change.",
+        )
+      ) {
+        observedMutationToolNames = options.tools.map((tool) => tool.name).sort();
+
+        assert(
+          observedMutationToolNames.includes("create_file")
+            && observedMutationToolNames.includes("patch_file")
+            && input.instructions.includes("proposal-only"),
+          "Explicit file-change turns must expose create and patch proposal tools.",
+        );
+
+        const mutationUserMessage = [...input.messages]
+          .reverse()
+          .find((message) => message.role === "user")?.content ?? "";
+        const patchRequested = mutationUserMessage.includes(
+          "World_Setting/Overview.md",
+        );
+        const proposed = await options.onToolCall(
+          patchRequested
+            ? {
+                callId: "call-patch-file-proposal",
+                name: "patch_file",
+                arguments: {
+                  path: "World_Setting/Overview.md",
+                  content:
+                    "# Setting\n\nThe setting mixes rustic communities with uncanny printed life, mythified machines, and moss-covered ruins.\n",
+                },
+                round: 1,
+              }
+            : {
+                callId: "call-create-file-proposal",
+                name: "create_file",
+                arguments: {
+                  path: "World_Setting/ToolDraft.md",
+                  content: "# Tool Draft\n\nReview before writing.\n",
+                },
+                round: 1,
+              },
+        );
+        observedMutationToolCalls += 1;
+
+        assert(
+          proposed.output?.ok === true
+            && proposed.output.result?.status === "proposed"
+            && proposed.output.result?.writesPerformed === false,
+          "The model must receive a proposal result without a filesystem write.",
+        );
+
+        const mutationText = patchRequested
+          ? patchMutationText
+          : createMutationText;
+        await options.onDelta?.(mutationText);
+
+        return {
+          text: mutationText,
+          provider: "openai",
+          model: input.generation.model,
+          toolCallCount: 1,
+          toolRoundCount: 1,
+        };
+      }
+
       observedToolNames = options.tools.map((tool) => tool.name).sort();
 
       assert(
@@ -333,12 +542,14 @@ async function main() {
     toolExecutionModel,
     toolProviderAdapter,
     chatModel,
+    editProposalModel,
   ] = await Promise.all([
     import("../backend/dist/app.js"),
     import("../backend/dist/database/database.js"),
     import("../backend/dist/core/tools/models/AIToolExecution.js"),
     import("../backend/dist/core/tools/AIToolProviderAdapter.js"),
     import("../backend/dist/api/chats/models/Chat.js"),
+    import("../backend/dist/api/cognition/edits/models/AIEditProposal.js"),
   ]);
   closeDatabase = databaseModule.closeDatabase;
 
@@ -574,6 +785,251 @@ async function main() {
     "The direct grounded response must persist on the AI Run.",
   );
 
+  const mutationChat = (
+    await requestJson(baseUrl, "/chats", {
+      method: "POST",
+      body: JSON.stringify({
+        libraryId: library.id,
+        title: "Proposal-only create file",
+      }),
+    })
+  ).chat;
+  const mutationStarted = await requestJson(
+    baseUrl,
+    `/chats/${mutationChat.id}/runs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content:
+          "Add a short draft to our World_Setting directory.",
+      }),
+    },
+  );
+  const mutationEvents = await collectRunEvents(
+    baseUrl,
+    mutationStarted.run.id,
+  );
+
+  assertOrderedEvents(mutationEvents, [
+    "run.started",
+    "retrieval.started",
+    "retrieval.completed",
+    "context.started",
+    "context.completed",
+    "model.started",
+    "tool.requested",
+    "tool.started",
+    "edit.proposed",
+    "tool.completed",
+    "model.delta",
+    "model.completed",
+    "run.completed",
+  ]);
+
+  const mutationModelStarted = mutationEvents.find(
+    (event) => event.eventType === "model.started",
+  );
+  const mutationProposalEvent = mutationEvents.find(
+    (event) => event.eventType === "edit.proposed",
+  );
+  const mutationProposals =
+    editProposalModel.listAIEditProposalsByRunId(
+      mutationStarted.run.id,
+    );
+
+  assert(
+    mutationModelStarted?.payload?.mutationProposalRequested === true
+      && mutationModelStarted?.payload?.availableToolIds?.includes("create_file")
+      && mutationModelStarted?.payload?.availableToolIds?.includes("patch_file")
+      && observedMutationToolNames.includes("create_file")
+      && observedMutationToolNames.includes("patch_file")
+      && observedMutationToolCalls === 1,
+    "Explicit file-change intent must enable proposal-only create and patch tools.",
+  );
+  assert(
+    mutationProposals.length === 1
+      && mutationProposals[0].operations[0]?.type === "create_file"
+      && mutationProposalEvent?.payload?.proposalId === mutationProposals[0].id
+      && !fs.existsSync(
+        path.join(libraryPath, "World_Setting", "ToolDraft.md"),
+      ),
+    "The model tool loop must persist a create proposal without writing the file.",
+  );
+
+  const overviewPath = path.join(
+    libraryPath,
+    "World_Setting",
+    "Overview.md",
+  );
+  const overviewBefore = fs.readFileSync(overviewPath, "utf8");
+  const overviewExpectedHash = createHash("sha256")
+    .update(overviewBefore, "utf8")
+    .digest("hex");
+  const patchChat = (
+    await requestJson(baseUrl, "/chats", {
+      method: "POST",
+      body: JSON.stringify({
+        libraryId: library.id,
+        title: "Proposal-only patch file",
+      }),
+    })
+  ).chat;
+  const patchStarted = await requestJson(
+    baseUrl,
+    `/chats/${patchChat.id}/runs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content:
+          "Update World_Setting/Overview.md to mention moss-covered ruins.",
+      }),
+    },
+  );
+  const patchEvents = await collectRunEvents(
+    baseUrl,
+    patchStarted.run.id,
+  );
+
+  assertOrderedEvents(patchEvents, [
+    "run.started",
+    "retrieval.started",
+    "retrieval.completed",
+    "context.started",
+    "context.completed",
+    "model.started",
+    "tool.requested",
+    "tool.started",
+    "edit.proposed",
+    "tool.completed",
+    "model.delta",
+    "model.completed",
+    "run.completed",
+  ]);
+
+  const patchProposalEvent = patchEvents.find(
+    (event) => event.eventType === "edit.proposed",
+  );
+  const patchProposals = editProposalModel.listAIEditProposalsByRunId(
+    patchStarted.run.id,
+  );
+  const patchOperation = patchProposals[0]?.operations[0];
+
+  assert(
+    patchProposals.length === 1
+      && patchOperation?.type === "patch_file"
+      && patchOperation.sourcePath === "World_Setting/Overview.md"
+      && patchOperation.expectedHash === overviewExpectedHash
+      && patchOperation.beforeContent === overviewBefore
+      && patchProposalEvent?.payload?.expectedHash === overviewExpectedHash
+      && fs.readFileSync(overviewPath, "utf8") === overviewBefore
+      && observedMutationToolCalls === 2,
+    "The model tool loop must snapshot exact stale-state metadata for patch_file without writing the file.",
+  );
+
+  const toolTestingChat = (
+    await requestJson(baseUrl, "/chats", {
+      method: "POST",
+      body: JSON.stringify({
+        libraryId: library.id,
+        title: "Explicit mutation tool testing",
+      }),
+    })
+  ).chat;
+  const toolTestingPrompt =
+    "Ok, I just wrote some tools and skills, lets see if you can write files. Create a new race for the game, use your creativity and make it fit within the setting. Compare other races, the world setting, etc to make something feel natural to the setting. Use as many tools as possible even if you dont need them. I'm testing tool usage in this prompt.";
+  const toolTestingStarted = await requestJson(
+    baseUrl,
+    `/chats/${toolTestingChat.id}/runs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content: toolTestingPrompt,
+      }),
+    },
+  );
+  const toolTestingEvents = await collectRunEvents(
+    baseUrl,
+    toolTestingStarted.run.id,
+  );
+
+  assertOrderedEvents(toolTestingEvents, [
+    "run.started",
+    "retrieval.started",
+    "retrieval.completed",
+    "context.started",
+    "context.completed",
+    "model.started",
+    "tool.requested",
+    "tool.started",
+    "tool.completed",
+    "edit.proposed",
+    "model.delta",
+    "model.completed",
+    "run.completed",
+  ]);
+
+  const toolTestingModelStarted = toolTestingEvents.find(
+    (event) => event.eventType === "model.started",
+  );
+  const toolTestingDelta = toolTestingEvents
+    .filter((event) => event.eventType === "model.delta")
+    .map((event) => event.payload?.delta ?? "")
+    .join("");
+  const toolTestingProposals =
+    editProposalModel.listAIEditProposalsByRunId(
+      toolTestingStarted.run.id,
+    );
+  const toolTestingRun = (
+    await requestJson(baseUrl, `/runs/${toolTestingStarted.run.id}`)
+  ).run;
+  const expectedToolTestingNames = [
+    "create_directory",
+    "create_file",
+    "list_directory",
+    "move_file",
+    "patch_file",
+    "read_file",
+    "read_file_range",
+    "read_file_ranges",
+    "rename_file",
+    "search_filenames",
+    "search_library",
+  ];
+
+  assert(
+    toolTestingModelStarted?.payload?.mutationProposalRequested === true &&
+      toolTestingModelStarted?.payload?.toolTestingRequested === true &&
+      toolTestingModelStarted?.payload?.verificationRequested === true &&
+      toolTestingModelStarted?.payload?.verificationToolsAvailable === true &&
+      toolTestingModelStarted?.payload?.discoveryToolsSuppressed === false &&
+      toolTestingModelStarted?.payload?.fullFileReadSuppressed === false &&
+      (toolTestingModelStarted?.payload?.availableToolIds ?? [])
+        .slice()
+        .sort()
+        .join(",") === expectedToolTestingNames.join(",") &&
+      observedToolTestingToolNames.join(",") ===
+        expectedToolTestingNames.join(",") &&
+      observedToolTestingToolCalls === 7,
+    "The real-world plural-files tool-testing prompt must expose read and proposal tools instead of falling through to text-only generation.",
+  );
+  assert(
+    toolTestingProposals.length === 1 &&
+      toolTestingProposals[0].operations.length === 1 &&
+      toolTestingProposals[0].operations[0]?.type === "create_file" &&
+      toolTestingProposals[0].operations[0]?.destinationPath ===
+        "Characters/Races/Shardwrights.md" &&
+      !fs.existsSync(
+        path.join(libraryPath, "Characters", "Races", "Shardwrights.md"),
+      ),
+    "Tool testing must end in a reviewable create_file proposal without writing the requested file.",
+  );
+  assert(
+    toolTestingDelta === guardedMutationText &&
+      !toolTestingDelta.includes("File complete") &&
+      toolTestingRun.finalResponse === guardedMutationText,
+    "Mutation turns must replace provider role-played write claims with a truthful proposal-only response.",
+  );
+
   console.log("AI model tool-loop smoke test: PASS");
   console.log(`  model tools: ${observedToolNames.join(", ")}`);
   console.log("  subject-aware retrieval → one requested batch read → streamed answer");
@@ -582,6 +1038,10 @@ async function main() {
   console.log("  focused recent-history context and cost diagnostics");
   console.log("  durable tool events and execution records");
   console.log("  bounded read-only model tool access");
+  console.log("  explicit mutation intent → proposal-only create_file and patch_file access");
+  console.log("  plural file-write intent and explicit tool-testing mode");
+  console.log("  truthful proposal-only mutation response guard");
+  console.log("  patch_file exact before-content and SHA-256 stale-state snapshot");
 }
 
 main()

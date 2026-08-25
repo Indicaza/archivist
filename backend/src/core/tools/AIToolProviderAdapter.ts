@@ -12,6 +12,8 @@ const verificationToolIds = new Set(["read_file_ranges"]);
 export type ModelAIToolAvailability = {
   includeDiscoveryTools?: boolean;
   includeFullFileRead?: boolean;
+  includeVerificationTools?: boolean;
+  includeMutationProposalTools?: boolean;
 };
 
 export function listModelAvailableAITools(
@@ -21,18 +23,45 @@ export function listModelAvailableAITools(
     availability.includeDiscoveryTools ?? true;
   const includeFullFileRead =
     availability.includeFullFileRead ?? true;
+  const includeVerificationTools =
+    availability.includeVerificationTools ?? true;
+  const includeMutationProposalTools =
+    availability.includeMutationProposalTools ?? false;
   const verificationOnly = !includeDiscoveryTools && !includeFullFileRead;
 
   return aiToolRegistry
     .list()
-    .filter(
-      (tool) =>
-        tool.permission === "read-only" &&
-        tool.inputJsonSchema !== undefined &&
-        (includeDiscoveryTools || !discoveryToolIds.has(tool.id)) &&
-        (includeFullFileRead || tool.id !== "read_file") &&
-        (!verificationOnly || verificationToolIds.has(tool.id)),
-    )
+    .filter((tool) => {
+      const mutationProposal =
+        tool.permission === "safe-local-mutation"
+        && tool.executionMode === "proposal";
+
+      if (mutationProposal) {
+        return (
+          includeMutationProposalTools
+          && tool.inputJsonSchema !== undefined
+        );
+      }
+
+      if (
+        tool.permission !== "read-only"
+        || tool.inputJsonSchema === undefined
+      ) {
+        return false;
+      }
+
+      if (verificationOnly) {
+        return (
+          includeVerificationTools
+          && verificationToolIds.has(tool.id)
+        );
+      }
+
+      return (
+        (includeDiscoveryTools || !discoveryToolIds.has(tool.id))
+        && (includeFullFileRead || tool.id !== "read_file")
+      );
+    })
     .map((tool) => ({
       name: tool.id,
       description: tool.description,
