@@ -1,0 +1,15 @@
+{
+  // The base theme.
+  "name": "Base",
+  "colors": {
+    "editor.background": "#1E1E1E",
+    "editor.foreground": "#D4D4D4",
+    "editor.selectionBackground": "#264F78",
+  },
+  "tokenColors": [
+    { "scope": "comment", "settings": { "foreground": "#6A9955" } },
+    { "scope": ["string", "string.quoted"], "settings": { "foreground": "#CE9178" } },
+    { "scope": "keyword", "settings": { "foreground": "#569CD6" } },
+    { "scope": "constant.numeric", "settings": { "foreground": "#B5CEA8" } },
+  ],
+}

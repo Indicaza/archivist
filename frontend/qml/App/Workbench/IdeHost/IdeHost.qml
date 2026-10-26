@@ -69,7 +69,16 @@ Item {
         codeBlockBg: String(theme.codeBlockBg),
         codeBlockText: String(theme.codeBlockText),
         monospaceFontFamily: String(theme.monospaceFontFamily),
-        textControlSize: Number(theme.textControlSize)
+        textControlSize: Number(theme.textControlSize),
+        // An imported VS Code / TextMate / Sublime theme for the editor.
+        codeTheme: theme.hasCodeTheme
+            ? {
+                name: String(theme.codeTheme.name),
+                type: String(theme.codeTheme.type),
+                tokens: theme.codeTheme.tokens,
+                editorColors: theme.codeTheme.editorColors
+            }
+            : null
     })
 
     readonly property string terminalPayload: JSON.stringify({

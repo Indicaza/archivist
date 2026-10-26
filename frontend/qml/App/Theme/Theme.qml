@@ -33,12 +33,32 @@ QtObject {
     readonly property color systemBg: "#24211d"
     readonly property color messageSelectionBg: "#67569f"
     readonly property color messageSelectionText: "#eee8de"
-    readonly property color codeBlockBg: "#201f1b"
-    readonly property color codeBlockHeaderBg: "#292720"
-    readonly property color codeBlockBorder: "#454139"
-    readonly property color codeBlockText: "#d8d3c9"
-    readonly property color codeBlockMutedText: "#a29b90"
-    readonly property color codeBlockHoverBg: "#34312b"
+    // The code theme imported from another editor (VS Code, TextMate,
+    // Sublime), or empty while Archivist's own colors are in use. See
+    // CodeThemeLibrary for its shape.
+    readonly property var codeTheme: CodeThemes.currentTheme
+    readonly property bool hasCodeTheme: codeTheme !== undefined
+        && codeTheme !== null
+        && codeTheme.chatSyntax !== undefined
+    readonly property color codeThemeBg: hasCodeTheme ? codeTheme.background : "#201f1b"
+    readonly property color codeThemeText: hasCodeTheme ? codeTheme.foreground : "#d8d3c9"
+
+    // Code blocks take the imported theme's background, so its colors keep
+    // the contrast they were designed for.
+    readonly property color codeBlockBg: codeThemeBg
+    readonly property color codeBlockHeaderBg: hasCodeTheme
+        ? mixColors(codeThemeBg, codeThemeText, 0.06)
+        : "#292720"
+    readonly property color codeBlockBorder: hasCodeTheme
+        ? mixColors(codeThemeBg, codeThemeText, 0.18)
+        : "#454139"
+    readonly property color codeBlockText: codeThemeText
+    readonly property color codeBlockMutedText: hasCodeTheme
+        ? mixColors(codeThemeBg, codeThemeText, 0.6)
+        : "#a29b90"
+    readonly property color codeBlockHoverBg: hasCodeTheme
+        ? mixColors(codeThemeBg, codeThemeText, 0.1)
+        : "#34312b"
     readonly property color composerBg: "#201e1a"
     readonly property color composerCardBg: "#24221d"
     readonly property color composerCardFocusBg: "#282520"
@@ -259,6 +279,16 @@ QtObject {
             : bright
     }
 
+    // `amount` of the way from color a to color b.
+    function mixColors(a, b, amount) {
+        return Qt.rgba(
+            a.r + (b.r - a.r) * amount,
+            a.g + (b.g - a.g) * amount,
+            a.b + (b.b - a.b) * amount,
+            1
+        )
+    }
+
     function withAlpha(color, alpha) {
         return Qt.rgba(color.r, color.g, color.b, alpha)
     }
@@ -304,7 +334,10 @@ QtObject {
 
     // Syntax colors for code blocks: warm and low-contrast enough to sit in
     // the dark theme, distinct enough to scan.
-    readonly property var chatSyntaxStyle: ({
+    readonly property var chatSyntaxStyle: hasCodeTheme
+        ? Object.assign({}, archivistSyntaxStyle, codeTheme.chatSyntax)
+        : archivistSyntaxStyle
+    readonly property var archivistSyntaxStyle: ({
         lineHeight: chatCodeLineHeight,
         keyword: "#c4a5e0",
         string: "#b5cc8e",
@@ -319,7 +352,9 @@ QtObject {
         addedBackground: "#1c83a77a",
         removedBackground: "#1cc96969"
     })
-    readonly property color codeGutterText: "#6f695f"
+    readonly property color codeGutterText: hasCodeTheme
+        ? (codeTheme.lineNumbers || mixColors(codeThemeBg, codeThemeText, 0.4))
+        : "#6f695f"
     // Line numbers keep step with the code beside them.
     readonly property var chatCodeGutterStyle: ({ lineHeight: chatCodeLineHeight })
     readonly property int codeBlockFoldLines: 14

@@ -41,6 +41,29 @@ Rectangle {
             Layout.fillWidth: true
         }
 
+        IconButton {
+            id: codeThemeButton
+
+            Layout.preferredWidth: 30
+            Layout.preferredHeight: 30
+            theme: root.theme
+            iconName: "settings"
+            iconSize: 14
+            toolTipText: "Code theme"
+            checked: codeThemePicker.opened
+            onClicked: codeThemePicker.opened
+                ? codeThemePicker.close()
+                : codeThemePicker.open()
+
+            CodeThemePicker {
+                id: codeThemePicker
+
+                theme: root.theme
+                x: codeThemeButton.width - width
+                y: codeThemeButton.height + 8
+            }
+        }
+
         Rectangle {
             Layout.preferredWidth: root.theme.topbarAvatarSize
             Layout.preferredHeight: root.theme.topbarAvatarSize

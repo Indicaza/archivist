@@ -1,5 +1,6 @@
 import type * as Monaco from "monaco-editor/editor/editor.api";
 import type {
+  ArchivistCodeTheme,
   ArchivistTheme,
 } from "../IdeHost.types.js";
 
@@ -18,10 +19,74 @@ function tokenColor(
     : fallback;
 }
 
+const importedBases: Record<
+  ArchivistCodeTheme["type"],
+  Monaco.editor.BuiltinTheme
+> = {
+  dark: "vs-dark",
+  light: "vs",
+  "hc-dark": "hc-black",
+  "hc-light": "hc-light",
+};
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string"
+    && /^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(value);
+}
+
+// A theme imported from VS Code, TextMate or Sublime Text. Its token colors
+// were already matched to Monaco's token names when it was imported, and
+// its editor colors use the same keys as VS Code's.
+function defineImportedEditorTheme(
+  monaco: MonacoApi,
+  codeTheme: ArchivistCodeTheme,
+): void {
+  const rules: Monaco.editor.ITokenThemeRule[] = [];
+
+  for (const [token, style] of Object.entries(codeTheme.tokens || {})) {
+    const rule: Monaco.editor.ITokenThemeRule = {
+      token,
+    };
+
+    if (isHexColor(style.foreground)) {
+      rule.foreground = style.foreground.slice(1, 7);
+    }
+
+    if (typeof style.fontStyle === "string") {
+      rule.fontStyle = style.fontStyle;
+    }
+
+    rules.push(rule);
+  }
+
+  const colors: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(
+    codeTheme.editorColors || {},
+  )) {
+    if (isHexColor(value)) {
+      colors[key] = value;
+    }
+  }
+
+  monaco.editor.defineTheme("archivist-imported", {
+    base: importedBases[codeTheme.type] ?? "vs-dark",
+    inherit: true,
+    rules,
+    colors,
+  });
+  monaco.editor.setTheme("archivist-imported");
+}
+
 export function defineArchivistEditorTheme(
   monaco: MonacoApi,
   theme: ArchivistTheme,
 ): void {
+  if (theme.codeTheme) {
+    defineImportedEditorTheme(monaco, theme.codeTheme);
+    return;
+  }
+
   const foreground = tokenColor(
     theme.appText,
     "D8D2C7",

@@ -1,0 +1,18 @@
+{
+  "name": "Mocha Like",
+  "variables": {
+    "base": "#1e1e2e",
+    "text": "hsl(226, 64%, 88%)",
+    "mauve": "#cba6f7",
+    "green": "rgb(166, 227, 161)"
+  },
+  "globals": {
+    "background": "var(base)",
+    "foreground": "var(text)",
+    "selection": "color(var(mauve) alpha(0.25))",
+  },
+  "rules": [
+    { "scope": "keyword", "foreground": "var(mauve)", "font_style": "italic" },
+    { "scope": "string", "foreground": "var(green)" },
+  ]
+}

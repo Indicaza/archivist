@@ -359,6 +359,15 @@ void ChatTextTest::highlightsCode()
     QCOMPARE(comment.foreground().color(), QColor(Qt::green));
     QVERIFY(comment.fontItalic());
 
+    // Imported themes set font styles per kind, including plain comments.
+    QVariantMap themed = palette;
+    themed.insert(QStringLiteral("commentFontStyle"), QString());
+    themed.insert(QStringLiteral("keywordFontStyle"), QStringLiteral("italic bold"));
+    const auto styled = ChatTextLayout::build(request(code, false, themed, QStringLiteral("py")));
+    QVERIFY(!formatAt(styled->document.get(), int(code.indexOf(QLatin1Char('#')))).fontItalic());
+    QVERIFY(formatAt(styled->document.get(), 0).fontItalic());
+    QCOMPARE(formatAt(styled->document.get(), 0).fontWeight(), int(QFont::Bold));
+
     // A lineHeight in the style gives code roomier lines.
     QVariantMap roomy = palette;
     roomy.insert(QStringLiteral("lineHeight"), 1.5);
