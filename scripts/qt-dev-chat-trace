@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FOLLOW=false
+TRACE_LOG="$ROOT/backend/data/runtime/logs/runtime-trace.jsonl"
+
+mkdir -p "$(dirname "$TRACE_LOG")"
+export ARCHIVIST_CHAT_TRACE=1
+export ARCHIVIST_RUNTIME_TRACE_PATH="$TRACE_LOG"
+unset ARCHIVIST_CHAT_NO_HISTORY
+unset ARCHIVIST_CHAT_NO_VIEWPORT_SAVE
+unset ARCHIVIST_CHAT_PLAIN_MESSAGES
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --follow)
+      FOLLOW=true
+      ;;
+    --chat-no-history)
+      export ARCHIVIST_CHAT_NO_HISTORY=1
+      ;;
+    --chat-no-viewport-save)
+      export ARCHIVIST_CHAT_NO_VIEWPORT_SAVE=1
+      ;;
+    --chat-plain-messages)
+      export ARCHIVIST_CHAT_PLAIN_MESSAGES=1
+      ;;
+    *)
+      printf 'Usage: %s [--follow] [--chat-no-history] [--chat-no-viewport-save] [--chat-plain-messages]\n' "$0" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [[ "$FOLLOW" == true ]]; then
+  exec "$ROOT/scripts/qt-dev-detached" --follow
+fi
+
+exec "$ROOT/scripts/qt-dev-detached"

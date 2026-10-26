@@ -1,68 +1,16 @@
 #include "collection_store.h"
 
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonParseError>
-#include <QNetworkReply>
-#include <QNetworkRequest>
+#include "Core/Domains/AppState/app_state_repository.h"
+#include "Core/Domains/Collections/collection_repository.h"
+#include "Core/core_runtime.h"
 
 namespace
 {
-struct JsonReplyResult
-{
-    bool ok = false;
-    QJsonObject object;
-    QString errorMessage;
-};
+const QString coreUnavailableMessage = QStringLiteral(
+    "Archivist's data layer is not running. Restart the app."
+);
 
-QString responseErrorMessage(const QJsonObject &object, const QString &fallback)
-{
-    const QJsonObject error = object.value(QStringLiteral("error")).toObject();
-    const QString message = error.value(QStringLiteral("message")).toString();
-    return message.isEmpty() ? fallback : message;
-}
-
-JsonReplyResult consumeJsonReply(QNetworkReply *reply)
-{
-    const QByteArray payload = reply->readAll();
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
-    const QJsonObject object = document.isObject() ? document.object() : QJsonObject{};
-
-    if (reply->error() != QNetworkReply::NoError) {
-        return {
-            false,
-            object,
-            responseErrorMessage(object, reply->errorString()),
-        };
-    }
-
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        return {
-            false,
-            {},
-            QStringLiteral("Archivist API returned an invalid JSON response."),
-        };
-    }
-
-    if (!object.value(QStringLiteral("ok")).toBool(false)) {
-        return {
-            false,
-            object,
-            responseErrorMessage(object, QStringLiteral("Archivist API request failed.")),
-        };
-    }
-
-    return {true, object, {}};
-}
-
-QString encodedPathSegment(const QString &value)
-{
-    return QString::fromUtf8(QUrl::toPercentEncoding(value));
-}
-
-QJsonObject collectionPayload(
+QVariantMap collectionInput(
     const QString &name,
     const QString &parentCollectionId,
     const QVariantList &libraryIds,
@@ -71,35 +19,19 @@ QJsonObject collectionPayload(
     const QString &defaultAgentId
 )
 {
-    QJsonObject body;
-    body.insert(QStringLiteral("name"), name.trimmed());
-    body.insert(
-        QStringLiteral("parentCollectionId"),
-        parentCollectionId.isEmpty() ? QJsonValue::Null : QJsonValue(parentCollectionId)
-    );
-    body.insert(
-        QStringLiteral("libraryIds"),
-        QJsonArray::fromVariantList(libraryIds)
-    );
-    body.insert(
-        QStringLiteral("chatIds"),
-        QJsonArray::fromVariantList(chatIds)
-    );
-    body.insert(
-        QStringLiteral("agentIds"),
-        QJsonArray::fromVariantList(agentIds)
-    );
-    body.insert(
-        QStringLiteral("defaultAgentId"),
-        defaultAgentId.isEmpty() ? QJsonValue::Null : QJsonValue(defaultAgentId)
-    );
-    return body;
+    QVariantMap input;
+    input.insert(QStringLiteral("name"), name.trimmed());
+    input.insert(QStringLiteral("parentCollectionId"), parentCollectionId);
+    input.insert(QStringLiteral("libraryIds"), libraryIds);
+    input.insert(QStringLiteral("chatIds"), chatIds);
+    input.insert(QStringLiteral("agentIds"), agentIds);
+    input.insert(QStringLiteral("defaultAgentId"), defaultAgentId);
+    return input;
 }
 }
 
 CollectionStore::CollectionStore(QObject *parent)
     : QObject(parent)
-    , m_baseUrl(QStringLiteral("http://127.0.0.1:3333/api"))
 {
 }
 
@@ -155,39 +87,38 @@ QString CollectionStore::errorMessage() const
     return m_errorMessage;
 }
 
-QNetworkRequest CollectionStore::requestFor(const QString &path) const
-{
-    QNetworkRequest request{QUrl(m_baseUrl.toString() + path)};
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    return request;
-}
-
 void CollectionStore::refresh()
 {
     if (m_loading) {
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setLoading(true);
 
-    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/collections")));
+    core->read(
+        [](CoreDatabase &database) {
+            return QVariant(CollectionRepository::activeCollections(database));
+        },
+        this,
+        [this](const CoreResult &result) {
+            if (!result.ok) {
+                setLoading(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
-        if (!result.ok) {
-            setLoading(false);
-            setErrorMessage(result.errorMessage);
-            return;
+            setCollections(result.value.toList());
+            fetchAppState();
         }
-
-        setCollections(
-            result.object.value(QStringLiteral("collections")).toArray().toVariantList()
-        );
-        fetchAppState();
-    });
+    );
 }
 
 void CollectionStore::refreshArchived()
@@ -196,59 +127,75 @@ void CollectionStore::refreshArchived()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setLoadingArchived(true);
 
-    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/collections/archived")));
+    core->read(
+        [](CoreDatabase &database) {
+            return QVariant(CollectionRepository::archivedCollections(database));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setLoadingArchived(false);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setLoadingArchived(false);
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            setArchivedCollections(result.value.toList());
         }
-
-        setArchivedCollections(
-            result.object.value(QStringLiteral("collections")).toArray().toVariantList()
-        );
-    });
+    );
 }
 
 void CollectionStore::fetchAppState()
 {
-    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/app-state")));
+    CoreRuntime *core = CoreRuntime::active();
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+    if (!core) {
         setLoading(false);
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+    core->read(
+        [](CoreDatabase &database) {
+            return QVariant(AppStateRepository::appState(database));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setLoading(false);
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            QString nextCollectionId = result.value.toMap()
+                .value(QStringLiteral("selectedCollectionId")).toString();
+
+            if (!containsCollection(nextCollectionId)) {
+                nextCollectionId.clear();
+            }
+
+            setSelectedCollectionId(nextCollectionId);
+
+            if (nextCollectionId.isEmpty()) {
+                setScope({});
+                emit workspaceScopeChanged();
+                return;
+            }
+
+            fetchSelectedScope();
         }
-
-        const QJsonObject appState = result.object.value(QStringLiteral("appState")).toObject();
-        QString nextCollectionId =
-            appState.value(QStringLiteral("selectedCollectionId")).toString();
-
-        if (!containsCollection(nextCollectionId)) {
-            nextCollectionId.clear();
-        }
-
-        setSelectedCollectionId(nextCollectionId);
-
-        if (nextCollectionId.isEmpty()) {
-            setScope({});
-            emit workspaceScopeChanged();
-            return;
-        }
-
-        fetchSelectedScope();
-    });
+    );
 }
 
 void CollectionStore::fetchSelectedScope()
@@ -259,19 +206,21 @@ void CollectionStore::fetchSelectedScope()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     const QString requestedCollectionId = m_selectedCollectionId;
-    const QString path = QStringLiteral("/collections/%1/scope")
-        .arg(encodedPathSegment(requestedCollectionId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(
-        reply,
-        &QNetworkReply::finished,
+    core->read(
+        [requestedCollectionId](CoreDatabase &database) {
+            return QVariant(CollectionRepository::scope(database, requestedCollectionId));
+        },
         this,
-        [this, reply, requestedCollectionId]() {
-            const JsonReplyResult result = consumeJsonReply(reply);
-            reply->deleteLater();
-
+        [this, requestedCollectionId](const CoreResult &result) {
             if (requestedCollectionId != m_selectedCollectionId) {
                 return;
             }
@@ -281,7 +230,7 @@ void CollectionStore::fetchSelectedScope()
                 return;
             }
 
-            setScope(result.object.value(QStringLiteral("scope")).toObject().toVariantMap());
+            setScope(result.value.toMap());
             emit workspaceScopeChanged();
         }
     );
@@ -297,44 +246,42 @@ void CollectionStore::selectCollection(const QString &collectionId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setMutating(true);
 
-    QJsonObject body;
-    body.insert(
-        QStringLiteral("selectedCollectionId"),
-        collectionId.isEmpty() ? QJsonValue::Null : QJsonValue(collectionId)
-    );
+    core->write(
+        [collectionId](CoreDatabase &database) {
+            return QVariant(AppStateRepository::setSelectedCollection(database, collectionId));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
 
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(QStringLiteral("/app-state/selected-collection")),
-        QByteArrayLiteral("PATCH"),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
+            setSelectedCollectionId(
+                result.value.toMap().value(QStringLiteral("selectedCollectionId")).toString()
+            );
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            if (m_selectedCollectionId.isEmpty()) {
+                setScope({});
+                emit workspaceScopeChanged();
+                return;
+            }
+
+            fetchSelectedScope();
         }
-
-        const QJsonObject appState = result.object.value(QStringLiteral("appState")).toObject();
-        setSelectedCollectionId(
-            appState.value(QStringLiteral("selectedCollectionId")).toString()
-        );
-
-        if (m_selectedCollectionId.isEmpty()) {
-            setScope({});
-            emit workspaceScopeChanged();
-            return;
-        }
-
-        fetchSelectedScope();
-    });
+    );
 }
 
 void CollectionStore::createCollection(
@@ -350,9 +297,16 @@ void CollectionStore::createCollection(
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setMutating(true);
-    const QJsonObject body = collectionPayload(
+    const QVariantMap input = collectionInput(
         name,
         parentCollectionId,
         libraryIds,
@@ -360,27 +314,26 @@ void CollectionStore::createCollection(
         agentIds,
         defaultAgentId
     );
-    QNetworkReply *reply = m_network.post(
-        requestFor(QStringLiteral("/collections")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
+    core->write(
+        [input](CoreDatabase &database) {
+            return QVariant(CollectionRepository::createCollection(database, input));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QVariantMap collection = result.value.toMap();
+            upsertCollection(collection);
+            emit collectionCreated(collection);
+            selectCollection(collection.value(QStringLiteral("id")).toString());
         }
-
-        const QVariantMap collection =
-            result.object.value(QStringLiteral("collection")).toObject().toVariantMap();
-        upsertCollection(collection);
-        emit collectionCreated(collection);
-        selectCollection(collection.value(QStringLiteral("id")).toString());
-    });
+    );
 }
 
 void CollectionStore::addLibraryToCollection(
@@ -451,9 +404,16 @@ void CollectionStore::updateCollection(
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setMutating(true);
-    const QJsonObject body = collectionPayload(
+    const QVariantMap input = collectionInput(
         name,
         parentCollectionId,
         libraryIds,
@@ -461,36 +421,32 @@ void CollectionStore::updateCollection(
         agentIds,
         defaultAgentId
     );
-    const QString path =
-        QStringLiteral("/collections/%1").arg(encodedPathSegment(collectionId));
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(path),
-        QByteArrayLiteral("PATCH"),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+
+    core->write(
+        [collectionId, input](CoreDatabase &database) {
+            return QVariant(CollectionRepository::updateCollection(database, collectionId, input));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QVariantMap collection = result.value.toMap();
+            upsertCollection(collection);
+            emit collectionUpdated(collection);
+
+            if (
+                collection.value(QStringLiteral("id")).toString()
+                == m_selectedCollectionId
+            ) {
+                fetchSelectedScope();
+            }
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QVariantMap collection =
-            result.object.value(QStringLiteral("collection")).toObject().toVariantMap();
-        upsertCollection(collection);
-        emit collectionUpdated(collection);
-
-        if (
-            collection.value(QStringLiteral("id")).toString()
-            == m_selectedCollectionId
-        ) {
-            fetchSelectedScope();
-        }
-    });
 }
 
 void CollectionStore::archiveCollection(const QString &collectionId)
@@ -499,42 +455,49 @@ void CollectionStore::archiveCollection(const QString &collectionId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setMutating(true);
-    const QString path = QStringLiteral("/collections/%1/archive")
-        .arg(encodedPathSegment(collectionId));
-    QNetworkReply *reply = m_network.post(requestFor(path), QByteArrayLiteral("{}"));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
+    core->write(
+        [collectionId](CoreDatabase &database) {
+            return QVariant(CollectionRepository::archiveCollection(database, collectionId));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QVariantMap payload = result.value.toMap();
+            const QVariantMap collection = payload.value(QStringLiteral("collection")).toMap();
+            removeCollection(collection.value(QStringLiteral("id")).toString());
+            upsertArchivedCollection(collection);
+            setSelectedCollectionId(
+                payload.value(QStringLiteral("selectedCollectionId")).toString()
+            );
+
+            if (m_selectedCollectionId.isEmpty()) {
+                setScope({});
+                emit workspaceScopeChanged();
+            } else {
+                fetchSelectedScope();
+            }
+
+            emit collectionArchived(collection);
+            refresh();
+            refreshArchived();
         }
-
-        const QVariantMap collection =
-            result.object.value(QStringLiteral("collection")).toObject().toVariantMap();
-        const QString collectionId = collection.value(QStringLiteral("id")).toString();
-        removeCollection(collectionId);
-        upsertArchivedCollection(collection);
-        setSelectedCollectionId(
-            result.object.value(QStringLiteral("selectedCollectionId")).toString()
-        );
-
-        if (m_selectedCollectionId.isEmpty()) {
-            setScope({});
-            emit workspaceScopeChanged();
-        } else {
-            fetchSelectedScope();
-        }
-
-        emit collectionArchived(collection);
-        refresh();
-        refreshArchived();
-    });
+    );
 }
 
 void CollectionStore::restoreCollection(const QString &collectionId)
@@ -543,28 +506,35 @@ void CollectionStore::restoreCollection(const QString &collectionId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage);
+        return;
+    }
+
     setErrorMessage({});
     setMutating(true);
-    const QString path = QStringLiteral("/collections/%1/restore")
-        .arg(encodedPathSegment(collectionId));
-    QNetworkReply *reply = m_network.post(requestFor(path), QByteArrayLiteral("{}"));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
+    core->write(
+        [collectionId](CoreDatabase &database) {
+            return QVariant(CollectionRepository::restoreCollection(database, collectionId));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QVariantMap collection = result.value.toMap();
+            removeArchivedCollection(collection.value(QStringLiteral("id")).toString());
+            upsertCollection(collection);
+            emit collectionRestored(collection);
         }
-
-        const QVariantMap collection =
-            result.object.value(QStringLiteral("collection")).toObject().toVariantMap();
-        removeArchivedCollection(collection.value(QStringLiteral("id")).toString());
-        upsertCollection(collection);
-        emit collectionRestored(collection);
-    });
+    );
 }
 
 bool CollectionStore::includesLibrary(const QString &libraryId) const

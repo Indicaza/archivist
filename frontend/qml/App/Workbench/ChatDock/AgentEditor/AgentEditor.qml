@@ -18,6 +18,19 @@ Popup {
         && Boolean(editingAgent && editingAgent.isBuiltIn)
     readonly property bool formEnabled: !AgentStore.mutating && !archived
 
+    // Model section. The agent's generation provider and model; the
+    // originals are kept so an unchanged model is not re-sent on update.
+    property string generationProvider: "openai"
+    property string generationModel: "gpt-5-mini"
+    property string originalProvider: ""
+    property string originalModel: ""
+    readonly property bool isLocalProvider: generationProvider === "local"
+    readonly property var providerModels: modelChoices(
+        AISettings.modelRevision,
+        generationProvider,
+        generationModel
+    )
+
     parent: Overlay.overlay
     x: parent ? Math.round((parent.width - width) / 2) : 0
     y: parent ? Math.round((parent.height - height) / 2) : 0
@@ -109,6 +122,7 @@ Popup {
         required property var theme
         required property string label
         property alias text: control.text
+        property alias echoMode: control.echoMode
         property string placeholderText: ""
         property int maximumLength: 32767
 
@@ -238,6 +252,88 @@ Popup {
         return trimmed.length > 0 ? trimmed : null
     }
 
+    // The provider's discovered models, plus the agent's current model when
+    // discovery has not seen it, so the picker always shows what is saved.
+    function modelChoices(revision, provider, current) {
+        var models = AISettings.models(provider)
+        var choices = []
+        var found = false
+
+        for (var index = 0; index < models.length; index += 1) {
+            var model = models[index]
+            var id = String(model.modelId)
+            found = found || id === current
+            choices.push({
+                modelId: id,
+                label: model.displayName && String(model.displayName) !== id
+                    ? String(model.displayName) + "  ·  " + id
+                    : id
+            })
+        }
+
+        if (!found && current.length > 0) {
+            choices.unshift({ modelId: current, label: current + "  ·  not found" })
+        }
+
+        return choices
+    }
+
+    function modelIndex(choices, modelId) {
+        for (var index = 0; index < choices.length; index += 1) {
+            if (choices[index].modelId === modelId) {
+                return index
+            }
+        }
+
+        return -1
+    }
+
+    function providerIndex(provider) {
+        var providers = AISettings.providers
+        for (var index = 0; index < providers.length; index += 1) {
+            if (String(providers[index].id) === provider) {
+                return index
+            }
+        }
+
+        return 0
+    }
+
+    function selectProvider(provider) {
+        if (provider === generationProvider) {
+            return
+        }
+
+        generationProvider = provider
+        generationModel = provider === originalProvider ? originalModel : ""
+        var models = AISettings.models(provider)
+
+        if (generationModel.length === 0 && models.length > 0) {
+            generationModel = String(models[0].modelId)
+        }
+
+        if (models.length === 0 || provider === "local") {
+            AISettings.refreshModels(provider)
+        }
+    }
+
+    function loadGeneration(generation) {
+        var value = generation || ({})
+        generationProvider = stringValue(value.provider) || "openai"
+        generationModel = stringValue(value.model) || (generationProvider === "openai" ? "gpt-5-mini" : "")
+        originalProvider = editing ? generationProvider : ""
+        originalModel = editing ? generationModel : ""
+        openAIKeyField.text = ""
+        AISettings.reload()
+    }
+
+    function generationPayload() {
+        return {
+            provider: generationProvider,
+            model: generationModel
+        }
+    }
+
     function resetConfirmations() {
         confirmingArchive = false
         confirmingDelete = false
@@ -272,6 +368,7 @@ Popup {
         editingAgent = ({})
         resetConfirmations()
         resetFields()
+        loadGeneration(null)
         nameField.text = "New Agent"
         open()
         Qt.callLater(function() {
@@ -315,6 +412,7 @@ Popup {
         citationField.text = stringValue(output.citationRequirements)
         followUpField.text = stringValue(output.followUpBehavior)
         systemInstructionsField.text = stringValue(editingAgent.systemInstructions)
+        loadGeneration(editingAgent.generation)
 
         open()
     }
@@ -411,11 +509,13 @@ Popup {
             input.systemInstructions = systemInstructionsField.text.trim()
         }
 
+        input.generation = generationPayload()
+
         return input
     }
 
     function updatePayload() {
-        return {
+        var input = {
             name: nameField.text.trim(),
             description: nullableText(descriptionField.text),
             identity: {
@@ -443,6 +543,12 @@ Popup {
             },
             systemInstructions: nullableText(systemInstructionsField.text)
         }
+
+        if (generationProvider !== originalProvider || generationModel !== originalModel) {
+            input.generation = generationPayload()
+        }
+
+        return input
     }
 
     function save() {
@@ -450,6 +556,7 @@ Popup {
             AgentStore.mutating
             || archived
             || nameField.text.trim().length === 0
+            || generationModel.length === 0
         ) {
             return
         }
@@ -506,6 +613,20 @@ Popup {
         }
 
         AgentStore.deleteAgent(String(editingAgent.id))
+    }
+
+    Connections {
+        target: AISettings
+
+        // A provider picked before its models were loaded gets the first one.
+        function onModelsChanged() {
+            if (editorRoot.visible && editorRoot.generationModel.length === 0) {
+                var models = AISettings.models(editorRoot.generationProvider)
+                if (models.length > 0) {
+                    editorRoot.generationModel = String(models[0].modelId)
+                }
+            }
+        }
     }
 
     Connections {
@@ -1086,6 +1207,240 @@ Popup {
                     Layout.fillWidth: true
                     Layout.leftMargin: 14
                     Layout.rightMargin: 14
+                    implicitHeight: modelSection.implicitHeight + 24
+                    color: editorRoot.theme.controlSurfaceBg
+                    border.width: 1
+                    border.color: editorRoot.theme.quietBorder
+                    radius: 6
+
+                    ColumnLayout {
+                        id: modelSection
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 12
+                        spacing: 10
+
+                        Text {
+                            text: "MODEL"
+                            color: editorRoot.theme.accentBright
+                            font.pixelSize: editorRoot.theme.typeSize(9)
+                            font.weight: Font.Bold
+                            font.letterSpacing: 0.7
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            ColumnLayout {
+                                Layout.preferredWidth: 200
+                                spacing: 4
+
+                                Text {
+                                    text: "Provider"
+                                    color: editorRoot.theme.mutedText
+                                    font.pixelSize: editorRoot.theme.typeSize(9)
+                                    font.weight: Font.DemiBold
+                                }
+
+                                ComboBox {
+                                    id: providerField
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 34
+                                    enabled: editorRoot.formEnabled
+                                    model: AISettings.providers
+                                    textRole: "label"
+                                    valueRole: "id"
+                                    currentIndex: editorRoot.providerIndex(editorRoot.generationProvider)
+                                    onActivated: function(index) {
+                                        editorRoot.selectProvider(String(AISettings.providers[index].id))
+                                        currentIndex = Qt.binding(function() {
+                                            return editorRoot.providerIndex(editorRoot.generationProvider)
+                                        })
+                                    }
+
+                                    contentItem: Text {
+                                        leftPadding: 10
+                                        text: parent.displayText
+                                        color: editorRoot.theme.appText
+                                        font.pixelSize: editorRoot.theme.typeSize(11)
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+
+                                    background: Rectangle {
+                                        color: editorRoot.theme.controlSurfaceBg
+                                        border.width: 1
+                                        border.color: parent.activeFocus
+                                            ? "#5a4d8c"
+                                            : editorRoot.theme.quietBorder
+                                        radius: 4
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Text {
+                                    text: "Model"
+                                    color: editorRoot.theme.mutedText
+                                    font.pixelSize: editorRoot.theme.typeSize(9)
+                                    font.weight: Font.DemiBold
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+
+                                    ComboBox {
+                                        id: modelField
+
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 34
+                                        enabled: editorRoot.formEnabled && editorRoot.providerModels.length > 0
+                                        model: editorRoot.providerModels
+                                        textRole: "label"
+                                        displayText: editorRoot.providerModels.length > 0
+                                            ? currentText
+                                            : (AISettings.busy ? "Loading models…" : "No models found")
+                                        currentIndex: editorRoot.modelIndex(editorRoot.providerModels, editorRoot.generationModel)
+                                        onActivated: function(index) {
+                                            editorRoot.generationModel = String(editorRoot.providerModels[index].modelId)
+                                            currentIndex = Qt.binding(function() {
+                                                return editorRoot.modelIndex(editorRoot.providerModels, editorRoot.generationModel)
+                                            })
+                                        }
+
+                                        contentItem: Text {
+                                            leftPadding: 10
+                                            text: parent.displayText
+                                            color: editorRoot.theme.appText
+                                            font.pixelSize: editorRoot.theme.typeSize(11)
+                                            verticalAlignment: Text.AlignVCenter
+                                            elide: Text.ElideRight
+                                        }
+
+                                        background: Rectangle {
+                                            color: editorRoot.theme.controlSurfaceBg
+                                            border.width: 1
+                                            border.color: parent.activeFocus
+                                                ? "#5a4d8c"
+                                                : editorRoot.theme.quietBorder
+                                            radius: 4
+                                        }
+                                    }
+
+                                    Button {
+                                        Layout.preferredHeight: 34
+                                        text: AISettings.busy ? "Loading…" : "Refresh"
+                                        enabled: editorRoot.formEnabled && !AISettings.busy
+                                        onClicked: AISettings.refreshModels(editorRoot.generationProvider)
+                                    }
+                                }
+                            }
+                        }
+
+                        // OpenAI key. Saved keys go to the macOS Keychain.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: !editorRoot.isLocalProvider
+                            spacing: 8
+
+                            EditorTextField {
+                                id: openAIKeyField
+
+                                theme: editorRoot.theme
+                                visible: !AISettings.openAIKeyConfigured
+                                label: "OpenAI API key — stored in the " + AISettings.keyLocation
+                                placeholderText: "sk-…"
+                                enabled: editorRoot.formEnabled
+                                echoMode: TextInput.Password
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: AISettings.openAIKeyConfigured
+                                text: AISettings.openAIKeySource === "environment"
+                                    ? "API key: from OPENAI_API_KEY in the environment."
+                                    : AISettings.openAIKeySource === "env-file"
+                                        ? "API key: from backend/.env."
+                                        : "API key: saved in the " + AISettings.keyLocation + "."
+                                color: editorRoot.theme.mutedText
+                                font.pixelSize: editorRoot.theme.typeSize(10)
+                                wrapMode: Text.Wrap
+                            }
+
+                            Button {
+                                Layout.alignment: Qt.AlignBottom
+                                Layout.preferredHeight: 34
+                                visible: !AISettings.openAIKeyConfigured
+                                text: "Save key"
+                                enabled: editorRoot.formEnabled && openAIKeyField.text.trim().length > 0
+                                onClicked: {
+                                    if (AISettings.saveOpenAIKey(openAIKeyField.text)) {
+                                        openAIKeyField.text = ""
+                                    }
+                                }
+                            }
+
+                            Button {
+                                Layout.preferredHeight: 30
+                                visible: AISettings.openAIKeySource === "app"
+                                text: "Remove key"
+                                enabled: editorRoot.formEnabled
+                                onClicked: AISettings.removeOpenAIKey()
+                            }
+                        }
+
+                        // Local model server (Ollama, LM Studio, llama.cpp…).
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: editorRoot.isLocalProvider
+                            spacing: 8
+
+                            EditorTextField {
+                                id: localUrlField
+
+                                theme: editorRoot.theme
+                                label: "Server address — any OpenAI-compatible server"
+                                text: AISettings.localBaseUrl
+                                placeholderText: AISettings.defaultLocalBaseUrl
+                                enabled: editorRoot.formEnabled
+                            }
+
+                            Button {
+                                Layout.alignment: Qt.AlignBottom
+                                Layout.preferredHeight: 34
+                                text: "Connect"
+                                enabled: editorRoot.formEnabled && !AISettings.busy
+                                onClicked: AISettings.setLocalBaseUrl(localUrlField.text)
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            visible: text.length > 0
+                            text: AISettings.errorMessage.length > 0
+                                ? AISettings.errorMessage
+                                : AISettings.statusMessage
+                            color: AISettings.errorMessage.length > 0
+                                ? "#d98c7a"
+                                : editorRoot.theme.mutedText
+                            font.pixelSize: editorRoot.theme.typeSize(9)
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 14
+                    Layout.rightMargin: 14
                     implicitHeight: instructionSection.implicitHeight + 24
                     color: editorRoot.theme.controlSurfaceBg
                     border.width: 1
@@ -1122,8 +1477,8 @@ Popup {
                             text: editorRoot.archived
                                 ? "Archived Agent profiles are read-only until restored."
                                 : editorRoot.editing
-                                    ? "Generation model and Context Compiler settings are preserved unchanged in this slice."
-                                    : "New Agents use the backend's default generation and Context Compiler settings."
+                                    ? "Context Compiler settings are preserved unchanged."
+                                    : "New Agents use the default Context Compiler settings."
                             color: editorRoot.theme.mutedText
                             font.pixelSize: editorRoot.theme.typeSize(9)
                             wrapMode: Text.Wrap

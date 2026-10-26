@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtWebChannel
 import QtWebEngine
+import Archivist.Services
 
 Item {
     id: root
@@ -39,12 +40,16 @@ Item {
         int columnNumber
     )
     property bool ready: false
-    property string statusText: activeSurface === "editor"
-        ? "Loading code editor…"
-        : "Loading terminal…"
-    property url ideUrl: "http://127.0.0.1:3333/ide/"
-    readonly property url surfaceUrl:
-        String(root.ideUrl)
+    // The app serves the web IDE itself, on a free loopback port.
+    property url ideUrl: IdeServer.url
+    property string statusText: String(root.ideUrl) === ""
+        ? "The IDE host is not running. Restart Archivist."
+        : activeSurface === "editor"
+            ? "Loading code editor…"
+            : "Loading terminal…"
+    readonly property url surfaceUrl: String(root.ideUrl) === ""
+        ? "about:blank"
+        : String(root.ideUrl)
             + "?surface="
             + encodeURIComponent(root.activeSurface)
 

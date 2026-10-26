@@ -120,22 +120,9 @@ verify_diff_hygiene() {
   git diff --cached --check
 }
 
+# The Node backend is retired: the app's data layer, AI runtime and IDE host
+# are covered by the native tests below. Node still builds the IDE panel.
 run_step 'Node version' npm run check-node || exit 1
-run_step 'Backend build' npm run build -w backend || exit 1
-run_step 'AI edit proposal tests' node scripts/test-ai-edit-proposals.mjs || exit 1
-run_step 'AI edit transaction tests' node scripts/test-ai-edit-transactions.mjs || exit 1
-run_step 'AI tool tests' node scripts/test-ai-tools.mjs || exit 1
-run_step 'AI tool-loop tests' node scripts/test-ai-tool-loop.mjs || exit 1
-run_step 'AI runtime tests' node scripts/test-ai-runtime.mjs || exit 1
-run_step 'Chat Agent tests' node scripts/test-chat-agent-rosters.mjs || exit 1
-run_step 'Collection tests' node scripts/test-collections.mjs || exit 1
-run_step 'Chat workspace tests' node scripts/test-chat-workspace.mjs || exit 1
-printf '%-34s%s\n' 'Library index smoke test' 'SKIP'
-{
-  printf '\n\n===== Library index smoke test =====\n'
-  printf 'SKIP — requires a running backend, an active Library, and a known search term.\n'
-  printf 'Run manually: npm run test:library-index -- \"a term you know exists\"\n'
-} >> "$REPORT"
 run_step 'IDE typecheck' npm run check:ide -w frontend || exit 1
 run_step 'Language tools' npm run lsp:doctor || exit 1
 run_step 'Vendored icons' verify_vendored_icons || exit 1
@@ -143,6 +130,7 @@ run_step 'Typography audit' ./scripts/qt-typography-audit --check || exit 1
 run_step 'Diff hygiene' verify_diff_hygiene || exit 1
 run_step 'IDE production build' npm run build:ide || exit 1
 run_step 'Native frontend build' npm run build:frontend || exit 1
+run_step 'Native unit tests' ./scripts/qt-test || exit 1
 
 {
   printf '\n\n===== RESULT =====\n'

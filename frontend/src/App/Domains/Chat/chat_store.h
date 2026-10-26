@@ -1,19 +1,18 @@
 #pragma once
 
+#include <QAbstractItemModel>
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QJsonObject>
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QTimer>
-#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
-class QNetworkReply;
+class ChatMessageModel;
 
 class ChatStore final : public QObject
 {
@@ -24,6 +23,7 @@ class ChatStore final : public QObject
     Q_PROPERTY(QString selectedChatId READ selectedChatId NOTIFY selectedChatIdChanged)
     Q_PROPERTY(QVariantMap selectedChat READ selectedChat NOTIFY selectedChatChanged)
     Q_PROPERTY(QVariantList messages READ messages NOTIFY messagesChanged)
+    Q_PROPERTY(QAbstractItemModel *messageModel READ messageModel CONSTANT)
     Q_PROPERTY(QVariantList attachments READ attachments NOTIFY attachmentsChanged)
     Q_PROPERTY(QVariantList lastSources READ lastSources NOTIFY completionMetadataChanged)
     Q_PROPERTY(QVariantMap inspectedContext READ inspectedContext NOTIFY inspectedContextChanged)
@@ -61,6 +61,7 @@ public:
     [[nodiscard]] QString selectedChatId() const;
     [[nodiscard]] QVariantMap selectedChat() const;
     [[nodiscard]] QVariantList messages() const;
+    [[nodiscard]] QAbstractItemModel *messageModel() const;
     [[nodiscard]] QVariantList attachments() const;
     [[nodiscard]] QVariantList lastSources() const;
     [[nodiscard]] QVariantMap inspectedContext() const;
@@ -161,7 +162,6 @@ signals:
     void chatDeleted(const QString &chatId);
 
 private:
-    [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
     void fetchAppState();
     void resumeActiveRunForSelectedChat();
     void refreshEditProposalsForSelectedChat();
@@ -177,8 +177,7 @@ private:
         const QVariantList &messages
     ) const;
     void subscribeToRunEvents(const QString &runId, int afterSequence = 0);
-    void processRunEventStream();
-    void processRunEventBlock(const QByteArray &eventBlock);
+    void receiveRunEvent(const QVariantMap &event);
     void handleRunEvent(const QJsonObject &event);
     void requestRunSnapshot(const QString &runId, bool reconnectIfRunning);
     void applyRunSnapshot(const QJsonObject &run);
@@ -194,6 +193,7 @@ private:
     void setArchivedChats(const QVariantList &chats);
     void setSelectedChatId(const QString &chatId);
     void setMessages(const QVariantList &messages);
+    void commitMessages(const QVariantList &enrichedMessages);
     void setAttachments(const QVariantList &attachments);
     void setLoadingChats(bool loading);
     void setLoadingArchivedChats(bool loading);
@@ -230,15 +230,14 @@ private:
     void removeAttachmentFromList(const QString &attachmentId);
     [[nodiscard]] bool containsChat(const QString &chatId) const;
 
-    QNetworkAccessManager m_network;
     QElapsedTimer m_activeRunClock;
-    QNetworkReply *m_runEventReply = nullptr;
+    QMetaObject::Connection m_runEventConnection;
     QTimer m_runDeltaFlushTimer;
-    QUrl m_baseUrl;
     QVariantList m_chats;
     QVariantList m_archivedChats;
     QString m_selectedChatId;
     QVariantList m_messages;
+    ChatMessageModel *m_messageModel = nullptr;
     QVariantList m_attachments;
     QHash<QString, QString> m_runAssistantMessageIds;
     QHash<QString, QVariantMap> m_editProposalsByRunId;
@@ -261,7 +260,9 @@ private:
     QString m_runPhase;
     QVariantMap m_runActivity;
     QString m_pendingRunDelta;
-    QByteArray m_runEventBuffer;
+    // Live events that arrive while the run's stored events are replayed.
+    bool m_runReplayPending = false;
+    QList<QJsonObject> m_heldRunEvents;
     int m_lastRunEventSequence = 0;
     int m_runReconnectAttempts = 0;
     int m_runDiagnosticEventCount = 0;
