@@ -410,11 +410,11 @@ Item {
                 gradient: Gradient {
                     GradientStop {
                         position: 0.0
-                        color: root.theme.withAlpha(root.hue, root.streamingMessage ? 0.7 : 0.42)
+                        color: root.theme.withAlpha(root.hue, root.streamingMessage ? 0.7 : 0.24)
                     }
                     GradientStop {
                         position: 1.0
-                        color: root.theme.withAlpha(root.hue, root.streamingMessage ? 0.3 : 0.06)
+                        color: root.theme.withAlpha(root.hue, root.streamingMessage ? 0.3 : 0)
                     }
                 }
             }

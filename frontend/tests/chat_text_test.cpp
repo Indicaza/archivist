@@ -310,14 +310,28 @@ void ChatTextTest::stylesMarkdownForReading()
     const auto styled = ChatTextLayout::build(request(sampleMarkdown, true, readingStyle()));
     const QTextDocument *document = styled->document.get();
 
-    // Headings: serif at a fixed size.
+    // Headings: the heading family, scaled from the body size.
     const QTextCharFormat heading = formatAt(document, 0);
-    QCOMPARE(heading.intProperty(QTextFormat::FontPixelSize), 22);
+    QCOMPARE(heading.intProperty(QTextFormat::FontPixelSize), 24);
     QCOMPARE(heading.fontFamilies().toStringList().value(0), QStringLiteral("Georgia"));
 
     // Body paragraphs get the reading line height, so the text is taller.
     QCOMPARE(document->findBlockByNumber(1).blockFormat().lineHeightType(), int(QTextBlockFormat::ProportionalHeight));
     QVERIFY(styled->size.height() > plain->size.height());
+
+    // Blocks are spaced apart: nothing above the first, a clear gap between
+    // paragraphs, a smaller one between list items, and only top margins so
+    // gaps never add up.
+    const auto topMargin = [&](int block) { return document->findBlockByNumber(block).blockFormat().topMargin(); };
+    QCOMPARE(topMargin(0), 0.0);
+    const qreal betweenItems = topMargin(3);
+    const qreal betweenParagraphs = topMargin(5);
+    QVERIFY(betweenItems > 0);
+    QVERIFY(betweenParagraphs > betweenItems);
+    QVERIFY(topMargin(2) > betweenItems);
+    for (int block = 0; block < document->blockCount(); ++block) {
+        QCOMPARE(document->findBlockByNumber(block).blockFormat().bottomMargin(), 0.0);
+    }
 
     // Inline code chips, the link underline and the quote bar are drawn as
     // decorations under the text.
@@ -344,6 +358,13 @@ void ChatTextTest::highlightsCode()
     const QTextCharFormat comment = formatAt(document->document.get(), int(code.indexOf(QLatin1Char('#'))));
     QCOMPARE(comment.foreground().color(), QColor(Qt::green));
     QVERIFY(comment.fontItalic());
+
+    // A lineHeight in the style gives code roomier lines.
+    QVariantMap roomy = palette;
+    roomy.insert(QStringLiteral("lineHeight"), 1.5);
+    const auto spaced = ChatTextLayout::build(request(code, false, roomy, QStringLiteral("py")));
+    QCOMPARE(spaced->document->firstBlock().blockFormat().lineHeightType(), int(QTextBlockFormat::ProportionalHeight));
+    QVERIFY(spaced->size.height() > document->size.height());
 
     // An unknown language stays plain.
     const auto plain = ChatTextLayout::build(request(code, false, palette, QStringLiteral("brainfudge")));

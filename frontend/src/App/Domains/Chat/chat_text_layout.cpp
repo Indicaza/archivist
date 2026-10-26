@@ -140,6 +140,20 @@ qreal pixelSizeOf(const QFont &font)
     return QFontMetricsF(font).height() / 1.2;
 }
 
+// The style's lineHeight (a multiple of the font size) as the percentage of
+// the font's natural line spacing that QTextBlockFormat takes; 0 for none.
+int proportionalLineHeight(const QVariantMap &style, const QFont &base)
+{
+    const qreal lineHeight = style.value(QStringLiteral("lineHeight")).toReal();
+    const qreal naturalLine = QFontMetricsF(base).lineSpacing();
+
+    if (lineHeight <= 0 || naturalLine <= 0) {
+        return 0;
+    }
+
+    return std::max(100, qRound(lineHeight * pixelSizeOf(base) / naturalLine * 100));
+}
+
 bool isCodeFormat(const QTextCharFormat &format)
 {
     if (format.fontFixedPitch()) {
@@ -226,15 +240,14 @@ MarkdownMarks styleMarkdown(QTextDocument *document, const QVariantMap &style, c
     }
 
     const qreal size = pixelSizeOf(base);
-    const qreal lineHeight = style.value(QStringLiteral("lineHeight")).toReal();
-    const qreal naturalLine = QFontMetricsF(base).lineSpacing();
-    const int bodyPercent = lineHeight > 0 && naturalLine > 0
-        ? std::max(100, qRound(lineHeight * size / naturalLine * 100))
-        : 0;
+    const int bodyPercent = proportionalLineHeight(style, base);
     const QString headingFamily = style.value(QStringLiteral("headingFamily")).toString();
     const QString codeFamily = style.value(QStringLiteral("codeFamily")).toString();
     const QColor headingColor = styleColor(style, "headingColor");
     const QColor accent = styleColor(style, "accent");
+    const QColor bulletColor = styleColor(style, "bulletColor").isValid()
+        ? styleColor(style, "bulletColor")
+        : accent;
     const QColor codeColor = styleColor(style, "codeColor");
     const QColor linkColor = styleColor(style, "linkColor");
     const QColor quoteColor = styleColor(style, "quoteColor");
@@ -264,6 +277,10 @@ MarkdownMarks styleMarkdown(QTextDocument *document, const QVariantMap &style, c
     QList<std::pair<int, QTextCharFormat>> bulletEdits;
     QList<std::pair<int, QTextCharFormat>> arrows;
 
+    // What the previous block was, for the space above the next one.
+    enum class Previous { None, Heading, ListItem, Text };
+    Previous previous = Previous::None;
+
     for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
         const QTextBlockFormat blockFormat = block.blockFormat();
         const int heading = blockFormat.headingLevel();
@@ -271,21 +288,42 @@ MarkdownMarks styleMarkdown(QTextDocument *document, const QVariantMap &style, c
         // The markdown importer can leave a quote level on the first table
         // cell after a quote; a table is never part of the quote.
         const int quote = inTable ? 0 : blockFormat.intProperty(QTextFormat::BlockQuoteLevel);
+        const bool listItem = !inTable && heading == 0 && block.textList() != nullptr;
         QTextBlockFormat nextBlock;
         QTextCharFormat headingFormat;
 
+        // Space between blocks, set as a top margin so it never doubles up:
+        // a clear gap between paragraphs, a smaller one between list items,
+        // more above a heading and little below it.
+        if (!inTable) {
+            qreal above = 0.85;
+
+            if (previous == Previous::None) {
+                above = 0;
+            } else if (heading > 0) {
+                above = heading <= 2 ? 1.5 : 1.2;
+            } else if (previous == Previous::Heading) {
+                above = 0.4;
+            } else if (listItem && previous == Previous::ListItem) {
+                above = 0.35;
+            } else if (listItem) {
+                above = 0.6;
+            }
+
+            nextBlock.setTopMargin(std::round(size * above));
+            nextBlock.setBottomMargin(0);
+            previous = heading > 0 ? Previous::Heading : listItem ? Previous::ListItem : Previous::Text;
+        }
+
         if (heading > 0) {
-            const bool first = block == document->begin();
-            nextBlock.setTopMargin(first ? 0 : std::round(size * (heading <= 2 ? 0.9 : 0.6)));
-            nextBlock.setBottomMargin(std::round(size * (heading <= 2 ? 0.35 : 0.25)));
-            nextBlock.setLineHeight(112, QTextBlockFormat::ProportionalHeight);
+            nextBlock.setLineHeight(118, QTextBlockFormat::ProportionalHeight);
 
             if (heading <= 2) {
                 if (!headingFamily.isEmpty()) {
                     headingFormat.setFontFamilies(QStringList {headingFamily});
                 }
 
-                headingFormat.setProperty(QTextFormat::FontPixelSize, heading == 1 ? 22 : 19);
+                headingFormat.setProperty(QTextFormat::FontPixelSize, qRound(size * (heading == 1 ? 1.5 : 1.25)));
                 headingFormat.setFontWeight(QFont::DemiBold);
                 headingFormat.setFontLetterSpacingType(QFont::AbsoluteSpacing);
                 headingFormat.setFontLetterSpacing(0);
@@ -294,18 +332,17 @@ MarkdownMarks styleMarkdown(QTextDocument *document, const QVariantMap &style, c
                     headingFormat.setForeground(headingColor);
                 }
             } else if (heading == 3) {
-                headingFormat.setProperty(QTextFormat::FontPixelSize, std::max(10, qRound(size * 0.8)));
-                headingFormat.setFontWeight(QFont::Bold);
-                headingFormat.setFontCapitalization(QFont::AllUppercase);
+                headingFormat.setProperty(QTextFormat::FontPixelSize, qRound(size * 1.1));
+                headingFormat.setFontWeight(QFont::DemiBold);
                 headingFormat.setFontLetterSpacingType(QFont::AbsoluteSpacing);
-                headingFormat.setFontLetterSpacing(1.1);
+                headingFormat.setFontLetterSpacing(0);
 
-                if (accent.isValid()) {
-                    headingFormat.setForeground(accent);
+                if (headingColor.isValid()) {
+                    headingFormat.setForeground(headingColor);
                 }
             } else {
                 headingFormat.setProperty(QTextFormat::FontPixelSize, qRound(size));
-                headingFormat.setFontWeight(QFont::Bold);
+                headingFormat.setFontWeight(QFont::DemiBold);
 
                 if (headingColor.isValid()) {
                     headingFormat.setForeground(headingColor);
@@ -325,9 +362,9 @@ MarkdownMarks styleMarkdown(QTextDocument *document, const QVariantMap &style, c
 
         blockEdits.append({block.position(), nextBlock});
 
-        if (block.textList() && accent.isValid()) {
+        if (block.textList() && bulletColor.isValid()) {
             QTextCharFormat bullet;
-            bullet.setForeground(accent);
+            bullet.setForeground(bulletColor);
             bulletEdits.append({block.position(), bullet});
         }
 
@@ -713,6 +750,15 @@ ChatTextDocumentPtr ChatTextLayout::build(const Request &request)
         marks = styleMarkdown(document.get(), request.style, request.font);
     } else {
         document->setPlainText(request.text);
+
+        // Code and other plain text can ask for roomier lines too.
+        if (const int percent = proportionalLineHeight(request.style, request.font); percent > 100) {
+            QTextCursor cursor(document.get());
+            QTextBlockFormat format;
+            format.setLineHeight(percent, QTextBlockFormat::ProportionalHeight);
+            cursor.select(QTextCursor::Document);
+            cursor.mergeBlockFormat(format);
+        }
 
         if (!request.language.isEmpty() && !request.style.isEmpty()) {
             highlightCode(document.get(), request.text, request.language, request.style, addedLines, removedLines);

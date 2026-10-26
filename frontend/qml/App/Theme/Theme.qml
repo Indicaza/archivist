@@ -4,8 +4,8 @@ import Archivist.Services
 QtObject {
     readonly property color appBg: "#171613"
     readonly property color appBgDeep: "#100f0d"
-    readonly property color appText: "#d8d2c7"
-    readonly property color mutedText: "#9a9387"
+    readonly property color appText: "#e3dfd7"
+    readonly property color mutedText: "#a6a093"
     readonly property color accent: "#9280bc"
     readonly property color accentBright: "#b7aad2"
     readonly property color accentSoft: "#269280bc"
@@ -36,7 +36,7 @@ QtObject {
     readonly property color codeBlockBg: "#201f1b"
     readonly property color codeBlockHeaderBg: "#292720"
     readonly property color codeBlockBorder: "#454139"
-    readonly property color codeBlockText: "#cec8bd"
+    readonly property color codeBlockText: "#d8d3c9"
     readonly property color codeBlockMutedText: "#a29b90"
     readonly property color codeBlockHoverBg: "#34312b"
     readonly property color composerBg: "#201e1a"
@@ -50,8 +50,10 @@ QtObject {
 
     readonly property string titleFontFamily: "Georgia"
     readonly property string bodyFontFamily: ".AppleSystemUIFont"
+    // The system UI face (SF Pro on macOS): a large x-height and open
+    // shapes read best at body size.
     readonly property string chatFontFamily: Qt.platform.os === "osx"
-        ? "Avenir Next"
+        ? ".AppleSystemUIFont"
         : Qt.platform.os === "windows"
             ? "Segoe UI Variable Text"
             : "Noto Sans"
@@ -67,7 +69,7 @@ QtObject {
     chatBodyFont.family: chatFontFamily
     chatBodyFont.pixelSize: typeBody
     chatBodyFont.weight: Font.Normal
-    chatBodyFont.letterSpacing: 0.08
+    chatBodyFont.letterSpacing: 0
     chatBodyFont.kerning: true
     chatBodyFont.contextFontMerging: true
     chatBodyFont.hintingPreference: Font.PreferNoHinting
@@ -75,8 +77,8 @@ QtObject {
 
     property font chatCodeFont
     chatCodeFont.family: monospaceFontFamily
-    chatCodeFont.pixelSize: typeCode
-    chatCodeFont.letterSpacing: 0.08
+    chatCodeFont.pixelSize: 13
+    chatCodeFont.letterSpacing: 0
     chatCodeFont.preferTypoLineMetrics: true
 
     readonly property int typeMicro: 10
@@ -248,17 +250,30 @@ QtObject {
         return Qt.lighter(hue, 1.32)
     }
 
+    // Links in the agent's hue, never darker than reads well on the page.
+    function chatLinkColor(hue) {
+        var bright = agentHueBright(hue)
+
+        return bright.hslLightness < 0.74
+            ? Qt.hsla(bright.hslHue, bright.hslSaturation, 0.74, 1)
+            : bright
+    }
+
     function withAlpha(color, alpha) {
         return Qt.rgba(color.r, color.g, color.b, alpha)
     }
 
     // Reading styles for chat text, laid out in C++ by ChatText.
-    readonly property int chatReadingMeasure: 700
-    readonly property real chatLineHeight: 1.55
-    readonly property color chatHeadingText: "#eee8de"
+    // About 75 characters a line, with room between lines.
+    readonly property int chatReadingMeasure: 640
+    readonly property real chatLineHeight: 1.7
+    readonly property real chatCodeLineHeight: 1.5
+    // Code may run a little past the prose, not to the panel edge.
+    readonly property int chatCodeOverhang: 96
+    readonly property color chatHeadingText: "#f3efe8"
     readonly property color chatInlineCodeText: "#e3c79c"
     readonly property color chatInlineCodeBg: "#2a2723"
-    readonly property color chatQuoteText: "#aca59a"
+    readonly property color chatQuoteText: "#bcb6aa"
     readonly property color chatQuoteBar: "#4a453d"
     readonly property color chatTableBorder: "#3b3730"
     readonly property color chatTableHeaderBg: "#23211d"
@@ -268,15 +283,16 @@ QtObject {
 
         return {
             lineHeight: chatLineHeight,
-            headingFamily: titleFontFamily,
+            headingFamily: chatFontFamily,
             headingColor: chatHeadingText,
             accent: bright,
             codeFamily: monospaceFontFamily,
             codeColor: chatInlineCodeText,
             codeBackground: chatInlineCodeBg,
-            linkColor: bright,
+            linkColor: chatLinkColor(hue),
             linkUnderline: withAlpha(hue, 0.55),
-            linkArrows: true,
+            linkArrows: false,
+            bulletColor: mutedText,
             quoteColor: chatQuoteText,
             quoteBar: chatQuoteBar,
             calloutBackground: withAlpha(hue, 0.08),
@@ -289,9 +305,10 @@ QtObject {
     // Syntax colors for code blocks: warm and low-contrast enough to sit in
     // the dark theme, distinct enough to scan.
     readonly property var chatSyntaxStyle: ({
+        lineHeight: chatCodeLineHeight,
         keyword: "#c4a5e0",
         string: "#b5cc8e",
-        comment: "#7c766b",
+        comment: "#918a7e",
         number: "#e2a47a",
         type: "#e6c88a",
         function: "#8fb6e0",
@@ -302,7 +319,9 @@ QtObject {
         addedBackground: "#1c83a77a",
         removedBackground: "#1cc96969"
     })
-    readonly property color codeGutterText: "#5d584f"
+    readonly property color codeGutterText: "#6f695f"
+    // Line numbers keep step with the code beside them.
+    readonly property var chatCodeGutterStyle: ({ lineHeight: chatCodeLineHeight })
     readonly property int codeBlockFoldLines: 14
 
     // Sending: a new message launches up from the composer.

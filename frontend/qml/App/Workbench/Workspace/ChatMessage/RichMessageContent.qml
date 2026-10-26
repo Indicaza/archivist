@@ -294,7 +294,7 @@ Item {
     Item {
         id: contentColumn
 
-        readonly property real spacing: root.compact ? 16 : 30
+        readonly property real spacing: root.compact ? 16 : 24
         // Bumped when blocks are added or removed, so the stacking bindings
         // look the neighbours up again.
         property int revision: 0
@@ -433,7 +433,7 @@ Item {
                         )
                         : ""
                     color: root.theme.appText
-                    linkColor: root.theme.agentHueBright(root.hue)
+                    linkColor: root.theme.chatLinkColor(root.hue)
                     font: root.theme.chatBodyFont
                     styling: root.readingStyle
                     selectionColor: root.theme.messageSelectionBg
@@ -511,7 +511,9 @@ Item {
                     id: codeLoader
 
                     active: blockItem.codeBlock
-                    width: parent.width
+                    // Code lines up with the prose and may run a little
+                    // past it, so the text edges stay put.
+                    width: Math.min(parent.width, root.textMeasure + root.theme.chatCodeOverhang)
                     sourceComponent: Component {
                         CodeBlock {
                             width: codeLoader.width

@@ -568,6 +568,7 @@ Item {
                 wrap: false
                 selectable: false
                 layoutSuspended: root.layoutSuspended
+                styling: root.theme.chatCodeGutterStyle
                 text: root.lineNumbers(Math.max(1, codeText.lineCount))
                 color: root.theme.codeGutterText
                 font: root.theme.chatCodeFont
