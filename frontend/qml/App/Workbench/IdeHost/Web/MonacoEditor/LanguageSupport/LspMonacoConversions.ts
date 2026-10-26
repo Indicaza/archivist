@@ -8,6 +8,11 @@ import {
   type LspCompletionItem,
   type LspCompletionList,
   type LspDiagnostic,
+  type LspDocumentHighlight,
+  type LspDocumentSymbol,
+  type LspSymbolInformation,
+  type LspTextEdit,
+  type LspWorkspaceEdit,
   type LspHover,
   type LspLocation,
   type LspLocationLink,
@@ -380,4 +385,220 @@ export function parseSessionResponse(
     socketUrl: session.socketUrl,
     expiresAt: session.expiresAt,
   };
+}
+
+export function rangesIntersect(
+  left: LspRange,
+  right: LspRange,
+): boolean {
+  const before = (a: LspPosition, b: LspPosition): boolean =>
+    a.line < b.line
+    || (a.line === b.line && a.character < b.character);
+
+  return !before(left.end, right.start)
+    && !before(right.end, left.start);
+}
+
+export function toLspRange(
+  range: Monaco.IRange,
+): LspRange {
+  return {
+    start: {
+      line: range.startLineNumber - 1,
+      character: range.startColumn - 1,
+    },
+    end: {
+      line: range.endLineNumber - 1,
+      character: range.endColumn - 1,
+    },
+  };
+}
+
+export function textEditsResult(
+  monaco: MonacoApi,
+  edits: readonly LspTextEdit[] | null | undefined,
+): Monaco.languages.TextEdit[] {
+  return (edits ?? []).map((edit) => ({
+    range: toMonacoRange(monaco, edit.range),
+    text: edit.newText,
+  }));
+}
+
+export interface SingleDocumentEdit {
+  /** Edits that target the requested document. */
+  edits: LspTextEdit[];
+  /** Other files the workspace edit would change. */
+  otherUris: string[];
+  /** Create, rename, or delete operations, which Archivist does not apply. */
+  resourceOperations: number;
+}
+
+/**
+ * Archivist only applies language-server edits to the document that is open
+ * in the editor, because other Library files are not backed by an editable,
+ * saveable model. Split a workspace edit into the part that targets that
+ * document and a list of everything else so callers can refuse partial edits.
+ */
+export function singleDocumentEdit(
+  monaco: MonacoApi,
+  workspaceEdit: LspWorkspaceEdit | null | undefined,
+  documentUri: string,
+): SingleDocumentEdit {
+  const target = monaco.Uri.parse(documentUri).toString();
+  const result: SingleDocumentEdit = {
+    edits: [],
+    otherUris: [],
+    resourceOperations: 0,
+  };
+  const addEdits = (
+    uri: string,
+    edits: readonly LspTextEdit[],
+  ): void => {
+    if (edits.length === 0) {
+      return;
+    }
+
+    const normalized = monaco.Uri.parse(uri).toString();
+
+    if (normalized === target) {
+      result.edits.push(...edits);
+    } else if (!result.otherUris.includes(normalized)) {
+      result.otherUris.push(normalized);
+    }
+  };
+
+  if (!workspaceEdit) {
+    return result;
+  }
+
+  if (Array.isArray(workspaceEdit.documentChanges)) {
+    for (const change of workspaceEdit.documentChanges) {
+      if ("textDocument" in change && Array.isArray(change.edits)) {
+        addEdits(change.textDocument.uri, change.edits);
+      } else {
+        result.resourceOperations += 1;
+      }
+    }
+
+    return result;
+  }
+
+  for (const [uri, edits] of Object.entries(workspaceEdit.changes ?? {})) {
+    if (Array.isArray(edits)) {
+      addEdits(uri, edits);
+    }
+  }
+
+  return result;
+}
+
+export function describeOtherFiles(
+  monaco: MonacoApi,
+  uris: readonly string[],
+): string {
+  const names = uris
+    .slice(0, 3)
+    .map((uri) => fileName(monaco.Uri.parse(uri).fsPath || uri));
+  const remainder = uris.length - names.length;
+
+  return names.join(", ")
+    + (remainder > 0 ? ` and ${remainder} more` : "");
+}
+
+function symbolKind(
+  monaco: MonacoApi,
+  kind: number,
+): Monaco.languages.SymbolKind {
+  // LSP SymbolKind starts at 1 (File); Monaco's enum starts at 0 (File).
+  const value = Math.trunc(Number(kind)) - 1;
+
+  return value >= 0 && value <= 25
+    ? value as Monaco.languages.SymbolKind
+    : monaco.languages.SymbolKind.Variable;
+}
+
+function symbolTags(
+  monaco: MonacoApi,
+  tags: number[] | undefined,
+  deprecated: boolean | undefined,
+): Monaco.languages.SymbolTag[] {
+  return deprecated || tags?.includes(1)
+    ? [monaco.languages.SymbolTag.Deprecated]
+    : [];
+}
+
+function documentSymbol(
+  monaco: MonacoApi,
+  value: LspDocumentSymbol,
+): Monaco.languages.DocumentSymbol {
+  const range = toMonacoRange(monaco, value.range);
+  const selectionRange = toMonacoRange(monaco, value.selectionRange);
+
+  return {
+    name: value.name || " ",
+    detail: value.detail ?? "",
+    kind: symbolKind(monaco, value.kind),
+    tags: symbolTags(monaco, value.tags, value.deprecated),
+    range,
+    // Monaco requires the selection range to sit inside the full range.
+    selectionRange: range.containsRange(selectionRange)
+      ? selectionRange
+      : range,
+    children: (value.children ?? []).map((child) =>
+      documentSymbol(monaco, child)
+    ),
+  };
+}
+
+export function documentSymbolsResult(
+  monaco: MonacoApi,
+  values:
+    | readonly (LspDocumentSymbol | LspSymbolInformation)[]
+    | null
+    | undefined,
+  documentUri: string,
+): Monaco.languages.DocumentSymbol[] {
+  const target = monaco.Uri.parse(documentUri).toString();
+
+  return (values ?? []).flatMap((value) => {
+    if ("location" in value) {
+      if (
+        monaco.Uri.parse(value.location.uri).toString() !== target
+      ) {
+        return [];
+      }
+
+      const range = toMonacoRange(monaco, value.location.range);
+
+      return [{
+        name: value.name || " ",
+        detail: value.containerName ?? "",
+        kind: symbolKind(monaco, value.kind),
+        tags: symbolTags(monaco, value.tags, value.deprecated),
+        range,
+        selectionRange: range,
+        containerName: value.containerName,
+      }];
+    }
+
+    return [documentSymbol(monaco, value)];
+  });
+}
+
+export function documentHighlightsResult(
+  monaco: MonacoApi,
+  values: readonly LspDocumentHighlight[] | null | undefined,
+): Monaco.languages.DocumentHighlight[] {
+  return (values ?? []).map((value) => {
+    const kind = value.kind === 2
+      ? monaco.languages.DocumentHighlightKind.Read
+      : value.kind === 3
+        ? monaco.languages.DocumentHighlightKind.Write
+        : monaco.languages.DocumentHighlightKind.Text;
+
+    return {
+      range: toMonacoRange(monaco, value.range),
+      kind,
+    };
+  });
 }

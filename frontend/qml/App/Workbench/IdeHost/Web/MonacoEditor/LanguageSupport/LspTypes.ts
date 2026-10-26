@@ -123,6 +123,7 @@ export interface LspDiagnostic {
   message: string;
   tags?: number[];
   relatedInformation?: LspDiagnosticRelatedInformation[];
+  data?: unknown;
 }
 
 export interface LspPublishDiagnosticsParams {
@@ -147,6 +148,82 @@ export interface LspSignatureHelp {
   activeSignature?: number;
   activeParameter?: number;
 }
+
+export interface LspFormattingOptions {
+  tabSize: number;
+  insertSpaces: boolean;
+}
+
+export interface LspTextDocumentEdit {
+  textDocument: {
+    uri: string;
+    version?: number | null;
+  };
+  edits: LspTextEdit[];
+}
+
+export interface LspResourceOperation {
+  kind: "create" | "rename" | "delete" | string;
+}
+
+export interface LspWorkspaceEdit {
+  changes?: Record<string, LspTextEdit[]>;
+  documentChanges?: (LspTextDocumentEdit | LspResourceOperation)[];
+}
+
+export interface LspCommand {
+  title: string;
+  command: string;
+  arguments?: unknown[];
+}
+
+export interface LspCodeAction {
+  title: string;
+  kind?: string;
+  diagnostics?: LspDiagnostic[];
+  isPreferred?: boolean;
+  disabled?: {
+    reason: string;
+  };
+  edit?: LspWorkspaceEdit;
+  command?: LspCommand;
+  data?: unknown;
+}
+
+export interface LspDocumentSymbol {
+  name: string;
+  detail?: string;
+  kind: number;
+  tags?: number[];
+  deprecated?: boolean;
+  range: LspRange;
+  selectionRange: LspRange;
+  children?: LspDocumentSymbol[];
+}
+
+export interface LspSymbolInformation {
+  name: string;
+  kind: number;
+  tags?: number[];
+  deprecated?: boolean;
+  location: LspLocation;
+  containerName?: string;
+}
+
+export interface LspDocumentHighlight {
+  range: LspRange;
+  kind?: number;
+}
+
+export type LspPrepareRenameResult =
+  | LspRange
+  | {
+      range: LspRange;
+      placeholder: string;
+    }
+  | {
+      defaultBehavior: boolean;
+    };
 
 export interface LanguageServerSessionDescriptor {
   sessionId: string;

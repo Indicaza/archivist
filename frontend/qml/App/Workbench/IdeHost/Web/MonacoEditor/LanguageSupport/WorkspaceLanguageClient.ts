@@ -10,7 +10,9 @@ import {
 import {
   isRecord,
   type LanguageServerSessionDescriptor,
+  type LspDiagnostic,
   type LspPublishDiagnosticsParams,
+  type LspWorkspaceEdit,
 } from "./LspTypes.js";
 import {
   recordLanguageSupportTelemetry,
@@ -27,8 +29,21 @@ type Disposable = {
   dispose(): void;
 };
 
+export interface WorkspaceEditOutcome {
+  applied: boolean;
+  failureReason?: string;
+}
+
 export interface LanguageSupportCallbacks {
   reportStatus(message: string): void;
+  /**
+   * Applies a server-initiated edit (workspace/applyEdit). Optional: without
+   * it, every server edit request is refused.
+   */
+  applyWorkspaceEdit?(
+    edit: LspWorkspaceEdit,
+    label: string,
+  ): WorkspaceEditOutcome;
 }
 
 interface ManagedDocument {
@@ -75,6 +90,11 @@ export class WorkspaceLanguageClient {
     string,
     string
   >();
+  private readonly diagnosticsByUri = new Map<
+    string,
+    LspDiagnostic[]
+  >();
+  private serverCapabilities: Record<string, unknown> = {};
   private disposed = false;
 
   constructor(
@@ -96,6 +116,36 @@ export class WorkspaceLanguageClient {
 
   get workspaceRoot(): string {
     return this.descriptor.workspaceRoot;
+  }
+
+  /** True when the server advertised the named capability. */
+  supports(capability: string): boolean {
+    const value = this.serverCapabilities[capability];
+
+    return value !== undefined
+      && value !== null
+      && value !== false;
+  }
+
+  supportsPrepareRename(): boolean {
+    const value = this.serverCapabilities.renameProvider;
+
+    return isRecord(value) && value.prepareProvider === true;
+  }
+
+  supportsCommand(command: string): boolean {
+    const value = this.serverCapabilities.executeCommandProvider;
+
+    return isRecord(value)
+      && Array.isArray(value.commands)
+      && value.commands.includes(command);
+  }
+
+  /** Latest diagnostics the server published for a document. */
+  diagnosticsFor(uri: string): readonly LspDiagnostic[] {
+    return this.diagnosticsByUri.get(
+      this.monaco.Uri.parse(uri).toString(),
+    ) ?? [];
   }
 
   async connect(): Promise<void> {
@@ -132,7 +182,14 @@ export class WorkspaceLanguageClient {
             positionEncodings: ["utf-16"],
           },
           workspace: {
-            applyEdit: false,
+            applyEdit: true,
+            workspaceEdit: {
+              documentChanges: true,
+              resourceOperations: [],
+            },
+            executeCommand: {
+              dynamicRegistration: false,
+            },
             configuration: true,
             didChangeConfiguration: {
               dynamicRegistration: false,
@@ -202,9 +259,37 @@ export class WorkspaceLanguageClient {
             },
             codeAction: {
               dynamicRegistration: false,
+              codeActionLiteralSupport: {
+                codeActionKind: {
+                  valueSet: [
+                    "",
+                    "quickfix",
+                    "refactor",
+                    "refactor.extract",
+                    "refactor.inline",
+                    "refactor.rewrite",
+                    "source",
+                    "source.organizeImports",
+                    "source.fixAll",
+                  ],
+                },
+              },
               dataSupport: true,
               disabledSupport: true,
               isPreferredSupport: true,
+            },
+            documentSymbol: {
+              dynamicRegistration: false,
+              hierarchicalDocumentSymbolSupport: true,
+              symbolKind: {
+                valueSet: Array.from(
+                  { length: 26 },
+                  (_, index) => index + 1,
+                ),
+              },
+            },
+            documentHighlight: {
+              dynamicRegistration: false,
             },
             publishDiagnostics: {
               relatedInformation: true,
@@ -240,6 +325,11 @@ export class WorkspaceLanguageClient {
         { settings },
       );
     }
+    this.serverCapabilities =
+      isRecord(initializeResult)
+      && isRecord(initializeResult.capabilities)
+        ? initializeResult.capabilities
+        : {};
     const capabilities = initializeCapabilityNames(
       initializeResult,
     );
@@ -395,6 +485,7 @@ export class WorkspaceLanguageClient {
 
     this.documents.delete(uri);
     this.diagnosticFingerprintByUri.delete(uri);
+    this.diagnosticsByUri.delete(uri);
     document.changeDisposable.dispose();
     document.disposeDisposable.dispose();
     this.connection?.notify("textDocument/didClose", {
@@ -471,12 +562,25 @@ export class WorkspaceLanguageClient {
       case "workspace/semanticTokens/refresh":
       case "workspace/inlayHint/refresh":
         return null;
-      case "workspace/applyEdit":
-        return {
-          applied: false,
-          failureReason:
-            "Archivist does not apply language-server edits yet.",
-        };
+      case "workspace/applyEdit": {
+        const edit = isRecord(params) && isRecord(params.edit)
+          ? params.edit as LspWorkspaceEdit
+          : null;
+        const label = isRecord(params)
+          && typeof params.label === "string"
+            ? params.label
+            : "";
+
+        if (!edit || !this.callbacks.applyWorkspaceEdit) {
+          return {
+            applied: false,
+            failureReason:
+              "Archivist could not apply this language-server edit.",
+          };
+        }
+
+        return this.callbacks.applyWorkspaceEdit(edit, label);
+      }
       case "window/showMessageRequest":
         return null;
       case "window/showDocument":
@@ -506,6 +610,11 @@ export class WorkspaceLanguageClient {
     if (!model) {
       return;
     }
+
+    this.diagnosticsByUri.set(
+      model.uri.toString(),
+      typed.diagnostics,
+    );
 
     this.monaco.editor.setModelMarkers(
       model,
