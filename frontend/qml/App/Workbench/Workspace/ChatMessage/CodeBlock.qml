@@ -40,7 +40,7 @@ Item {
             hue.r,
             hue.g,
             hue.b,
-            Math.max(0, Math.min(1, 0.75 * focusAmount + (warming ? 0.18 : 0)))
+            Math.max(0, Math.min(1, 0.32 * focusAmount + (warming ? 0.08 : 0)))
         )
     )
 
@@ -256,8 +256,8 @@ Item {
         anchors.margins: -root.grow - 5
         radius: root.theme.radiusLarge + root.grow + 5
         color: "transparent"
-        border.width: 5
-        border.color: root.theme.withAlpha(root.hue, 0.15)
+        border.width: 4
+        border.color: root.theme.withAlpha(root.hue, 0.05)
         opacity: Math.max(0, Math.min(1, root.focusAmount))
         visible: opacity > 0.01
         antialiasing: true

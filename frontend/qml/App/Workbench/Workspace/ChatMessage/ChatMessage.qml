@@ -201,6 +201,12 @@ Item {
             return
         }
 
+        if (root.diagnosticTraceEnabled) {
+            root.diagnosticEvent("delegate.launch", {
+                messageId: root.messageId
+            })
+        }
+
         root.launchRise = root.theme.chatLaunchRise
         root.launchScale = root.theme.chatLaunchScale
         root.launchOpacity = 0
@@ -367,6 +373,14 @@ Item {
                 damping: root.theme.motionDamping
                 mass: root.springMass
                 epsilon: 0.2
+                onRunningChanged: {
+                    if (running && root.diagnosticTraceEnabled) {
+                        root.diagnosticEvent("delegate.slide", {
+                            messageId: root.messageId,
+                            x: Math.round(frame.x)
+                        })
+                    }
+                }
             }
         }
 

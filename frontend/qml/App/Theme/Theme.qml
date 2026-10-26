@@ -179,7 +179,7 @@ QtObject {
     // How long the pointer rests on a code block before it takes focus and
     // scroll input, and how that focus moves.
     readonly property int codeBlockFocusDelay: 550
-    readonly property real codeBlockFocusGrow: 4
+    readonly property real codeBlockFocusGrow: 2
     readonly property real codeBlockFocusSpring: 4.2
     readonly property real codeBlockFocusDamping: 0.3
     readonly property int panelCollisionGap: 28
