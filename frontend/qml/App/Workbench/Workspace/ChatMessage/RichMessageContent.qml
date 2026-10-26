@@ -8,7 +8,6 @@ Item {
     required property var theme
     required property string content
     property bool compact: false
-    property bool layoutSuspended: false
     property bool transcriptMoving: false
     property bool animateReveal: false
     property int revealPosition: 0
@@ -16,6 +15,10 @@ Item {
     property bool revealing: false
     property bool revealInitialized: false
     property string cacheKey: ""
+    // True while syncBlockModel() rewrites the blocks. A rebind changes a
+    // block's kind, content and language one at a time; the block texts
+    // collect them and lay out once, synchronously, when it finishes.
+    property bool syncing: false
     // The speaking agent's hue, and the reading styles built from it.
     property color hue: theme.accent
     readonly property var readingStyle: theme.chatReadingStyle(hue)
@@ -168,8 +171,15 @@ Item {
     }
 
     function syncBlockModel() {
-        const nextBlocks = root.blocks || []
+        root.syncing = true
+        try {
+            root.applyBlocks(root.blocks || [])
+        } finally {
+            root.syncing = false
+        }
+    }
 
+    function applyBlocks(nextBlocks) {
         for (let index = 0; index < nextBlocks.length; index += 1) {
             const next = root.normalizedBlock(nextBlocks[index])
 
@@ -277,18 +287,50 @@ Item {
         }
     }
 
-    Column {
+    // Stacks the blocks. Not a Column: a Column lays out at polish time,
+    // after the ListView has placed the row, so a recycled row would resize
+    // after placement and push the rows below it. Plain bindings keep the
+    // height exact as soon as the content changes.
+    Item {
         id: contentColumn
 
+        readonly property real spacing: root.compact ? 16 : 30
+        // Bumped when blocks are added or removed, so the stacking bindings
+        // look the neighbours up again.
+        property int revision: 0
+
+        // The y for whatever follows `item`, which sits at `y`. Hidden
+        // blocks take no space, as in a Column.
+        function below(item, y) {
+            return item.visible ? y + item.height + spacing : y
+        }
+
         width: parent.width
-        spacing: root.compact ? 16 : 30
+        implicitHeight: {
+            contentColumn.revision
+
+            for (let index = blockRepeater.count - 1; index >= 0; index -= 1) {
+                const item = blockRepeater.itemAt(index)
+
+                if (item) {
+                    return Math.max(0, contentColumn.below(item, item.y) - spacing)
+                }
+            }
+
+            return 0
+        }
 
         Repeater {
+            id: blockRepeater
+
             model: blockModel
+            onItemAdded: contentColumn.revision += 1
+            onItemRemoved: contentColumn.revision += 1
 
             delegate: Item {
                 id: blockItem
 
+                required property int index
                 required property string kind
                 required property string content
                 required property string language
@@ -342,6 +384,12 @@ Item {
                             >= Number(modelData.revealStart || 0)
                     )
 
+                y: {
+                    contentColumn.revision
+                    const previous = index > 0 ? blockRepeater.itemAt(index - 1) : null
+
+                    return previous ? contentColumn.below(previous, previous.y) : 0
+                }
                 width: contentColumn.width
                 visible: revealed
                 implicitHeight: !visible
@@ -375,7 +423,7 @@ Item {
                     // Text that is still being revealed changes every frame,
                     // so it skips the layout cache.
                     cacheable: !root.animateReveal
-                    layoutSuspended: root.layoutSuspended
+                    layoutSuspended: root.syncing
                     markdown: true
                     wrap: true
                     text: visible
@@ -476,7 +524,7 @@ Item {
                             foldKey: root.cacheKey + "#" + String(blockItem.revealStart)
                             hue: root.hue
                             animateReveal: root.animateReveal
-                            layoutSuspended: root.layoutSuspended
+                            layoutSuspended: root.syncing
                             transcriptMoving: root.transcriptMoving
                         }
                     }

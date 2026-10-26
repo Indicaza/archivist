@@ -737,8 +737,31 @@ const columnStart = message.indexOf("id: messageColumn", frameStart);
 assert.ok(frameStart >= 0 && columnStart > frameStart);
 assert.match(
   message.slice(frameStart, columnStart),
-  /Behavior on x \{\s*enabled: !root\.textLayoutSuspended/,
+  /Behavior on x \{\s*enabled: !root\.recycling/,
   "Messages may spring sideways on resize, but never while a recycled row takes a new message.",
+);
+// A Column lays out at polish time, after the ListView has placed a recycled
+// row, so the row would resize after placement and push the rows below it.
+assert.doesNotMatch(
+  message,
+  /Column \{\s*id: messageColumn/,
+  "A message row must stack its parts with bindings, not a Column.",
+);
+assert.doesNotMatch(
+  message,
+  /layoutSuspended: root\./,
+  "Message text must lay out while a recycled row takes its message, not after onReused.",
+);
+const richContent = read(path.join(path.dirname(messagePath), "RichMessageContent.qml"));
+assert.doesNotMatch(
+  richContent,
+  /Column \{\s*id: contentColumn/,
+  "Message blocks must stack with bindings, not a Column.",
+);
+assert.match(
+  richContent,
+  /root\.syncing = true[\s\S]*root\.applyBlocks[\s\S]*root\.syncing = false/,
+  "A block rebind must lay its text out once, when every property has arrived.",
 );
 const activityStart = message.indexOf("id: activityCard");
 const surfaceStart = message.indexOf("id: surfaceFrame", activityStart);

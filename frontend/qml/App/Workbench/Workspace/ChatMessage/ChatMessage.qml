@@ -27,11 +27,13 @@ Item {
     // The newest row in the transcript; only it can launch or be retried.
     property bool lastInTranscript: false
     property bool retryAvailable: false
-    // True while the row sits in the ListView's reuse pool. A recycled row
-    // gets its new message one property at a time; message text holds its
-    // layout until the rebind is done, then lays out once, before the list
-    // positions the row (onReused runs after the new properties are set).
-    property bool textLayoutSuspended: false
+    // True while the row sits in the ListView's reuse pool, until onReused.
+    // Animations stay off while a recycled row takes its new message. Text
+    // layout does not wait for onReused: the ListView places a reused row
+    // before it emits reused, so the row must reach its final height while
+    // its new properties arrive, or rows above the screen resize after they
+    // are placed and push the page.
+    property bool recycling: false
     readonly property var view: ListView.view
     readonly property bool transcriptMoving: view ? view.moving : false
     readonly property bool motionEnabled: !theme.reducedMotion
@@ -153,13 +155,13 @@ Item {
         + (breakAfter.length > 0 ? breakDivider.height + theme.messageVerticalGap : 0)
 
     ListView.onPooled: {
-        root.textLayoutSuspended = true
+        root.recycling = true
         launchAnimation.stop()
         root.resetLaunch()
         root.hoverActive = false
     }
     ListView.onReused: {
-        root.textLayoutSuspended = false
+        root.recycling = false
         root.maybeLaunch()
     }
 
@@ -295,7 +297,7 @@ Item {
         running: root.streamingMessage
             && root.assistantMessage
             && root.motionEnabled
-            && !root.textLayoutSuspended
+            && !root.recycling
         onRunningChanged: {
             if (!running) {
                 root.breath = 0
@@ -366,7 +368,7 @@ Item {
         // and so the text wrapping, follows at once, keeping text crisp and
         // cheap. A recycled row taking a new message never animates.
         Behavior on x {
-            enabled: !root.textLayoutSuspended && root.motionEnabled
+            enabled: !root.recycling && root.motionEnabled
 
             SpringAnimation {
                 spring: root.theme.motionSpring
@@ -437,15 +439,33 @@ Item {
             }
         }
 
-        Column {
+        // Stacks the header, activity, message and edit card. Not a Column:
+        // a Column lays out at polish time, after the ListView has already
+        // placed a recycled row, so the row would resize after placement and
+        // push every row below it. Plain bindings keep the height exact the
+        // moment a new message arrives.
+        Item {
             id: messageColumn
 
+            readonly property real spacing: root.userMessage ? 0 : 14
+            readonly property real contentBottom: messageColumn.below(
+                editProposalLoader,
+                editProposalLoader.y
+            )
+
+            // The y for whatever follows `item`, which sits at `y`. Hidden
+            // items take no space, as in a Column.
+            function below(item, y) {
+                return item.visible ? y + item.height + spacing : y
+            }
+
             width: parent.width
-            spacing: root.userMessage ? 0 : 14
+            implicitHeight: Math.max(0, contentBottom - spacing)
 
             Item {
                 id: headerRow
 
+                y: 0
                 visible: !root.userMessage
                 width: parent.width
                 height: visible ? 32 : 0
@@ -557,6 +577,7 @@ Item {
             Loader {
                 id: activityCard
 
+                y: messageColumn.below(headerRow, headerRow.y)
                 active: root.waitingForFirstOutput
                     && !root.userMessage
                     && !root.systemMessage
@@ -576,6 +597,7 @@ Item {
             Item {
                 id: surfaceFrame
 
+                y: messageColumn.below(activityCard, activityCard.y)
                 visible: !root.waitingForFirstOutput
                 width: parent.width
                 height: visible
@@ -660,7 +682,6 @@ Item {
                                 text: root.content
                                 markdown: false
                                 cacheable: false
-                                layoutSuspended: root.textLayoutSuspended
                                 color: root.theme.appText
                                 font: root.theme.chatBodyFont
                                 selectionColor: root.theme.messageSelectionBg
@@ -687,7 +708,6 @@ Item {
                         theme: root.theme
                         hue: root.hue
                         cacheKey: root.messageId
-                        layoutSuspended: root.textLayoutSuspended
                         transcriptMoving: root.transcriptMoving
                         content: root.providerWaiting ? "" : root.content
                         compact: root.userMessage || root.systemMessage
@@ -700,6 +720,9 @@ Item {
                 }
             }
             Loader {
+                id: editProposalLoader
+
+                y: messageColumn.below(surfaceFrame, surfaceFrame.y)
                 active: !root.diagnosticPlainContent
                     && !root.userMessage
                     && !root.systemMessage
