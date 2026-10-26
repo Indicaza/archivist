@@ -33,11 +33,20 @@ Rectangle {
     property int historyRestorePass: 0
     property bool scrollToEndPending: false
     property bool jumpToEndPending: false
-    property real scrollToEndTargetY: 0
-    property int scrollToEndDuration: 140
     property int scrollToEndSettlePass: 0
-    property bool revealFollowEnabled: false
     property bool programmaticScrollWrite: false
+    // Animated jump to latest (see startAnimatedJump).
+    property real jumpProgress: 0
+    property real jumpStartY: 0
+    property real jumpLaunch: 0
+    property real jumpTotal: 0
+    property bool jumpCutDone: true
+
+    // The pinned time label shown while scrolling.
+    property string pinnedSectionLabel: ""
+    property bool pinnedSectionShown: false
+    // Messages that arrived while the reader was scrolled up.
+    property int unreadCount: 0
     property bool historyRestoreDeferred: false
     property string trackedChatViewportKey: ""
     property var pendingChatViewportState: ({})
@@ -54,6 +63,75 @@ Rectangle {
     property string pendingEditorTargetPath: ""
     property int pendingEditorTargetLine: 1
     property int pendingEditorTargetColumn: 1
+    readonly property var diagnosticsFlags: ArchivistDiagnostics || ({})
+    readonly property bool chatViewportTraceEnabled: Boolean(
+        diagnosticsFlags.chatViewportTrace
+    )
+    readonly property bool chatDisableHistoryPrefetch: Boolean(
+        diagnosticsFlags.chatDisableHistoryPrefetch
+    )
+    readonly property bool chatDisableViewportSave: Boolean(
+        diagnosticsFlags.chatDisableViewportSave
+    )
+    readonly property bool chatPlainMessages: Boolean(
+        diagnosticsFlags.chatPlainMessages
+    )
+    property real chatTracePreviousContentY: 0
+    property int chatTracePreviousCount: 0
+
+    function roundedTraceValue(value) {
+        var number = Number(value || 0)
+        return isFinite(number)
+            ? Math.round(number * 100) / 100
+            : 0
+    }
+
+    function traceChatViewport(eventName, details) {
+        if (!root.chatViewportTraceEnabled) {
+            return
+        }
+
+        var payload = {
+            chatId: String(ChatStore.selectedChatId || ""),
+            contentY: root.roundedTraceValue(transcript.contentY),
+            originY: root.roundedTraceValue(transcript.originY),
+            contentHeight: root.roundedTraceValue(transcript.contentHeight),
+            viewportHeight: root.roundedTraceValue(transcript.height),
+            minimumY: root.roundedTraceValue(
+                transcript.originY - transcript.topMargin
+            ),
+            maximumY: root.roundedTraceValue(
+                ChatViewportPolicy.transcriptEndY(
+                    transcript.originY,
+                    transcript.contentHeight,
+                    transcript.height,
+                    transcript.topMargin,
+                    transcript.bottomMargin
+                )
+            ),
+            verticalVelocity: root.roundedTraceValue(
+                transcript.verticalVelocity
+            ),
+            moving: transcript.moving,
+            dragging: transcript.dragging,
+            flicking: transcript.flicking,
+            count: transcript.count,
+            nearBeginning: transcript.nearBeginning,
+            nearEnd: transcript.nearEnd,
+            historyLoadPending: root.historyLoadPending,
+            historyPrependedCount: root.historyPrependedCount,
+            restoringViewport: root.restoringChatViewport,
+            scrollToEndPending: root.scrollToEndPending,
+            programmaticScrollWrite: root.programmaticScrollWrite
+        }
+        var values = details || ({})
+
+        for (var key in values) {
+            payload[key] = values[key]
+        }
+
+        RuntimeTrace.emitEvent("chat.viewport", eventName, payload)
+    }
 
     function normalizedEditorPath(value) {
         return String(value || "")
@@ -232,6 +310,9 @@ Rectangle {
     readonly property string selectedChatTitle: ChatStore.selectedChat.title || "No Chat Selected"
     readonly property bool hasSelectedChat: ChatStore.selectedChatId.length > 0
     readonly property bool hasMessages: ChatStore.messages.length > 0
+    readonly property color chatHue: root.theme.agentHue(
+        String(ChatStore.selectedChat.agentId || "")
+    )
     readonly property bool previewActive: LibraryStore.selectedFileId.length > 0
     readonly property bool fileTransitionActive: (
         editorTabStrip.pendingFileId.length > 0
@@ -336,7 +417,17 @@ Rectangle {
             }
         }
 
+        var beforeContentY = transcript.contentY
+        var beforeOriginY = transcript.originY
+        var beforeContentHeight = transcript.contentHeight
         transcript.forceLayout()
+        root.traceChatViewport("viewport.anchor.forceLayout", {
+            beforeContentY: root.roundedTraceValue(beforeContentY),
+            beforeOriginY: root.roundedTraceValue(beforeOriginY),
+            beforeContentHeight: root.roundedTraceValue(
+                beforeContentHeight
+            )
+        })
 
         var sampleY = transcript.contentY + Math.min(
             48,
@@ -366,10 +457,15 @@ Rectangle {
     }
 
     function scheduleChatViewportSave() {
+        if (root.chatDisableViewportSave) {
+            return
+        }
+
         if (
             root.restoringChatViewport
             || root.programmaticScrollWrite
-            || scrollToEndAnimation.running
+            || root.scrollToEndPending
+            || jumpAnimation.running
             || ChatStore.responding
             || root.trackedChatViewportKey.length === 0
             || !root.hasSelectedChat
@@ -391,6 +487,9 @@ Rectangle {
             return
         }
 
+        root.traceChatViewport("viewport.save.begin", {
+            stateKey: key
+        })
         var anchor = root.transcriptAnchor()
         var endY = root.transcriptEndY()
 
@@ -405,6 +504,11 @@ Rectangle {
                 anchorOffset: anchor.offset
             })
         )
+        root.traceChatViewport("viewport.save.end", {
+            stateKey: key,
+            anchorMessageId: anchor.messageId,
+            anchorOffset: root.roundedTraceValue(anchor.offset)
+        })
     }
 
     function switchChatViewportState() {
@@ -517,18 +621,17 @@ Rectangle {
         }
 
         var state = root.pendingChatViewportState || ({})
-        var shouldFollowEnd = state.atEnd === undefined
+        var shouldRestoreEnd = state.atEnd === undefined
             ? true
             : Boolean(state.atEnd)
 
-        if (shouldFollowEnd) {
+        if (shouldRestoreEnd) {
             root.finishChatViewportRestore()
-            root.scheduleScrollToEnd(true, false)
+            root.scheduleScrollToEnd(false)
             return
         }
 
         root.cancelScrollToEnd()
-        root.stopRevealFollow()
         transcript.cancelFlick()
 
         var anchorIndex = root.messageIndexForId(state.anchorMessageId)
@@ -571,6 +674,9 @@ Rectangle {
     }
 
     function beginProgrammaticScrollWrite(holdOpen) {
+        root.traceChatViewport("viewport.programmatic.begin", {
+            holdOpen: holdOpen === true
+        })
         root.programmaticScrollWrite = true
 
         if (holdOpen === true) {
@@ -583,8 +689,8 @@ Rectangle {
 
     function takeManualScrollOwnership() {
         historyPrefetchTimer.stop()
+        jumpAnimation.stop()
         root.cancelScrollToEnd()
-        root.stopRevealFollow()
         root.cancelChatViewportRestore()
 
         if (
@@ -596,55 +702,37 @@ Rectangle {
         }
     }
 
-    function updateScrollToEndTarget() {
-        transcript.forceLayout()
-        root.scrollToEndTargetY = root.clampedTranscriptContentY(
-            root.transcriptEndY()
-        )
-    }
-
-    function startScrollToEndAnimation() {
+    function placeTranscriptAtEnd() {
         if (!root.scrollToEndPending || transcript.count === 0) {
             return
         }
 
-        if (
-            !root.jumpToEndPending
-            && !root.shouldFollowTranscript()
-        ) {
-            root.cancelScrollToEnd()
-            return
-        }
-
-        root.updateScrollToEndTarget()
-        var distance = Math.abs(
-            root.scrollToEndTargetY - transcript.contentY
-        )
-
-        if (distance <= 0.5) {
-            root.finishScrollToEnd()
-            return
-        }
-
-        root.scrollToEndDuration = ChatViewportPolicy.scrollDuration(
-            distance,
-            root.jumpToEndPending
-        )
+        transcript.forceLayout()
         root.beginProgrammaticScrollWrite(true)
+        transcript.positionViewAtIndex(
+            transcript.count - 1,
+            ListView.End
+        )
+        transcript.forceLayout()
 
-        if (!scrollToEndAnimation.running) {
-            scrollToEndAnimation.start()
-        }
+        var targetY = root.clampedTranscriptContentY(
+            root.transcriptEndY()
+        )
+        var beforeY = transcript.contentY
+        transcript.contentY = targetY
+
+        root.traceChatViewport("navigation.end.place", {
+            previousContentY: root.roundedTraceValue(beforeY),
+            targetY: root.roundedTraceValue(targetY),
+            settlePass: root.scrollToEndSettlePass,
+            explicitJump: root.jumpToEndPending
+        })
+        scrollToEndSettleTimer.restart()
     }
 
-    function scheduleScrollToEnd(forceFollow, explicitJump) {
-        if (forceFollow === true) {
-            root.revealFollowEnabled = true
-        }
-
+    function scheduleScrollToEnd(explicitJump) {
         if (explicitJump === true) {
             root.jumpToEndPending = true
-            root.scrollToEndSettlePass = 0
         }
 
         if (
@@ -654,7 +742,6 @@ Rectangle {
                 && (
                     root.restoringChatViewport
                     || root.historyLoadPending
-                    || !root.revealFollowEnabled
                 )
             )
         ) {
@@ -663,42 +750,48 @@ Rectangle {
 
         historyPrefetchTimer.stop()
         root.scrollToEndPending = true
-        root.startScrollToEndAnimation()
+        root.scrollToEndSettlePass = 0
+        root.traceChatViewport("navigation.end.schedule", {
+            explicitJump: root.jumpToEndPending
+        })
+        root.placeTranscriptAtEnd()
     }
 
     function cancelScrollToEnd() {
         root.scrollToEndPending = false
         root.jumpToEndPending = false
         root.scrollToEndSettlePass = 0
-        scrollToEndAnimation.stop()
+        scrollToEndSettleTimer.stop()
         programmaticScrollReleaseTimer.restart()
     }
 
     function finishScrollToEnd() {
-        if (!root.scrollToEndPending) {
+        if (!root.scrollToEndPending || transcript.count === 0) {
             programmaticScrollReleaseTimer.restart()
             return
         }
 
         transcript.forceLayout()
-        root.updateScrollToEndTarget()
-        var remaining = Math.abs(
-            root.scrollToEndTargetY - transcript.contentY
-        )
 
-        if (remaining > 0.75 && root.scrollToEndSettlePass < 3) {
+        var targetY = root.clampedTranscriptContentY(
+            root.transcriptEndY()
+        )
+        var remaining = Math.abs(targetY - transcript.contentY)
+
+        root.traceChatViewport("navigation.end.settle", {
+            targetY: root.roundedTraceValue(targetY),
+            remaining: root.roundedTraceValue(remaining),
+            settlePass: root.scrollToEndSettlePass
+        })
+
+        if (remaining > 0.75 && root.scrollToEndSettlePass < 4) {
             root.scrollToEndSettlePass += 1
-            root.scrollToEndDuration = ChatViewportPolicy.scrollDuration(
-                remaining,
-                root.jumpToEndPending
-            )
-            root.beginProgrammaticScrollWrite(true)
-            scrollToEndAnimation.start()
+            root.placeTranscriptAtEnd()
             return
         }
 
         root.beginProgrammaticScrollWrite(false)
-        transcript.contentY = root.scrollToEndTargetY
+        transcript.contentY = targetY
         root.scrollToEndPending = false
         root.jumpToEndPending = false
         root.scrollToEndSettlePass = 0
@@ -711,8 +804,116 @@ Rectangle {
         root.clearHistoryAnchor(ChatStore.loadingOlderMessages)
         root.cancelChatViewportRestore()
         transcript.cancelFlick()
-        root.revealFollowEnabled = true
-        root.scheduleScrollToEnd(true, true)
+        root.startAnimatedJump()
+    }
+
+    // The jump-to-latest button scrolls fast instead of teleporting. The
+    // animation follows the live end of the transcript every frame (rows
+    // near the end may still settle), then hands over to the exact end
+    // placement below.
+    function startAnimatedJump() {
+        jumpAnimation.stop()
+
+        if (transcript.count === 0 || root.theme.reducedMotion) {
+            root.scheduleScrollToEnd(true)
+            return
+        }
+
+        transcript.forceLayout()
+        var endY = root.clampedTranscriptContentY(root.transcriptEndY())
+        var distance = endY - transcript.contentY
+
+        if (distance <= 1) {
+            root.scheduleScrollToEnd(true)
+            return
+        }
+
+        var plan = ChatViewportPolicy.jumpPlan(distance, transcript.height)
+        root.beginProgrammaticScrollWrite(true)
+        root.jumpToEndPending = true
+        root.jumpStartY = transcript.contentY
+        root.jumpLaunch = plan.launch
+        root.jumpTotal = plan.launch + plan.travel
+        root.jumpCutDone = plan.launch <= 0
+        root.jumpProgress = 0
+        jumpAnimation.duration = plan.duration
+        jumpAnimation.easing.type = plan.launch > 0
+            ? Easing.OutQuart
+            : Easing.OutCubic
+        root.traceChatViewport("navigation.jump.start", {
+            distance: root.roundedTraceValue(distance),
+            launch: root.roundedTraceValue(plan.launch),
+            travel: root.roundedTraceValue(plan.travel),
+            duration: plan.duration
+        })
+        jumpAnimation.restart()
+    }
+
+    function stepAnimatedJump() {
+        var travelled = root.jumpTotal * root.jumpProgress
+
+        if (!root.jumpCutDone && travelled < root.jumpLaunch) {
+            transcript.contentY = root.jumpStartY + travelled
+            return
+        }
+
+        if (!root.jumpCutDone) {
+            // Moving fast enough that a cut to a few screens above the end
+            // reads as motion, not a jump.
+            root.jumpCutDone = true
+            transcript.positionViewAtIndex(transcript.count - 1, ListView.End)
+        }
+
+        var endY = root.clampedTranscriptContentY(root.transcriptEndY())
+        transcript.contentY = root.clampedTranscriptContentY(
+            endY - (root.jumpTotal - travelled)
+        )
+    }
+
+    function updatePinnedSection() {
+        var row = transcript.itemAt(
+            transcript.width / 2,
+            transcript.contentY + transcript.topMargin + 4
+        )
+        var label = row && row.timeSection ? String(row.timeSection) : ""
+
+        if (label.length === 0) {
+            return
+        }
+
+        root.pinnedSectionLabel = label
+        root.pinnedSectionShown = true
+        pinnedSectionHideTimer.restart()
+    }
+
+    // Retry sends the prompt behind a reply again.
+    function retryReply(messageId) {
+        if (ChatStore.responding) {
+            return
+        }
+
+        var messages = ChatStore.messages || []
+        var found = false
+
+        for (var index = messages.length - 1; index >= 0; index -= 1) {
+            var message = messages[index] || ({})
+
+            if (!found) {
+                found = String(message.id || "") === String(messageId)
+                continue
+            }
+
+            if (String(message.role || "") === "user") {
+                ChatStore.sendMessage(String(message.content || ""))
+                return
+            }
+        }
+    }
+
+    function sendSuggestion(prompt) {
+        if (!ChatStore.responding && root.hasSelectedChat) {
+            ChatStore.sendMessage(prompt)
+        }
     }
 
     function transcriptEndY() {
@@ -725,29 +926,11 @@ Rectangle {
         )
     }
 
-    function shouldFollowTranscript() {
-        return ChatViewportPolicy.shouldFollow({
-            autoFollow: root.revealFollowEnabled,
-            dragging: transcript.dragging,
-            flicking: transcript.flicking,
-            restoringViewport: root.restoringChatViewport,
-            restoringHistory: root.historyLoadPending
-        })
-    }
-
-    function stopRevealFollow() {
-        root.revealFollowEnabled = false
-    }
-
-    function followRevealSmoothly() {
-        if (!root.shouldFollowTranscript() || transcript.count === 0) {
-            return
+    function canPrefetchHistory() {
+        if (root.chatDisableHistoryPrefetch) {
+            return false
         }
 
-        root.scheduleScrollToEnd(false, false)
-    }
-
-    function canPrefetchHistory() {
         return ChatViewportPolicy.shouldPrefetchHistory({
             visible: transcript.visible,
             hasOlderMessages: ChatStore.hasOlderMessages,
@@ -757,7 +940,6 @@ Rectangle {
             historyLoadPending: root.historyLoadPending,
             restoringViewport: root.restoringChatViewport,
             responding: ChatStore.responding,
-            autoFollow: root.revealFollowEnabled,
             scrollToEndPending: root.scrollToEndPending,
             interacting: transcript.moving
                 || transcript.dragging
@@ -776,6 +958,7 @@ Rectangle {
             return
         }
 
+        root.traceChatViewport("history.request")
         root.historyLoadPending = true
         ChatStore.loadOlderMessages()
     }
@@ -785,6 +968,9 @@ Rectangle {
             return
         }
 
+        root.traceChatViewport("history.anchor.capture.begin", {
+            prependCount: count
+        })
         root.cancelScrollToEnd()
         transcript.forceLayout()
 
@@ -807,6 +993,13 @@ Rectangle {
         root.historyAnchorContentHeight = transcript.contentHeight
         root.historyPrependedCount = count
         root.historyRestorePass = 0
+        root.traceChatViewport("history.anchor.capture.end", {
+            anchorIndex: root.historyAnchorIndex,
+            anchorOffset: root.roundedTraceValue(
+                root.historyAnchorOffset
+            ),
+            prependCount: count
+        })
     }
 
     function restoreHistoryAnchor() {
@@ -819,6 +1012,11 @@ Rectangle {
             return
         }
 
+        root.traceChatViewport("history.anchor.restore.begin", {
+            anchorIndex: root.historyAnchorIndex,
+            prependCount: root.historyPrependedCount,
+            restorePass: root.historyRestorePass
+        })
         const targetIndex = root.historyAnchorIndex + root.historyPrependedCount
         const anchorPlaced = root.placeTranscriptAnchor(
             targetIndex,
@@ -826,6 +1024,9 @@ Rectangle {
         )
 
         if (anchorPlaced) {
+            root.traceChatViewport("history.anchor.restore.placed", {
+                targetIndex: targetIndex
+            })
             root.clearHistoryAnchor()
             root.scheduleHistoryPrefetch()
             return
@@ -862,6 +1063,13 @@ Rectangle {
     }
 
     Component.onCompleted: {
+        root.chatTracePreviousContentY = transcript.contentY
+        root.chatTracePreviousCount = transcript.count
+        root.traceChatViewport("trace.config", {
+            disableHistoryPrefetch: root.chatDisableHistoryPrefetch,
+            disableViewportSave: root.chatDisableViewportSave,
+            plainMessages: root.chatPlainMessages
+        })
         ChatStore.refresh()
         root.switchChatViewportState()
     }
@@ -882,27 +1090,14 @@ Rectangle {
 
             if (root.chatViewportRestorePending) {
                 chatViewportRestoreTimer.restart()
-                return
             }
-
-            if (!root.revealFollowEnabled) {
-                return
-            }
-
-            if (ChatStore.responding) {
-                if (root.shouldFollowTranscript()) {
-                    root.scheduleScrollToEnd(false, false)
-                }
-                return
-            }
-
-            root.scheduleScrollToEnd(false, false)
         }
 
         function onSelectedChatIdChanged() {
+            jumpAnimation.stop()
+            root.unreadCount = 0
             root.clearHistoryAnchor()
             root.cancelScrollToEnd()
-            root.stopRevealFollow()
             root.switchChatViewportState()
         }
 
@@ -911,12 +1106,15 @@ Rectangle {
                 if (root.chatViewportRestorePending) {
                     chatViewportRestoreTimer.restart()
                 } else {
-                    root.scheduleScrollToEnd(true, false)
+                    root.scheduleScrollToEnd(false)
                 }
             }
         }
 
         function onOlderMessagesWillPrepend(count) {
+            root.traceChatViewport("history.willPrepend", {
+                prependCount: count
+            })
             if (root.jumpToEndPending) {
                 root.clearHistoryAnchor(true)
                 return
@@ -926,9 +1124,12 @@ Rectangle {
         }
 
         function onOlderMessagesPrepended(count) {
+            root.traceChatViewport("history.prepended", {
+                prependCount: count
+            })
             if (root.jumpToEndPending) {
                 root.clearHistoryAnchor(ChatStore.loadingOlderMessages)
-                root.startScrollToEndAnimation()
+                root.placeTranscriptAtEnd()
                 return
             }
 
@@ -943,13 +1144,16 @@ Rectangle {
         }
 
         function onLoadingOlderMessagesChanged() {
+            root.traceChatViewport("history.loading.changed", {
+                loading: ChatStore.loadingOlderMessages
+            })
             if (ChatStore.loadingOlderMessages) {
                 return
             }
 
             if (root.jumpToEndPending) {
                 root.clearHistoryAnchor(false)
-                root.startScrollToEndAnimation()
+                root.placeTranscriptAtEnd()
                 return
             }
 
@@ -1009,18 +1213,28 @@ Rectangle {
         onTriggered: root.restoreHistoryAnchor()
     }
 
-    SmoothedAnimation {
-        id: scrollToEndAnimation
+    NumberAnimation {
+        id: jumpAnimation
 
-        target: transcript
-        property: "contentY"
-        to: root.scrollToEndTargetY
-        duration: root.scrollToEndDuration
-        velocity: -1
-        maximumEasingTime: Math.min(220, root.scrollToEndDuration)
-        reversingMode: SmoothedAnimation.Immediate
-        onStarted: root.beginProgrammaticScrollWrite(true)
-        onStopped: root.finishScrollToEnd()
+        target: root
+        property: "jumpProgress"
+        from: 0
+        to: 1
+        onFinished: root.scheduleScrollToEnd(true)
+    }
+
+    onJumpProgressChanged: {
+        if (jumpAnimation.running) {
+            root.stepAnimatedJump()
+        }
+    }
+
+    Timer {
+        id: scrollToEndSettleTimer
+
+        interval: 24
+        repeat: false
+        onTriggered: root.finishScrollToEnd()
     }
 
     Timer {
@@ -1029,6 +1243,43 @@ Rectangle {
         interval: 32
         repeat: false
         onTriggered: root.programmaticScrollWrite = false
+    }
+
+    Timer {
+        id: movementTraceTimer
+
+        interval: 32
+        repeat: true
+        running: root.chatViewportTraceEnabled && transcript.moving
+        onTriggered: root.traceChatViewport("movement.sample")
+    }
+
+    Timer {
+        id: settleTraceTimer
+
+        property int tick: 0
+        interval: 16
+        repeat: true
+        onTriggered: {
+            tick += 1
+
+            if (
+                tick === 1
+                || tick === 2
+                || tick === 4
+                || tick === 8
+                || tick === 16
+                || tick === 32
+            ) {
+                root.traceChatViewport("settle.sample", {
+                    elapsedMs: tick * interval
+                })
+            }
+
+            if (tick >= 32) {
+                stop()
+            }
+        }
     }
 
     Rectangle {
@@ -1551,57 +1802,138 @@ Rectangle {
         spacing: root.theme.messageVerticalGap
         topMargin: 42
         bottomMargin: 44
-        cacheBuffer: Math.max(8000, height * 7)
-        displayMarginBeginning: 1200
-        displayMarginEnd: 800
-        reuseItems: false
+        cacheBuffer: Math.max(1200, Math.ceil(height * 2))
+        displayMarginBeginning: 0
+        displayMarginEnd: 0
+        reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
-        model: ChatStore.messages
+        boundsMovement: Flickable.StopAtBounds
+        model: ChatStore.messageModel
 
         onCountChanged: {
+            var previousCount = root.chatTracePreviousCount
+            root.chatTracePreviousCount = count
+            root.traceChatViewport("count.changed", {
+                previousCount: previousCount,
+                nextCount: count
+            })
+
+            if (
+                count > previousCount
+                && previousCount > 0
+                && !nearEnd
+                && !root.historyLoadPending
+                && !ChatStore.loadingMessages
+                && !ChatStore.loadingOlderMessages
+            ) {
+                root.unreadCount += count - previousCount
+            }
+
             if (root.scrollToEndPending) {
-                root.updateScrollToEndTarget()
-                root.startScrollToEndAnimation()
+                Qt.callLater(root.placeTranscriptAtEnd)
+                return
+            }
+
+            if (jumpAnimation.running) {
+                return
+            }
+
+            if (
+                ChatStore.responding
+                && !root.historyLoadPending
+                && !root.chatViewportRestorePending
+                && !root.restoringChatViewport
+                && count > 0
+            ) {
+                root.beginProgrammaticScrollWrite()
+                transcript.positionViewAtIndex(
+                    count - 1,
+                    ListView.Contain
+                )
+            }
+        }
+
+        onNearEndChanged: {
+            if (nearEnd) {
+                root.unreadCount = 0
             }
         }
 
         onContentHeightChanged: {
-            if (root.scrollToEndPending) {
-                root.updateScrollToEndTarget()
-                root.startScrollToEndAnimation()
-                return
-            }
+            root.traceChatViewport("contentHeight.changed")
 
-            if (root.shouldFollowTranscript()) {
-                root.scheduleScrollToEnd(false, false)
+            if (root.scrollToEndPending) {
+                scrollToEndSettleTimer.restart()
+            }
+        }
+
+        onOriginYChanged: {
+            root.traceChatViewport("originY.changed")
+
+            if (root.scrollToEndPending) {
+                scrollToEndSettleTimer.restart()
             }
         }
 
         onContentYChanged: {
+            var previousContentY = root.chatTracePreviousContentY
+            root.chatTracePreviousContentY = contentY
+
+            if (
+                root.chatViewportTraceEnabled
+                && !moving
+                && Math.abs(contentY - previousContentY) > 0.5
+            ) {
+                root.traceChatViewport("contentY.idle.changed", {
+                    previousContentY: root.roundedTraceValue(
+                        previousContentY
+                    )
+                })
+            }
+
             if (nearBeginning) {
                 root.scheduleHistoryPrefetch()
             }
 
             root.scheduleChatViewportSave()
+
+            if (moving || jumpAnimation.running) {
+                root.updatePinnedSection()
+            }
         }
 
         onMovementStarted: {
+            settleTraceTimer.stop()
+            root.traceChatViewport("movement.started")
             root.takeManualScrollOwnership()
         }
 
         onDraggingChanged: {
+            root.traceChatViewport("dragging.changed", {
+                active: dragging
+            })
             if (dragging) {
                 root.takeManualScrollOwnership()
             }
         }
 
         onFlickingChanged: {
+            root.traceChatViewport("flicking.changed", {
+                active: flicking
+            })
             if (flicking) {
                 root.takeManualScrollOwnership()
             }
         }
 
         onMovementEnded: {
+            root.traceChatViewport("movement.ended")
+
+            if (root.chatViewportTraceEnabled) {
+                settleTraceTimer.tick = 0
+                settleTraceTimer.restart()
+            }
+
             if (
                 root.historyRestoreDeferred
                 && root.historyLoadPending
@@ -1612,58 +1944,61 @@ Rectangle {
                 root.scheduleChatViewportSave()
                 return
             }
-            if (
-                ChatViewportPolicy.shouldEnableFollow({
-                    autoFollow: root.revealFollowEnabled,
-                    nearEnd: transcript.nearEnd,
-                    restoringViewport: root.restoringChatViewport,
-                    restoringHistory: root.historyLoadPending
-                })
-            ) {
-                root.revealFollowEnabled = true
-            }
-
             root.scheduleHistoryPrefetch()
             root.scheduleChatViewportSave()
         }
 
         delegate: ChatMessage {
-            required property var modelData
+            required property var messageData
             required property int index
+            required property string timeSection
+            required property string sectionBreakAfter
 
             width: transcript.width
             theme: root.theme
-            messageId: String(modelData.id || "")
-            role: String(modelData.role || "system")
-            content: String(modelData.id || "")
-                    === ChatStore.activeRunAssistantMessageId
+            message: messageData || ({})
+            activeRunAssistantMessageId:
+                ChatStore.activeRunAssistantMessageId
+            // Only the streaming message reads the live Run values, so a
+            // flush re-evaluates one delegate instead of every row.
+            readonly property bool isActiveRunMessage: String(
+                messageData && messageData.id || ""
+            ) === ChatStore.activeRunAssistantMessageId
+            activeRunContent: isActiveRunMessage
                 ? ChatStore.activeRunContent
-                : String(modelData.content || "")
-            timestamp: String(modelData.displayTimestamp || "")
-            status: String(modelData.status || "complete")
-            progressLabel: String(modelData.id || "")
-                    === ChatStore.activeRunAssistantMessageId
+                : ""
+            activeRunProgressLabel: isActiveRunMessage
                 ? ChatStore.runPhaseLabel
-                : String(modelData.role || "") === "assistant"
-                    && String(modelData.status || "") === "streaming"
-                    ? "Starting Run…"
-                    : ""
-            activity: String(modelData.id || "")
-                    === ChatStore.activeRunAssistantMessageId
+                : ""
+            activeRunActivity: isActiveRunMessage
                 ? ChatStore.runActivity
                 : ({})
-            attachedFiles: String(modelData.role || "") === "assistant"
-                    && String(modelData.status || "") === "streaming"
-                ? ChatStore.attachments
-                : []
-            editProposal: modelData.editProposal || ({})
+            activeRunAttachments: ChatStore.attachments
             editProposalBusy: ChatStore.mutatingEditProposal
-                && String(modelData.editProposal ? modelData.editProposal.id || "" : "")
-                    === ChatStore.mutatingEditProposalId
-            animateReveal: Boolean(modelData.animateReveal || false)
+                && String(
+                    messageData && messageData.editProposal
+                        ? messageData.editProposal.id || ""
+                        : ""
+                ) === ChatStore.mutatingEditProposalId
             leftObstruction: root.leftObstruction
+            hue: messageData && messageData.agentId
+                ? root.theme.agentHue(String(messageData.agentId))
+                : root.chatHue
+            lastInTranscript: index === transcript.count - 1
+            breakAfter: sectionBreakAfter
+            retryAvailable: lastInTranscript && !ChatStore.responding
+            diagnosticTraceEnabled: root.chatViewportTraceEnabled
+            diagnosticPlainContent: root.chatPlainMessages
+            onDiagnosticEvent: function(eventName, details) {
+                var payload = details || ({})
+                payload.delegateIndex = index
+                root.traceChatViewport(eventName, payload)
+            }
             onContextInspectionRequested: function(messageId) {
                 root.contextInspectionRequested(messageId)
+            }
+            onRetryRequested: function(messageId) {
+                root.retryReply(messageId)
             }
             onEditApproveAllRequested: function(proposalId) {
                 ChatStore.approveEditProposal(proposalId)
@@ -1676,13 +2011,6 @@ Rectangle {
             }
             onEditUndoRequested: function(proposalId) {
                 ChatStore.undoEditProposal(proposalId)
-            }
-            onRevealProgressed: {
-                if (index !== transcript.count - 1) {
-                    return
-                }
-
-                root.followRevealSmoothly()
             }
             onRevealFinished: function(messageId) {
                 ChatStore.finishMessageReveal(messageId)
@@ -1712,11 +2040,101 @@ Rectangle {
         }
     }
 
+    // Empty state: the agent's glyph, a line of guidance and, for a new
+    // conversation, three prompts drawn from the open library.
+    readonly property bool emptyConversation: !root.fileSurfaceActive
+        && !transcript.visible
+        && root.hasSelectedChat
+        && !ChatStore.loadingChats
+        && !ChatStore.loadingMessages
+        && ChatStore.errorMessage.length === 0
+    readonly property var chatSuggestions: root.emptyConversation
+        ? root.buildSuggestions()
+        : []
+
+    function buildSuggestions() {
+        var library = String(root.selectedLibraryName || "")
+        var files = library.length > 0 ? (LibraryStore.files || []) : []
+        var recent = ""
+        var recentTime = -1
+
+        for (var index = 0; index < files.length && index < 2000; index += 1) {
+            var file = files[index] || ({})
+            var path = String(file.relativePath || file.name || "")
+
+            if (path.length === 0) {
+                continue
+            }
+
+            var stamp = Date.parse(String(
+                file.modifiedAt || file.updatedAt || file.indexedAt || ""
+            ))
+            var time = isNaN(stamp) ? 0 : stamp
+
+            if (time > recentTime) {
+                recentTime = time
+                recent = path
+            }
+        }
+
+        var recentName = recent.split("/").pop()
+
+        return [
+            library.length > 0
+                ? "Summarize what's in " + library
+                : "Help me plan a new project",
+            recentName.length > 0
+                ? "Walk me through " + recentName
+                : "Explain a tricky concept step by step",
+            library.length > 0
+                ? "What should I pick up next in " + library + "?"
+                : "Draft an outline for a document"
+        ]
+    }
+
     Column {
         anchors.centerIn: parent
         width: Math.min(460, parent.width - 80)
         spacing: 8
         visible: !root.fileSurfaceActive && !transcript.visible
+
+        Item {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 64
+            height: root.emptyConversation ? 82 : 0
+            visible: root.emptyConversation
+
+            Rectangle {
+                id: emptyGlyph
+
+                property real float: 0
+
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 2 - 3 * float
+                width: 60
+                height: 60
+                radius: 19
+                color: root.theme.withAlpha(root.chatHue, 0.14)
+                border.width: 1
+                border.color: root.theme.withAlpha(root.chatHue, 0.36)
+
+                SequentialAnimation on float {
+                    loops: Animation.Infinite
+                    running: root.emptyConversation && !root.theme.reducedMotion
+
+                    NumberAnimation { to: 1; duration: 1600; easing.type: Easing.InOutSine }
+                    NumberAnimation { to: 0; duration: 1600; easing.type: Easing.InOutSine }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "✣"
+                    color: root.theme.agentHueBright(root.chatHue)
+                    font.pixelSize: 28
+                    font.weight: Font.Bold
+                }
+            }
+        }
 
         Text {
             width: parent.width
@@ -1728,9 +2146,12 @@ Rectangle {
                         ? "Chat could not be loaded"
                         : !root.hasSelectedChat
                             ? "Select a Chat"
-                            : "This conversation is empty"
+                            : "Start the conversation"
             color: root.theme.appText
-            font.pixelSize: root.theme.typeSize(16)
+            font.family: root.emptyConversation
+                ? root.theme.titleFontFamily
+                : root.theme.bodyFontFamily
+            font.pixelSize: root.theme.typeSize(root.emptyConversation ? 20 : 16)
             font.weight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter
         }
@@ -1741,13 +2162,126 @@ Rectangle {
                 ? ChatStore.errorMessage
                 : !root.hasSelectedChat
                     ? "Open Chats from the command dock to choose a conversation."
-                    : "Send a message below to begin."
+                    : "Ask anything below, or start with one of these."
             color: root.theme.mutedText
             font.pixelSize: root.theme.typeSize(12)
             lineHeight: root.theme.typeLineHeightBody
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
         }
+
+        Item {
+            width: parent.width
+            height: root.emptyConversation ? 10 : 0
+        }
+
+        Repeater {
+            model: root.chatSuggestions
+
+            delegate: Rectangle {
+                id: suggestion
+
+                required property string modelData
+                required property int index
+                readonly property bool hovered: suggestionMouse.containsMouse
+                property real arrival: root.theme.reducedMotion ? 1 : 0
+
+                width: parent.width
+                height: 40
+                radius: 12
+                color: hovered
+                    ? Qt.tint(root.theme.controlSurfaceBg, root.theme.withAlpha(root.chatHue, 0.18))
+                    : root.theme.surfaceBg
+                border.width: 1
+                border.color: hovered
+                    ? root.theme.withAlpha(root.chatHue, 0.55)
+                    : root.theme.quietBorder
+                opacity: arrival
+                transform: Translate {
+                    y: (1 - suggestion.arrival) * 8
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: modelData
+
+                Behavior on color {
+                    ColorAnimation { duration: 120 }
+                }
+
+                SequentialAnimation on arrival {
+                    running: !root.theme.reducedMotion
+
+                    PauseAnimation { duration: 120 + suggestion.index * 60 }
+                    NumberAnimation { to: 1; duration: 260; easing.type: Easing.OutCubic }
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 16
+                    anchors.right: suggestionArrow.left
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: suggestion.modelData
+                    color: root.theme.appText
+                    font.family: root.theme.chatFontFamily
+                    font.pixelSize: root.theme.typeSize(12)
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    id: suggestionArrow
+
+                    anchors.right: parent.right
+                    anchors.rightMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "→"
+                    color: suggestion.hovered
+                        ? root.theme.agentHueBright(root.chatHue)
+                        : root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(12)
+                }
+
+                MouseArea {
+                    id: suggestionMouse
+
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    enabled: !ChatStore.responding
+                    onClicked: root.sendSuggestion(suggestion.modelData)
+                }
+            }
+        }
+    }
+
+    // While you scroll, the time of the stretch under the top edge pins
+    // there, then fades once the transcript settles. It floats over the
+    // transcript, so it never moves a row.
+    TimeDivider {
+        id: pinnedSection
+
+        x: transcript.x
+        y: transcript.y + 6
+        width: transcript.width
+        theme: root.theme
+        section: root.pinnedSectionLabel
+        lines: false
+        opacity: root.pinnedSectionShown ? 1 : 0
+        visible: opacity > 0.01 && transcript.visible
+        z: 19
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: root.pinnedSectionShown ? 120 : 320
+                easing.type: Easing.OutCubic
+            }
+        }
+    }
+
+    Timer {
+        id: pinnedSectionHideTimer
+
+        interval: 900
+        onTriggered: root.pinnedSectionShown = false
     }
 
     JumpToLatestButton {
@@ -1756,6 +2290,8 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         theme: root.theme
+        hue: root.chatHue
+        unreadCount: root.unreadCount
         visible: transcript.visible && !transcript.nearEnd
         opacity: visible ? 1 : 0
         z: 20

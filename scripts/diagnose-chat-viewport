@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="$ROOT/backend/data/runtime/logs"
+TRACE_LOG="${ARCHIVIST_CHAT_TRACE_FILE:-$LOG_DIR/runtime-trace.jsonl}"
+FRONTEND_LOG="${ARCHIVIST_FRONTEND_LOG_FILE:-$LOG_DIR/frontend.log}"
+REPORT="${ARCHIVIST_CHAT_REPORT_FILE:-$LOG_DIR/chat-viewport-diagnostic.txt}"
+TRACE_TMP="$(mktemp "${TMPDIR:-/tmp}/archivist-chat-trace.XXXXXX")"
+SUMMARY_TMP="$(mktemp "${TMPDIR:-/tmp}/archivist-chat-summary.XXXXXX")"
+trap 'rm -f "$TRACE_TMP" "$SUMMARY_TMP"' EXIT
+
+mkdir -p "$(dirname "$REPORT")"
+
+if [[ -f "$TRACE_LOG" ]]; then
+  grep -F '"domain":"chat.viewport"' "$TRACE_LOG" \
+    | tail -n 6000 \
+    > "$TRACE_TMP" \
+    || true
+else
+  : > "$TRACE_TMP"
+fi
+
+node - "$TRACE_TMP" > "$SUMMARY_TMP" <<'NODE'
+const fs = require("node:fs");
+
+const tracePath = process.argv[2];
+const lines = fs.existsSync(tracePath)
+  ? fs.readFileSync(tracePath, "utf8").split(/\r?\n/).filter(Boolean)
+  : [];
+const events = [];
+
+for (const line of lines) {
+  try {
+    events.push(JSON.parse(line));
+  } catch {
+  }
+}
+
+function number(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function fmt(value) {
+  const parsed = number(value);
+  return parsed === null ? "?" : String(Math.round(parsed * 100) / 100);
+}
+
+function largestChanges(field, limit = 8) {
+  const changes = [];
+  let previous = null;
+
+  for (const event of events) {
+    const current = number(event[field]);
+
+    if (current === null) {
+      continue;
+    }
+
+    if (previous !== null && Math.abs(current - previous.value) > 0.5) {
+      changes.push({
+        delta: current - previous.value,
+        before: previous.value,
+        after: current,
+        event,
+      });
+    }
+
+    previous = { value: current, event };
+  }
+
+  return changes
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, limit);
+}
+
+function printChanges(title, field) {
+  console.log(title);
+  const changes = largestChanges(field);
+
+  if (changes.length === 0) {
+    console.log("  none");
+    return;
+  }
+
+  for (const change of changes) {
+    console.log(
+      `  seq ${change.event.sequence ?? "?"} ${change.event.event ?? "?"}: `
+      + `${fmt(change.before)} -> ${fmt(change.after)} `
+      + `(delta ${fmt(change.delta)})`,
+    );
+  }
+}
+
+const suspiciousHeights = events
+  .filter((event) => event.event === "delegate.height")
+  .map((event) => {
+    const before = number(event.previousHeight);
+    const after = number(event.height);
+
+    if (before === null || after === null || before <= 0 || after <= 0) {
+      return null;
+    }
+
+    const ratio = after / before;
+    const delta = after - before;
+
+    if (
+      Math.abs(delta) < 120
+      || (ratio > 0.45 && ratio < 2.2)
+    ) {
+      return null;
+    }
+
+    return { event, before, after, ratio, delta };
+  })
+  .filter(Boolean)
+  .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  .slice(0, 16);
+
+const outOfBounds = events
+  .map((event) => {
+    const y = number(event.contentY);
+    const minimum = number(event.minimumY);
+    const maximum = number(event.maximumY);
+
+    if (y === null || minimum === null || maximum === null) {
+      return null;
+    }
+
+    if (y >= minimum - 0.75 && y <= maximum + 0.75) {
+      return null;
+    }
+
+    return { event, y, minimum, maximum };
+  })
+  .filter(Boolean)
+  .slice(-16);
+
+const navigation = events
+  .filter((event) => String(event.event || "").startsWith("navigation.end."))
+  .slice(-20);
+
+console.log(`Events analyzed: ${events.length}`);
+printChanges("Largest contentHeight changes:", "contentHeight");
+printChanges("Largest originY changes:", "originY");
+
+console.log("Suspicious message-height changes:");
+if (suspiciousHeights.length === 0) {
+  console.log("  none");
+} else {
+  for (const item of suspiciousHeights) {
+    console.log(
+      `  seq ${item.event.sequence ?? "?"} `
+      + `${item.event.messageId ?? "?"}: `
+      + `${fmt(item.before)} -> ${fmt(item.after)} `
+      + `(ratio ${fmt(item.ratio)}, index ${item.event.delegateIndex ?? "?"})`,
+    );
+  }
+}
+
+console.log("Out-of-bounds viewport samples:");
+if (outOfBounds.length === 0) {
+  console.log("  none");
+} else {
+  for (const item of outOfBounds) {
+    console.log(
+      `  seq ${item.event.sequence ?? "?"} ${item.event.event ?? "?"}: `
+      + `contentY ${fmt(item.y)} outside `
+      + `[${fmt(item.minimum)}, ${fmt(item.maximum)}]`,
+    );
+  }
+}
+
+console.log("Recent bottom-navigation events:");
+if (navigation.length === 0) {
+  console.log("  none");
+} else {
+  for (const event of navigation) {
+    console.log(
+      `  seq ${event.sequence ?? "?"} ${event.event}: `
+      + `contentY ${fmt(event.contentY)} `
+      + `target ${fmt(event.targetY)} `
+      + `max ${fmt(event.maximumY)}`,
+    );
+  }
+}
+NODE
+
+{
+  printf '===== ARCHIVIST CHAT VIEWPORT DIAGNOSTIC =====\n\n'
+  date
+  printf '\n===== GIT BRANCH =====\n\n'
+  git -C "$ROOT" branch --show-current || true
+  printf '\n===== GIT STATUS =====\n\n'
+  git -C "$ROOT" status --short || true
+  printf '\n===== TRACE SOURCE =====\n\n'
+  printf '%s\n' "$TRACE_LOG"
+  if [[ -f "$TRACE_LOG" ]]; then
+    wc -c < "$TRACE_LOG" | tr -d ' '
+  else
+    printf 'missing\n'
+  fi
+  printf '\n===== TRACE EVENT COUNT =====\n\n'
+  wc -l < "$TRACE_TMP" | tr -d ' '
+  printf '\n===== GEOMETRY SUMMARY =====\n\n'
+  cat "$SUMMARY_TMP"
+  printf '\n===== CHAT VIEWPORT TRACE =====\n\n'
+  if [[ -s "$TRACE_TMP" ]]; then
+    cat "$TRACE_TMP"
+  else
+    printf 'No chat viewport trace events found. Start with: npm run dev:chat-trace\n'
+  fi
+  printf '\n===== RECENT FRONTEND WARNINGS =====\n\n'
+  if [[ -f "$FRONTEND_LOG" ]]; then
+    tail -n 500 "$FRONTEND_LOG" \
+      | grep -Ei 'warning|error|binding loop|listview|delegate' \
+      | tail -n 120 \
+      || true
+  else
+    printf 'frontend.log not found.\n'
+  fi
+} > "$REPORT"
+
+printf 'Created %s\n' "$REPORT"
+printf 'Upload that file after reproducing one scroll jump.\n'

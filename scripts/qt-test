@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_DIR="$ROOT/frontend"
+BUILD_DIR="$ROOT/build/frontend-test"
+
+if command -v brew >/dev/null 2>&1; then
+  QT_PREFIX="$(brew --prefix)"
+else
+  QT_PREFIX=""
+fi
+
+cmake \
+  -S "$SOURCE_DIR" \
+  -B "$BUILD_DIR" \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DARCHIVIST_BUILD_TESTS=ON \
+  ${QT_PREFIX:+-DCMAKE_PREFIX_PATH="$QT_PREFIX"}
+
+cmake --build "$BUILD_DIR" --target chat-message-model-test message-block-parser-test core-database-test core-collections-test core-agents-test core-libraries-test core-library-files-test core-library-file-operations-test core-chats-test core-ai-test core-ai-runtime-test core-ide-test
+ctest --test-dir "$BUILD_DIR" --output-on-failure

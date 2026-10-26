@@ -23,7 +23,8 @@ Item {
             return
         }
 
-        rowBody.x = 8
+        // Each step drops in from just above, one after another.
+        rowBody.y = root.theme.reducedMotion ? 0 : -8
         rowBody.opacity = 0
         entrance.restart()
     }
@@ -54,7 +55,7 @@ Item {
 
         width: parent.width
         height: parent.height
-        x: 8
+        y: -8
         opacity: 0
 
         Rectangle {
@@ -167,17 +168,18 @@ Item {
         id: entrance
 
         PauseAnimation {
-            duration: Math.min(340, root.entranceOrder * 52)
+            duration: Math.min(360, root.entranceOrder * root.theme.chatToolStagger)
         }
 
         ParallelAnimation {
-            NumberAnimation {
+            SpringAnimation {
                 target: rowBody
-                property: "x"
-                from: 8
+                property: "y"
                 to: 0
-                duration: 180
-                easing.type: Easing.OutCubic
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                mass: root.theme.chatSpringMassTool
+                epsilon: 0.05
             }
 
             NumberAnimation {

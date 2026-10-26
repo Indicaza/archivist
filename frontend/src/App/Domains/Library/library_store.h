@@ -1,8 +1,6 @@
 #pragma once
 
 #include <QFileSystemWatcher>
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -165,7 +163,6 @@ signals:
     void fileSaveErrorChanged();
 
 private:
-    [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
     void fetchAppState();
     void startLibrarySelection(const QString &libraryId);
     void rebuildFileWatchers();
@@ -176,6 +173,7 @@ private:
     [[nodiscard]] QString selectedFileAbsolutePath() const;
     void setLibraries(const QVariantList &libraries);
     void setSelectedLibraryId(const QString &libraryId);
+    void applyCatalog(const QVariantMap &catalog);
     void setFiles(const QVariantList &files);
     void setDirectories(const QVariantList &directories);
     void setLatestScan(const QVariantMap &latestScan);
@@ -200,13 +198,11 @@ private:
     [[nodiscard]] bool containsLibrary(const QString &libraryId) const;
     [[nodiscard]] bool containsFile(const QString &fileId) const;
 
-    QNetworkAccessManager m_network;
     QFileSystemWatcher m_fileWatcher;
     QTimer m_externalFileReloadTimer;
     QTimer m_libraryRescanTimer;
     QTimer m_gitStatusRefreshTimer;
     QTimer m_watcherSuppressionTimer;
-    QUrl m_baseUrl;
     QVariantList m_libraries;
     QString m_selectedLibraryId;
     QString m_pendingScanLibraryId;

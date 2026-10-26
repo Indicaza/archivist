@@ -15,6 +15,7 @@ import { languageSupportRouter } from "./api/languageSupport/routes/LanguageSupp
 import { libraryRouter } from "./api/libraries/routes/LibraryRoutes.js";
 import { registerBuiltInAITools } from "./core/tools/registerBuiltInAITools.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { createLocalOnlyGuard } from "./middleware/local-only.js";
 
 const currentDirectory = path.dirname(
   fileURLToPath(import.meta.url),
@@ -27,6 +28,8 @@ const ideDistributionPath = path.resolve(
 registerBuiltInAITools();
 
 export const app = express();
+
+app.use(createLocalOnlyGuard(Number(process.env.PORT ?? 3333)));
 
 app.use(
   cors({

@@ -1,4 +1,6 @@
 import QtQuick
+import Archivist.Services
+import "RichMessageCache.js" as RichMessageCache
 
 Item {
     id: root
@@ -6,13 +8,26 @@ Item {
     required property var theme
     required property string content
     property bool compact: false
+    property bool transcriptMoving: false
     property bool animateReveal: false
     property int revealPosition: 0
     property real revealAccumulator: 0
     property bool revealing: false
     property bool revealInitialized: false
+    property string cacheKey: ""
+    // True while syncBlockModel() rewrites the blocks. A rebind changes a
+    // block's kind, content and language one at a time; the block texts
+    // collect them and lay out once, synchronously, when it finishes.
+    property bool syncing: false
+    // The speaking agent's hue, and the reading styles built from it.
+    property color hue: theme.accent
+    readonly property var readingStyle: theme.chatReadingStyle(hue)
+    // Prose stops at a comfortable measure; code and tables use the width.
+    readonly property real textMeasure: compact
+        ? width
+        : Math.min(width, theme.chatReadingMeasure)
 
-    readonly property var blocks: parseBlocks(content)
+    readonly property var blocks: cachedBlocks(cacheKey, content)
     readonly property int totalRevealLength: blocks.length > 0
         ? Number(blocks[blocks.length - 1].revealEnd || 0)
         : 0
@@ -133,7 +148,77 @@ Item {
         })
     }
 
-    Component.onCompleted: revealSetupTimer.start()
+    Component.onCompleted: {
+        root.syncBlockModel()
+        revealSetupTimer.start()
+    }
+
+    onBlocksChanged: root.syncBlockModel()
+
+    // Streaming replaces `blocks` every flush. Copying it into a ListModel row by
+    // row keeps finished blocks' text items alive, so only the block that is
+    // still growing re-lays out its markdown.
+    function normalizedBlock(block) {
+        return {
+            content: String(block.content || ""),
+            language: String(block.language || ""),
+            fileName: String(block.fileName || ""),
+            complete: block.complete !== false,
+            revealStart: Number(block.revealStart || 0),
+            revealEnd: Number(block.revealEnd || 0),
+            kind: String(block.kind || "markdown")
+        }
+    }
+
+    function syncBlockModel() {
+        root.syncing = true
+        try {
+            root.applyBlocks(root.blocks || [])
+        } finally {
+            root.syncing = false
+        }
+    }
+
+    function applyBlocks(nextBlocks) {
+        for (let index = 0; index < nextBlocks.length; index += 1) {
+            const next = root.normalizedBlock(nextBlocks[index])
+
+            if (index >= blockModel.count) {
+                blockModel.append(next)
+                continue
+            }
+
+            const current = blockModel.get(index)
+
+            // A recycled row can turn a text block into a code block (or
+            // back). Empty the content first so neither side lays out the
+            // other's text on the way through.
+            if (current.kind !== next.kind) {
+                if (current.content.length > 0) {
+                    blockModel.setProperty(index, "content", "")
+                }
+
+                blockModel.setProperty(index, "kind", next.kind)
+            }
+
+            for (const key in next) {
+                if (current[key] !== next[key]) {
+                    blockModel.setProperty(index, key, next[key])
+                }
+            }
+        }
+
+        if (blockModel.count > nextBlocks.length) {
+            blockModel.remove(
+                nextBlocks.length,
+                blockModel.count - nextBlocks.length
+            )
+        }
+    }
+
+    ListModel {
+        id: blockModel
+    }
 
     onAnimateRevealChanged: {
         if (revealInitialized) {
@@ -157,300 +242,37 @@ Item {
         revealing = false
     }
 
-    function fenceDescriptor(line) {
-        let source = String(line)
-        let leadingSpaces = 0
-
-        while (
-            leadingSpaces < source.length
-            && leadingSpaces < 3
-            && source.charAt(leadingSpaces) === " "
-        ) {
-            leadingSpaces += 1
-        }
-
-        source = source.slice(leadingSpaces)
-
-        const marker = source.charAt(0)
-        if (marker !== "`" && marker !== "~") {
-            return null
-        }
-
-        let markerLength = 0
-        while (source.charAt(markerLength) === marker) {
-            markerLength += 1
-        }
-
-        if (markerLength < 3) {
-            return null
-        }
-
-        return {
-            marker: marker,
-            markerLength: markerLength,
-            remainder: source.slice(markerLength)
-        }
-    }
-
-    function normalizedLanguage(info) {
-        const firstToken = String(info).trim().split(/\s+/)[0] || ""
-        return firstToken
-            .replace(/^\{?\.?/, "")
-            .replace(/\}?$/, "")
-            .replace(/[^A-Za-z0-9_+#.-]/g, "")
-    }
-
-    function trimBoundaryLines(value) {
-        return String(value)
-            .replace(/^\n+/, "")
-            .replace(/\n+$/, "")
-    }
-
-    function thematicBreak(line) {
-        return /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(
-            String(line)
-        )
-    }
-
-    function markdownTableDelimiter(line) {
-        let source = String(line).trim()
-
-        if (source.indexOf("|") < 0) {
-            return false
-        }
-
-        let cells = source.split("|")
-
-        if (cells.length > 0 && cells[0].trim().length === 0) {
-            cells.shift()
-        }
-
-        if (
-            cells.length > 0
-            && cells[cells.length - 1].trim().length === 0
-        ) {
-            cells.pop()
-        }
-
-        if (cells.length < 2) {
-            return false
-        }
-
-        for (let index = 0; index < cells.length; index += 1) {
-            if (!/^:?-{3,}:?$/.test(cells[index].trim())) {
-                return false
-            }
-        }
-
-        return true
-    }
-
-    function markdownTableRow(line) {
-        const source = String(line).trim()
-        return source.length > 0 && source.indexOf("|") >= 0
-    }
-
+    // Block splitting runs in C++ (MessageBlockParser) so streaming flushes
+    // do not re-run a regex-heavy JavaScript parse over the whole reply.
     function parseBlocks(value) {
-        const lines = String(value).replace(/\r\n?/g, "\n").split("\n")
-        const result = []
-        let markdownLines = []
-        let codeLines = []
-        let activeMarker = ""
-        let activeMarkerLength = 0
-        let language = ""
-
-        function flushMarkdown() {
-            let sectionLines = []
-
-            function flushSection() {
-                let proseLines = []
-
-                function pushMarkdown(lines, structured) {
-                    const markdown = root.trimBoundaryLines(lines.join("\n"))
-
-                    if (markdown.length === 0) {
-                        return
-                    }
-
-                    const rowCount = markdown.split("\n").length
-
-                    result.push({
-                        kind: structured
-                            ? "structuredMarkdown"
-                            : "markdown",
-                        content: markdown,
-                        revealLength: structured
-                            ? Math.min(48, Math.max(16, rowCount * 6))
-                            : markdown.length
-                    })
-                }
-
-                function flushProse() {
-                    pushMarkdown(proseLines, false)
-                    proseLines = []
-                }
-
-                for (let index = 0; index < sectionLines.length; index += 1) {
-                    const beginsTable = index + 1 < sectionLines.length
-                        && root.markdownTableRow(sectionLines[index])
-                        && root.markdownTableDelimiter(
-                            sectionLines[index + 1]
-                        )
-
-                    if (!beginsTable) {
-                        proseLines.push(sectionLines[index])
-                        continue
-                    }
-
-                    flushProse()
-
-                    const tableLines = [
-                        sectionLines[index],
-                        sectionLines[index + 1]
-                    ]
-                    index += 2
-
-                    while (
-                        index < sectionLines.length
-                        && root.markdownTableRow(sectionLines[index])
-                    ) {
-                        tableLines.push(sectionLines[index])
-                        index += 1
-                    }
-
-                    index -= 1
-                    pushMarkdown(tableLines, true)
-                }
-
-                flushProse()
-                sectionLines = []
-            }
-
-            for (let index = 0; index < markdownLines.length; index += 1) {
-                const line = markdownLines[index]
-                const previousBlank = index === 0
-                    || markdownLines[index - 1].trim().length === 0
-                const nextBlank = index === markdownLines.length - 1
-                    || markdownLines[index + 1].trim().length === 0
-
-                if (root.thematicBreak(line) && previousBlank && nextBlank) {
-                    flushSection()
-                    result.push({ kind: "divider" })
-                } else {
-                    sectionLines.push(line)
-                }
-            }
-
-            flushSection()
-            markdownLines = []
-        }
-
-        for (let index = 0; index < lines.length; index += 1) {
-            const line = lines[index]
-            const descriptor = root.fenceDescriptor(line)
-
-            if (activeMarker.length === 0) {
-                if (descriptor) {
-                    flushMarkdown()
-                    activeMarker = descriptor.marker
-                    activeMarkerLength = descriptor.markerLength
-                    language = root.normalizedLanguage(descriptor.remainder)
-                    codeLines = []
-                } else {
-                    markdownLines.push(line)
-                }
-                continue
-            }
-
-            const closesFence = descriptor
-                && descriptor.marker === activeMarker
-                && descriptor.markerLength >= activeMarkerLength
-                && descriptor.remainder.trim().length === 0
-
-            if (closesFence) {
-                result.push({
-                    kind: "code",
-                    content: codeLines.join("\n"),
-                    language: language,
-                    complete: true
-                })
-                activeMarker = ""
-                activeMarkerLength = 0
-                language = ""
-                codeLines = []
-            } else {
-                codeLines.push(line)
-            }
-        }
-
-        if (activeMarker.length > 0) {
-            result.push({
-                kind: "code",
-                content: codeLines.join("\n"),
-                language: language,
-                complete: false
-            })
-        } else {
-            flushMarkdown()
-        }
-
-        if (result.length === 0) {
-            result.push({
-                kind: "markdown",
-                content: ""
-            })
-        }
-
-        let revealOffset = 0
-
-        for (let index = 0; index < result.length; index += 1) {
-            const block = result[index]
-            const revealLength = block.revealLength !== undefined
-                ? Math.max(1, Number(block.revealLength))
-                : block.kind === "divider"
-                    ? 1
-                    : String(block.content || "").length
-
-            block.revealStart = revealOffset
-            block.revealEnd = revealOffset + revealLength
-            revealOffset += revealLength
-        }
-
-        return result
+        return MessageBlocks.parse(String(value))
     }
 
-    function safeMarkdown(value) {
-        let safe = String(value)
+    function cachedBlocks(key, value) {
+        const stableKey = String(key || "")
 
-        safe = safe.replace(
-            /!\[([^\]]*)\]\([^\n)]*\)/g,
-            function(match, alt) {
-                return alt.length > 0
-                    ? "*Image omitted: " + alt + "*"
-                    : "*Image omitted*"
+        if (stableKey.length > 0) {
+            const cached = RichMessageCache.getBlocks(
+                stableKey,
+                value
+            )
+
+            if (cached !== null) {
+                return cached
             }
-        )
-        safe = safe.replace(
-            /!\[([^\]]*)\]\s*\[[^\]]*\]/g,
-            function(match, alt) {
-                return alt.length > 0
-                    ? "*Image omitted: " + alt + "*"
-                    : "*Image omitted*"
-            }
-        )
-        safe = safe.replace(
-            /<\s*img\b[^>]*>/gi,
-            "&lt;image omitted&gt;"
-        )
+        }
 
-        return safe
-    }
+        const parsed = parseBlocks(value)
 
-    function displayMarkdown(value) {
-        return safeMarkdown(value).replace(
-            /^(#{1,2})([ \t]+)/gm,
-            "#$1$2"
-        )
+        if (stableKey.length > 0) {
+            RichMessageCache.putBlocks(
+                stableKey,
+                value,
+                parsed
+            )
+        }
+
+        return parsed
     }
 
     function openSafeLink(link) {
@@ -465,19 +287,67 @@ Item {
         }
     }
 
-    Column {
+    // Stacks the blocks. Not a Column: a Column lays out at polish time,
+    // after the ListView has placed the row, so a recycled row would resize
+    // after placement and push the rows below it. Plain bindings keep the
+    // height exact as soon as the content changes.
+    Item {
         id: contentColumn
 
+        readonly property real spacing: root.compact ? 16 : 24
+        // Bumped when blocks are added or removed, so the stacking bindings
+        // look the neighbours up again.
+        property int revision: 0
+
+        // The y for whatever follows `item`, which sits at `y`. Hidden
+        // blocks take no space, as in a Column.
+        function below(item, y) {
+            return item.visible ? y + item.height + spacing : y
+        }
+
         width: parent.width
-        spacing: root.compact ? 16 : 30
+        implicitHeight: {
+            contentColumn.revision
+
+            for (let index = blockRepeater.count - 1; index >= 0; index -= 1) {
+                const item = blockRepeater.itemAt(index)
+
+                if (item) {
+                    return Math.max(0, contentColumn.below(item, item.y) - spacing)
+                }
+            }
+
+            return 0
+        }
 
         Repeater {
-            model: root.blocks
+            id: blockRepeater
+
+            model: blockModel
+            onItemAdded: contentColumn.revision += 1
+            onItemRemoved: contentColumn.revision += 1
 
             delegate: Item {
                 id: blockItem
 
-                required property var modelData
+                required property int index
+                required property string kind
+                required property string content
+                required property string language
+                required property string fileName
+                required property bool complete
+                required property real revealStart
+                required property real revealEnd
+
+                readonly property var modelData: ({
+                    kind: blockItem.kind,
+                    content: blockItem.content,
+                    language: blockItem.language,
+                    fileName: blockItem.fileName,
+                    complete: blockItem.complete,
+                    revealStart: blockItem.revealStart,
+                    revealEnd: blockItem.revealEnd
+                })
 
                 readonly property bool codeBlock: modelData.kind === "code"
                 readonly property bool dividerBlock: modelData.kind === "divider"
@@ -514,12 +384,18 @@ Item {
                             >= Number(modelData.revealStart || 0)
                     )
 
+                y: {
+                    contentColumn.revision
+                    const previous = index > 0 ? blockRepeater.itemAt(index - 1) : null
+
+                    return previous ? contentColumn.below(previous, previous.y) : 0
+                }
                 width: contentColumn.width
                 visible: revealed
                 implicitHeight: !visible
                     ? 0
                     : codeBlock
-                    ? codePanel.implicitHeight
+                    ? (codeLoader.item ? codeLoader.item.implicitHeight : 0)
                     : dividerBlock
                         ? 1
                         : markdownText.contentHeight
@@ -535,40 +411,33 @@ Item {
                     }
                 }
 
-                TextEdit {
+                ChatText {
                     id: markdownText
 
                     visible: !blockItem.codeBlock && !blockItem.dividerBlock
-                    width: parent.width
+                    // Tables keep the full width; prose wraps at the measure.
+                    width: /^\s*\|?\s*:?-{2,}:?\s*\|/m.test(blockItem.content)
+                        ? parent.width
+                        : root.textMeasure
                     height: visible ? contentHeight : 0
+                    // Text that is still being revealed changes every frame,
+                    // so it skips the layout cache.
+                    cacheable: !root.animateReveal
+                    layoutSuspended: root.syncing
+                    markdown: true
+                    wrap: true
                     text: visible
-                        ? root.displayMarkdown(
-                            root.safeSlice(
-                                String(blockItem.modelData.content || ""),
-                                blockItem.visibleCharacters
-                            )
+                        ? root.safeSlice(
+                            String(blockItem.modelData.content || ""),
+                            blockItem.visibleCharacters
                         )
                         : ""
                     color: root.theme.appText
-                    font.family: root.theme.chatFontFamily
-                    font.pixelSize: root.theme.typeBody
-                    font.weight: Font.Normal
-                    font.letterSpacing: 0.08
-                    font.kerning: true
-                    font.contextFontMerging: true
-                    font.hintingPreference: Font.PreferNoHinting
-                    font.preferTypoLineMetrics: true
-                    textFormat: TextEdit.MarkdownText
-                    textMargin: 0
-                    wrapMode: TextEdit.Wrap
-                    readOnly: true
-                    selectByMouse: true
-                    selectByKeyboard: true
-                    persistentSelection: true
-                    cursorVisible: false
+                    linkColor: root.theme.chatLinkColor(root.hue)
+                    font: root.theme.chatBodyFont
+                    styling: root.readingStyle
                     selectionColor: root.theme.messageSelectionBg
                     selectedTextColor: root.theme.messageSelectionText
-                    renderType: TextEdit.NativeRendering
                     onLinkActivated: function(link) {
                         root.openSafeLink(link)
                     }
@@ -637,22 +506,30 @@ Item {
                     opacity: 0.9
                 }
 
-                CodeBlock {
-                    id: codePanel
+                // Only code blocks build the (heavy) code panel.
+                Loader {
+                    id: codeLoader
 
-                    visible: blockItem.codeBlock
-                    width: parent.width
-                    theme: root.theme
-                    code: blockItem.codeBlock
-                        ? String(blockItem.modelData.content || "")
-                        : ""
-                    visibleCharacters: blockItem.codeBlock
-                        ? blockItem.visibleCharacters
-                        : 0
-                    language: blockItem.codeBlock
-                        ? String(blockItem.modelData.language || "")
-                        : ""
-                    animateReveal: root.animateReveal
+                    active: blockItem.codeBlock
+                    // Code lines up with the prose and may run a little
+                    // past it, so the text edges stay put.
+                    width: Math.min(parent.width, root.textMeasure + root.theme.chatCodeOverhang)
+                    sourceComponent: Component {
+                        CodeBlock {
+                            width: codeLoader.width
+                            theme: root.theme
+                            code: String(blockItem.modelData.content || "")
+                            visibleCharacters: blockItem.visibleCharacters
+                            language: String(blockItem.modelData.language || "")
+                            fileName: String(blockItem.modelData.fileName || "")
+                            complete: blockItem.complete
+                            foldKey: root.cacheKey + "#" + String(blockItem.revealStart)
+                            hue: root.hue
+                            animateReveal: root.animateReveal
+                            layoutSuspended: root.syncing
+                            transcriptMoving: root.transcriptMoving
+                        }
+                    }
                 }
             }
         }

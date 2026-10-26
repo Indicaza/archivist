@@ -1,10 +1,7 @@
 #pragma once
 
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
 #include <QObject>
 #include <QString>
-#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -82,7 +79,6 @@ signals:
     void workspaceScopeChanged();
 
 private:
-    [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
     void fetchAppState();
     void fetchSelectedScope();
     void setCollections(const QVariantList &collections);
@@ -100,8 +96,6 @@ private:
     void upsertArchivedCollection(const QVariantMap &collection);
     void removeArchivedCollection(const QString &collectionId);
 
-    QNetworkAccessManager m_network;
-    QUrl m_baseUrl;
     QVariantList m_collections;
     QVariantList m_archivedCollections;
     QString m_selectedCollectionId;

@@ -1,17 +1,30 @@
 #include <QCoreApplication>
+#include <QDebug>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QQuickStyle>
+#include <QVariantMap>
+#include <QtEnvironmentVariables>
 #include <QtWebEngineQuick>
 #include <qqml.h>
 
 #include "App/Domains/Agent/agent_store.h"
 #include "App/Domains/Chat/chat_store.h"
+#include "App/Domains/Chat/chat_text_item.h"
+#include "App/Domains/Chat/chat_ui.h"
+#include "App/Domains/Chat/message_block_parser.h"
 #include "App/Domains/Collection/collection_store.h"
 #include "App/Domains/Files/markdown_document_bridge.h"
 #include "App/Domains/Files/document_preview_service.h"
 #include "App/Domains/Library/library_store.h"
+#include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
+#include "Core/Domains/AI/ai_runtime.h"
+#include "Core/Domains/AI/ai_settings.h"
+#include "Core/Domains/Ide/ide_server.h"
+#include "Core/Support/login_environment.h"
+#include "Core/core_runtime.h"
 
 int main(int argc, char *argv[])
 {
@@ -26,11 +39,51 @@ int main(int argc, char *argv[])
 
     QQuickStyle::setStyle("Basic");
 
+    // Finder launches get a bare PATH; the terminal and language servers
+    // need the same tools the user has in their shell.
+    LoginEnvironment::adoptLoginShellPath();
+
+    CoreRuntime coreRuntime;
+
+    if (coreRuntime.start(CoreRuntime::defaultDatabasePath())) {
+        qInfo().noquote() << "[Core]" << coreRuntime.databasePath()
+                          << "· schema v" + QString::number(coreRuntime.schemaVersion());
+    } else {
+        qWarning().noquote() << "[Core] Native data layer unavailable:"
+                             << coreRuntime.errorMessage();
+    }
+
+    // Chat runs, the model tool loop and AI edit review run in process on
+    // their own thread, against the same database.
+    AIRuntime aiRuntime;
+
+    if (coreRuntime.ready() && !aiRuntime.start(coreRuntime.databasePath())) {
+        qWarning().noquote() << "[AI] Native AI runtime unavailable.";
+    }
+
+    // OpenAI key (Keychain), local model server address and model lists for
+    // the Agent editor.
+    AISettings aiSettings;
+
+    if (coreRuntime.ready()) {
+        aiSettings.setDatabasePath(coreRuntime.databasePath());
+    }
+
+    // The IDE panel's web bundle, terminals and language servers.
+    IdeServer ideServer;
+
+    if (coreRuntime.ready() && !ideServer.start(coreRuntime.databasePath())) {
+        qWarning().noquote() << "[IDE] Native IDE host unavailable.";
+    }
+
     AgentStore agentStore;
     CollectionStore collectionStore;
     LibraryStore libraryStore;
     MarkdownDocumentBridge markdownDocumentBridge;
     ChatStore chatStore;
+    MessageBlockParser messageBlocks;
+    ChatUi chatUi;
+    RuntimeTraceStore runtimeTraceStore;
     WorkspaceStateStore workspaceState;
 
     QObject::connect(
@@ -49,6 +102,9 @@ int main(int argc, char *argv[])
         0,
         "DocumentPreviewService"
     );
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Core", &coreRuntime);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "IdeServer", &ideServer);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AISettings", &aiSettings);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
     qmlRegisterSingletonInstance(
         "Archivist.Services",
@@ -66,6 +122,16 @@ int main(int argc, char *argv[])
         &markdownDocumentBridge
     );
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatStore", &chatStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "MessageBlocks", &messageBlocks);
+    qmlRegisterType<ChatTextItem>("Archivist.Services", 1, 0, "ChatText");
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatUi", &chatUi);
+    qmlRegisterSingletonInstance(
+        "Archivist.Services",
+        1,
+        0,
+        "RuntimeTrace",
+        &runtimeTraceStore
+    );
     qmlRegisterSingletonInstance(
         "Archivist.Services",
         1,
@@ -75,6 +141,28 @@ int main(int argc, char *argv[])
     );
 
     QQmlApplicationEngine engine;
+
+    QVariantMap diagnostics;
+    diagnostics.insert(
+        "chatViewportTrace",
+        qEnvironmentVariableIsSet("ARCHIVIST_CHAT_TRACE")
+    );
+    diagnostics.insert(
+        "chatDisableHistoryPrefetch",
+        qEnvironmentVariableIsSet("ARCHIVIST_CHAT_NO_HISTORY")
+    );
+    diagnostics.insert(
+        "chatDisableViewportSave",
+        qEnvironmentVariableIsSet("ARCHIVIST_CHAT_NO_VIEWPORT_SAVE")
+    );
+    diagnostics.insert(
+        "chatPlainMessages",
+        qEnvironmentVariableIsSet("ARCHIVIST_CHAT_PLAIN_MESSAGES")
+    );
+    engine.rootContext()->setContextProperty(
+        "ArchivistDiagnostics",
+        diagnostics
+    );
 
     QObject::connect(
         &engine,

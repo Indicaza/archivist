@@ -1,12 +1,12 @@
 #pragma once
 
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
+#include "Core/Database/core_database.h"
+
 #include <QObject>
 #include <QString>
-#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <functional>
 
 class AgentStore final : public QObject
 {
@@ -55,7 +55,9 @@ signals:
     void agentDeleted(const QString &agentId, int reassignedChatCount);
 
 private:
-    [[nodiscard]] QNetworkRequest requestFor(const QString &path) const;
+    using CoreJob = std::function<QVariant(CoreDatabase &)>;
+    using CoreDone = std::function<void(const QVariant &)>;
+    void mutate(CoreJob job, CoreDone done);
     void upsertActiveAgent(const QVariantMap &agent);
     void upsertArchivedAgent(const QVariantMap &agent);
     void removeActiveAgent(const QString &agentId);
@@ -67,8 +69,6 @@ private:
     void setMutating(bool mutating);
     void setErrorMessage(const QString &message);
 
-    QNetworkAccessManager m_network;
-    QUrl m_baseUrl;
     QVariantList m_agents;
     QVariantList m_archivedAgents;
     bool m_loading = false;

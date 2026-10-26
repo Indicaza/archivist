@@ -5,6 +5,7 @@ import Archivist.Services 1.0
 import "../../Files/FileIdentity.js" as FileIdentity
 import "AgentEditor"
 import "ChatAgentPicker"
+import "ChatComposer"
 import "ChatEditor"
 
 Rectangle {
@@ -58,7 +59,7 @@ Rectangle {
         && !ChatStore.assigningAgent
         && !ChatStore.mutating
         && !ChatStore.mutatingAttachment
-        && composer.text.trim().length > 0
+        && chatComposer.input.text.trim().length > 0
 
     signal dockModeToggleRequested()
     signal messageSubmitted(string message)
@@ -301,15 +302,16 @@ Rectangle {
     }
 
     function submitDraft() {
-        var trimmed = composer.text.trim()
+        var trimmed = chatComposer.input.text.trim()
 
         if (!root.canSubmit || trimmed.length === 0) {
             return
         }
 
         root.messageSubmitted(trimmed)
-        composer.clear()
-        composer.forceActiveFocus()
+        chatComposer.input.clear()
+        chatComposer.input.forceActiveFocus()
+        chatComposer.playSubmit()
     }
 
     function resetPanelWidth() {
@@ -405,6 +407,7 @@ Rectangle {
                 attachment.relativePath || attachment.fileName || "Library file"
             )
             root.attachmentNotice = "Attached " + path
+            chatComposer.attachmentPopId = String(attachment.id || "")
             attachmentNoticeTimer.restart()
         }
 
@@ -415,7 +418,7 @@ Rectangle {
 
         function onChatCreated(chat) {
             root.activePanel = "chats"
-            composer.forceActiveFocus()
+            chatComposer.input.forceActiveFocus()
 
             if (
                 CollectionStore.selectedCollectionId.length > 0
@@ -1146,267 +1149,18 @@ Rectangle {
             Layout.fillHeight: true
             spacing: 0
 
-            Rectangle {
+            ChatComposer {
+                id: chatComposer
+
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: composer.activeFocus ? "#1a1815" : root.theme.composerBg
-
-                Behavior on color {
-                    ColorAnimation { duration: 140 }
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: "transparent"
-                    border.width: root.agentSwitchPulse > 0.01 ? 2 : 0
-                    border.color: root.theme.accent
-                    opacity: root.agentSwitchPulse * 0.72
-                    z: 4
-                }
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 0
-
-                    TextArea {
-                        id: composer
-
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        enabled: ChatStore.selectedChatId.length > 0
-                            && !ChatStore.responding
-                            && !ChatStore.mutating
-                            && !ChatStore.mutatingAttachment
-                        placeholderText: ChatStore.responding
-                            ? ChatStore.runPhaseLabel
-                            : ChatStore.selectedChatId.length > 0
-                                ? "Message " + root.selectedChatTitle + "…"
-                                : "Select a Chat to begin…"
-                        placeholderTextColor: root.theme.composerPlaceholder
-                        color: root.theme.appText
-                        selectionColor: root.theme.messageSelectionBg
-                        selectedTextColor: root.theme.messageSelectionText
-                        font.family: root.theme.chatFontFamily
-                        font.pixelSize: root.theme.textComposerSize
-                        font.weight: root.theme.textWeightRegular
-                        font.letterSpacing: root.theme.textTrackingNormal
-                        wrapMode: TextEdit.Wrap
-                        leftPadding: 15
-                        rightPadding: 15
-                        topPadding: 14
-                        bottomPadding: 10
-
-                        Keys.onPressed: function(event) {
-                            var returnPressed = event.key === Qt.Key_Return
-                                || event.key === Qt.Key_Enter
-                            var shiftPressed = (event.modifiers & Qt.ShiftModifier) !== 0
-
-                            if (returnPressed && !shiftPressed) {
-                                root.submitDraft()
-                                event.accepted = true
-                            }
-                        }
-
-                        background: Rectangle {
-                            color: "transparent"
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.theme.controlBarHeight
-                        color: root.theme.sidebarBg
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            height: 1
-                            color: root.theme.quietBorder
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 9
-                            anchors.rightMargin: 7
-                            spacing: 5
-
-                            Repeater {
-                                model: ["☷", "☰", "</>"]
-
-                                delegate: Button {
-                                    id: composerToolButton
-
-                                    required property int index
-                                    required property string modelData
-
-                                    Layout.preferredWidth: 27
-                                    Layout.preferredHeight: 27
-                                    text: modelData
-                                    hoverEnabled: true
-                                    padding: 0
-                                    onHoveredChanged: root.updateHoverIndex(
-                                        "composer",
-                                        index,
-                                        hovered
-                                    )
-                                    scale: root.magnifierScale(
-                                        index,
-                                        root.composerHoverIndex,
-                                        down
-                                    )
-
-                                    Behavior on scale {
-                                        enabled: !composerToolButton.down
-
-                                        NumberAnimation {
-                                            duration: root.composerHoverIndex >= 0
-                                                ? root.theme.motionHover
-                                                : root.theme.motionHoverExit
-                                            easing.type: Easing.OutCubic
-                                        }
-                                    }
-
-                                    contentItem: Text {
-                                        text: parent.text
-                                        color: parent.hovered
-                                            ? root.theme.appText
-                                            : root.theme.mutedText
-                                        font.pixelSize: root.theme.typeSize(
-                                            modelData === "</>" ? 10 : 14
-                                        )
-                                        horizontalAlignment: Text.AlignHCenter
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-
-                                    background: Rectangle {
-                                        radius: 4
-                                        color: parent.hovered ? root.theme.hoverBg : "transparent"
-                                        border.width: 0
-                                    }
-                                }
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: ChatStore.errorMessage.length > 0
-                                    ? ChatStore.errorMessage
-                                    : root.agentSwitchNotice.length > 0
-                                        ? root.agentSwitchNotice
-                                    : root.attachmentNotice.length > 0
-                                        ? root.attachmentNotice
-                                        : ChatStore.mutatingAttachment
-                                            ? "Updating attached sources…"
-                                            : ChatStore.responding
-                                            ? ChatStore.runPhaseLabel
-                                            : ChatStore.selectedChatId.length === 0
-                                                ? "Select a Chat"
-                                                : ChatStore.lastSources.length > 0
-                                                    ? "Included: "
-                                                        + String(
-                                                            ChatStore.lastSources[0].libraryName
-                                                            || "Library"
-                                                        )
-                                                        + " / "
-                                                        + String(
-                                                            ChatStore.lastSources[0].relativePath
-                                                            || ChatStore.lastSources[0].fileName
-                                                            || "attached source"
-                                                        )
-                                                        + (ChatStore.lastSources.length > 1
-                                                            ? "  +" + String(ChatStore.lastSources.length - 1)
-                                                            : "")
-                                                    : "Enter to send  ·  Shift+Enter for newline"
-                                color: ChatStore.errorMessage.length > 0
-                                    ? root.theme.danger
-                                    : root.agentSwitchNotice.length > 0
-                                        ? root.theme.accentBright
-                                    : root.attachmentNotice.length > 0
-                                        ? root.theme.success
-                                        : root.theme.mutedText
-                                font.pixelSize: root.theme.typeSize(9)
-                                opacity: 0.78
-                                elide: Text.ElideRight
-                            }
-
-                            Button {
-                                id: sendButton
-
-                                Layout.preferredWidth: 74
-                                Layout.preferredHeight: 30
-                                text: ChatStore.responding
-                                    ? ChatStore.activeRunId.length === 0
-                                        ? "Starting…"
-                                        : ChatStore.cancellingRun
-                                            ? "Stopping…"
-                                            : "■  Stop"
-                                    : "➤  Send"
-                                enabled: ChatStore.responding
-                                    ? ChatStore.activeRunId.length > 0
-                                        && !ChatStore.cancellingRun
-                                    : root.canSubmit
-                                hoverEnabled: true
-                                padding: 0
-                                onClicked: {
-                                    if (ChatStore.responding) {
-                                        ChatStore.cancelActiveRun()
-                                        return
-                                    }
-
-                                    root.submitDraft()
-                                }
-                                onHoveredChanged: root.updateHoverIndex(
-                                    "composer",
-                                    3,
-                                    hovered
-                                )
-                                scale: root.magnifierScale(
-                                    3,
-                                    root.composerHoverIndex,
-                                    down
-                                )
-
-                                Behavior on scale {
-                                    enabled: !sendButton.down
-
-                                    NumberAnimation {
-                                        duration: root.composerHoverIndex >= 0
-                                            ? root.theme.motionHover
-                                            : root.theme.motionHoverExit
-                                        easing.type: Easing.OutCubic
-                                    }
-                                }
-
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.enabled
-                                        ? ChatStore.responding
-                                            ? root.theme.danger
-                                            : root.theme.appText
-                                        : root.theme.mutedText
-                                    font.pixelSize: root.theme.typeSize(10)
-                                    font.weight: Font.Bold
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Rectangle {
-                                    radius: 4
-                                    color: parent.enabled
-                                        ? ChatStore.responding
-                                            ? parent.hovered
-                                                ? "#3a2424"
-                                                : "#2d2020"
-                                            : parent.hovered
-                                                ? "#302d28"
-                                                : "#28251f"
-                                        : "#1f1d19"
-                                    border.width: 0
-                                }
-                            }
-                        }
-                    }
-                }
+                theme: root.theme
+                store: ChatStore
+                dock: root
+                onSubmitRequested: root.submitDraft()
+                onAgentChipClicked: root.activePanel = root.activePanel === "agents"
+                    ? "none"
+                    : "agents"
             }
 
             Item {

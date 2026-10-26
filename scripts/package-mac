@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Builds a Release Archivist.app, signs it with a Developer ID, notarizes it
+# and staples the ticket so it opens on other Macs without Gatekeeper warnings.
+#
+# One-time setup on this Mac:
+#   1. Install a "Developer ID Application" certificate in the login keychain.
+#   2. xcrun notarytool store-credentials archivist-notary \
+#        --apple-id you@example.com --team-id TEAMID --password <app-specific password>
+#
+# Usage:
+#   ARCHIVIST_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" scripts/package-mac
+#   ARCHIVIST_NOTARY_PROFILE defaults to archivist-notary. Set ARCHIVIST_SKIP_NOTARIZE=1
+#   to stop after signing.
+#
+# The app is self-contained: data lives in ~/Library/Application Support/
+# Archivist, and the IDE panel's web files ship in Contents/Resources/ide.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_DIR="$ROOT/frontend"
+BUILD_DIR="$ROOT/build/frontend-release"
+DIST_DIR="$ROOT/build/dist"
+ENTITLEMENTS="$ROOT/packaging/macos/Archivist.entitlements"
+IDENTITY="${ARCHIVIST_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${ARCHIVIST_NOTARY_PROFILE:-archivist-notary}"
+
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "package-mac only runs on macOS." >&2
+  exit 1
+fi
+
+if [[ -z "$IDENTITY" ]]; then
+  echo "Set ARCHIVIST_SIGN_IDENTITY to your Developer ID Application identity." >&2
+  echo "Available identities:" >&2
+  security find-identity -v -p codesigning >&2 || true
+  exit 1
+fi
+
+if command -v brew >/dev/null 2>&1; then
+  QT_PREFIX="$(brew --prefix)"
+else
+  QT_PREFIX=""
+fi
+
+MACDEPLOYQT="$(command -v macdeployqt || true)"
+if [[ -z "$MACDEPLOYQT" && -n "$QT_PREFIX" && -x "$QT_PREFIX/bin/macdeployqt" ]]; then
+  MACDEPLOYQT="$QT_PREFIX/bin/macdeployqt"
+fi
+if [[ -z "$MACDEPLOYQT" ]]; then
+  echo "macdeployqt not found. Install Qt (brew install qt) or add it to PATH." >&2
+  exit 1
+fi
+
+echo "==> Building the IDE panel"
+(cd "$ROOT" && npm run build:ide)
+
+IDE_DIST="$SOURCE_DIR/dist/ide"
+if [[ ! -f "$IDE_DIST/index.html" ]]; then
+  echo "IDE build missing: $IDE_DIST/index.html" >&2
+  exit 1
+fi
+
+echo "==> Building Release"
+# Repository paths off: the shipped app must not read this checkout's
+# database, IDE build or node_modules.
+cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DARCHIVIST_USE_REPOSITORY_PATHS=OFF \
+  ${QT_PREFIX:+-DCMAKE_PREFIX_PATH="$QT_PREFIX"}
+cmake --build "$BUILD_DIR" --target archivist-qt
+
+APP_SOURCE="$(find "$BUILD_DIR" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+if [[ -z "$APP_SOURCE" ]]; then
+  echo "No .app bundle found in $BUILD_DIR." >&2
+  exit 1
+fi
+
+mkdir -p "$DIST_DIR"
+APP="$DIST_DIR/Archivist.app"
+rm -rf "$APP"
+cp -R "$APP_SOURCE" "$APP"
+mkdir -p "$APP/Contents/Resources"
+cp -R "$IDE_DIST" "$APP/Contents/Resources/ide"
+
+echo "==> Bundling Qt and signing with hardened runtime"
+"$MACDEPLOYQT" "$APP" -qmldir="$SOURCE_DIR/qml" -timestamp -hardened-runtime \
+  -sign-for-notarization="$IDENTITY"
+
+# WebEngine's helper and the app itself need the JIT entitlements; re-sign
+# them last so their signatures carry the entitlements.
+while IFS= read -r helper; do
+  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
+    --sign "$IDENTITY" "$helper"
+done < <(find "$APP/Contents/Frameworks" -name 'QtWebEngineProcess.app' -type d)
+
+codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
+  --sign "$IDENTITY" "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
+
+if [[ "${ARCHIVIST_SKIP_NOTARIZE:-0}" == "1" ]]; then
+  echo "Signed: $APP (notarization skipped)"
+  exit 0
+fi
+
+echo "==> Notarizing"
+ZIP="$DIST_DIR/Archivist.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun stapler staple "$APP"
+spctl --assess --type execute --verbose "$APP"
+
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+echo "Done: $APP and $ZIP"

@@ -25,6 +25,9 @@ Item {
 
     property bool dropHighlighted: false
     readonly property bool hovered: rowHover.hovered
+    readonly property bool rowHighlighted: root.folder
+        ? root.selected
+        : root.active
     readonly property bool dragging: fileDrag.active
     readonly property string sourceDirectory: directoryForPath(relativePath)
     readonly property string visualGitStatus:
@@ -244,17 +247,13 @@ Item {
         radius: 3
         color: root.dropHighlighted
             ? root.theme.activeBg
-            : root.selected
+            : root.rowHighlighted
                 ? root.theme.activeBg
                 : root.hovered
                     ? root.theme.hoverBg
                     : "transparent"
         border.width: root.dropHighlighted ? 1 : 0
         border.color: root.theme.accentBright
-
-        Behavior on color {
-            ColorAnimation { duration: root.theme.motionFast }
-        }
     }
 
     Rectangle {

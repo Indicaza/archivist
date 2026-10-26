@@ -1,13 +1,20 @@
 #include "chat_store.h"
+#include "chat_message_model.h"
+
+#include "Core/Domains/AI/ai_runtime.h"
+#include "Core/Domains/AppState/app_state_repository.h"
+#include "Core/Domains/Chats/chat_repository.h"
+#include "Core/core_runtime.h"
 
 #include <algorithm>
+#include <optional>
+#include <utility>
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#include <QNetworkReply>
 #include <QSet>
 #include <QTimer>
 #include <QUuid>
@@ -17,13 +24,6 @@ namespace
 constexpr int initialMessagePageSize = 160;
 constexpr int olderMessagePageSize = 120;
 
-struct JsonReplyResult
-{
-    bool ok = false;
-    QJsonObject object;
-    QString errorMessage;
-};
-
 struct MessagePage
 {
     QVariantList messages;
@@ -31,50 +31,14 @@ struct MessagePage
     QString nextBeforeMessageId;
 };
 
-QString responseErrorMessage(const QJsonObject &object, const QString &fallback)
+QString aiUnavailableMessage()
 {
-    const QJsonObject error = object.value(QStringLiteral("error")).toObject();
-    const QString message = error.value(QStringLiteral("message")).toString();
-    return message.isEmpty() ? fallback : message;
+    return QStringLiteral("Archivist's AI runtime is not running. Restart the app.");
 }
 
-JsonReplyResult consumeJsonReply(QNetworkReply *reply)
+QJsonObject jsonObject(const QVariant &value)
 {
-    const QByteArray payload = reply->readAll();
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
-    const QJsonObject object = document.isObject() ? document.object() : QJsonObject{};
-
-    if (reply->error() != QNetworkReply::NoError) {
-        return {
-            false,
-            object,
-            responseErrorMessage(object, reply->errorString()),
-        };
-    }
-
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        return {
-            false,
-            {},
-            QStringLiteral("Archivist API returned an invalid JSON response."),
-        };
-    }
-
-    if (!object.value(QStringLiteral("ok")).toBool(false)) {
-        return {
-            false,
-            object,
-            responseErrorMessage(object, QStringLiteral("Archivist API request failed.")),
-        };
-    }
-
-    return {true, object, {}};
-}
-
-QString encodedPathSegment(const QString &value)
-{
-    return QString::fromUtf8(QUrl::toPercentEncoding(value));
+    return QJsonObject::fromVariantMap(value.toMap());
 }
 
 QString displayTimestamp(const QString &isoTimestamp)
@@ -92,37 +56,39 @@ QString displayTimestamp(const QString &isoTimestamp)
     return timestamp.toLocalTime().toString(QStringLiteral("h:mm AP"));
 }
 
-QVariantMap mapMessage(const QJsonObject &object)
+QString coreUnavailableMessage()
 {
-    QVariantMap message = object.toVariantMap();
+    return QStringLiteral("Archivist's data layer is not running. Restart the app.");
+}
+
+QVariantMap mapMessage(QVariantMap message)
+{
     message.insert(
         QStringLiteral("displayTimestamp"),
-        displayTimestamp(object.value(QStringLiteral("createdAt")).toString())
+        displayTimestamp(message.value(QStringLiteral("createdAt")).toString())
     );
     return message;
 }
 
-QVariantList mapMessages(const QJsonArray &array)
+QVariantList mapMessages(const QVariantList &values)
 {
     QVariantList messages;
-    messages.reserve(array.size());
+    messages.reserve(values.size());
 
-    for (const QJsonValue &value : array) {
-        if (value.isObject()) {
-            messages.append(mapMessage(value.toObject()));
-        }
+    for (const QVariant &value : values) {
+        messages.append(mapMessage(value.toMap()));
     }
 
     return messages;
 }
 
-MessagePage mapMessagePage(const QJsonObject &object)
+MessagePage mapMessagePage(const QVariantMap &page)
 {
-    const QJsonObject pagination = object.value(QStringLiteral("pagination")).toObject();
+    const QVariantMap pagination = page.value(QStringLiteral("pagination")).toMap();
 
     return {
-        mapMessages(object.value(QStringLiteral("messages")).toArray()),
-        pagination.value(QStringLiteral("hasMore")).toBool(false),
+        mapMessages(page.value(QStringLiteral("messages")).toList()),
+        pagination.value(QStringLiteral("hasMore")).toBool(),
         pagination.value(QStringLiteral("nextBeforeMessageId")).toString(),
     };
 }
@@ -207,7 +173,7 @@ QVariantList withoutAttachment(
 
 ChatStore::ChatStore(QObject *parent)
     : QObject(parent)
-    , m_baseUrl(QStringLiteral("http://127.0.0.1:3333/api"))
+    , m_messageModel(new ChatMessageModel(this))
 {
     m_runDeltaFlushTimer.setInterval(120);
     m_runDeltaFlushTimer.setSingleShot(true);
@@ -250,6 +216,11 @@ QVariantMap ChatStore::selectedChat() const
 QVariantList ChatStore::messages() const
 {
     return m_messages;
+}
+
+QAbstractItemModel *ChatStore::messageModel() const
+{
+    return m_messageModel;
 }
 
 
@@ -461,13 +432,6 @@ QString ChatStore::lastModel() const
     return m_lastModel;
 }
 
-QNetworkRequest ChatStore::requestFor(const QString &path) const
-{
-    QNetworkRequest request{QUrl(m_baseUrl.toString() + path)};
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    return request;
-}
-
 void ChatStore::resumeActiveRunForSelectedChat()
 {
     if (m_selectedChatId.isEmpty() || m_responding) {
@@ -476,15 +440,15 @@ void ChatStore::resumeActiveRunForSelectedChat()
 
     refreshEditProposalsForSelectedChat();
 
+    AIRuntime *runtime = AIRuntime::active();
+
+    if (!runtime) {
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
-    const QString path = QStringLiteral("/chats/%1/runs")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
+    runtime->runsForChat(requestedChatId, this, [this, requestedChatId](const CoreResult &result) {
         if (
             !result.ok
             || requestedChatId != m_selectedChatId
@@ -493,11 +457,11 @@ void ChatStore::resumeActiveRunForSelectedChat()
             return;
         }
 
-        const QJsonArray runs = result.object.value(QStringLiteral("runs")).toArray();
+        const QVariantList runs = result.value.toList();
         m_runAssistantMessageIds.clear();
 
-        for (const QJsonValue &value : runs) {
-            const QJsonObject run = value.toObject();
+        for (const QVariant &value : runs) {
+            const QVariantMap run = value.toMap();
             const QString runId = run.value(QStringLiteral("id")).toString();
             const QString assistantMessageId = run
                 .value(QStringLiteral("assistantMessageId"))
@@ -510,8 +474,8 @@ void ChatStore::resumeActiveRunForSelectedChat()
 
         setMessages(m_messages);
 
-        for (const QJsonValue &value : runs) {
-            const QJsonObject run = value.toObject();
+        for (const QVariant &value : runs) {
+            const QJsonObject run = jsonObject(value);
 
             if (run.value(QStringLiteral("status")).toString() != QStringLiteral("running")) {
                 continue;
@@ -536,15 +500,15 @@ void ChatStore::refreshEditProposalsForSelectedChat()
         return;
     }
 
+    AIRuntime *runtime = AIRuntime::active();
+
+    if (!runtime) {
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
-    const QString path = QStringLiteral("/cognition/edits/chats/%1/proposals")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
+    runtime->editProposalsForChat(requestedChatId, this, [this, requestedChatId](const CoreResult &result) {
         if (requestedChatId != m_selectedChatId) {
             return;
         }
@@ -555,16 +519,9 @@ void ChatStore::refreshEditProposalsForSelectedChat()
         }
 
         m_editProposalsByRunId.clear();
-        const QJsonArray proposals = result.object
-            .value(QStringLiteral("proposals"))
-            .toArray();
 
-        for (const QJsonValue &value : proposals) {
-            if (!value.isObject()) {
-                continue;
-            }
-
-            const QJsonObject proposal = value.toObject();
+        for (const QVariant &value : result.value.toList()) {
+            const QJsonObject proposal = jsonObject(value);
             storeEditProposal(proposal);
 
             if (
@@ -587,7 +544,9 @@ void ChatStore::requestEditProposal(
     const QString &runId
 )
 {
-    if (proposalId.isEmpty()) {
+    AIRuntime *runtime = AIRuntime::active();
+
+    if (proposalId.isEmpty() || !runtime) {
         return;
     }
 
@@ -603,14 +562,8 @@ void ChatStore::requestEditProposal(
     }
 
     const QString requestedChatId = m_selectedChatId;
-    const QString path = QStringLiteral("/cognition/edits/proposals/%1")
-        .arg(encodedPathSegment(proposalId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
+    runtime->editProposal(proposalId, this, [this, requestedChatId](const CoreResult &result) {
         if (requestedChatId != m_selectedChatId) {
             return;
         }
@@ -620,9 +573,7 @@ void ChatStore::requestEditProposal(
             return;
         }
 
-        storeEditProposal(
-            result.object.value(QStringLiteral("proposal")).toObject()
-        );
+        storeEditProposal(jsonObject(result.value));
     });
 }
 
@@ -641,7 +592,14 @@ void ChatStore::submitEditProposalAction(
         return;
     }
 
-    QJsonObject body;
+    AIRuntime *runtime = AIRuntime::active();
+
+    if (!runtime) {
+        setErrorMessage(aiUnavailableMessage());
+        return;
+    }
+
+    std::optional<QStringList> selectedOperationIds;
 
     if (includeOperationIds) {
         if (operationIds.isEmpty()) {
@@ -651,27 +609,20 @@ void ChatStore::submitEditProposalAction(
             return;
         }
 
-        body.insert(
-            QStringLiteral("operationIds"),
-            QJsonArray::fromVariantList(operationIds)
-        );
+        QStringList ids;
+
+        for (const QVariant &value : operationIds) {
+            ids.append(value.toString());
+        }
+
+        selectedOperationIds = ids;
     }
 
     const QString requestedChatId = m_selectedChatId;
     setErrorMessage({});
     setMutatingEditProposal(true, proposalId);
 
-    const QString path = QStringLiteral("/cognition/edits/proposals/%1/%2")
-        .arg(encodedPathSegment(proposalId))
-        .arg(action);
-    QNetworkReply *reply = m_network.post(
-        requestFor(path),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+    auto done = [this, requestedChatId](const CoreResult &result) {
         setMutatingEditProposal(false);
 
         if (requestedChatId != m_selectedChatId) {
@@ -683,13 +634,13 @@ void ChatStore::submitEditProposalAction(
             return;
         }
 
-        const QJsonObject proposal = result.object
-            .value(QStringLiteral("proposal"))
-            .toObject();
+        const QJsonObject proposal = jsonObject(
+            result.value.toMap().value(QStringLiteral("proposal"))
+        );
 
         if (proposal.isEmpty()) {
             setErrorMessage(
-                QStringLiteral("Archivist API returned an invalid edit proposal.")
+                QStringLiteral("Archivist returned an invalid edit proposal.")
             );
             return;
         }
@@ -710,7 +661,15 @@ void ChatStore::submitEditProposalAction(
         ) {
             emit editTransactionSynchronized(libraryId);
         }
-    });
+    };
+
+    if (action == QStringLiteral("approve")) {
+        runtime->approveEditProposal(proposalId, selectedOperationIds, this, done);
+    } else if (action == QStringLiteral("reject")) {
+        runtime->rejectEditProposal(proposalId, this, done);
+    } else {
+        runtime->undoEditProposal(proposalId, this, done);
+    }
 }
 
 void ChatStore::storeEditProposal(const QJsonObject &proposal)
@@ -820,27 +779,20 @@ QVariantList ChatStore::messagesWithEditProposals(
 
 void ChatStore::subscribeToRunEvents(const QString &runId, int afterSequence)
 {
-    if (runId.isEmpty() || runId != m_activeRunId) {
+    AIRuntime *runtime = AIRuntime::active();
+
+    if (runId.isEmpty() || runId != m_activeRunId || !runtime) {
         return;
     }
 
-    if (m_runEventReply) {
-        m_runEventReply->disconnect(this);
-        m_runEventReply->abort();
-        m_runEventReply->deleteLater();
-        m_runEventReply = nullptr;
+    if (!m_runEventConnection) {
+        m_runEventConnection = connect(runtime, &AIRuntime::runEvent, this, &ChatStore::receiveRunEvent);
     }
 
-    m_runEventBuffer.clear();
-
-    const QString path = QStringLiteral("/runs/%1/events?after=%2")
-        .arg(encodedPathSegment(runId))
-        .arg(std::max(0, afterSequence));
-    QNetworkRequest request = requestFor(path);
-    request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("text/event-stream"));
-
-    QNetworkReply *reply = m_network.get(request);
-    m_runEventReply = reply;
+    // Live events can overtake the stored ones, so hold them until the
+    // replay of everything after `afterSequence` has been applied.
+    m_runReplayPending = true;
+    m_heldRunEvents.clear();
     ++m_runDiagnosticSubscriptions;
 
     qInfo().noquote()
@@ -849,100 +801,53 @@ void ChatStore::subscribeToRunEvents(const QString &runId, int afterSequence)
         << "afterSequence=" + QString::number(std::max(0, afterSequence))
         << "subscription=" + QString::number(m_runDiagnosticSubscriptions);
 
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply, runId]() {
-        if (reply != m_runEventReply || runId != m_activeRunId) {
-            reply->readAll();
+    runtime->runWithEvents(runId, std::max(0, afterSequence), this, [this, runId](const CoreResult &result) {
+        if (runId != m_activeRunId) {
             return;
         }
 
-        processRunEventStream();
-    });
+        m_runReplayPending = false;
+        const QList<QJsonObject> held = std::exchange(m_heldRunEvents, {});
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, runId]() {
-        const bool currentReply = reply == m_runEventReply;
-
-        if (currentReply) {
-            processRunEventStream();
-            m_runEventReply = nullptr;
-        }
-
-        reply->deleteLater();
-
-        if (
-            !currentReply
-            || runId != m_activeRunId
-            || m_runSnapshotPending
-        ) {
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            clearActiveRun();
             return;
         }
 
-        requestRunSnapshot(runId, true);
+        const QVariantMap snapshot = result.value.toMap();
+
+        for (const QVariant &event : snapshot.value(QStringLiteral("events")).toList()) {
+            handleRunEvent(jsonObject(event));
+        }
+
+        for (const QJsonObject &event : held) {
+            handleRunEvent(event);
+        }
+
+        // The run may have ended before this Chat attached to it.
+        if (runId == m_activeRunId && m_responding) {
+            const QJsonObject run = jsonObject(snapshot.value(QStringLiteral("run")));
+
+            if (run.value(QStringLiteral("status")).toString() != QStringLiteral("running")) {
+                applyRunSnapshot(run);
+            }
+        }
     });
 }
 
-void ChatStore::processRunEventStream()
+void ChatStore::receiveRunEvent(const QVariantMap &event)
 {
-    if (!m_runEventReply) {
+    if (event.value(QStringLiteral("runId")).toString() != m_activeRunId || m_activeRunId.isEmpty()) {
         return;
     }
 
-    m_runEventBuffer.append(m_runEventReply->readAll());
-    m_runEventBuffer.replace(QByteArrayLiteral("\r\n"), QByteArrayLiteral("\n"));
-
-    int boundary = m_runEventBuffer.indexOf(QByteArrayLiteral("\n\n"));
-
-    while (boundary >= 0) {
-        const QByteArray eventBlock = m_runEventBuffer.left(boundary);
-        m_runEventBuffer.remove(0, boundary + 2);
-
-        if (!eventBlock.trimmed().isEmpty()) {
-            processRunEventBlock(eventBlock);
-        }
-
-        boundary = m_runEventBuffer.indexOf(QByteArrayLiteral("\n\n"));
-    }
-}
-
-void ChatStore::processRunEventBlock(const QByteArray &eventBlock)
-{
-    QByteArray data;
-    QString declaredEventType;
-
-    for (const QByteArray &line : eventBlock.split('\n')) {
-        if (line.startsWith(QByteArrayLiteral("event:"))) {
-            declaredEventType = QString::fromUtf8(line.mid(6).trimmed());
-            continue;
-        }
-
-        if (!line.startsWith(QByteArrayLiteral("data:"))) {
-            continue;
-        }
-
-        if (!data.isEmpty()) {
-            data.append('\n');
-        }
-
-        data.append(line.mid(5).trimmed());
-    }
-
-    if (data.isEmpty()) {
+    if (m_runReplayPending) {
+        m_heldRunEvents.append(QJsonObject::fromVariantMap(event));
         return;
     }
 
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
-
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        return;
-    }
-
-    QJsonObject event = document.object();
-
-    if (event.value(QStringLiteral("eventType")).toString().isEmpty()) {
-        event.insert(QStringLiteral("eventType"), declaredEventType);
-    }
-
-    handleRunEvent(event);
+    handleRunEvent(QJsonObject::fromVariantMap(event));
 }
 
 void ChatStore::handleRunEvent(const QJsonObject &event)
@@ -1057,6 +962,8 @@ void ChatStore::requestRunSnapshot(
     bool reconnectIfRunning
 )
 {
+    AIRuntime *runtime = AIRuntime::active();
+
     if (
         runId.isEmpty()
         || runId != m_activeRunId
@@ -1065,81 +972,40 @@ void ChatStore::requestRunSnapshot(
         return;
     }
 
+    if (!runtime) {
+        setErrorMessage(aiUnavailableMessage());
+        clearActiveRun();
+        return;
+    }
+
     m_runSnapshotPending = true;
 
-    const QString path = QStringLiteral("/runs/%1")
-        .arg(encodedPathSegment(runId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
-
-    connect(
-        reply,
-        &QNetworkReply::finished,
-        this,
-        [this, reply, runId, reconnectIfRunning]() {
-            const JsonReplyResult result = consumeJsonReply(reply);
-            reply->deleteLater();
-
-            if (runId != m_activeRunId) {
-                return;
-            }
-
-            m_runSnapshotPending = false;
-
-            if (!result.ok) {
-                if (reconnectIfRunning && m_runReconnectAttempts < 3) {
-                    ++m_runReconnectAttempts;
-                    const int delay = 300 * m_runReconnectAttempts;
-
-                    QTimer::singleShot(delay, this, [this, runId]() {
-                        if (runId == m_activeRunId && m_responding) {
-                            subscribeToRunEvents(runId, m_lastRunEventSequence);
-                        }
-                    });
-                    return;
-                }
-
-                setErrorMessage(
-                    QStringLiteral(
-                        "Lost the live AI Run connection. Refresh this Chat to reconnect."
-                    )
-                );
-                clearActiveRun();
-                return;
-            }
-
-            const QJsonObject run = result.object
-                .value(QStringLiteral("run"))
-                .toObject();
-            const QString status = run.value(QStringLiteral("status")).toString();
-
-            applyRunSnapshot(run);
-
-            if (
-                status == QStringLiteral("running")
-                && reconnectIfRunning
-                && runId == m_activeRunId
-            ) {
-                if (m_runReconnectAttempts >= 3) {
-                    setErrorMessage(
-                        QStringLiteral(
-                            "Lost the live AI Run connection. Refresh this Chat to reconnect."
-                        )
-                    );
-                    clearActiveRun();
-                    return;
-                }
-
-                ++m_runReconnectAttempts;
-                const int delay = 300 * m_runReconnectAttempts;
-
-                QTimer::singleShot(delay, this, [this, runId]() {
-                    if (runId == m_activeRunId && m_responding) {
-                        subscribeToRunEvents(runId, m_lastRunEventSequence);
-                    }
-                });
-            }
+    runtime->runWithEvents(runId, m_lastRunEventSequence, this, [this, runId, reconnectIfRunning](const CoreResult &result) {
+        if (runId != m_activeRunId) {
+            return;
         }
-    );
+
+        m_runSnapshotPending = false;
+
+        if (!result.ok) {
+            setErrorMessage(result.errorMessage);
+            clearActiveRun();
+            return;
+        }
+
+        const QVariantMap snapshot = result.value.toMap();
+        const QJsonObject run = jsonObject(snapshot.value(QStringLiteral("run")));
+
+        if (run.value(QStringLiteral("status")).toString() == QStringLiteral("running")) {
+            if (reconnectIfRunning) {
+                subscribeToRunEvents(runId, m_lastRunEventSequence);
+            }
+
+            return;
+        }
+
+        applyRunSnapshot(run);
+    });
 }
 
 void ChatStore::applyRunSnapshot(const QJsonObject &run)
@@ -1292,7 +1158,8 @@ void ChatStore::setActiveRun(const QJsonObject &run)
         m_runDiagnosticDeltaCount = 0;
         m_runDiagnosticDeltaCharacters = 0;
         m_runDiagnosticSubscriptions = 0;
-        m_runEventBuffer.clear();
+        m_runReplayPending = false;
+        m_heldRunEvents.clear();
         m_activeRunClock.restart();
         emit activeRunContentChanged();
 
@@ -1558,13 +1425,6 @@ void ChatStore::setCancellingRun(bool cancelling)
 
 void ChatStore::clearActiveRun()
 {
-    if (m_runEventReply) {
-        m_runEventReply->disconnect(this);
-        m_runEventReply->abort();
-        m_runEventReply->deleteLater();
-        m_runEventReply = nullptr;
-    }
-
     const bool hadRun = !m_activeRunId.isEmpty()
         || !m_runPhase.isEmpty()
         || !m_runActivity.isEmpty()
@@ -1588,7 +1448,8 @@ void ChatStore::clearActiveRun()
     m_runPhase.clear();
     m_runActivity.clear();
     m_pendingRunDelta.clear();
-    m_runEventBuffer.clear();
+    m_runReplayPending = false;
+    m_heldRunEvents.clear();
     m_lastRunEventSequence = 0;
     m_runReconnectAttempts = 0;
     m_runDiagnosticEventCount = 0;
@@ -1676,24 +1537,30 @@ void ChatStore::refresh()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     setErrorMessage({});
     setLoadingChats(true);
 
-    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/chats")));
+    core->read(
+        [](CoreDatabase &database) { return QVariant(ChatRepository::activeChats(database)); },
+        this,
+        [this](const CoreResult &result) {
+            if (!result.ok) {
+                setLoadingChats(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
-        if (!result.ok) {
-            setLoadingChats(false);
-            setErrorMessage(result.errorMessage);
-            return;
+            setChats(result.value.toList());
+            fetchAppState();
         }
-
-        setChats(result.object.value(QStringLiteral("chats")).toArray().toVariantList());
-        fetchAppState();
-    });
+    );
 }
 
 void ChatStore::refreshArchived()
@@ -1702,23 +1569,30 @@ void ChatStore::refreshArchived()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     clearError();
     setLoadingArchivedChats(true);
 
-    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/chats/archived")));
+    core->read(
+        [](CoreDatabase &database) { return QVariant(ChatRepository::archivedChats(database)); },
+        this,
+        [this](const CoreResult &result) {
+            setLoadingArchivedChats(false);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setLoadingArchivedChats(false);
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            setArchivedChats(result.value.toList());
         }
-
-        setArchivedChats(result.object.value(QStringLiteral("chats")).toArray().toVariantList());
-    });
+    );
 }
 
 void ChatStore::createChat(
@@ -1736,80 +1610,85 @@ void ChatStore::createChat(
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     clearError();
     setMutating(true);
 
-    QJsonObject body;
-    body.insert(QStringLiteral("libraryId"), libraryId);
+    QVariantMap input{{QStringLiteral("libraryId"), libraryId}};
+
     if (!agentId.isEmpty()) {
-        body.insert(QStringLiteral("agentId"), agentId);
+        input.insert(QStringLiteral("agentId"), agentId);
     }
 
-    QNetworkReply *reply = m_network.post(
-        requestFor(QStringLiteral("/chats")),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    core->write(
+        [input](CoreDatabase &database) { return QVariant(ChatRepository::createChat(database, input)); },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QVariantMap chat = result.value.toMap();
+            const QString chatId = chat.value(QStringLiteral("id")).toString();
+
+            upsertActiveChat(chat);
+            setMessages({});
+            resetMessagePageState();
+            setSelectedChatId(chatId);
+            emit chatCreated(chat);
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QVariantMap chat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-        const QString chatId = chat.value(QStringLiteral("id")).toString();
-
-        if (chatId.isEmpty()) {
-            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat."));
-            return;
-        }
-
-        upsertActiveChat(chat);
-        setMessages({});
-        resetMessagePageState();
-        setSelectedChatId(chatId);
-        emit chatCreated(chat);
-    });
 }
 
 void ChatStore::fetchAppState()
 {
-    QNetworkReply *reply = m_network.get(requestFor(QStringLiteral("/app-state")));
+    CoreRuntime *core = CoreRuntime::active();
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
-        if (!result.ok) {
-            setLoadingChats(false);
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QJsonObject appState = result.object.value(QStringLiteral("appState")).toObject();
-        QString nextChatId = appState.value(QStringLiteral("selectedChatId")).toString();
-
-        if (!containsChat(nextChatId)) {
-            nextChatId.clear();
-        }
-
+    if (!core) {
         setLoadingChats(false);
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
 
-        if (nextChatId.isEmpty() && !m_chats.isEmpty()) {
-            selectChat(m_chats.first().toMap().value(QStringLiteral("id")).toString());
-            return;
+    core->read(
+        [](CoreDatabase &database) {
+            return QVariant(AppStateRepository::appState(database));
+        },
+        this,
+        [this](const CoreResult &result) {
+            if (!result.ok) {
+                setLoadingChats(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            QString nextChatId = result.value.toMap()
+                .value(QStringLiteral("selectedChatId")).toString();
+
+            if (!containsChat(nextChatId)) {
+                nextChatId.clear();
+            }
+
+            setLoadingChats(false);
+
+            if (nextChatId.isEmpty() && !m_chats.isEmpty()) {
+                selectChat(m_chats.first().toMap().value(QStringLiteral("id")).toString());
+                return;
+            }
+
+            setSelectedChatId(nextChatId);
+            refreshSelectedMessages();
         }
-
-        setSelectedChatId(nextChatId);
-        refreshSelectedMessages();
-    });
+    );
 }
 
 void ChatStore::selectChat(const QString &chatId)
@@ -1832,35 +1711,34 @@ void ChatStore::selectChat(const QString &chatId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     setErrorMessage({});
     setMessages({});
     setAttachments({});
     resetMessagePageState();
     setLoadingMessages(true);
 
-    QJsonObject body;
-    body.insert(QStringLiteral("chatId"), chatId);
+    core->write(
+        [chatId](CoreDatabase &database) { return ChatRepository::selectChat(database, chatId); },
+        this,
+        [this](const CoreResult &result) {
+            if (!result.ok) {
+                setLoadingMessages(false);
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(QStringLiteral("/chats/selected")),
-        QByteArrayLiteral("PATCH"),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-
-        if (!result.ok) {
+            setSelectedChatId(result.value.toString());
             setLoadingMessages(false);
-            setErrorMessage(result.errorMessage);
-            return;
+            refreshSelectedMessages();
         }
-
-        setSelectedChatId(result.object.value(QStringLiteral("selectedChatId")).toString());
-        setLoadingMessages(false);
-        refreshSelectedMessages();
-    });
+    );
 }
 
 void ChatStore::refreshSelectedMessages()
@@ -1872,37 +1750,42 @@ void ChatStore::refreshSelectedMessages()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
 
     setErrorMessage({});
     resetMessagePageState();
     setLoadingMessages(true);
 
-    const QString path = QStringLiteral("/chats/%1/messages?limit=%2")
-        .arg(encodedPathSegment(requestedChatId))
-        .arg(initialMessagePageSize);
-    QNetworkReply *reply = m_network.get(requestFor(path));
+    core->read(
+        [requestedChatId](CoreDatabase &database) {
+            return QVariant(ChatRepository::messagePage(database, requestedChatId, initialMessagePageSize));
+        },
+        this,
+        [this, requestedChatId](const CoreResult &result) {
+            if (requestedChatId != m_selectedChatId) {
+                return;
+            }
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+            setLoadingMessages(false);
 
-        if (requestedChatId != m_selectedChatId) {
-            return;
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const MessagePage page = mapMessagePage(result.value.toMap());
+            setMessages(page.messages);
+            setMessagePageState(page.hasMore, page.nextBeforeMessageId);
+            resumeActiveRunForSelectedChat();
         }
-
-        setLoadingMessages(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const MessagePage page = mapMessagePage(result.object);
-        setMessages(page.messages);
-        setMessagePageState(page.hasMore, page.nextBeforeMessageId);
-        resumeActiveRunForSelectedChat();
-    });
+    );
 }
 
 void ChatStore::refreshSelectedAttachments()
@@ -1913,33 +1796,37 @@ void ChatStore::refreshSelectedAttachments()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
 
     setLoadingAttachments(true);
 
-    const QString path = QStringLiteral("/chats/%1/attachments")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
+    core->read(
+        [requestedChatId](CoreDatabase &database) {
+            return QVariant(ChatRepository::attachments(database, requestedChatId));
+        },
+        this,
+        [this, requestedChatId](const CoreResult &result) {
+            if (requestedChatId != m_selectedChatId) {
+                return;
+            }
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+            setLoadingAttachments(false);
 
-        if (requestedChatId != m_selectedChatId) {
-            return;
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            setAttachments(result.value.toList());
         }
-
-        setLoadingAttachments(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        setAttachments(
-            result.object.value(QStringLiteral("attachments")).toArray().toVariantList()
-        );
-    });
+    );
 }
 
 void ChatStore::loadOlderMessages()
@@ -1954,26 +1841,27 @@ void ChatStore::loadOlderMessages()
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
     const QString requestedBeforeMessageId = m_beforeMessageId;
 
     setErrorMessage({});
     setLoadingOlderMessages(true);
 
-    const QString path = QStringLiteral("/chats/%1/messages?limit=%2&before=%3")
-        .arg(encodedPathSegment(requestedChatId))
-        .arg(olderMessagePageSize)
-        .arg(encodedPathSegment(requestedBeforeMessageId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
-
-    connect(
-        reply,
-        &QNetworkReply::finished,
+    core->read(
+        [requestedChatId, requestedBeforeMessageId](CoreDatabase &database) {
+            return QVariant(ChatRepository::messagePage(
+                database, requestedChatId, olderMessagePageSize, requestedBeforeMessageId
+            ));
+        },
         this,
-        [this, reply, requestedChatId, requestedBeforeMessageId]() {
-            const JsonReplyResult result = consumeJsonReply(reply);
-            reply->deleteLater();
-
+        [this, requestedChatId, requestedBeforeMessageId](const CoreResult &result) {
             if (
                 requestedChatId != m_selectedChatId
                 || requestedBeforeMessageId != m_beforeMessageId
@@ -1987,7 +1875,7 @@ void ChatStore::loadOlderMessages()
                 return;
             }
 
-            const MessagePage page = mapMessagePage(result.object);
+            const MessagePage page = mapMessagePage(result.value.toMap());
             QSet<QString> existingIds;
             existingIds.reserve(m_messages.size());
 
@@ -2016,8 +1904,7 @@ void ChatStore::loadOlderMessages()
                 }
 
                 emit olderMessagesWillPrepend(prependedMessages.size());
-                m_messages = messagesWithEditProposals(nextMessages);
-                emit messagesChanged();
+                commitMessages(messagesWithEditProposals(nextMessages));
                 emit olderMessagesPrepended(prependedMessages.size());
             }
 
@@ -2067,29 +1954,25 @@ void ChatStore::sendMessage(const QString &content)
     ));
     setMessages(nextMessages);
 
-    QJsonObject body;
-    body.insert(QStringLiteral("content"), trimmedContent);
+    AIRuntime *runtime = AIRuntime::active();
 
-    const QString path = QStringLiteral("/chats/%1/runs")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.post(
-        requestFor(path),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
-    );
+    if (!runtime) {
+        setMessages(m_messages.mid(0, m_messages.size() - 2));
+        clearActiveRun();
+        setErrorMessage(aiUnavailableMessage());
+        return;
+    }
 
-    connect(
-        reply,
-        &QNetworkReply::finished,
+    runtime->startChatRun(
+        requestedChatId,
+        trimmedContent,
         this,
         [
             this,
-            reply,
             requestedChatId,
             optimisticUserId,
             optimisticAssistantId
-        ]() {
-            const JsonReplyResult result = consumeJsonReply(reply);
-            reply->deleteLater();
+        ](const CoreResult &result) {
 
             if (requestedChatId != m_selectedChatId) {
                 clearActiveRun();
@@ -2143,18 +2026,11 @@ void ChatStore::sendMessage(const QString &content)
                 }
             }
 
-            const QJsonObject userMessage = result.object
-                .value(QStringLiteral("userMessage"))
-                .toObject();
-            const QJsonObject assistantMessage = result.object
-                .value(QStringLiteral("assistantMessage"))
-                .toObject();
-            const QJsonObject run = result.object
-                .value(QStringLiteral("run"))
-                .toObject();
+            const QVariantMap started = result.value.toMap();
+            const QJsonObject run = jsonObject(started.value(QStringLiteral("run")));
 
-            storedMessages.append(mapMessage(userMessage));
-            storedMessages.append(mapMessage(assistantMessage));
+            storedMessages.append(mapMessage(started.value(QStringLiteral("userMessage")).toMap()));
+            storedMessages.append(mapMessage(started.value(QStringLiteral("assistantMessage")).toMap()));
             setMessages(storedMessages);
             setActiveRun(run);
             setCompletionMetadata(
@@ -2165,7 +2041,7 @@ void ChatStore::sendMessage(const QString &content)
             if (m_activeRunId.isEmpty()) {
                 clearActiveRun();
                 setErrorMessage(
-                    QStringLiteral("Archivist API returned an invalid AI Run.")
+                    QStringLiteral("Archivist returned an invalid AI Run.")
                 );
                 return;
             }
@@ -2233,14 +2109,15 @@ void ChatStore::cancelActiveRun()
             m_activeRunClock.isValid() ? m_activeRunClock.elapsed() : -1
         );
 
-    const QString path = QStringLiteral("/runs/%1/cancel")
-        .arg(encodedPathSegment(runId));
-    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+    AIRuntime *runtime = AIRuntime::active();
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, runId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+    if (!runtime) {
+        setCancellingRun(false);
+        setErrorMessage(aiUnavailableMessage());
+        return;
+    }
 
+    runtime->cancelRun(runId, this, [this, runId](const CoreResult &result) {
         if (runId != m_activeRunId) {
             return;
         }
@@ -2252,9 +2129,7 @@ void ChatStore::cancelActiveRun()
             return;
         }
 
-        applyRunSnapshot(
-            result.object.value(QStringLiteral("run")).toObject()
-        );
+        applyRunSnapshot(jsonObject(result.value));
     });
 }
 
@@ -2297,45 +2172,35 @@ void ChatStore::assignAgentToSelectedChat(const QString &agentId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
 
     setErrorMessage({});
     setAssigningAgent(true);
 
-    QJsonObject body;
-    body.insert(QStringLiteral("agentId"), agentId);
+    core->write(
+        [requestedChatId, agentId](CoreDatabase &database) {
+            return QVariant(ChatRepository::updateChat(database, requestedChatId, {{QStringLiteral("agentId"), agentId}}));
+        },
+        this,
+        [this, agentId](const CoreResult &result) {
+            setAssigningAgent(false);
 
-    const QString path = QStringLiteral("/chats/%1")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(path),
-        QByteArrayLiteral("PATCH"),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            replaceChat(result.value.toMap());
+            emit agentAssigned(agentId);
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId, agentId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setAssigningAgent(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QVariantMap updatedChat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-
-        if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
-            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat assignment."));
-            return;
-        }
-
-        replaceChat(updatedChat);
-        emit agentAssigned(agentId);
-    });
 }
 
 void ChatStore::attachAgentToSelectedChat(const QString &agentId)
@@ -2351,43 +2216,34 @@ void ChatStore::attachAgentToSelectedChat(const QString &agentId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
 
     setErrorMessage({});
     setAssigningAgent(true);
 
-    QJsonObject body;
-    body.insert(QStringLiteral("agentId"), agentId);
+    core->write(
+        [requestedChatId, agentId](CoreDatabase &database) {
+            return QVariant(ChatRepository::attachAgent(database, requestedChatId, agentId));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setAssigningAgent(false);
 
-    const QString path = QStringLiteral("/chats/%1/agents")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.post(
-        requestFor(path),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            replaceChat(result.value.toMap());
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setAssigningAgent(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QVariantMap updatedChat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-
-        if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
-            setErrorMessage(QStringLiteral("Archivist API returned an invalid Agent roster."));
-            return;
-        }
-
-        replaceChat(updatedChat);
-    });
 }
 
 void ChatStore::detachAgentFromSelectedChat(const QString &agentId)
@@ -2403,40 +2259,34 @@ void ChatStore::detachAgentFromSelectedChat(const QString &agentId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
-    const QString path = QStringLiteral("/chats/%1/agents/%2")
-        .arg(
-            encodedPathSegment(requestedChatId),
-            encodedPathSegment(agentId)
-        );
 
     setErrorMessage({});
     setAssigningAgent(true);
 
-    QNetworkReply *reply = m_network.deleteResource(requestFor(path));
+    core->write(
+        [requestedChatId, agentId](CoreDatabase &database) {
+            return QVariant(ChatRepository::detachAgent(database, requestedChatId, agentId));
+        },
+        this,
+        [this](const CoreResult &result) {
+            setAssigningAgent(false);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setAssigningAgent(false);
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            replaceChat(result.value.toMap());
         }
-
-        const QVariantMap updatedChat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-
-        if (updatedChat.value(QStringLiteral("id")).toString() != requestedChatId) {
-            setErrorMessage(QStringLiteral("Archivist API returned an invalid Agent roster."));
-            return;
-        }
-
-        replaceChat(updatedChat);
-    });
+    );
 }
 
 void ChatStore::attachFile(const QString &libraryId, const QString &fileId)
@@ -2452,52 +2302,40 @@ void ChatStore::attachFile(const QString &libraryId, const QString &fileId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
 
     setErrorMessage({});
     setMutatingAttachment(true);
 
-    QJsonObject body;
-    body.insert(QStringLiteral("libraryId"), libraryId);
-    body.insert(QStringLiteral("fileId"), fileId);
+    core->write(
+        [requestedChatId, libraryId, fileId](CoreDatabase &database) {
+            return QVariant(ChatRepository::createAttachment(database, requestedChatId, libraryId, fileId));
+        },
+        this,
+        [this, requestedChatId](const CoreResult &result) {
+            setMutatingAttachment(false);
 
-    const QString path = QStringLiteral("/chats/%1/attachments")
-        .arg(encodedPathSegment(requestedChatId));
-    QNetworkReply *reply = m_network.post(
-        requestFor(path),
-        QJsonDocument(body).toJson(QJsonDocument::Compact)
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            if (requestedChatId != m_selectedChatId) {
+                return;
+            }
+
+            const QVariantMap attachment = result.value.toMap();
+            upsertAttachment(attachment);
+            emit attachmentAdded(attachment);
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, requestedChatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutatingAttachment(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        if (requestedChatId != m_selectedChatId) {
-            return;
-        }
-
-        const QVariantMap attachment = result.object
-            .value(QStringLiteral("attachment"))
-            .toObject()
-            .toVariantMap();
-
-        if (
-            attachment.value(QStringLiteral("chatId")).toString()
-            != requestedChatId
-        ) {
-            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat attachment."));
-            return;
-        }
-
-        upsertAttachment(attachment);
-        emit attachmentAdded(attachment);
-    });
 }
 
 void ChatStore::removeAttachment(const QString &attachmentId)
@@ -2512,28 +2350,25 @@ void ChatStore::removeAttachment(const QString &attachmentId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     const QString requestedChatId = m_selectedChatId;
 
     setErrorMessage({});
     setMutatingAttachment(true);
 
-    const QString path = QStringLiteral("/chats/%1/attachments/%2")
-        .arg(
-            encodedPathSegment(requestedChatId),
-            encodedPathSegment(attachmentId)
-        );
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(path),
-        QByteArrayLiteral("DELETE")
-    );
-
-    connect(
-        reply,
-        &QNetworkReply::finished,
+    core->write(
+        [requestedChatId, attachmentId](CoreDatabase &database) {
+            ChatRepository::deleteAttachment(database, requestedChatId, attachmentId);
+            return QVariant(attachmentId);
+        },
         this,
-        [this, reply, requestedChatId, attachmentId]() {
-            const JsonReplyResult result = consumeJsonReply(reply);
-            reply->deleteLater();
+        [this, requestedChatId, attachmentId](const CoreResult &result) {
             setMutatingAttachment(false);
 
             if (!result.ok) {
@@ -2558,35 +2393,39 @@ void ChatStore::loadMessageContext(const QString &messageId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setContextErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     setInspectedContext(messageId, {});
     setContextErrorMessage({});
     setLoadingContext(true);
 
     const QString chatId = m_selectedChatId;
-    const QString path = QStringLiteral("/chats/%1/messages/%2/context")
-        .arg(encodedPathSegment(chatId), encodedPathSegment(messageId));
-    QNetworkReply *reply = m_network.get(requestFor(path));
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId, messageId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
+    core->read(
+        [chatId, messageId](CoreDatabase &database) {
+            return QVariant(ChatRepository::contextRun(database, chatId, messageId));
+        },
+        this,
+        [this, chatId, messageId](const CoreResult &result) {
+            if (m_selectedChatId != chatId || m_inspectedMessageId != messageId) {
+                return;
+            }
 
-        if (m_selectedChatId != chatId || m_inspectedMessageId != messageId) {
-            return;
+            setLoadingContext(false);
+
+            if (!result.ok) {
+                setContextErrorMessage(result.errorMessage);
+                return;
+            }
+
+            setInspectedContext(messageId, result.value.toMap());
         }
-
-        setLoadingContext(false);
-
-        if (!result.ok) {
-            setContextErrorMessage(result.errorMessage);
-            return;
-        }
-
-        setInspectedContext(
-            messageId,
-            result.object.value(QStringLiteral("contextRun")).toObject().toVariantMap()
-        );
-    });
+    );
 }
 
 void ChatStore::clearInspectedContext()
@@ -2609,39 +2448,32 @@ void ChatStore::updateChat(const QString &chatId, const QVariantMap &input)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     clearError();
     setMutating(true);
 
-    const QString path = QStringLiteral("/chats/%1").arg(encodedPathSegment(chatId));
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(path),
-        QByteArrayLiteral("PATCH"),
-        QJsonDocument(QJsonObject::fromVariantMap(input)).toJson(QJsonDocument::Compact)
+    core->write(
+        [chatId, input](CoreDatabase &database) { return QVariant(ChatRepository::updateChat(database, chatId, input)); },
+        this,
+        [this](const CoreResult &result) {
+            setMutating(false);
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QVariantMap chat = result.value.toMap();
+            upsertActiveChat(chat);
+            emit chatUpdated(chat);
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QVariantMap chat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-
-        if (chat.value(QStringLiteral("id")).toString() != chatId) {
-            setErrorMessage(QStringLiteral("Archivist API returned an invalid Chat."));
-            return;
-        }
-
-        upsertActiveChat(chat);
-        emit chatUpdated(chat);
-    });
 }
 
 void ChatStore::archiveChat(const QString &chatId)
@@ -2650,42 +2482,44 @@ void ChatStore::archiveChat(const QString &chatId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     clearError();
     setMutating(true);
 
-    const QString path = QStringLiteral("/chats/%1/archive").arg(encodedPathSegment(chatId));
-    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+    core->write(
+        [chatId](CoreDatabase &database) { return QVariant(ChatRepository::archiveChat(database, chatId)); },
+        this,
+        [this, chatId](const CoreResult &result) {
+            setMutating(false);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            const QVariantMap response = result.value.toMap();
+            const QVariantMap chat = response.value(QStringLiteral("chat")).toMap();
+            const QString nextSelectedChatId = response.value(QStringLiteral("selectedChatId")).toString();
+            const bool selectionChanged = m_selectedChatId == chatId;
+
+            removeActiveChat(chatId);
+            upsertArchivedChat(chat);
+
+            if (selectionChanged) {
+                setMessages({});
+                setSelectedChatId(nextSelectedChatId);
+                refreshSelectedMessages();
+            }
+
+            emit chatArchived(chat);
         }
-
-        const QVariantMap chat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-        const QString nextSelectedChatId = result.object
-            .value(QStringLiteral("selectedChatId"))
-            .toString();
-        const bool selectionChanged = m_selectedChatId == chatId;
-
-        removeActiveChat(chatId);
-        upsertArchivedChat(chat);
-
-        if (selectionChanged) {
-            setMessages({});
-            setSelectedChatId(nextSelectedChatId);
-            refreshSelectedMessages();
-        }
-
-        emit chatArchived(chat);
-    });
+    );
 }
 
 void ChatStore::restoreChat(const QString &chatId)
@@ -2694,31 +2528,33 @@ void ChatStore::restoreChat(const QString &chatId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     clearError();
     setMutating(true);
 
-    const QString path = QStringLiteral("/chats/%1/restore").arg(encodedPathSegment(chatId));
-    QNetworkReply *reply = m_network.post(requestFor(path), QByteArray{});
+    core->write(
+        [chatId](CoreDatabase &database) { return QVariant(ChatRepository::restoreChat(database, chatId)); },
+        this,
+        [this, chatId](const CoreResult &result) {
+            setMutating(false);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
 
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
+            const QVariantMap chat = result.value.toMap();
+            removeArchivedChat(chatId);
+            upsertActiveChat(chat);
+            emit chatRestored(chat);
         }
-
-        const QVariantMap chat = result.object
-            .value(QStringLiteral("chat"))
-            .toObject()
-            .toVariantMap();
-
-        removeArchivedChat(chatId);
-        upsertActiveChat(chat);
-        emit chatRestored(chat);
-    });
+    );
 }
 
 void ChatStore::deleteChat(const QString &chatId)
@@ -2727,41 +2563,42 @@ void ChatStore::deleteChat(const QString &chatId)
         return;
     }
 
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core) {
+        setErrorMessage(coreUnavailableMessage());
+        return;
+    }
+
     clearError();
     setMutating(true);
 
-    const QString path = QStringLiteral("/chats/%1").arg(encodedPathSegment(chatId));
-    QNetworkReply *reply = m_network.sendCustomRequest(
-        requestFor(path),
-        QByteArrayLiteral("DELETE")
+    core->write(
+        [chatId](CoreDatabase &database) { return ChatRepository::deleteChat(database, chatId); },
+        this,
+        [this, chatId](const CoreResult &result) {
+            setMutating(false);
+
+            if (!result.ok) {
+                setErrorMessage(result.errorMessage);
+                return;
+            }
+
+            const QString nextSelectedChatId = result.value.toString();
+            const bool selectionChanged = m_selectedChatId == chatId;
+
+            removeActiveChat(chatId);
+            removeArchivedChat(chatId);
+
+            if (selectionChanged) {
+                setMessages({});
+                setSelectedChatId(nextSelectedChatId);
+                refreshSelectedMessages();
+            }
+
+            emit chatDeleted(chatId);
+        }
     );
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, chatId]() {
-        const JsonReplyResult result = consumeJsonReply(reply);
-        reply->deleteLater();
-        setMutating(false);
-
-        if (!result.ok) {
-            setErrorMessage(result.errorMessage);
-            return;
-        }
-
-        const QString nextSelectedChatId = result.object
-            .value(QStringLiteral("selectedChatId"))
-            .toString();
-        const bool selectionChanged = m_selectedChatId == chatId;
-
-        removeActiveChat(chatId);
-        removeArchivedChat(chatId);
-
-        if (selectionChanged) {
-            setMessages({});
-            setSelectedChatId(nextSelectedChatId);
-            refreshSelectedMessages();
-        }
-
-        emit chatDeleted(chatId);
-    });
 }
 
 void ChatStore::clearError()
@@ -2816,7 +2653,13 @@ void ChatStore::setMessages(const QVariantList &messages)
         return;
     }
 
+    commitMessages(enrichedMessages);
+}
+
+void ChatStore::commitMessages(const QVariantList &enrichedMessages)
+{
     m_messages = enrichedMessages;
+    m_messageModel->sync(m_messages);
     emit messagesChanged();
 }
 

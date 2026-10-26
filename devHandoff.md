@@ -60,6 +60,8 @@ Use existing helpers whenever they cover the task:
 ./scripts/qt-dev-detached --follow
 ./scripts/qt-stop
 ./scripts/diagnose-navigation
+npm run dev:chat-trace
+npm run diagnose:chat-viewport
 npm run diagnose:language-support
 ./scripts/qt-typography-audit
 ./scripts/qt-typography-audit --check
@@ -85,6 +87,21 @@ Before inventing a diagnostic or audit:
 5. Document the new helper in this file.
 
 Avoid giant terminal blocks that flood or truncate output. Context bundles belong at the repository root. Verification scripts should write bounded reports under `backend/data/runtime/logs/`.
+
+For Chat viewport bugs, use the trace harness instead of debugging by feel:
+
+```bash
+npm run dev:chat-trace
+npm run diagnose:chat-viewport
+```
+
+Reproduce one bug between those commands, then upload `backend/data/runtime/logs/chat-viewport-diagnostic.txt`. Isolation modes are available only when evidence calls for them:
+
+```text
+--chat-no-history
+--chat-no-viewport-save
+--chat-plain-messages
+```
 
 Do not use broad destructive cleanup, dependency reinstall, cache deletion, branch changes, resets, or process killing without evidence.
 
