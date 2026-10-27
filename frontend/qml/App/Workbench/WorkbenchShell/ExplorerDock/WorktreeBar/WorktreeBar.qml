@@ -165,6 +165,26 @@ Rectangle {
         return matches
     }
 
+    function statusSummary() {
+        var status = activeStatus
+
+        if (status === null) {
+            return "checking status"
+        }
+        if (status.available !== true) {
+            return "status unavailable"
+        }
+        if (Number(status.conflicted || 0) > 0) {
+            return status.conflicted + " conflicted"
+        }
+        if (Number(status.changedCount || 0) > 0) {
+            return status.changedCount === 1
+                ? "1 change"
+                : status.changedCount + " changes"
+        }
+        return "clean"
+    }
+
     function summaryText() {
         if (WorktreeStore.loading && worktreeList.length === 0) {
             return "Reading worktrees…"
@@ -190,6 +210,15 @@ Rectangle {
         height: 1
         color: root.theme.quietBorder
     }
+
+    ToolTip.visible: barMouse.containsMouse && !worktreePopup.visible
+    ToolTip.delay: 600
+    ToolTip.text: root.summaryText()
+        + " · " + root.statusSummary()
+        + (root.worktreeList.length > 1
+            ? " · " + root.worktreeList.length + " worktrees"
+            : "")
+        + "\nClick to switch or create worktrees"
 
     MouseArea {
         id: barMouse
@@ -231,20 +260,36 @@ Rectangle {
 
         Text {
             Layout.alignment: Qt.AlignVCenter
-            visible: WorktreeStore.stale || WorktreeStore.loading
+            Layout.maximumWidth: root.width * 0.35
+            visible: !updatingText.visible
+                && String(
+                    (WorktreeStore.repositoryInfo || ({})).name || ""
+                ).length > 0
+            text: String((WorktreeStore.repositoryInfo || ({})).name || "")
+            color: root.theme.mutedText
+            font.pixelSize: root.theme.typeSize(9)
+            elide: Text.ElideRight
+        }
+
+        // Only a list borrowed from another worktree of the repository
+        // (or no list yet) is flagged; routine refreshes keep showing the
+        // current answer without flicker.
+        Text {
+            id: updatingText
+
+            Layout.alignment: Qt.AlignVCenter
+            visible: WorktreeStore.stale
+                || (WorktreeStore.loading && root.worktreeList.length === 0)
             text: "updating"
             color: root.theme.mutedText
             font.pixelSize: root.theme.typeSize(9)
             font.italic: true
         }
 
-        AppIcon {
+        AgentRunningBadge {
             Layout.alignment: Qt.AlignVCenter
             visible: root.active.running === true
-            name: "agent"
-            tone: "accent"
-            iconSize: 12
-            accessibleLabel: "Agent running here"
+            theme: root.theme
         }
 
         Text {
@@ -272,12 +317,27 @@ Rectangle {
             border.color: root.theme.mutedText
         }
 
-        Text {
+        // How many worktrees the repository has, so a second one is
+        // discoverable from the bar.
+        Rectangle {
             Layout.alignment: Qt.AlignVCenter
             visible: root.worktreeList.length > 1
-            text: String(root.worktreeList.length)
-            color: root.theme.mutedText
-            font.pixelSize: root.theme.typeSize(9)
+            implicitWidth: countText.implicitWidth + 10
+            implicitHeight: 15
+            radius: 7.5
+            color: root.theme.surfaceBg
+            border.width: 1
+            border.color: root.theme.quietBorder
+
+            Text {
+                id: countText
+
+                anchors.centerIn: parent
+                text: String(root.worktreeList.length)
+                color: root.theme.mutedText
+                font.pixelSize: root.theme.typeSize(8)
+                font.weight: Font.DemiBold
+            }
         }
 
         AppIcon {
@@ -464,6 +524,33 @@ Rectangle {
                 }
             }
 
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 2
+                visible: root.mode === "list"
+                    && root.worktreeList.length <= 1
+                    && !WorktreeStore.loading
+                spacing: 6
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "Only the main checkout so far. A worktree checks out "
+                        + "another branch in its own folder, so you and your "
+                        + "agents can work on it side by side."
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(9)
+                    wrapMode: Text.Wrap
+                }
+
+                WorktreeActionButton {
+                    theme: root.theme
+                    text: "NEW WORKTREE"
+                    primary: true
+                    enabled: !WorktreeStore.busy
+                    onClicked: root.beginCreate()
+                }
+            }
+
             Text {
                 Layout.fillWidth: true
                 visible: root.mode === "list"
@@ -591,10 +678,18 @@ Rectangle {
 
                     Layout.fillWidth: true
                     theme: root.theme
-                    placeholderText: branchField.text.trim().length > 0
-                        ? WorktreeStore.suggestedPath(branchField.text)
-                        : "Folder (default: next to the repository)"
+                    placeholderText: "Folder (optional)"
                     onAccepted: root.submitCreate()
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: pathField.text.trim().length === 0
+                        && branchField.text.trim().length > 0
+                    text: "Goes to " + WorktreeStore.suggestedPath(branchField.text)
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(9)
+                    elide: Text.ElideMiddle
                 }
 
                 RowLayout {
@@ -653,6 +748,16 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: root.preview.loading === true
                     text: "Checking for uncommitted work…"
+                    color: root.theme.mutedText
+                    font.pixelSize: root.theme.typeSize(10)
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    visible: root.preview.loading !== true
+                        && (root.preview.blockers || []).length > 0
+                    text: "Can't remove it yet:"
                     color: root.theme.mutedText
                     font.pixelSize: root.theme.typeSize(10)
                 }

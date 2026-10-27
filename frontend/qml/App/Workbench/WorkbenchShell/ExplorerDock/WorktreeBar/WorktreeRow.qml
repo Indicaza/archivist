@@ -173,21 +173,10 @@ Rectangle {
             }
         }
 
-        AppIcon {
+        AgentRunningBadge {
             Layout.alignment: Qt.AlignVCenter
             visible: root.entry.running === true
-            name: "agent"
-            tone: "accent"
-            iconSize: 13
-            accessibleLabel: "Agent running"
-
-            ToolTip.visible: agentHover.hovered
-            ToolTip.text: "An agent is running in this worktree"
-            ToolTip.delay: 300
-
-            HoverHandler {
-                id: agentHover
-            }
+            theme: root.theme
         }
 
         Rectangle {

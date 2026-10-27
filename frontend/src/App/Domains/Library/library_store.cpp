@@ -99,6 +99,28 @@ bool usesDocumentRenderer(const QVariantMap &file)
 }
 }
 
+namespace
+{
+// Archivist's own database and dev logs live under the database's folder.
+// When that folder is inside the open Library (working on Archivist in
+// Archivist), the app's own writes must not count as Library changes, or
+// every write starts another rescan and Git status never settles.
+bool isArchivistDataPath(const QString &path)
+{
+    CoreRuntime *core = CoreRuntime::active();
+
+    if (!core || core->databasePath().isEmpty()) {
+        return false;
+    }
+
+    const QString dataDirectory = QFileInfo(core->databasePath()).absolutePath();
+    const QString candidate = QFileInfo(path).absoluteFilePath();
+
+    return candidate == dataDirectory
+        || candidate.startsWith(dataDirectory + QLatin1Char('/'));
+}
+}
+
 LibraryStore::LibraryStore(QObject *parent)
     : QObject(parent)
 {
@@ -115,8 +137,8 @@ LibraryStore::LibraryStore(QObject *parent)
         &m_fileWatcher,
         &QFileSystemWatcher::fileChanged,
         this,
-        [this](const QString &) {
-            if (m_watcherSuppressionTimer.isActive()) {
+        [this](const QString &path) {
+            if (m_watcherSuppressionTimer.isActive() || isArchivistDataPath(path)) {
                 return;
             }
 
@@ -135,8 +157,8 @@ LibraryStore::LibraryStore(QObject *parent)
         &m_fileWatcher,
         &QFileSystemWatcher::directoryChanged,
         this,
-        [this](const QString &) {
-            if (m_watcherSuppressionTimer.isActive()) {
+        [this](const QString &path) {
+            if (m_watcherSuppressionTimer.isActive() || isArchivistDataPath(path)) {
                 return;
             }
 
@@ -402,7 +424,10 @@ void LibraryStore::rebuildFileWatchers()
             QDir(rootPath).filePath(relativePath)
         );
 
-        if (fileInfo.absoluteDir().exists()) {
+        if (
+            fileInfo.absoluteDir().exists()
+            && !isArchivistDataPath(fileInfo.absolutePath())
+        ) {
             directories.insert(
                 fileInfo.absolutePath()
             );
@@ -794,8 +819,15 @@ void LibraryStore::refreshSelectedFiles()
 
             if (m_reconcileLibraryId == requestedLibraryId) {
                 m_reconcileLibraryId.clear();
-                scanSelectedLibrary();
-                return;
+
+                if (!m_scanning) {
+                    scanSelectedLibrary();
+                    return;
+                }
+
+                // A scan of this Library is already running; show its Git
+                // status now and rescan once that scan finishes.
+                scheduleLibraryRescan();
             }
 
             refreshSelectedGitStatus();
@@ -852,8 +884,8 @@ void LibraryStore::scanSelectedLibrary()
 
     const QString requestedLibraryId = m_selectedLibraryId;
     const quint64 requestRevision = ++m_fileRequestRevision;
+    const quint64 gitStatusRevision = ++m_gitStatusRequestRevision;
 
-    ++m_gitStatusRequestRevision;
     m_gitStatusRefreshTimer.stop();
     setLoadingGitStatus(true);
 
@@ -893,13 +925,18 @@ void LibraryStore::scanSelectedLibrary()
             return QVariant(scan);
         },
         this,
-        [this, requestedLibraryId, requestRevision](const CoreResult &result) {
+        [this, requestedLibraryId, requestRevision, gitStatusRevision](const CoreResult &result) {
             setScanning(false);
 
             if (
                 requestRevision != m_fileRequestRevision
                 || requestedLibraryId != m_selectedLibraryId
             ) {
+                // A newer file request replaced this scan. If nothing newer
+                // asked for Git status, this scan was the one owing it.
+                if (gitStatusRevision == m_gitStatusRequestRevision) {
+                    refreshSelectedGitStatus();
+                }
                 return;
             }
 

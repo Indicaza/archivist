@@ -13,26 +13,9 @@ Item {
 
     signal closeRequested()
 
-    property bool worktreesExpanded: false
-    property bool resizingWorktrees: false
-    property real preferredWorktreeHeight: 92
-    property real worktreeSectionHeight:
-        worktreesExpanded ? preferredWorktreeHeight : 28
-    property real worktreeDragStartY: 0
-    property real worktreeDragStartHeight: 0
-
     readonly property var collectionOptions: buildCollectionOptions()
     readonly property var scopedLibraries: filteredLibraries()
-    readonly property real sectionHandleHeight: 6
     readonly property real minimumLibraryHeight: 180
-
-    Behavior on worktreeSectionHeight {
-        enabled: !root.resizingWorktrees
-        NumberAnimation {
-            duration: root.theme.motionPanel
-            easing.type: Easing.OutCubic
-        }
-    }
 
     function buildCollectionOptions() {
         var options = []
@@ -72,31 +55,6 @@ Item {
         }
 
         return filtered
-    }
-
-    function clampSectionHeight(value, minimumHeight) {
-        var maximum = Math.max(
-            minimumHeight,
-            height
-                - 38
-                - minimumLibraryHeight
-                - sectionHandleHeight
-        )
-
-        return Math.min(
-            maximum,
-            Math.max(minimumHeight, value)
-        )
-    }
-
-    function resizeWorktrees(pointerY) {
-        worktreesExpanded = true
-        preferredWorktreeHeight = clampSectionHeight(
-            worktreeDragStartHeight
-                + worktreeDragStartY
-                - pointerY,
-            68
-        )
     }
 
     Component.onCompleted: CollectionStore.refresh()
@@ -343,118 +301,6 @@ Item {
                 sourceComponent: root.libraryContent
             }
         }
-
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.sectionHandleHeight
-            z: 20
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width
-                height: worktreeResizeArea.containsMouse || worktreeResizeArea.pressed ? 2 : 1
-                color: worktreeResizeArea.containsMouse || worktreeResizeArea.pressed
-                    ? root.theme.accent
-                    : root.theme.quietBorder
-                opacity: worktreeResizeArea.containsMouse || worktreeResizeArea.pressed ? 0.9 : 0.55
-            }
-
-            MouseArea {
-                id: worktreeResizeArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.SplitVCursor
-                onPressed: function(mouse) {
-                    root.resizingWorktrees = true
-                    root.worktreeDragStartHeight = root.worktreeSectionHeight
-                    root.worktreeDragStartY = mapToItem(root, mouse.x, mouse.y).y
-                }
-                onReleased: root.resizingWorktrees = false
-                onCanceled: root.resizingWorktrees = false
-                onPositionChanged: function(mouse) {
-                    if (pressed) {
-                        root.resizeWorktrees(mapToItem(root, mouse.x, mouse.y).y)
-                    }
-                }
-                onDoubleClicked: root.preferredWorktreeHeight = 92
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.worktreeSectionHeight
-            Layout.minimumHeight: 28
-            color: root.theme.surfaceBg
-            clip: true
-
-            Button {
-                id: worktreeHeader
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 34
-                hoverEnabled: true
-                padding: 0
-                onClicked: root.worktreesExpanded = !root.worktreesExpanded
-                contentItem: RowLayout {
-                    spacing: 5
-                    AppIcon {
-                        Layout.leftMargin: 8
-                        name: root.worktreesExpanded
-                            ? "chevron-down"
-                            : "chevron-right"
-                        tone: worktreeHeader.hovered ? "normal" : "muted"
-                        iconSize: 11
-                        accessibleLabel: root.worktreesExpanded
-                            ? "Collapse Worktrees"
-                            : "Expand Worktrees"
-                    }
-                    AppIcon {
-                        name: "git-branch"
-                        tone: "muted"
-                        iconSize: 14
-                        accessibleLabel: "Worktrees"
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: "WORKTREES"
-                        color: worktreeHeader.hovered ? root.theme.appText : root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(8)
-                        font.weight: Font.Bold
-                        font.letterSpacing: 0.5
-                    }
-                    Text {
-                        Layout.rightMargin: 7
-                        text: "COMING NEXT"
-                        color: root.theme.mutedText
-                        font.pixelSize: root.theme.typeSize(6)
-                        font.weight: Font.Bold
-                        font.letterSpacing: 0.4
-                        opacity: 0.55
-                    }
-                }
-                background: Rectangle {
-                    color: worktreeHeader.hovered ? root.theme.hoverBg : "transparent"
-                    Behavior on color { ColorAnimation { duration: root.theme.motionFast } }
-                }
-            }
-
-            Text {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: worktreeHeader.bottom
-                anchors.leftMargin: 32
-                anchors.rightMargin: 10
-                anchors.topMargin: 7
-                visible: root.worktreesExpanded
-                text: "Feature worktrees and swarm status will live here."
-                color: root.theme.mutedText
-                font.pixelSize: root.theme.typeSize(8)
-                opacity: 0.68
-                wrapMode: Text.Wrap
-            }
-        }
-
     }
 
     CollectionEditor {

@@ -23,6 +23,10 @@ const tones = {
   purple: "#a371f7",
 };
 
+// Drawn by hand in Assets/ui/<tone>/ because no vendored match fits;
+// vendoring leaves them alone.
+const handDrawnUiIcons = new Set(["git-branch"]);
+
 const uiIcons = {
   workspace: ["layout-dashboard", "dashboard", "grid-layout", "module-four"],
   archive: ["archive-box", "archive", "folder-lock", "box"],
@@ -829,6 +833,11 @@ function vendorUiIcons(streamlineSet, codiconSet) {
 
     if (!resolvedIcon) {
       throw new Error("No usable fallback icon was found.");
+    }
+
+    if (handDrawnUiIcons.has(logicalName)) {
+      manifest[logicalName] = "hand-drawn";
+      continue;
     }
 
     manifest[logicalName] = `${resolvedSet}:${resolvedName}`;
