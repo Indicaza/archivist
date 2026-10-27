@@ -7,8 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Network Pdf Quick QuickControls2 QuickDialogs2 WebChannel WebEngineQuick)
-# InterfaceScale changes the per-screen scale factor live (no public API).
-find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
 
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
@@ -322,7 +320,6 @@ qt_add_qml_module(archivist-qt
 target_link_libraries(archivist-qt
     PRIVATE
         archivist-core
-        Qt6::GuiPrivate
         Qt6::Network
         Qt6::Pdf
         Qt6::Quick

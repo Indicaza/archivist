@@ -245,9 +245,7 @@ Popup {
 
             Text {
                 Layout.fillWidth: true
-                text: InterfaceScale.controlledByEnvironment
-                    ? "set by QT_SCALE_FACTOR"
-                    : Qt.platform.os === "osx" ? "⌘+  ⌘−  ⌘0" : "Ctrl +  −  0"
+                text: Qt.platform.os === "osx" ? "⌘+  ⌘−  ⌘0" : "Ctrl +  −  0"
                 color: root.theme.mutedText
                 font.family: root.theme.bodyFontFamily
                 font.pixelSize: root.theme.textMetadataSize

@@ -97,17 +97,25 @@ QtObject {
 
     property font chatCodeFont
     chatCodeFont.family: monospaceFontFamily
-    chatCodeFont.pixelSize: 13
+    chatCodeFont.pixelSize: px(13)
     chatCodeFont.letterSpacing: 0
     chatCodeFont.preferTypoLineMetrics: true
 
-    readonly property int typeMicro: 10
-    readonly property int typeCaption: 12
-    readonly property int typeLabel: 13
-    readonly property int typeControl: 14
-    readonly property int typeBody: 16
-    readonly property int typeTitle: 21
-    readonly property int typeDisplay: 34
+    // Interface size (Cmd/Ctrl + - 0), like zooming a web page: every type
+    // size and bar height below is multiplied by it, so text grows
+    // everywhere and the layout reflows to the same window.
+    readonly property real uiScale: InterfaceScale.scale
+    function px(value) {
+        return Math.round(value * uiScale)
+    }
+
+    readonly property int typeMicro: px(10)
+    readonly property int typeCaption: px(12)
+    readonly property int typeLabel: px(13)
+    readonly property int typeControl: px(14)
+    readonly property int typeBody: px(16)
+    readonly property int typeTitle: px(21)
+    readonly property int typeDisplay: px(34)
 
     readonly property int textStatusSize: typeMicro
     readonly property int textMetadataSize: typeMicro
@@ -166,34 +174,34 @@ QtObject {
         return typeDisplay
     }
 
-    readonly property int topbarHeight: 40
-    readonly property int topbarAvatarSize: 28
-    readonly property int activityRailWidth: 44
-    readonly property int statusBarHeight: 26
-    readonly property int explorerHeaderHeight: 40
-    readonly property int explorerMinWidth: 200
-    readonly property int explorerDefaultWidth: 310
+    readonly property int topbarHeight: px(40)
+    readonly property int topbarAvatarSize: px(28)
+    readonly property int activityRailWidth: px(44)
+    readonly property int statusBarHeight: px(26)
+    readonly property int explorerHeaderHeight: px(40)
+    readonly property int explorerMinWidth: px(200)
+    readonly property int explorerDefaultWidth: px(310)
     readonly property int explorerMaxWidth: 720
-    readonly property int workspaceHeaderHeight: 42
-    readonly property int editorTabHeight: 32
-    readonly property int editorTabMinWidth: 120
-    readonly property int editorTabMaxWidth: 240
+    readonly property int workspaceHeaderHeight: px(42)
+    readonly property int editorTabHeight: px(32)
+    readonly property int editorTabMinWidth: px(120)
+    readonly property int editorTabMaxWidth: px(240)
     readonly property int workspaceMinHeight: editorTabHeight
-    readonly property int chatDockHeaderHeight: 50
-    readonly property int workbenchTabHeight: 28
-    readonly property int chatDockDefaultHeight: 256
-    readonly property int chatDockMinHeight: 198
-    readonly property int chatDockPanelMinWidth: 180
-    readonly property int chatDockPanelDefaultWidth: 320
+    readonly property int chatDockHeaderHeight: px(50)
+    readonly property int workbenchTabHeight: px(28)
+    readonly property int chatDockDefaultHeight: px(256)
+    readonly property int chatDockMinHeight: px(198)
+    readonly property int chatDockPanelMinWidth: px(180)
+    readonly property int chatDockPanelDefaultWidth: px(320)
     readonly property int chatDockPanelMaxWidth: 520
     readonly property int chatDockComposerMinWidth: 420
-    readonly property int controlBarHeight: 36
+    readonly property int controlBarHeight: px(36)
     readonly property int artifactDrawerWidth: 390
     readonly property int artifactDrawerHeight: 600
 
-    readonly property int transcriptContentWidth: 920
-    readonly property int assistantMessageWidth: 860
-    readonly property int userMessageWidth: 640
+    readonly property int transcriptContentWidth: px(920)
+    readonly property int assistantMessageWidth: px(860)
+    readonly property int userMessageWidth: px(640)
     readonly property int messageHorizontalInset: 32
     readonly property int messageVerticalGap: 34
     readonly property int codeBlockMinHeight: 72

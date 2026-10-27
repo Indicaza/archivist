@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Archivist.Services 1.0
 
 Button {
     id: root
@@ -16,8 +17,8 @@ Button {
     property color hoverBackgroundColor: root.theme.hoverBg
     property color pressedBackgroundColor: root.theme.activeBg
 
-    width: 32
-    height: 32
+    width: Math.round(32 * InterfaceScale.scale)
+    height: Math.round(32 * InterfaceScale.scale)
     padding: 0
     leftPadding: 0
     rightPadding: 0

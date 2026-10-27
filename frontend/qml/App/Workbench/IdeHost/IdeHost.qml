@@ -301,6 +301,9 @@ Item {
         url: root.surfaceUrl
         webChannel: channel
         backgroundColor: root.theme.workspaceBg
+        // Interface size: the page zooms crisply and reflows (Monaco and the
+        // terminal grow their text like the rest of the app).
+        zoomFactor: root.theme.uiScale
         focus: root.visible
         focusPolicy: Qt.WheelFocus
         activeFocusOnPress: true
