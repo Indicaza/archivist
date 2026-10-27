@@ -34,6 +34,10 @@ void DocumentStore::noteFileSaved(const QString &libraryId, const QString &fileI
     const bool wasDirty = m_buffers.isDirty(pending.documentId);
     const QString modifiedAt = preview.value(QStringLiteral("file")).toMap().value(QStringLiteral("modifiedAt")).toString();
     m_buffers.markSaved(pending.documentId, pending.version, pending.text, modifiedAt);
+    m_disk.remove(pending.documentId);
+    if (!m_buffers.isDirty(pending.documentId)) {
+        forgetRecovered(pending.documentId);
+    }
     noteDirty(pending.documentId, wasDirty);
     emit documentSaved(pending.documentId);
     bump();
@@ -49,6 +53,9 @@ void DocumentStore::noteFileSaveFailed(const QString &libraryId, const QString &
 
     const Pending pending = m_saves.take(key);
     emit saveFailed(pending.documentId, message);
+    // The usual reason is that the file moved on: find out, so the editor
+    // can offer to keep these edits or take the file.
+    reload(pending.documentId);
     bump();
 }
 
@@ -164,20 +171,7 @@ void DocumentStore::load(const QString &documentId, const QVariantMap &seed)
             bump();
     };
 
-    if (m_loader) {
-        m_loader(libraryId, fileId, this, finished);
-        return;
-    }
-
-    CoreRuntime::active()->run(
-        [libraryId, fileId](CoreDatabase &database) {
-            return QVariant(LibraryFiles::readText(database, libraryId, fileId));
-        },
-        this,
-        [finished](const CoreResult &result) {
-            finished(result.ok, result.errorMessage, result.value.toMap());
-        }
-    );
+    readFile(libraryId, fileId, finished);
 }
 
 void DocumentStore::release(const QString &documentId, const QString &viewId)
@@ -227,6 +221,7 @@ QVariantMap DocumentStore::snapshot(const QString &documentId) const
     result.insert(QStringLiteral("dirty"), buffer->dirty());
     result.insert(QStringLiteral("readOnly"), buffer->readOnly);
     result.insert(QStringLiteral("diskChanged"), buffer->diskChanged);
+    result.insert(QStringLiteral("recovered"), m_recovered.contains(documentId));
     result.insert(QStringLiteral("language"), buffer->language);
     result.insert(QStringLiteral("path"), buffer->path);
     result.insert(QStringLiteral("libraryId"), buffer->libraryId);
@@ -352,44 +347,98 @@ void DocumentStore::discard(const QString &documentId)
     const bool wasDirty = m_buffers.isDirty(documentId);
 
     if (m_buffers.discard(documentId)) {
+        forgetRecovered(documentId);
         emit documentReset(documentId);
         noteDirty(documentId, wasDirty);
         bump();
     }
 }
 
-void DocumentStore::reload(const QString &documentId)
+void DocumentStore::readFile(const QString &libraryId, const QString &fileId, const LoadCallback &done)
 {
-    const Documents::Buffer *buffer = m_buffers.find(documentId);
-    CoreRuntime *core = CoreRuntime::active();
-
-    if (!buffer || !core) {
+    if (m_loader) {
+        m_loader(libraryId, fileId, this, done);
         return;
     }
 
-    const QString libraryId = buffer->libraryId;
-    const QString fileId = buffer->fileId;
+    CoreRuntime *core = CoreRuntime::active();
+    if (!core) {
+        done(false, QStringLiteral("The document could not be read."), {});
+        return;
+    }
 
     core->run(
         [libraryId, fileId](CoreDatabase &database) {
             return QVariant(LibraryFiles::readText(database, libraryId, fileId));
         },
         this,
-        [this, documentId](const CoreResult &result) {
-            if (!result.ok) {
-                return;
-            }
-
-            const QVariantMap preview = result.value.toMap();
-            const QString modifiedAt = preview.value(QStringLiteral("file")).toMap().value(QStringLiteral("modifiedAt")).toString();
-
-            if (m_buffers.reloadFromDisk(documentId, preview.value(QStringLiteral("content")).toString(), modifiedAt)) {
-                emit documentReset(documentId);
-            }
-
-            bump();
+        [done](const CoreResult &result) {
+            done(result.ok, result.errorMessage, result.value.toMap());
         }
     );
+}
+
+void DocumentStore::reload(const QString &documentId)
+{
+    const Documents::Buffer *buffer = m_buffers.find(documentId);
+
+    if (!buffer) {
+        return;
+    }
+
+    readFile(buffer->libraryId, buffer->fileId, [this, documentId](bool ok, const QString &, const QVariantMap &preview) {
+        if (!ok || !m_buffers.contains(documentId)) {
+            return;
+        }
+
+        const QString text = preview.value(QStringLiteral("content")).toString();
+        const QString modifiedAt = preview.value(QStringLiteral("file")).toMap().value(QStringLiteral("modifiedAt")).toString();
+        m_disk.insert(documentId, {text, modifiedAt});
+
+        if (m_buffers.reloadFromDisk(documentId, text, modifiedAt)) {
+            emit documentReset(documentId);
+        }
+
+        bump();
+    });
+}
+
+void DocumentStore::keepUnsavedOverDisk(const QString &documentId)
+{
+    if (!m_disk.contains(documentId)) {
+        return;
+    }
+
+    const DiskState disk = m_disk.value(documentId);
+    const bool wasDirty = m_buffers.isDirty(documentId);
+    if (m_buffers.adoptDiskBase(documentId, disk.text, disk.modifiedAt)) {
+        noteDirty(documentId, wasDirty);
+        bump();
+    }
+}
+
+void DocumentStore::takeDiskVersion(const QString &documentId)
+{
+    if (!m_disk.contains(documentId)) {
+        reload(documentId);
+        return;
+    }
+
+    const DiskState disk = m_disk.take(documentId);
+    const bool wasDirty = m_buffers.isDirty(documentId);
+    m_buffers.adoptDiskBase(documentId, disk.text, disk.modifiedAt);
+    m_buffers.discard(documentId);
+    forgetRecovered(documentId);
+    emit documentReset(documentId);
+    noteDirty(documentId, wasDirty);
+    bump();
+}
+
+void DocumentStore::forgetRecovered(const QString &documentId)
+{
+    if (m_recovered.removeAll(documentId) > 0) {
+        emit recoveredDocumentsChanged();
+    }
 }
 
 QJsonArray DocumentStore::encodeUnsaved() const
@@ -404,12 +453,18 @@ int DocumentStore::restoreUnsaved(const QJsonArray &unsaved)
 
     for (const QString &documentId : m_buffers.dirtyDocuments()) {
         if (!before.contains(documentId)) {
+            if (!m_recovered.contains(documentId)) {
+                m_recovered.append(documentId);
+            }
             emit dirtyChanged(documentId, libraryIdOf(documentId), true);
             emit documentReset(documentId);
+            // The file may have changed while Archivist was down.
+            reload(documentId);
         }
     }
 
     if (restored > 0) {
+        emit recoveredDocumentsChanged();
         emit dirtyDocumentsChanged();
         bump();
     }

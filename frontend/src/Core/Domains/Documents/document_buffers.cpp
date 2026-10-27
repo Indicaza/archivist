@@ -189,6 +189,25 @@ bool DocumentBuffers::reloadFromDisk(const QString &documentId, const QString &t
     return true;
 }
 
+bool DocumentBuffers::adoptDiskBase(const QString &documentId, const QString &text, const QString &modifiedAt)
+{
+    auto it = m_buffers.find(documentId);
+
+    if (it == m_buffers.end()) {
+        return false;
+    }
+
+    it->savedText = text;
+    it->diskModifiedAt = modifiedAt;
+    it->diskChanged = false;
+
+    if (it->text == text) {
+        it->savedVersion = it->version;
+    }
+
+    return true;
+}
+
 bool DocumentBuffers::discard(const QString &documentId)
 {
     auto it = m_buffers.find(documentId);

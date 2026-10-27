@@ -5,6 +5,9 @@
 #include "Core/Domains/Workspace/workspace_presets.h"
 
 #include <QJsonDocument>
+#include <QUuid>
+#include <QDateTime>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QSet>
 
@@ -537,6 +540,12 @@ void WorkspaceStore::setCollection(const QString &collectionId)
 
     m_model = fresh;
     m_publishedModelRevision = m_model.revision();
+    m_layoutUndo = {};
+    m_layoutUndoId.clear();
+    m_currentLayoutId = collectionId.isEmpty()
+        ? QString()
+        : m_settings.value(QStringLiteral("workspace/collections/%1/docking/layoutId").arg(collectionId)).toString();
+    emit layoutsChanged();
     emit collectionIdChanged();
     publish();
     emit workspaceRestored(collectionId, fromSnapshot);
@@ -1356,13 +1365,96 @@ void WorkspaceStore::cancelDrag()
 
 bool WorkspaceStore::applyPreset(const QString &presetId)
 {
-    const QJsonObject layout = Presets::layout(presetId);
+    return applyLayout(presetId);
+}
 
-    if (layout.isEmpty()) {
-        emit operationFailed(QStringLiteral("Unknown layout."));
-        return false;
+QJsonArray WorkspaceStore::readSavedLayouts() const
+{
+    const QString text = m_settings.value(QStringLiteral("workspace/docking/layouts")).toString();
+    return QJsonDocument::fromJson(text.toUtf8()).array();
+}
+
+void WorkspaceStore::writeSavedLayouts(const QJsonArray &layouts)
+{
+    m_settings.setValue(QStringLiteral("workspace/docking/layouts"), QString::fromUtf8(QJsonDocument(layouts).toJson(QJsonDocument::Compact)));
+    emit layoutsChanged();
+}
+
+QVariantList WorkspaceStore::savedLayouts() const
+{
+    QVariantList list;
+
+    for (const QJsonValue &value : readSavedLayouts()) {
+        const QJsonObject entry = value.toObject();
+        list.append(QVariantMap{
+            {QStringLiteral("id"), entry.value(QStringLiteral("id")).toString()},
+            {QStringLiteral("name"), entry.value(QStringLiteral("name")).toString()},
+            {QStringLiteral("savedAt"), entry.value(QStringLiteral("savedAt")).toString()},
+        });
     }
 
+    return list;
+}
+
+QJsonObject WorkspaceStore::layoutDocument(const QString &layoutId) const
+{
+    const QJsonObject preset = Presets::layout(layoutId);
+
+    if (!preset.isEmpty()) {
+        return preset;
+    }
+
+    for (const QJsonValue &value : readSavedLayouts()) {
+        const QJsonObject entry = value.toObject();
+        if (entry.value(QStringLiteral("id")).toString() == layoutId) {
+            return entry.value(QStringLiteral("layout")).toObject();
+        }
+    }
+
+    return {};
+}
+
+QString WorkspaceStore::currentLayoutName() const
+{
+    if (m_currentLayoutId.isEmpty()) {
+        return {};
+    }
+
+    for (const Presets::Preset &preset : Presets::all()) {
+        if (preset.id == m_currentLayoutId) {
+            return preset.name;
+        }
+    }
+
+    for (const QJsonValue &value : readSavedLayouts()) {
+        const QJsonObject entry = value.toObject();
+        if (entry.value(QStringLiteral("id")).toString() == m_currentLayoutId) {
+            return entry.value(QStringLiteral("name")).toString();
+        }
+    }
+
+    return {};
+}
+
+void WorkspaceStore::setCurrentLayoutId(const QString &layoutId)
+{
+    m_currentLayoutId = layoutId;
+
+    if (!m_collectionId.isEmpty()) {
+        m_settings.setValue(QStringLiteral("workspace/collections/%1/docking/layoutId").arg(m_collectionId), layoutId);
+    }
+
+    emit layoutsChanged();
+}
+
+bool WorkspaceStore::applyLayoutDocument(const QJsonObject &layout, const QString &layoutId)
+{
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+
+    const QJsonObject before = Codec::captureLayout(m_model, QString());
+    const QString beforeId = m_currentLayoutId;
     const Codec::LoadReport report = Codec::applyLayout(layout, m_model);
 
     if (!report.ok) {
@@ -1370,6 +1462,187 @@ bool WorkspaceStore::applyPreset(const QString &presetId)
         return false;
     }
 
+    m_layoutUndo = before;
+    m_layoutUndoId = beforeId;
+    setCurrentLayoutId(layoutId);
     publish();
     return true;
+}
+
+bool WorkspaceStore::applyLayout(const QString &layoutId)
+{
+    const QJsonObject layout = layoutDocument(layoutId);
+
+    if (layout.isEmpty()) {
+        emit operationFailed(QStringLiteral("Unknown layout."));
+        return false;
+    }
+
+    if (!applyLayoutDocument(layout, layoutId)) {
+        return false;
+    }
+
+    emit layoutApplied(layoutId, currentLayoutName());
+    return true;
+}
+
+bool WorkspaceStore::undoLayout()
+{
+    if (m_layoutUndo.isEmpty()) {
+        return false;
+    }
+
+    const QJsonObject layout = m_layoutUndo;
+    const QString layoutId = m_layoutUndoId;
+    const bool ok = applyLayoutDocument(layout, layoutId);
+
+    if (ok) {
+        // Undoing an undo is just applying the layout again from the picker.
+        m_layoutUndo = {};
+        m_layoutUndoId.clear();
+        emit layoutsChanged();
+    }
+
+    return ok;
+}
+
+QString WorkspaceStore::saveLayout(const QString &name)
+{
+    const QString trimmed = name.trimmed();
+
+    if (trimmed.isEmpty()) {
+        emit operationFailed(QStringLiteral("A layout needs a name."));
+        return {};
+    }
+
+    QJsonArray layouts = readSavedLayouts();
+    QString id;
+
+    // Saving under an existing name replaces that layout.
+    for (int index = 0; index < layouts.size(); ++index) {
+        if (layouts.at(index).toObject().value(QStringLiteral("name")).toString().compare(trimmed, Qt::CaseInsensitive) == 0) {
+            id = layouts.at(index).toObject().value(QStringLiteral("id")).toString();
+            layouts.removeAt(index);
+            break;
+        }
+    }
+
+    if (id.isEmpty()) {
+        id = QStringLiteral("user.") + QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
+    }
+
+    layouts.append(QJsonObject{
+        {QStringLiteral("id"), id},
+        {QStringLiteral("name"), trimmed},
+        {QStringLiteral("savedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+        {QStringLiteral("layout"), Codec::captureLayout(m_model, trimmed)},
+    });
+    writeSavedLayouts(layouts);
+    setCurrentLayoutId(id);
+    return id;
+}
+
+bool WorkspaceStore::renameLayout(const QString &layoutId, const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    QJsonArray layouts = readSavedLayouts();
+
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+
+    for (int index = 0; index < layouts.size(); ++index) {
+        QJsonObject entry = layouts.at(index).toObject();
+        if (entry.value(QStringLiteral("id")).toString() == layoutId) {
+            entry.insert(QStringLiteral("name"), trimmed);
+            QJsonObject layout = entry.value(QStringLiteral("layout")).toObject();
+            layout.insert(QStringLiteral("name"), trimmed);
+            entry.insert(QStringLiteral("layout"), layout);
+            layouts.replace(index, entry);
+            writeSavedLayouts(layouts);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool WorkspaceStore::deleteLayout(const QString &layoutId)
+{
+    QJsonArray layouts = readSavedLayouts();
+
+    for (int index = 0; index < layouts.size(); ++index) {
+        if (layouts.at(index).toObject().value(QStringLiteral("id")).toString() == layoutId) {
+            layouts.removeAt(index);
+            writeSavedLayouts(layouts);
+            if (m_currentLayoutId == layoutId) {
+                setCurrentLayoutId(QString());
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+QVariantList WorkspaceStore::layoutPreview(const QString &layoutId) const
+{
+    WorkspaceModel temp;
+    const QJsonObject layout = layoutId.isEmpty() ? Codec::captureLayout(m_model, QString()) : layoutDocument(layoutId);
+
+    if (layout.isEmpty() || !Codec::applyLayout(layout, temp).ok) {
+        return {};
+    }
+
+    const QSizeF size(1000, 640);
+    LayoutMetrics metrics;
+    metrics.minimumAnchorWidth = 1;
+    metrics.minimumAnchorHeight = 1;
+    metrics.splitterThickness = 16;
+    const QString surfaceId = temp.primarySurfaceId();
+    const LayoutGeometry geometry = temp.computeGeometry(surfaceId, size, metrics);
+    QVariantList rects;
+
+    const auto kindOf = [](const QStringList &types) -> QString {
+        static const QList<QPair<QString, QString>> order = {
+            {QStringLiteral("archivist.chat"), QStringLiteral("chat")},
+            {QStringLiteral("archivist.editor"), QStringLiteral("editor")},
+            {QStringLiteral("archivist.diff"), QStringLiteral("diff")},
+            {QStringLiteral("archivist.preview"), QStringLiteral("preview")},
+            {QStringLiteral("archivist.terminal"), QStringLiteral("terminal")},
+        };
+        for (const auto &entry : order) {
+            if (types.contains(entry.first)) {
+                return entry.second;
+            }
+        }
+        return QStringLiteral("any");
+    };
+
+    for (const QString &anchorId : temp.anchorIds(surfaceId)) {
+        const AnchorRecord *anchor = temp.anchor(anchorId);
+        QStringList types = anchor ? anchor->roles : QStringList();
+
+        // Panels without roles: describe them by what they hold now.
+        if (types.isEmpty()) {
+            if (const AnchorRecord *live = m_model.anchor(anchorId)) {
+                for (const QString &viewId : live->views) {
+                    if (const ViewRecord *view = m_model.view(viewId)) {
+                        types.append(view->typeId);
+                    }
+                }
+            }
+        }
+
+        const QRectF rect = geometry.anchors.value(anchorId);
+        rects.append(QVariantMap{
+            {QStringLiteral("x"), rect.x() / size.width()},
+            {QStringLiteral("y"), rect.y() / size.height()},
+            {QStringLiteral("width"), rect.width() / size.width()},
+            {QStringLiteral("height"), rect.height() / size.height()},
+            {QStringLiteral("kind"), kindOf(types)},
+        });
+    }
+
+    return rects;
 }

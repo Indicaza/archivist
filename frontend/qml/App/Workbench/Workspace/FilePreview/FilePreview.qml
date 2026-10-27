@@ -15,6 +15,8 @@ Rectangle {
     required property bool loading
     required property string errorMessage
     property real leftObstruction: 0
+    // The docking workspace routes zoom keys to the focused view itself.
+    property bool zoomShortcutsEnabled: true
     // The Library (worktree) the shown file belongs to. Defaults follow the
     // global selection; docked previews pass their own.
     property string collectionId: String(CollectionStore.selectedCollectionId || "")
@@ -777,25 +779,25 @@ Rectangle {
 
     Shortcut {
         sequences: [ StandardKey.ZoomIn ]
-        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        enabled: root.zoomShortcutsEnabled && root.directRenderingAvailable && root.viewMode !== "source"
         onActivated: root.zoomActiveRendererIn()
     }
 
     Shortcut {
         sequence: "Ctrl+="
-        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        enabled: root.zoomShortcutsEnabled && root.directRenderingAvailable && root.viewMode !== "source"
         onActivated: root.zoomActiveRendererIn()
     }
 
     Shortcut {
         sequences: [ StandardKey.ZoomOut ]
-        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        enabled: root.zoomShortcutsEnabled && root.directRenderingAvailable && root.viewMode !== "source"
         onActivated: root.zoomActiveRendererOut()
     }
 
     Shortcut {
         sequence: "Ctrl+0"
-        enabled: root.directRenderingAvailable && root.viewMode !== "source"
+        enabled: root.zoomShortcutsEnabled && root.directRenderingAvailable && root.viewMode !== "source"
         onActivated: root.resetActiveRendererZoom()
     }
 

@@ -61,6 +61,71 @@ Item {
     readonly property bool filePreviewAttached: false
 
     property var anchorItems: ({})
+    property bool quietLayout: false
+    property var zoomTargets: ({})
+
+    function registerZoomTarget(viewId, item) {
+        zoomTargets[viewId] = item
+    }
+
+    function unregisterZoomTarget(viewId, item) {
+        if (zoomTargets[viewId] === item) {
+            delete zoomTargets[viewId]
+        }
+    }
+
+    // Ctrl+= / Ctrl+- / Ctrl+0: zoom the focused view only. Editors and
+    // terminals keep their zoom in the view's state, so it moves with them.
+    function zoomFocusedView(direction) {
+        var viewId = Docking.focusedViewId
+        if (viewId.length === 0) {
+            return
+        }
+        var view = Docking.view(viewId)
+        var preview = zoomTargets[viewId]
+        if (view.typeId === "archivist.preview" && preview) {
+            if (direction > 0) {
+                preview.zoomActiveRendererIn()
+            } else if (direction < 0) {
+                preview.zoomActiveRendererOut()
+            } else {
+                preview.resetActiveRendererZoom()
+            }
+            return
+        }
+        if (view.typeId !== "archivist.editor" && view.typeId !== "archivist.terminal") {
+            return
+        }
+        var steps = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+        var current = Number((view.state || {}).zoom || 1)
+        var index = 0
+        for (var i = 0; i < steps.length; i += 1) {
+            if (Math.abs(steps[i] - current) < Math.abs(steps[index] - current)) {
+                index = i
+            }
+        }
+        var next = direction === 0 ? 1 : steps[Math.max(0, Math.min(steps.length - 1, index + direction))]
+        Docking.mergeViewState(viewId, { zoom: next })
+        zoomBadge.show(Math.round(next * 100) + "%")
+    }
+
+    // Ctrl+Alt+= / - / 0: the size of the whole interface.
+    function stepInterfaceScale(direction) {
+        if (InterfaceScale.controlledByEnvironment) {
+            toast.show("Interface size is set by QT_SCALE_FACTOR")
+            return
+        }
+        var scale = direction === 0 ? InterfaceScale.reset() : InterfaceScale.step(direction)
+        var label = "Interface size " + Math.round(scale * 100) + "%"
+        if (InterfaceScale.restartNeeded) {
+            toast.show(label + " · applies after a restart", "Restart Now", function() {
+                Docking.saveNow()
+                InterfaceScale.restart()
+            })
+        } else {
+            toast.show(label)
+        }
+    }
     property var terminalItems: ({})
     property string preferredChatViewId: ""
     property string lastSelectionKey: ""
@@ -597,6 +662,44 @@ Item {
         return opened
     }
 
+    // Unsaved edits recovered after a crash always end up in front of the
+    // person: files no view shows any more get a tab in the target panel.
+    function surfaceRecoveredDocuments(collectionId) {
+        var recovered = Documents.recoveredDocuments || []
+        var reopened = 0
+        var inCollection = 0
+        for (var index = 0; index < recovered.length; index += 1) {
+            var documentId = String(recovered[index])
+            if (documentId.indexOf(collectionId + ":") !== 0) {
+                continue
+            }
+            inCollection += 1
+            Documents.reload(documentId)
+            if (Documents.holders(documentId).length > 0) {
+                continue
+            }
+            var snapshot = Documents.snapshot(documentId)
+            var path = String(snapshot.path || "")
+            var name = path.split("/").pop()
+            var dot = name.lastIndexOf(".")
+            var file = {
+                id: String(snapshot.fileId || ""),
+                name: name,
+                relativePath: path,
+                extension: dot > 0 ? name.slice(dot) : ""
+            }
+            var resource = root.documentResource(String(snapshot.libraryId || ""), file)
+            resource.id = documentId
+            Docking.openView("archivist.editor", resource, name)
+            reopened += 1
+        }
+        if (inCollection > 0) {
+            toast.show(inCollection === 1
+                ? "Recovered unsaved edits in 1 file"
+                : "Recovered unsaved edits in " + inCollection + " files")
+        }
+    }
+
     function restoreCollection() {
         var collectionId = String(CollectionStore.selectedCollectionId || "")
         if (collectionId.length > 0 && collectionId !== Docking.collectionId) {
@@ -607,6 +710,12 @@ Item {
     }
 
     Component.onCompleted: {
+        // Buffers recovered before this page existed: let the worktree
+        // badges know they are unsaved.
+        var dirty = Documents.dirtyDocuments || []
+        for (var index = 0; index < dirty.length; index += 1) {
+            WorktreeStore.setDocumentDirty(dirty[index], String(Documents.snapshot(dirty[index]).libraryId || ""), true)
+        }
         root.surfaceId = Docking.primarySurfaceId
         restoreCollection()
     }
@@ -626,11 +735,14 @@ Item {
         function onWorkspaceRestored(collectionId, fromSnapshot) {
             root.surfaceId = Docking.primarySurfaceId
             if (!fromSnapshot) {
+                root.quietLayout = true
                 Docking.applyPreset("development")
+                root.quietLayout = false
                 root.migrateLegacyTabs(collectionId)
             }
             var chats = Docking.viewIdsOfType("archivist.chat")
             root.preferredChatViewId = chats.length > 0 ? chats[0] : ""
+            Qt.callLater(root.surfaceRecoveredDocuments, collectionId)
         }
 
         function onRevisionChanged() {
@@ -645,6 +757,17 @@ Item {
 
         function onOperationFailed(message) {
             toast.show(message)
+        }
+
+        function onLayoutApplied(layoutId, name) {
+            if (root.quietLayout) {
+                return
+            }
+            toast.show("Switched to " + (name.length > 0 ? name : "layout"), "Undo", function() {
+                if (Docking.undoLayout()) {
+                    toast.show("Layout restored")
+                }
+            })
         }
     }
 
@@ -673,6 +796,14 @@ Item {
     }
 
     // ---- keyboard --------------------------------------------------------
+
+    Shortcut { sequences: ["Ctrl+=", "Ctrl++", StandardKey.ZoomIn]; context: Qt.WindowShortcut; onActivated: root.zoomFocusedView(1) }
+    Shortcut { sequences: ["Ctrl+-", StandardKey.ZoomOut]; context: Qt.WindowShortcut; onActivated: root.zoomFocusedView(-1) }
+    Shortcut { sequence: "Ctrl+0"; context: Qt.WindowShortcut; onActivated: root.zoomFocusedView(0) }
+    // Ctrl+Shift+= is Ctrl++ on most keyboards, so the interface size uses Alt.
+    Shortcut { sequences: ["Ctrl+Alt+=", "Ctrl+Alt++"]; context: Qt.WindowShortcut; onActivated: root.stepInterfaceScale(1) }
+    Shortcut { sequence: "Ctrl+Alt+-"; context: Qt.WindowShortcut; onActivated: root.stepInterfaceScale(-1) }
+    Shortcut { sequence: "Ctrl+Alt+0"; context: Qt.WindowShortcut; onActivated: root.stepInterfaceScale(0) }
 
     Shortcut {
         sequence: "Escape"
@@ -871,24 +1002,79 @@ Item {
         onTriggered: root.resizingSurface = false
     }
 
-    // A short note when an operation is refused.
+    // A brief zoom readout over the focused panel.
+    Rectangle {
+        id: zoomBadge
+
+        property string label: ""
+        readonly property var target: root.anchorItems[Docking.focusedAnchorId] || null
+
+        function show(text) {
+            label = text
+            opacity = 1
+            zoomBadgeTimer.restart()
+        }
+
+        x: target ? area.x + target.x + (target.width - width) / 2 : 0
+        y: target ? area.y + target.y + (target.height - height) / 2 : 0
+        z: 210
+        width: zoomBadgeText.implicitWidth + 32
+        height: 40
+        radius: 12
+        color: Qt.rgba(0.08, 0.075, 0.07, 0.86)
+        border.width: 1
+        border.color: root.theme.panelBorder
+        opacity: 0
+        visible: opacity > 0.01
+        scale: opacity > 0.5 ? 1 : 0.92
+
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+        Behavior on scale { enabled: !root.theme.reducedMotion; NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
+
+        Text {
+            id: zoomBadgeText
+
+            anchors.centerIn: parent
+            text: zoomBadge.label
+            color: root.theme.appText
+            font.family: root.theme.bodyFontFamily
+            font.pixelSize: root.theme.textPanelTitleSize - 4
+            font.weight: root.theme.textWeightEmphasis
+        }
+
+        Timer {
+            id: zoomBadgeTimer
+            interval: 900
+            onTriggered: zoomBadge.opacity = 0
+        }
+    }
+
+    // Short confirmations, optionally with one action (Undo).
     Rectangle {
         id: toast
 
         property string message: ""
+        property string actionText: ""
+        property var action: null
 
-        function show(text) {
+        function show(text, actionLabel, actionCallback) {
             message = String(text || "")
+            actionText = actionLabel ? String(actionLabel) : ""
+            action = actionCallback || null
             opacity = 1
+            y = area.y + area.height - height - 14
+            toastTimer.interval = actionText.length > 0 ? 6000 : 2600
             toastTimer.restart()
         }
 
+        onOpacityChanged: if (opacity === 0) y = area.y + area.height
+
         anchors.horizontalCenter: area.horizontalCenter
-        y: 12
+        y: area.y + area.height
         z: 200
-        width: toastText.implicitWidth + 28
-        height: 30
-        radius: 15
+        width: toastRow.implicitWidth + 28
+        height: 32
+        radius: 16
         color: root.theme.controlSurfaceBg
         border.width: 1
         border.color: root.theme.panelBorder
@@ -896,14 +1082,55 @@ Item {
         visible: opacity > 0.01
 
         Behavior on opacity { NumberAnimation { duration: root.theme.motionPanel } }
+        Behavior on y { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4; damping: 0.35; epsilon: 0.2 } }
 
-        Text {
-            id: toastText
+        HoverHandler {
+            id: toastHover
+            onHoveredChanged: hovered ? toastTimer.stop() : toastTimer.restart()
+        }
+
+        Row {
+            id: toastRow
+
             anchors.centerIn: parent
-            text: toast.message
-            color: root.theme.appText
-            font.family: root.theme.bodyFontFamily
-            font.pixelSize: root.theme.textCaptionSize
+            spacing: 12
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: toast.message
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+            }
+
+            Text {
+                id: toastAction
+
+                anchors.verticalCenter: parent.verticalCenter
+                visible: toast.actionText.length > 0
+                text: toast.actionText
+                color: toastActionArea.containsMouse ? root.theme.appText : root.theme.accentBright
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+                font.weight: root.theme.textWeightStrong
+
+                MouseArea {
+                    id: toastActionArea
+
+                    anchors.fill: parent
+                    anchors.margins: -6
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var callback = toast.action
+                        toast.opacity = 0
+                        toast.action = null
+                        if (callback) {
+                            callback()
+                        }
+                    }
+                }
+            }
         }
 
         Timer {

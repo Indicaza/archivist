@@ -25,6 +25,7 @@ class DocumentStore final : public QObject
     Q_OBJECT
     Q_PROPERTY(QStringList dirtyDocuments READ dirtyDocuments NOTIFY dirtyDocumentsChanged)
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
+    Q_PROPERTY(QStringList recoveredDocuments READ recoveredDocuments NOTIFY recoveredDocumentsChanged)
 
 public:
     explicit DocumentStore(QObject *parent = nullptr);
@@ -43,6 +44,9 @@ public:
 
     [[nodiscard]] QStringList dirtyDocuments() const;
     [[nodiscard]] int revision() const { return m_revision; }
+    // Documents whose unsaved text came back from crash recovery and has not
+    // been saved or discarded since.
+    [[nodiscard]] QStringList recoveredDocuments() const { return m_recovered; }
 
     // seed: {collectionId, libraryId, fileId, path, language}
     Q_INVOKABLE void retain(const QString &documentId, const QString &viewId, const QVariantMap &seed);
@@ -74,8 +78,13 @@ public:
     Q_INVOKABLE void save(const QString &documentId);
     Q_INVOKABLE void saveAll();
     Q_INVOKABLE void discard(const QString &documentId);
-    // Re-reads the file when the buffer is clean (after a change on disk).
+    // Re-reads the file. A clean buffer takes the new text; a dirty one is
+    // flagged (diskChanged) when the file moved on under it.
     Q_INVOKABLE void reload(const QString &documentId);
+    // The file changed on disk under unsaved edits. Keep the edits (the next
+    // save overwrites the outside change) or take the file as it is now.
+    Q_INVOKABLE void keepUnsavedOverDisk(const QString &documentId);
+    Q_INVOKABLE void takeDiskVersion(const QString &documentId);
 
     // Unsaved text for crash recovery.
     [[nodiscard]] QJsonArray encodeUnsaved() const;
@@ -105,6 +114,7 @@ signals:
     void documentSaved(const QString &documentId);
     void saveFailed(const QString &documentId, const QString &message);
     void revisionChanged();
+    void recoveredDocumentsChanged();
 
 private:
     struct Pending
@@ -115,6 +125,13 @@ private:
     };
 
     void load(const QString &documentId, const QVariantMap &seed);
+    void readFile(const QString &libraryId, const QString &fileId, const LoadCallback &done);
+    void forgetRecovered(const QString &documentId);
+    struct DiskState
+    {
+        QString text;
+        QString modifiedAt;
+    };
     void noteDirty(const QString &documentId, bool wasDirty);
     void bump();
 
@@ -127,4 +144,6 @@ private:
     Saver m_saver;
     Loader m_loader;
     int m_revision = 0;
+    QStringList m_recovered;
+    QHash<QString, DiskState> m_disk; // last text read from disk, per document
 };

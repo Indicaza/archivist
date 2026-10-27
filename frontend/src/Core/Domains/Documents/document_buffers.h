@@ -94,6 +94,9 @@ public:
     // Disk changed outside Archivist. Clean buffers take the new text; dirty
     // ones keep theirs and are flagged.
     bool reloadFromDisk(const QString &documentId, const QString &text, const QString &modifiedAt);
+    // Keeps the unsaved text but takes `text` as what is now on disk, so a
+    // later save overwrites the outside change on purpose.
+    bool adoptDiskBase(const QString &documentId, const QString &text, const QString &modifiedAt);
     // Throws away unsaved edits.
     bool discard(const QString &documentId);
     // Repoints a buffer after a rename or move inside its Library.
