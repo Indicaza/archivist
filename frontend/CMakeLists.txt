@@ -234,6 +234,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeRow.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeField.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeActionButton.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/AgentRunningBadge.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/WorkspaceNavigator.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/SidebarBandHeader.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionBand.qml

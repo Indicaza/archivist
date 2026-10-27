@@ -655,7 +655,9 @@ Rectangle {
     function gitBranchLabel() {
         var status = LibraryStore.gitStatus || ({})
 
-        if (LibraryStore.loadingGitStatus) {
+        // A refresh keeps showing the last answer (the dot dims); only a
+        // Library with no answer yet says it is checking.
+        if (LibraryStore.loadingGitStatus && status.repository === undefined) {
             return "Checking Git…"
         }
 
