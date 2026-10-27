@@ -35,7 +35,6 @@
 
 int main(int argc, char *argv[])
 {
-    InterfaceScale::applyAtStartup();
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);

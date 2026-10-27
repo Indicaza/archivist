@@ -62,70 +62,6 @@ Item {
 
     property var anchorItems: ({})
     property bool quietLayout: false
-    property var zoomTargets: ({})
-
-    function registerZoomTarget(viewId, item) {
-        zoomTargets[viewId] = item
-    }
-
-    function unregisterZoomTarget(viewId, item) {
-        if (zoomTargets[viewId] === item) {
-            delete zoomTargets[viewId]
-        }
-    }
-
-    // Ctrl+= / Ctrl+- / Ctrl+0: zoom the focused view only. Editors and
-    // terminals keep their zoom in the view's state, so it moves with them.
-    function zoomFocusedView(direction) {
-        var viewId = Docking.focusedViewId
-        if (viewId.length === 0) {
-            return
-        }
-        var view = Docking.view(viewId)
-        var preview = zoomTargets[viewId]
-        if (view.typeId === "archivist.preview" && preview) {
-            if (direction > 0) {
-                preview.zoomActiveRendererIn()
-            } else if (direction < 0) {
-                preview.zoomActiveRendererOut()
-            } else {
-                preview.resetActiveRendererZoom()
-            }
-            return
-        }
-        if (view.typeId !== "archivist.editor" && view.typeId !== "archivist.terminal") {
-            return
-        }
-        var steps = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
-        var current = Number((view.state || {}).zoom || 1)
-        var index = 0
-        for (var i = 0; i < steps.length; i += 1) {
-            if (Math.abs(steps[i] - current) < Math.abs(steps[index] - current)) {
-                index = i
-            }
-        }
-        var next = direction === 0 ? 1 : steps[Math.max(0, Math.min(steps.length - 1, index + direction))]
-        Docking.mergeViewState(viewId, { zoom: next })
-        zoomBadge.show(Math.round(next * 100) + "%")
-    }
-
-    // Ctrl+Alt+= / - / 0: the size of the whole interface.
-    function stepInterfaceScale(direction) {
-        if (InterfaceScale.controlledByEnvironment) {
-            toast.show("Interface size is set by QT_SCALE_FACTOR")
-            return
-        }
-        var scale = direction === 0 ? InterfaceScale.reset() : InterfaceScale.step(direction)
-        var label = "Interface size " + Math.round(scale * 100) + "%"
-        if (InterfaceScale.restartNeeded) {
-            toast.show(label + " · applies after a restart", "Restart Now", function() {
-                Docking.saveNow()
-                InterfaceScale.restart()
-            })
-        } else {
-            toast.show(label)
-        }
-    }
     property var terminalItems: ({})
     property string preferredChatViewId: ""
     property string lastSelectionKey: ""
@@ -797,13 +733,15 @@ Item {
 
     // ---- keyboard --------------------------------------------------------
 
-    Shortcut { sequences: ["Ctrl+=", "Ctrl++", StandardKey.ZoomIn]; context: Qt.WindowShortcut; onActivated: root.zoomFocusedView(1) }
-    Shortcut { sequences: ["Ctrl+-", StandardKey.ZoomOut]; context: Qt.WindowShortcut; onActivated: root.zoomFocusedView(-1) }
-    Shortcut { sequence: "Ctrl+0"; context: Qt.WindowShortcut; onActivated: root.zoomFocusedView(0) }
-    // Ctrl+Shift+= is Ctrl++ on most keyboards, so the interface size uses Alt.
-    Shortcut { sequences: ["Ctrl+Alt+=", "Ctrl+Alt++"]; context: Qt.WindowShortcut; onActivated: root.stepInterfaceScale(1) }
-    Shortcut { sequence: "Ctrl+Alt+-"; context: Qt.WindowShortcut; onActivated: root.stepInterfaceScale(-1) }
-    Shortcut { sequence: "Ctrl+Alt+0"; context: Qt.WindowShortcut; onActivated: root.stepInterfaceScale(0) }
+    // Cmd/Ctrl + = - 0 size the whole interface (InterfaceScale catches
+    // the keys application-wide, even inside editors and terminals).
+    Connections {
+        target: InterfaceScale
+
+        function onScaleChanged() {
+            zoomBadge.show(Math.round(InterfaceScale.scale * 100) + "%")
+        }
+    }
 
     Shortcut {
         sequence: "Escape"
@@ -1002,12 +940,22 @@ Item {
         onTriggered: root.resizingSurface = false
     }
 
-    // A brief zoom readout over the focused panel.
+    // A brief readout of the interface size, like a browser's zoom bubble:
+    // a percentage and a meter on the size ladder.
     Rectangle {
         id: zoomBadge
 
         property string label: ""
-        readonly property var target: root.anchorItems[Docking.focusedAnchorId] || null
+        readonly property var ladder: [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
+        readonly property int position: {
+            var best = 0
+            for (var index = 0; index < ladder.length; index += 1) {
+                if (Math.abs(ladder[index] - InterfaceScale.scale) < Math.abs(ladder[best] - InterfaceScale.scale)) {
+                    best = index
+                }
+            }
+            return best
+        }
 
         function show(text) {
             label = text
@@ -1015,36 +963,89 @@ Item {
             zoomBadgeTimer.restart()
         }
 
-        x: target ? area.x + target.x + (target.width - width) / 2 : 0
-        y: target ? area.y + target.y + (target.height - height) / 2 : 0
+        anchors.horizontalCenter: area.horizontalCenter
+        y: area.y + 18
         z: 210
-        width: zoomBadgeText.implicitWidth + 32
-        height: 40
-        radius: 12
-        color: Qt.rgba(0.08, 0.075, 0.07, 0.86)
+        width: Math.max(150, zoomBadgeRow.implicitWidth + 36)
+        height: 58
+        radius: 14
+        color: Qt.rgba(0.08, 0.075, 0.07, 0.9)
         border.width: 1
         border.color: root.theme.panelBorder
         opacity: 0
         visible: opacity > 0.01
-        scale: opacity > 0.5 ? 1 : 0.92
+        scale: opacity > 0.5 ? 1 : 0.94
 
-        Behavior on opacity { NumberAnimation { duration: 140 } }
-        Behavior on scale { enabled: !root.theme.reducedMotion; NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 160 } }
+        Behavior on scale { enabled: !root.theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
 
-        Text {
-            id: zoomBadgeText
+        HoverHandler {
+            onHoveredChanged: hovered ? zoomBadgeTimer.stop() : zoomBadgeTimer.restart()
+        }
 
-            anchors.centerIn: parent
-            text: zoomBadge.label
-            color: root.theme.appText
-            font.family: root.theme.bodyFontFamily
-            font.pixelSize: root.theme.textPanelTitleSize - 4
-            font.weight: root.theme.textWeightEmphasis
+        Row {
+            id: zoomBadgeRow
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 9
+            spacing: 10
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: zoomBadge.label
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textPanelTitleSize - 4
+                font.weight: root.theme.textWeightEmphasis
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: Math.abs(InterfaceScale.scale - 1) > 0.001
+                text: Qt.platform.os === "osx" ? "⌘0 resets" : "Ctrl+0 resets"
+                color: root.theme.mutedText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textMetadataSize
+            }
+        }
+
+        // Where this size sits on the ladder; the dot glides between steps.
+        Item {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height - 15
+            width: parent.width - 36
+            height: 6
+
+            Repeater {
+                model: zoomBadge.ladder.length
+
+                Rectangle {
+                    required property int index
+
+                    x: index * (parent.width - 4) / (zoomBadge.ladder.length - 1)
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 4
+                    height: zoomBadge.ladder[index] === 1 ? 6 : 4
+                    radius: 2
+                    color: index <= zoomBadge.position ? root.theme.accent : root.theme.panelBorder
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                }
+            }
+
+            Rectangle {
+                width: 10
+                height: 10
+                radius: 5
+                anchors.verticalCenter: parent.verticalCenter
+                x: zoomBadge.position * (parent.width - 4) / (zoomBadge.ladder.length - 1) - 3
+                color: root.theme.accentBright
+                Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4; damping: 0.4; epsilon: 0.25 } }
+            }
         }
 
         Timer {
             id: zoomBadgeTimer
-            interval: 900
+            interval: 1400
             onTriggered: zoomBadge.opacity = 0
         }
     }

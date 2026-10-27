@@ -24,8 +24,6 @@ Item {
     // Synced editors set the whole document payload at once, so the page
     // never sees a half-updated document (new id with old text).
     property string documentJsonOverride: ""
-    // Page zoom (per view in the docking workspace); crisp, the page re-lays out.
-    property real zoom: 1.0
 
     signal dirtyStateReported(string documentId, bool dirty)
     signal terminalStateReported(
@@ -303,7 +301,6 @@ Item {
         url: root.surfaceUrl
         webChannel: channel
         backgroundColor: root.theme.workspaceBg
-        zoomFactor: root.zoom
         focus: root.visible
         focusPolicy: Qt.WheelFocus
         activeFocusOnPress: true

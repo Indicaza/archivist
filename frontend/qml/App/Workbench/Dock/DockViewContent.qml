@@ -23,7 +23,6 @@ Item {
     required property string libraryId
     required property var details
     required property var viewState
-    readonly property real zoom: Number((viewState || {}).zoom || 1)
     required property string anchorId
     required property bool isActive
     required property bool isHidden
@@ -161,9 +160,6 @@ Item {
             leftObstruction: 0
             zoomShortcutsEnabled: false
 
-            Component.onCompleted: root.workspace.registerZoomTarget(root.viewId, preview)
-            Component.onDestruction: root.workspace.unregisterZoomTarget(root.viewId, preview)
-
             onViewModeChanged: {
                 // "Edit source" turns this tab into the editor for the file.
                 if (viewMode === "source") {
@@ -180,7 +176,6 @@ Item {
         IdeHost {
             theme: root.theme
             activeSurface: "terminal"
-            zoom: root.zoom
             terminalCollectionId: root.collectionId
             terminalLibraryId: root.libraryId
             terminalSessionId: String(root.details.sessionId || "primary")

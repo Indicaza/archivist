@@ -356,11 +356,6 @@ Item {
         visible: root.shown && root.loaded
         theme: root.theme
         activeSurface: "editor"
-        zoom: {
-            Docking.revision
-            var state = root.viewId.length > 0 ? (Docking.view(root.viewId).state || {}) : {}
-            return Number(state.zoom || 1)
-        }
 
         onReadyChanged: {
             if (ready) {

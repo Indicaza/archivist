@@ -247,7 +247,7 @@ Popup {
                 Layout.fillWidth: true
                 text: InterfaceScale.controlledByEnvironment
                     ? "set by QT_SCALE_FACTOR"
-                    : InterfaceScale.restartNeeded ? "applies after a restart" : "Ctrl+Alt+= / − / 0"
+                    : Qt.platform.os === "osx" ? "⌘+  ⌘−  ⌘0" : "Ctrl +  −  0"
                 color: root.theme.mutedText
                 font.family: root.theme.bodyFontFamily
                 font.pixelSize: root.theme.textMetadataSize
@@ -260,7 +260,7 @@ Popup {
                 iconName: "zoom-out"
                 iconSize: 12
                 toolTipText: "Smaller"
-                enabled: !InterfaceScale.controlledByEnvironment
+                enabled: InterfaceScale.canShrink
                 onClicked: InterfaceScale.step(-1)
             }
 
@@ -281,19 +281,16 @@ Popup {
                 iconName: "zoom-in"
                 iconSize: 12
                 toolTipText: "Larger"
-                enabled: !InterfaceScale.controlledByEnvironment
+                enabled: InterfaceScale.canGrow
                 onClicked: InterfaceScale.step(1)
             }
 
             DockDialogButton {
-                visible: InterfaceScale.restartNeeded
+                visible: Math.abs(InterfaceScale.scale - 1) > 0.001
                 theme: root.theme
                 implicitHeight: 26
-                text: "Restart Now"
-                onClicked: {
-                    Docking.saveNow()
-                    InterfaceScale.restart()
-                }
+                text: "Reset"
+                onClicked: InterfaceScale.reset()
             }
         }
     }
