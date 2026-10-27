@@ -536,6 +536,21 @@ Library scans skip nested linked worktrees
 
 Journal evidence: `performed` means Archivist made the change and knows the actor (user saves and file operations, approved AI edits). `observed` means git status saw it change and the actor is unknown (`details.activeRunIds` lists runs that were active). `inferred` is reserved for later.
 
+### Docking workspace (in progress)
+
+The workspace is moving from one tab strip to dockable Anchors (tab groups) in a recursive split tree, across any number of native windows. Model and rules: `frontend/src/Core/Domains/Workspace/README.md`. Canonical document text: `Core/Domains/Documents/document_buffers`.
+
+```text
+Core/Domains/Workspace/workspace_model      surfaces, split tree, anchors, views, drop rules, geometry
+Core/Domains/Workspace/workspace_codec      layout vs session vs snapshot JSON, forgiving loads
+Core/Domains/Workspace/workspace_presets    Development, AI Command, Code Review, Research,
+                                            Creative Workspace, Agent Observatory
+Core/Domains/Workspace/view_type_registry   versioned view contract (future plugin SDK)
+Core/Domains/Documents/document_buffers     shared, versioned buffers; dirty text outlives views
+```
+
+Rules: layout operations never touch resources; only closeView/closeAnchor remove views and callers guard them; closing a floating window moves its views home; a view keeps its own worktree; live views reparent inside a window and rebuild from view state across windows.
+
 ## 13. Current branch: feature/ai-edit-transactions
 
 This branch adds Archivist's first human-approved local mutation boundary on top of the grounded AI tool runtime:

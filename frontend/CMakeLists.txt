@@ -102,6 +102,17 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Worktrees/workspace_change_journal.h
     src/Core/Domains/Worktrees/worktree_repository.cpp
     src/Core/Domains/Worktrees/worktree_repository.h
+    src/Core/Domains/Workspace/workspace_types.h
+    src/Core/Domains/Workspace/view_type_registry.cpp
+    src/Core/Domains/Workspace/view_type_registry.h
+    src/Core/Domains/Workspace/workspace_model.cpp
+    src/Core/Domains/Workspace/workspace_model.h
+    src/Core/Domains/Workspace/workspace_codec.cpp
+    src/Core/Domains/Workspace/workspace_codec.h
+    src/Core/Domains/Workspace/workspace_presets.cpp
+    src/Core/Domains/Workspace/workspace_presets.h
+    src/Core/Domains/Documents/document_buffers.cpp
+    src/Core/Domains/Documents/document_buffers.h
     src/Core/Support/core_values.h
     src/Core/Support/js_compat.h
     src/Core/Support/secret_store.cpp
@@ -407,4 +418,14 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-ide-test PRIVATE archivist-core Qt6::Network Qt6::Test)
     set_target_properties(core-ide-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-ide-test COMMAND core-ide-test)
+
+    qt_add_executable(core-workspace-test tests/core_workspace_test.cpp)
+    target_link_libraries(core-workspace-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-workspace-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-workspace-test COMMAND core-workspace-test)
+
+    qt_add_executable(core-document-buffers-test tests/core_document_buffers_test.cpp)
+    target_link_libraries(core-document-buffers-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-document-buffers-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-document-buffers-test COMMAND core-document-buffers-test)
 endif()
