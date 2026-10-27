@@ -4,6 +4,7 @@
 #include "Core/Domains/Libraries/library_file_policy.h"
 #include "Core/Domains/Libraries/library_file_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
+#include "Core/Domains/Worktrees/workspace_change_journal.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"
 #include "Core/core_error.h"
@@ -14,6 +15,7 @@
 #include <QFile>
 #include <QHash>
 #include <QSet>
+#include <QtDebug>
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
@@ -869,6 +871,75 @@ QVariantList uniquePaths(const QVariantList &changes)
 }
 }
 
+namespace
+{
+// Records what an approved (or undone) AI edit did to the worktree's files in
+// the workspace change journal. These are changes Archivist performed itself
+// on the agent's behalf, so they carry the run, chat, agent and proposal. The
+// journal is a record, not part of the transaction: a failure here never undoes
+// or fails the edit.
+void journalEditChanges(CoreDatabase &database, const QVariantMap &proposal, const QVariantList &changes, bool undo)
+{
+    const QString libraryId = proposal.value(QStringLiteral("libraryId")).toString();
+
+    if (libraryId.isEmpty()) {
+        return;
+    }
+
+    QList<WorkspaceChangeJournal::Event> events;
+
+    for (const QVariant &value : changes) {
+        const QVariantMap change = value.toMap();
+        const QString type = change.value(QStringLiteral("type")).toString();
+        const QString source = isNullish(change.value(QStringLiteral("sourcePath"))) ? QString() : change.value(QStringLiteral("sourcePath")).toString();
+        const QString destination =
+            isNullish(change.value(QStringLiteral("destinationPath"))) ? QString() : change.value(QStringLiteral("destinationPath")).toString();
+        WorkspaceChangeJournal::Event event;
+        event.evidence = QStringLiteral("performed");
+        event.actorType = QStringLiteral("agent");
+        event.actorId = proposal.value(QStringLiteral("agentId")).toString();
+        event.runId = proposal.value(QStringLiteral("runId")).toString();
+        event.chatId = proposal.value(QStringLiteral("chatId")).toString();
+        event.proposalId = proposal.value(QStringLiteral("id")).toString();
+        event.details = {
+            {QStringLiteral("operationId"), change.value(QStringLiteral("operationId"))},
+            {QStringLiteral("operationType"), type},
+            {QStringLiteral("direction"), undo ? QStringLiteral("undo") : QStringLiteral("apply")},
+            {QStringLiteral("approvedBy"), QStringLiteral("user")},
+        };
+
+        if (type == QStringLiteral("rename_file") || type == QStringLiteral("move_file")) {
+            event.kind = QStringLiteral("file.renamed");
+            event.previousPath = source;
+            event.path = destination;
+        } else if (type == QStringLiteral("patch_file")) {
+            event.kind = QStringLiteral("file.modified");
+            event.path = source;
+        } else if (undo) {
+            event.kind = QStringLiteral("file.deleted");
+            event.path = source;
+
+            if (type == QStringLiteral("create_directory")) {
+                event.details.insert(QStringLiteral("directory"), true);
+            }
+        } else {
+            event.kind = type == QStringLiteral("create_directory") ? QStringLiteral("directory.created") : QStringLiteral("file.created");
+            event.path = destination;
+        }
+
+        const QVariant hash = change.value(undo ? QStringLiteral("restoredHash") : QStringLiteral("afterHash"));
+        event.afterHash = isNullish(hash) ? QString() : hash.toString();
+        events.append(event);
+    }
+
+    try {
+        WorkspaceChangeJournal::appendAll(database, libraryId, events);
+    } catch (const std::exception &error) {
+        qWarning().noquote() << "[Workspace journal] AI edit changes were not recorded:" << errorMessage(error);
+    }
+}
+}
+
 namespace AIEditTransactions
 {
 QVariantMap reject(CoreDatabase &database, const QString &proposalId, const EventSink &sink)
@@ -1056,6 +1127,7 @@ QVariantMap approve(CoreDatabase &database, const QString &proposalId, const std
         {QStringLiteral("writesPerformed"), true},
         {QStringLiteral("writesRetained"), true},
     });
+    journalEditChanges(database, completed, changes, false);
 
     const QVariantMap synchronization = synchronize(database, completed, true);
     QVariantMap payload = synchronizationPayload(synchronization);
@@ -1226,6 +1298,7 @@ QVariantMap undo(CoreDatabase &database, const QString &proposalId, const EventS
         {QStringLiteral("writesPerformed"), true},
         {QStringLiteral("forwardChangesRetained"), false},
     });
+    journalEditChanges(database, undone, changes, true);
 
     const QVariantMap synchronization = synchronize(database, undone, false);
     QVariantMap payload = synchronizationPayload(synchronization);

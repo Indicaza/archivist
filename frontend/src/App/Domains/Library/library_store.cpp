@@ -5,14 +5,17 @@
 #include "Core/Domains/Libraries/library_file_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
+#include "Core/Domains/Worktrees/workspace_change_journal.h"
 #include "Core/core_runtime.h"
 
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMimeDatabase>
 #include <QSet>
+#include <QtDebug>
 
 namespace
 {
@@ -22,6 +25,37 @@ QVariant withCatalog(CoreDatabase &database, const QString &libraryId, const QSt
     QVariantMap response = LibraryFiles::catalogWithDirectories(database, libraryId);
     response.insert(key, value);
     return response;
+}
+
+// Explorer and editor changes the user made through Archivist, for the
+// workspace change journal. Recording never fails the change itself.
+void recordUserChange(
+    CoreDatabase &database,
+    const QString &libraryId,
+    const QString &kind,
+    const QString &path,
+    const QString &previousPath = {},
+    const QString &afterHash = {}
+)
+{
+    try {
+        WorkspaceChangeJournal::Event event;
+        event.kind = kind;
+        event.evidence = QStringLiteral("performed");
+        event.actorType = QStringLiteral("user");
+        event.path = path;
+        event.previousPath = previousPath;
+        event.afterHash = afterHash;
+        WorkspaceChangeJournal::append(database, libraryId, event);
+    } catch (const std::exception &error) {
+        qWarning().noquote() << "[Workspace journal] change not recorded:" << error.what();
+    }
+}
+
+QString relativePathOf(CoreDatabase &database, const QString &libraryId, const QString &fileId)
+{
+    const auto file = LibraryFileRepository::fileById(database, libraryId, fileId);
+    return file ? file->value(QStringLiteral("relativePath")).toString() : QString();
 }
 
 QString coreUnavailableMessage()
@@ -680,6 +714,31 @@ void LibraryStore::selectLibraryAndScan(const QString &libraryId)
     selectLibrary(libraryId);
 }
 
+void LibraryStore::selectLibraryAndReconcile(const QString &libraryId)
+{
+    if (libraryId.isEmpty() || !containsLibrary(libraryId)) {
+        return;
+    }
+
+    if (libraryId == m_selectedLibraryId && m_pendingLibrarySelectionId.isEmpty()) {
+        m_reconcileLibraryId.clear();
+        scanSelectedLibrary();
+        return;
+    }
+
+    m_reconcileLibraryId = libraryId;
+    selectLibrary(libraryId);
+}
+
+void LibraryStore::includeLibrary(const QVariantMap &library)
+{
+    if (library.value(QStringLiteral("id")).toString().isEmpty()) {
+        return;
+    }
+
+    upsertLibrary(library);
+}
+
 void LibraryStore::refreshSelectedFiles()
 {
     if (m_selectedLibraryId.isEmpty()) {
@@ -732,6 +791,13 @@ void LibraryStore::refreshSelectedFiles()
             setDirectories(catalog.value(QStringLiteral("directories")).toList());
             setLatestScan(catalog.value(QStringLiteral("latestScan")).toMap());
             setLoadingFiles(false);
+
+            if (m_reconcileLibraryId == requestedLibraryId) {
+                m_reconcileLibraryId.clear();
+                scanSelectedLibrary();
+                return;
+            }
+
             refreshSelectedGitStatus();
         }
     );
@@ -899,7 +965,9 @@ void LibraryStore::moveFile(const QString &fileId, const QString &targetDirector
 
     core->run(
         [libraryId, fileId, targetDirectory](CoreDatabase &database) {
+            const QString previousPath = relativePathOf(database, libraryId, fileId);
             const QVariantMap file = LibraryFileOperations::moveFile(database, libraryId, fileId, targetDirectory);
+            recordUserChange(database, libraryId, QStringLiteral("file.renamed"), file.value(QStringLiteral("relativePath")).toString(), previousPath);
             return withCatalog(database, libraryId, QStringLiteral("file"), file);
         },
         this,
@@ -954,6 +1022,12 @@ void LibraryStore::createEntry(
     core->run(
         [libraryId, parentDirectory, name, directory](CoreDatabase &database) {
             const QVariantMap entry = LibraryFileOperations::createEntry(database, libraryId, parentDirectory, name, directory);
+            recordUserChange(
+                database,
+                libraryId,
+                directory ? QStringLiteral("directory.created") : QStringLiteral("file.created"),
+                entry.value(QStringLiteral("relativePath")).toString()
+            );
             return withCatalog(database, libraryId, QStringLiteral("entry"), entry);
         },
         this,
@@ -1007,7 +1081,9 @@ void LibraryStore::renameFile(const QString &fileId, const QString &name)
 
     core->run(
         [libraryId, fileId, name](CoreDatabase &database) {
+            const QString previousPath = relativePathOf(database, libraryId, fileId);
             const QVariantMap file = LibraryFileOperations::renameFile(database, libraryId, fileId, name);
+            recordUserChange(database, libraryId, QStringLiteral("file.renamed"), file.value(QStringLiteral("relativePath")).toString(), previousPath);
             return withCatalog(database, libraryId, QStringLiteral("file"), file);
         },
         this,
@@ -1062,6 +1138,7 @@ void LibraryStore::duplicateFile(const QString &fileId, const QString &name)
     core->run(
         [libraryId, fileId, name](CoreDatabase &database) {
             const QVariantMap file = LibraryFileOperations::duplicateFile(database, libraryId, fileId, name);
+            recordUserChange(database, libraryId, QStringLiteral("file.created"), file.value(QStringLiteral("relativePath")).toString());
             return withCatalog(database, libraryId, QStringLiteral("file"), file);
         },
         this,
@@ -1431,17 +1508,33 @@ void LibraryStore::saveFileContent(
     const QString &expectedModifiedAt
 )
 {
+    if (m_activeFileLibraryId.isEmpty() || fileId != m_selectedFileId) {
+        return;
+    }
+
+    saveDocumentContent(m_activeFileLibraryId, fileId, content, expectedModifiedAt);
+}
+
+void LibraryStore::saveDocumentContent(
+    const QString &libraryId,
+    const QString &fileId,
+    const QString &content,
+    const QString &expectedModifiedAt
+)
+{
+    // The editor names the document's own Library (its worktree); the save
+    // never follows whichever Library or worktree the UI shows right now.
+    const QString saveKey = libraryId + QLatin1Char(':') + fileId;
+
     if (
-        m_savingFile
-        || m_activeFileLibraryId.isEmpty()
+        libraryId.isEmpty()
         || fileId.isEmpty()
         || expectedModifiedAt.isEmpty()
-        || fileId != m_selectedFileId
+        || m_savesInFlight.contains(saveKey)
     ) {
         return;
     }
 
-    const QString libraryId = m_activeFileLibraryId;
     CoreRuntime *core = CoreRuntime::active();
 
     if (!core) {
@@ -1451,16 +1544,30 @@ void LibraryStore::saveFileContent(
     }
 
     setFileSaveError({});
+    m_savesInFlight.insert(saveKey);
     setSavingFile(true);
-    m_watcherSuppressionTimer.start();
+
+    if (libraryId == m_selectedLibraryId) {
+        m_watcherSuppressionTimer.start();
+    }
 
     core->run(
         [libraryId, fileId, content, expectedModifiedAt](CoreDatabase &database) {
-            return QVariant(LibraryFileOperations::writeText(database, libraryId, fileId, content, expectedModifiedAt));
+            const QVariantMap preview = LibraryFileOperations::writeText(database, libraryId, fileId, content, expectedModifiedAt);
+            recordUserChange(
+                database,
+                libraryId,
+                QStringLiteral("file.modified"),
+                preview.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath")).toString(),
+                {},
+                QString::fromLatin1(QCryptographicHash::hash(content.toUtf8(), QCryptographicHash::Sha256).toHex())
+            );
+            return QVariant(preview);
         },
         this,
-        [this, libraryId, fileId](const CoreResult &result) {
-            setSavingFile(false);
+        [this, libraryId, fileId, saveKey](const CoreResult &result) {
+            m_savesInFlight.remove(saveKey);
+            setSavingFile(!m_savesInFlight.isEmpty());
 
             if (!result.ok) {
                 setFileSaveError(result.errorMessage);
@@ -1491,9 +1598,13 @@ void LibraryStore::saveFileContent(
             }
 
             setFileSaveError({});
-            m_watcherSuppressionTimer.start();
-            rebuildFileWatchers();
-            refreshSelectedGitStatus();
+
+            if (m_selectedLibraryId == libraryId) {
+                m_watcherSuppressionTimer.start();
+                rebuildFileWatchers();
+                refreshSelectedGitStatus();
+            }
+
             emit fileSaved(libraryId, fileId, preview);
         }
     );

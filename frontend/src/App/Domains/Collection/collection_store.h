@@ -58,6 +58,9 @@ public:
     );
     Q_INVOKABLE void archiveCollection(const QString &collectionId);
     Q_INVOKABLE void restoreCollection(const QString &collectionId);
+    // Reloads the selected Collection's scope, e.g. after a linked worktree
+    // Library joined it through its anchor.
+    Q_INVOKABLE void refreshScope();
     Q_INVOKABLE bool includesLibrary(const QString &libraryId) const;
     Q_INVOKABLE bool includesChat(const QString &chatId) const;
     Q_INVOKABLE bool isRosterAgent(const QString &agentId) const;

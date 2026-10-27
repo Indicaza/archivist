@@ -10,7 +10,9 @@
 // Native port of backend/src/api/libraries/models/Library.ts (the catalog:
 // list, create, rename, archive, restore). File scanning, reading and
 // indexing still run in the Node backend.
-// Libraries are {id, name, description, rootPath, archivedAt, createdAt, updatedAt}.
+// Libraries are {id, name, description, rootPath, archivedAt, createdAt, updatedAt,
+// worktreeOfLibraryId, worktreeRepositoryKey}; the last two are set only for a
+// linked Git worktree that Archivist opened from another Library.
 namespace LibraryRepository
 {
 [[nodiscard]] QVariantList activeLibraries(CoreDatabase &database);

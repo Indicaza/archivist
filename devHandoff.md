@@ -506,6 +506,36 @@ Collection ID
 
 Collection switching must wait for the target Collection and Library catalogs before restoring UI state.
 
+### Git worktrees
+
+A worktree Archivist works in is a Library of its own. `library_worktrees` links it to the anchor Library it was opened from, so everything keyed by Library id (catalog, text index, Explorer state, terminals, language servers, Chats, AI runs, edit transactions) is isolated per worktree without new plumbing.
+
+```text
+Core/Domains/Worktrees/git_worktrees        git worktree list/add/remove, status, safety checks
+Core/Domains/Worktrees/worktree_repository  Library linking, overview, create/open/remove/forget
+Core/Domains/Worktrees/workspace_change_journal  Agent Theater event contract and snapshots
+App/Domains/Worktree/worktree_store         QML state for the selector, run checkpoints, observation
+ExplorerDock/WorktreeBar                    selector at the bottom of the side panel
+```
+
+Rules that keep it safe:
+
+```text
+git is the source of truth for which worktrees exist; nothing about them is cached in SQLite
+every git call is git -C <dir> with GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE cleared
+removal never uses --force, never deletes branches, and is refused for dirty, conflicted,
+  locked, mid-operation, agent-running, unsaved-editor, main and anchor checkouts
+removing a worktree archives its Library, so its Chats survive
+document ids are collectionId:libraryId:fileId and editors save to the document they opened,
+  never to whichever worktree is on screen
+each worktree keeps its own tab set (workspace/collections/<c>/worktrees/<lib>/...);
+  Monaco models stay alive across switches so unsaved edits are kept
+AI runs record workspace root, repository key, branch and HEAD when they start
+Library scans skip nested linked worktrees
+```
+
+Journal evidence: `performed` means Archivist made the change and knows the actor (user saves and file operations, approved AI edits). `observed` means git status saw it change and the actor is unknown (`details.activeRunIds` lists runs that were active). `inferred` is reserved for later.
+
 ## 13. Current branch: feature/ai-edit-transactions
 
 This branch adds Archivist's first human-approved local mutation boundary on top of the grounded AI tool runtime:
@@ -637,7 +667,8 @@ LSP-backed model tools such as definition, references, inspection, and rename re
 release packaging, signing, notarization, and update delivery remain future work
 only one Library tree is shown at a time
 automatic retrieval currently searches the active Library
-tabs and Library contents are not worktree-scoped
+the worktree selector and per-worktree tab switching have no automated QML coverage
+the change journal has no consumer yet (Agent Theater playback is future work)
 split editor groups and dockable panes are not implemented
 ```
 

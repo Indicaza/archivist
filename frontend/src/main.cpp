@@ -18,6 +18,7 @@
 #include "App/Domains/Files/markdown_document_bridge.h"
 #include "App/Domains/Files/document_preview_service.h"
 #include "App/Domains/Library/library_store.h"
+#include "App/Domains/Worktree/worktree_store.h"
 #include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
 #include "Core/Domains/AI/ai_runtime.h"
@@ -88,6 +89,9 @@ int main(int argc, char *argv[])
     WorkspaceStateStore workspaceState;
     // Code colors imported from VS Code, TextMate and Sublime themes.
     CodeThemeLibrary codeThemes;
+    // Git worktrees of the selected Library's repository, for the selector at
+    // the bottom of the side panel.
+    WorktreeStore worktreeStore;
 
     QObject::connect(
         &chatStore,
@@ -99,6 +103,46 @@ int main(int argc, char *argv[])
             }
         }
     );
+    // The worktree selector follows the selected Library.
+    QObject::connect(
+        &libraryStore,
+        &LibraryStore::selectedLibraryIdChanged,
+        &worktreeStore,
+        [&libraryStore, &worktreeStore]() {
+            worktreeStore.setLibraryId(libraryStore.selectedLibraryId());
+        }
+    );
+    QObject::connect(
+        &libraryStore,
+        &LibraryStore::gitStatusChanged,
+        &worktreeStore,
+        &WorktreeStore::noteSelectedWorkspaceChanged
+    );
+    QObject::connect(
+        &aiRuntime,
+        &AIRuntime::runEvent,
+        &worktreeStore,
+        &WorktreeStore::handleRunEvent
+    );
+    QObject::connect(
+        &worktreeStore,
+        &WorktreeStore::worktreeOpened,
+        &libraryStore,
+        [&libraryStore, &collectionStore](const QVariantMap &library, bool) {
+            libraryStore.includeLibrary(library);
+            collectionStore.refreshScope();
+        }
+    );
+    QObject::connect(
+        &worktreeStore,
+        &WorktreeStore::librariesChanged,
+        &libraryStore,
+        [&libraryStore, &collectionStore]() {
+            libraryStore.refresh();
+            collectionStore.refreshScope();
+        }
+    );
+    worktreeStore.setLibraryId(libraryStore.selectedLibraryId());
     qmlRegisterType<DocumentPreviewService>(
         "Archivist.Services",
         1,
@@ -144,6 +188,7 @@ int main(int argc, char *argv[])
     );
 
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "CodeThemes", &codeThemes);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "WorktreeStore", &worktreeStore);
 
     QQmlApplicationEngine engine;
 

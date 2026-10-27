@@ -2,7 +2,9 @@
 
 #include "Core/Domains/Agents/agent_repository.h"
 #include "Core/Domains/Chats/chat_repository.h"
+#include "Core/Domains/Libraries/library_repository.h"
 #include "Core/Domains/Models/model_catalog_cache.h"
+#include "Core/Domains/Worktrees/worktree_repository.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"
 #include "Core/Support/json_values.h"
@@ -1213,7 +1215,18 @@ QVariantMap AIWorker::startChatRun(const QString &chatId, const QString &rawCont
     const QVariantMap generation = agent->value(QStringLiteral("generation")).toMap();
     const QVariantMap compiler = agent->value(QStringLiteral("context")).toMap().value(QStringLiteral("compiler")).toMap();
     const QVariant libraryId = chat->value(QStringLiteral("libraryId"));
+    // The run is bound to its Chat's Library (one worktree) for its whole
+    // life, whatever the UI shows meanwhile.
+    QVariantMap workspace;
+
+    if (!isNullish(libraryId)) {
+        if (const auto library = LibraryRepository::libraryById(m_database, libraryId.toString())) {
+            workspace = WorktreeRepository::executionContext(library->value(QStringLiteral("rootPath")).toString());
+        }
+    }
+
     const QVariantMap run = AIRunRepository::createRun(m_database, {
+        {QStringLiteral("workspace"), workspace},
         {QStringLiteral("chatId"), chatId},
         {QStringLiteral("libraryId"), libraryId},
         {QStringLiteral("agentId"), agentId},
@@ -1237,6 +1250,7 @@ QVariantMap AIWorker::startChatRun(const QString &chatId, const QString &rawCont
         {QStringLiteral("provider"), generation.value(QStringLiteral("provider"))},
         {QStringLiteral("model"), generation.value(QStringLiteral("model"))},
         {QStringLiteral("attachedFiles"), attachedFiles},
+        {QStringLiteral("workspace"), run.value(QStringLiteral("workspace"))},
     });
     QTimer::singleShot(0, job, [job]() { job->begin(); });
 

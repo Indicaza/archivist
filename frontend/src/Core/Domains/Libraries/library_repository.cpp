@@ -11,8 +11,13 @@ using namespace CoreValues;
 
 namespace
 {
-const QString libraryColumns =
-    QStringLiteral("id, name, description, root_path, archived_at, created_at, updated_at");
+const QString libraryColumns = QStringLiteral(
+    "id, name, description, root_path, archived_at, created_at, updated_at, "
+    "(SELECT anchor_library_id FROM library_worktrees WHERE library_worktrees.library_id = libraries.id) "
+    "AS worktree_anchor_library_id, "
+    "(SELECT repository_key FROM library_worktrees WHERE library_worktrees.library_id = libraries.id) "
+    "AS worktree_repository_key"
+);
 
 const QString nowSql = QStringLiteral("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
 
@@ -26,6 +31,9 @@ QVariantMap mapLibrary(const QVariantMap &row)
         {QStringLiteral("archivedAt"), nullable(row.value(QStringLiteral("archived_at")))},
         {QStringLiteral("createdAt"), row.value(QStringLiteral("created_at"))},
         {QStringLiteral("updatedAt"), row.value(QStringLiteral("updated_at"))},
+        // Set when this Library is a linked Git worktree of another Library.
+        {QStringLiteral("worktreeOfLibraryId"), nullable(row.value(QStringLiteral("worktree_anchor_library_id")))},
+        {QStringLiteral("worktreeRepositoryKey"), nullable(row.value(QStringLiteral("worktree_repository_key")))},
     };
 }
 

@@ -1261,6 +1261,100 @@ const migrations: Migration[] = [
       `);
     },
   },
+
+  {
+    version: 21,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE library_worktrees (
+          library_id TEXT PRIMARY KEY,
+          anchor_library_id TEXT NOT NULL,
+          repository_key TEXT NOT NULL CHECK (
+            length(trim(repository_key)) > 0
+          ),
+          worktree_path TEXT NOT NULL CHECK (
+            length(trim(worktree_path)) > 0
+          ),
+          library_prefix TEXT NOT NULL DEFAULT '',
+          origin TEXT NOT NULL CHECK (
+            origin IN ('created', 'opened')
+          ),
+          created_branch TEXT,
+          base_ref TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          CHECK (library_id != anchor_library_id),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (anchor_library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE INDEX library_worktrees_anchor_index
+          ON library_worktrees(anchor_library_id);
+
+        CREATE INDEX library_worktrees_repository_index
+          ON library_worktrees(repository_key);
+
+        CREATE TABLE workspace_change_events (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT NOT NULL UNIQUE,
+          library_id TEXT NOT NULL,
+          repository_key TEXT,
+          occurred_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+          evidence TEXT NOT NULL CHECK (
+            evidence IN ('observed', 'performed', 'inferred')
+          ),
+          actor_type TEXT NOT NULL CHECK (
+            actor_type IN ('user', 'agent', 'external', 'system', 'unknown')
+          ),
+          actor_id TEXT,
+          run_id TEXT,
+          chat_id TEXT,
+          proposal_id TEXT,
+          path TEXT,
+          previous_path TEXT,
+          before_hash TEXT,
+          after_hash TEXT,
+          details_json TEXT NOT NULL DEFAULT '{}',
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (run_id)
+            REFERENCES ai_runs(id)
+            ON DELETE SET NULL
+        );
+
+        CREATE INDEX workspace_change_events_library_sequence_index
+          ON workspace_change_events(library_id, sequence);
+
+        CREATE INDEX workspace_change_events_run_sequence_index
+          ON workspace_change_events(run_id, sequence)
+          WHERE run_id IS NOT NULL;
+
+        ALTER TABLE ai_runs
+        ADD COLUMN workspace_root TEXT;
+
+        ALTER TABLE ai_runs
+        ADD COLUMN repository_key TEXT;
+
+        ALTER TABLE ai_runs
+        ADD COLUMN worktree_branch TEXT;
+
+        ALTER TABLE ai_runs
+        ADD COLUMN worktree_head TEXT;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

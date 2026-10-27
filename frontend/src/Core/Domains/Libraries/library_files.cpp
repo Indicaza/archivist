@@ -4,6 +4,7 @@
 #include "library_file_repository.h"
 #include "library_repository.h"
 #include "library_text_chunker.h"
+#include "Core/Domains/Worktrees/git_worktrees.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"
 #include "Core/core_error.h"
@@ -158,7 +159,10 @@ void scanDirectory(const QString &rootPath, const QString &relativeDirectory, Sc
                 continue;
             }
 
-            if (LibraryFilePolicy::isIgnoredScanDirectory(name) || !LibraryFilePolicy::isCatalogableDirectory(name)) {
+            // Another Git worktree nested inside this folder is its own
+            // workspace; scanning it here would mix two checkouts.
+            if (LibraryFilePolicy::isIgnoredScanDirectory(name) || !LibraryFilePolicy::isCatalogableDirectory(name)
+                || GitWorktrees::isLinkedWorktreeRoot(entry.absoluteFilePath())) {
                 ++accumulator.ignoredEntryCount;
                 continue;
             }
@@ -499,7 +503,7 @@ QStringList directories(CoreDatabase &database, const QString &libraryId)
             }
 
             if (LibraryFilePolicy::isIgnoredCatalogDirectory(name) || LibraryFilePolicy::isManagedPhotoLibraryDirectory(name)
-                || !LibraryFilePolicy::isCatalogableDirectory(name)) {
+                || !LibraryFilePolicy::isCatalogableDirectory(name) || GitWorktrees::isLinkedWorktreeRoot(entry.absoluteFilePath())) {
                 continue;
             }
 

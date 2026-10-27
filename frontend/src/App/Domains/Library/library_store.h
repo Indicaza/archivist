@@ -2,6 +2,7 @@
 
 #include <QFileSystemWatcher>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QTimer>
 #include <QUrl>
@@ -107,6 +108,19 @@ public:
         const QString &content,
         const QString &expectedModifiedAt
     );
+    // Saves one editor document into its own Library, whatever is selected.
+    Q_INVOKABLE void saveDocumentContent(
+        const QString &libraryId,
+        const QString &fileId,
+        const QString &content,
+        const QString &expectedModifiedAt
+    );
+    // Selects a Library, shows its stored catalog at once, then rescans it in
+    // the background so files changed while it was away (by an agent, a
+    // terminal, another app) replace the stored view.
+    Q_INVOKABLE void selectLibraryAndReconcile(const QString &libraryId);
+    // Adds or updates one Library in the list without reloading every Library.
+    Q_INVOKABLE void includeLibrary(const QVariantMap &library);
     Q_INVOKABLE void clearFilePreview();
 
 signals:
@@ -232,4 +246,6 @@ private:
     QString m_filePreviewError;
     QString m_fileSaveError;
     QString m_fileToReloadAfterScanId;
+    QString m_reconcileLibraryId;
+    QSet<QString> m_savesInFlight;
 };

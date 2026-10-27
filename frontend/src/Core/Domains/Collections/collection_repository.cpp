@@ -589,6 +589,30 @@ QVariantMap scope(CoreDatabase &database, const QString &collectionId)
 
     const QStringList activeLibraryIds = activeIds(QStringLiteral("libraries"), referencedLibraryIds);
     const QStringList activeDirectChatIds = activeIds(QStringLiteral("chats"), referencedChatIds);
+
+    // Linked Git worktrees of an included Library belong to the Collection
+    // through it, without becoming Collection items of their own.
+    QStringList worktreeLibraryIds;
+
+    for (const QVariantMap &row : selectIn(
+             database,
+             QStringLiteral(
+                 "SELECT library_worktrees.library_id FROM library_worktrees"
+                 " JOIN libraries ON libraries.id = library_worktrees.library_id"
+                 " WHERE library_worktrees.anchor_library_id IN (%1)"
+                 " AND libraries.archived_at IS NULL"
+                 " ORDER BY library_worktrees.created_at ASC"
+             ),
+             activeLibraryIds
+         )) {
+        const QString worktreeLibraryId = row.value(QStringLiteral("library_id")).toString();
+
+        if (!activeLibraryIds.contains(worktreeLibraryId)) {
+            worktreeLibraryIds.append(worktreeLibraryId);
+        }
+    }
+
+    worktreeLibraryIds = uniqueIds(worktreeLibraryIds);
     QStringList libraryChatIds;
 
     for (const QVariantMap &row : selectIn(
@@ -597,7 +621,7 @@ QVariantMap scope(CoreDatabase &database, const QString &collectionId)
                  "SELECT id FROM chats WHERE library_id IN (%1) AND type = 'standard'"
                  " AND archived_at IS NULL ORDER BY updated_at DESC, created_at DESC"
              ),
-             activeLibraryIds
+             activeLibraryIds + worktreeLibraryIds
          )) {
         libraryChatIds.append(row.value(QStringLiteral("id")).toString());
     }
@@ -615,6 +639,7 @@ QVariantMap scope(CoreDatabase &database, const QString &collectionId)
     QVariantMap result;
     result.insert(QStringLiteral("collectionIds"), toVariantList(collectionIds));
     result.insert(QStringLiteral("libraryIds"), toVariantList(activeLibraryIds));
+    result.insert(QStringLiteral("worktreeLibraryIds"), toVariantList(worktreeLibraryIds));
     result.insert(QStringLiteral("directChatIds"), toVariantList(activeDirectChatIds));
     result.insert(
         QStringLiteral("chatIds"),

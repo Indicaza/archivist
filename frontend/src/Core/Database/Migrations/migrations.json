@@ -1,6 +1,6 @@
 {
   "generatedBy": "scripts/core-migrations.mjs",
-  "latestVersion": 20,
+  "latestVersion": 21,
   "migrations": [
     {
       "version": 1,
@@ -119,6 +119,12 @@
     {
       "version": 20,
       "file": "0020.sql",
+      "foreignKeysDisabled": false,
+      "checkForeignKeys": false
+    },
+    {
+      "version": 21,
+      "file": "0021.sql",
       "foreignKeysDisabled": false,
       "checkForeignKeys": false
     }
