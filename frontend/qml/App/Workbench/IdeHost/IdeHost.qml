@@ -21,6 +21,9 @@ Item {
     property string terminalCollectionId: ""
     property string terminalLibraryId: ""
     property string terminalSessionId: "primary"
+    // Synced editors set the whole document payload at once, so the page
+    // never sees a half-updated document (new id with old text).
+    property string documentJsonOverride: ""
 
     signal dirtyStateReported(string documentId, bool dirty)
     signal terminalStateReported(
@@ -38,6 +41,19 @@ Item {
         string filePath,
         int lineNumber,
         int columnNumber
+    )
+    // Synced documents.
+    signal editsReported(
+        string documentId,
+        real baseVersion,
+        string changesJson,
+        int length
+    )
+    signal resyncRequested(string documentId)
+    signal viewStateReported(
+        string viewId,
+        string documentId,
+        string stateJson
     )
     property bool ready: false
     // The app serves the web IDE itself, on a free loopback port.
@@ -117,11 +133,37 @@ Item {
 
         property string themeJson: root.themePayload
         property string surface: root.activeSurface
-        property string documentJson: root.documentPayload
+        property string documentJson: root.documentJsonOverride.length > 0
+            ? root.documentJsonOverride
+            : root.documentPayload
         property string editorCommandJson: ""
         property string terminalJson: root.terminalPayload
         property string terminalCommandJson: ""
         property string saveResultJson: ""
+
+        // One emission per command: a property would coalesce rapid edits.
+        signal syncCommand(string commandJson)
+
+        function reportEdits(documentId, baseVersion, changesJson, length) {
+            root.editsReported(
+                String(documentId || ""),
+                Number(baseVersion || 0),
+                String(changesJson || "[]"),
+                Number(length || 0)
+            )
+        }
+
+        function requestResync(documentId) {
+            root.resyncRequested(String(documentId || ""))
+        }
+
+        function reportViewState(viewId, documentId, stateJson) {
+            root.viewStateReported(
+                String(viewId || ""),
+                String(documentId || ""),
+                String(stateJson || "")
+            )
+        }
 
         function reportReady(version) {
             root.ready = true
@@ -187,6 +229,10 @@ Item {
             + "-"
             + Math.random().toString()
         bridge.editorCommandJson = JSON.stringify(payload)
+    }
+
+    function sendSyncCommand(command) {
+        bridge.syncCommand(JSON.stringify(command || ({})))
     }
 
     function saveDocument(documentId) {

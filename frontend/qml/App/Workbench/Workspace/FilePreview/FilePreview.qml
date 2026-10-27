@@ -15,6 +15,14 @@ Rectangle {
     required property bool loading
     required property string errorMessage
     property real leftObstruction: 0
+    // The Library (worktree) the shown file belongs to. Defaults follow the
+    // global selection; docked previews pass their own.
+    property string collectionId: String(CollectionStore.selectedCollectionId || "")
+    property string libraryId: String(LibraryStore.activeFileLibraryId || "")
+    property string libraryRootPath: LibraryStore.activeFileLibrary
+        && LibraryStore.activeFileLibrary.rootPath
+        ? String(LibraryStore.activeFileLibrary.rootPath)
+        : ""
     property string pendingAttachmentFileId: ""
     property string trackedInitialFileId: ""
     property bool initialFileLoaded: false
@@ -220,14 +228,14 @@ Rectangle {
     }
 
     readonly property string viewportStateKey: (
-        String(CollectionStore.selectedCollectionId || "").length > 0
-        && String(LibraryStore.activeFileLibraryId || "").length > 0
+        root.collectionId.length > 0
+        && root.libraryId.length > 0
         && String(file && file.id ? file.id : "").length > 0
     )
         ? "workspace/collections/"
-            + String(CollectionStore.selectedCollectionId)
+            + root.collectionId
             + "/viewports/files/"
-            + String(LibraryStore.activeFileLibraryId)
+            + root.libraryId
             + "/"
             + String(file.id)
         : ""
@@ -662,7 +670,7 @@ Rectangle {
         }
 
         documentPreview.openDocument(
-            String(LibraryStore.activeFileLibrary.rootPath || ""),
+            root.libraryRootPath,
             String(root.file && root.file.relativePath ? root.file.relativePath : "")
         )
     }
@@ -1190,7 +1198,7 @@ Rectangle {
                                     root.pendingAttachmentFileId =
                                         String(root.file.id)
                                     ChatStore.attachFile(
-                                        LibraryStore.activeFileLibraryId,
+                                        root.libraryId,
                                         root.pendingAttachmentFileId
                                     )
                                 }
@@ -1235,7 +1243,7 @@ Rectangle {
                     && root.viewMode === "rendered"
                 theme: root.theme
                 content: root.content
-                libraryRootPath: String(LibraryStore.activeFileLibrary.rootPath || "")
+                libraryRootPath: root.libraryRootPath
                 documentRelativePath: String(root.file.relativePath || "")
                 zoomFactor: root.markdownZoom
                 onZoomFactorRequested: function(value) {
@@ -1261,7 +1269,7 @@ Rectangle {
                 anchors.fill: parent
                 visible: root.imageRenderingAvailable
                 theme: root.theme
-                libraryRootPath: String(LibraryStore.activeFileLibrary.rootPath || "")
+                libraryRootPath: root.libraryRootPath
                 relativePath: String(root.file && root.file.relativePath
                     ? root.file.relativePath
                     : "")
@@ -1382,7 +1390,7 @@ Rectangle {
                     Layout.minimumWidth: 320
                     theme: root.theme
                     content: root.content
-                    libraryRootPath: String(LibraryStore.activeFileLibrary.rootPath || "")
+                    libraryRootPath: root.libraryRootPath
                     documentRelativePath: String(root.file.relativePath || "")
                     zoomFactor: root.markdownZoom
                     onZoomFactorRequested: function(value) {

@@ -190,6 +190,7 @@ struct SplitterHandle
 struct LayoutGeometry
 {
     QHash<QString, QRectF> anchors; // anchor id -> rect in surface coordinates
+    QHash<QString, QRectF> nodes;   // split node id -> rect
     QList<SplitterHandle> splitters;
 };
 

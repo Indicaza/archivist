@@ -23,6 +23,9 @@ Rectangle {
         string relativePath
     )
     property real leftObstruction: 0
+    // Hosted by the docking workspace as the live chat view: no header, tab
+    // strip or file surfaces, just the conversation filling this item.
+    property bool dockedMode: false
     property real previewLeftObstruction: 0
     property bool historyLoadPending: false
     property int historyAnchorIndex: -1
@@ -313,8 +316,9 @@ Rectangle {
     readonly property color chatHue: root.theme.agentHue(
         String(ChatStore.selectedChat.agentId || "")
     )
-    readonly property bool previewActive: LibraryStore.selectedFileId.length > 0
-    readonly property bool fileTransitionActive: (
+    readonly property bool previewActive: !root.dockedMode
+        && LibraryStore.selectedFileId.length > 0
+    readonly property bool fileTransitionActive: !root.dockedMode && (
         editorTabStrip.pendingFileId.length > 0
         || (
             editorTabStrip.activeTabKind === "file"
@@ -1288,9 +1292,12 @@ Rectangle {
         anchors.top: parent.top
         x: root.previewViewportX
         width: Math.max(0, parent.width - root.previewViewportX)
-        height: editorTabStrip.hasTabs
-            ? root.theme.editorTabHeight
-            : root.theme.workspaceHeaderHeight
+        height: root.dockedMode
+            ? 0
+            : editorTabStrip.hasTabs
+                ? root.theme.editorTabHeight
+                : root.theme.workspaceHeaderHeight
+        visible: !root.dockedMode
         color: theme.controlSurfaceBg
         z: 50
 
@@ -1459,6 +1466,7 @@ Rectangle {
 
             anchors.fill: parent
             theme: root.theme
+            suspended: root.dockedMode
 
             onDirtyCloseRequested: function(
                 tabKey,

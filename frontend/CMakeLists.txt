@@ -202,6 +202,12 @@ qt_add_executable(archivist-qt
     src/App/Domains/Library/library_store.h
     src/App/Domains/Worktree/worktree_store.cpp
     src/App/Domains/Worktree/worktree_store.h
+    src/App/Domains/Documents/document_store.cpp
+    src/App/Domains/Documents/document_store.h
+    src/App/Domains/Workspace/keyed_list_model.cpp
+    src/App/Domains/Workspace/keyed_list_model.h
+    src/App/Domains/Workspace/workspace_store.cpp
+    src/App/Domains/Workspace/workspace_store.h
     src/App/Services/runtime_trace_store.cpp
     src/App/Services/runtime_trace_store.h
     src/App/Services/workspace_state_store.cpp
@@ -280,6 +286,19 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ChatDock/ChatEditor/ChatEditor.qml
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/IdeHost/IdeHost.qml
+        qml/App/Workbench/Dock/DockWorkspace.qml
+        qml/App/Workbench/Dock/DockAnchor.qml
+        qml/App/Workbench/Dock/DockTab.qml
+        qml/App/Workbench/Dock/DockViewContent.qml
+        qml/App/Workbench/Dock/DockEditorHost.qml
+        qml/App/Workbench/Dock/DockSplitter.qml
+        qml/App/Workbench/Dock/DockDropOverlay.qml
+        qml/App/Workbench/Dock/DockDialogButton.qml
+        qml/App/Workbench/Dock/DockMenu.qml
+        qml/App/Workbench/Dock/DockMenuItem.qml
+        qml/App/Workbench/Dock/DockMenuSeparator.qml
+        qml/App/Workbench/Dock/DockPillButton.qml
+        qml/App/Workbench/Dock/DockSplitGlyph.qml
         qml/App/Workbench/TerminalDock/TerminalDock.qml
         qml/App/Workbench/WorkbenchDock/WorkbenchDock.qml
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml
@@ -428,4 +447,18 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-document-buffers-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-document-buffers-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-document-buffers-test COMMAND core-document-buffers-test)
+
+    qt_add_executable(workspace-store-test
+        tests/workspace_store_test.cpp
+        src/App/Domains/Documents/document_store.cpp
+        src/App/Domains/Documents/document_store.h
+        src/App/Domains/Workspace/keyed_list_model.cpp
+        src/App/Domains/Workspace/keyed_list_model.h
+        src/App/Domains/Workspace/workspace_store.cpp
+        src/App/Domains/Workspace/workspace_store.h
+    )
+    target_include_directories(workspace-store-test PRIVATE src)
+    target_link_libraries(workspace-store-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(workspace-store-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME workspace-store-test COMMAND workspace-store-test)
 endif()

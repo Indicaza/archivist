@@ -737,6 +737,23 @@ OpResult WorkspaceModel::setViewResource(const QString &viewId, const ResourceRe
     return OpResult::success();
 }
 
+OpResult WorkspaceModel::setViewType(const QString &viewId, const QString &typeId, int stateVersion)
+{
+    if (!m_views.contains(viewId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
+    }
+
+    if (typeId.isEmpty()) {
+        return OpResult::failure(QStringLiteral("INVALID_VIEW"), QStringLiteral("A view needs a type."));
+    }
+
+    ViewRecord &record = m_views[viewId];
+    record.typeId = typeId;
+    record.stateVersion = std::max(1, stateVersion);
+    bump();
+    return OpResult::success();
+}
+
 OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anchorId, Edge edge)
 {
     return transact([&]() {
@@ -1156,6 +1173,62 @@ OpResult WorkspaceModel::equalizeSplit(const QString &nodeId)
     return setSplitSizes(nodeId, QList<double>(count, 1.0 / count));
 }
 
+OpResult WorkspaceModel::resizeSplit(
+    const QString &surfaceId,
+    const QString &nodeId,
+    int index,
+    double position,
+    const QSizeF &surfaceSize,
+    const LayoutMetrics &metrics
+)
+{
+    const SplitNode split = m_nodes.value(nodeId);
+
+    if (!m_nodes.contains(nodeId) || split.leaf || index < 0 || index + 1 >= split.children.size()) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such splitter."));
+    }
+
+    if (!std::isfinite(position)) {
+        return OpResult::failure(QStringLiteral("INVALID_SIZES"), QStringLiteral("Bad splitter position."));
+    }
+
+    const LayoutGeometry geometry = computeGeometry(surfaceId, surfaceSize, metrics);
+    const QRectF rect = geometry.nodes.value(nodeId);
+
+    if (!rect.isValid()) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("The split is not on screen."));
+    }
+
+    const bool horizontal = split.orientation == Orientation::Horizontal;
+    const qsizetype count = split.children.size();
+    const double start = horizontal ? rect.left() : rect.top();
+    const double available = std::max(1.0, (horizontal ? rect.width() : rect.height()) - metrics.splitterThickness * (count - 1));
+
+    // Where children[index] starts, in pixels, given the current fractions.
+    double before = 0;
+    for (int i = 0; i < index; ++i) {
+        before += split.sizes.value(i) * available;
+    }
+
+    const double pair = (split.sizes.value(index) + split.sizes.value(index + 1)) * available;
+    const QSizeF minimumA = minimumSize(split.children.at(index), metrics);
+    const QSizeF minimumB = minimumSize(split.children.at(index + 1), metrics);
+    const double minA = horizontal ? minimumA.width() : minimumA.height();
+    const double minB = horizontal ? minimumB.width() : minimumB.height();
+    const double offset = position - start - before - index * metrics.splitterThickness;
+    double first = std::clamp(offset, std::min(minA, pair / 2), std::max(pair - minB, pair / 2));
+
+    if (pair < minA + minB) {
+        first = pair * minA / std::max(1.0, minA + minB);
+    }
+
+    QList<double> sizes = split.sizes;
+    const double total = split.sizes.value(index) + split.sizes.value(index + 1);
+    sizes[index] = std::max(kMinimumFraction, total * first / std::max(1.0, pair));
+    sizes[index + 1] = std::max(kMinimumFraction, total - sizes[index]);
+    return setSplitSizes(nodeId, sizes);
+}
+
 // ---- surfaces ----------------------------------------------------------------
 
 OpResult WorkspaceModel::setSurfaceGeometry(const QString &surfaceId, const QRectF &geometry, const QString &screenName, bool userPlaced)
@@ -1539,6 +1612,7 @@ void WorkspaceModel::layoutNode(const QString &nodeId, const QRectF &rect, const
         return;
     }
 
+    out.nodes.insert(nodeId, rect);
     const bool horizontal = current.orientation == Orientation::Horizontal;
     const qsizetype count = current.children.size();
     const double extent = horizontal ? rect.width() : rect.height();
