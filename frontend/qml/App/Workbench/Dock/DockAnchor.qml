@@ -157,12 +157,17 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-                acceptedButtons: Qt.LeftButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
                 ToolTip.visible: containsMouse && !pressed
                 ToolTip.delay: 600
-                ToolTip.text: "Drag to move this panel"
+                ToolTip.text: "Drag to move this panel, or out of the window to float it"
 
                 onPressed: function(mouse) {
+                    if (mouse.button === Qt.RightButton) {
+                        Docking.focusAnchor(root.anchorId)
+                        panelMenu.popup()
+                        return
+                    }
                     pressPoint = Qt.point(mouse.x, mouse.y)
                     dragging = false
                     Docking.focusAnchor(root.anchorId)
@@ -175,7 +180,7 @@ Item {
                         dragging = root.workspace.beginDrag("anchor", root.anchorId, root.workspace.anchorTitle(root.anchorId))
                     }
                     if (dragging) {
-                        root.workspace.moveDrag(mapToItem(root.workspace.area, mouse.x, mouse.y))
+                        root.workspace.moveDrag(mapToGlobal(mouse.x, mouse.y))
                     }
                 }
                 onReleased: {
@@ -207,14 +212,54 @@ Item {
             flickableDirection: Flickable.HorizontalFlick
             interactive: contentWidth > width
 
-            // Empty header space: double-click maximizes, like a title bar.
+            // Empty header space acts like a title bar: drag it to move the
+            // panel, double-click to maximize, right-click for the menu.
             MouseArea {
+                property point pressPoint
+                property bool dragging: false
+
                 width: Math.max(tabFlick.width, tabRow.width)
                 height: parent.height
                 z: -1
-                acceptedButtons: Qt.LeftButton
-                onPressed: Docking.focusAnchor(root.anchorId)
-                onDoubleClicked: Docking.toggleMaximize(root.anchorId)
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                onPressed: function(mouse) {
+                    Docking.focusAnchor(root.anchorId)
+                    if (mouse.button === Qt.RightButton) {
+                        panelMenu.popup()
+                        return
+                    }
+                    pressPoint = Qt.point(mouse.x, mouse.y)
+                    dragging = false
+                }
+                onPositionChanged: function(mouse) {
+                    if (!pressed || !(pressedButtons & Qt.LeftButton) || root.viewIds.length === 0) {
+                        return
+                    }
+                    if (!dragging && Math.abs(mouse.x - pressPoint.x) + Math.abs(mouse.y - pressPoint.y) > 8) {
+                        dragging = root.workspace.beginDrag("anchor", root.anchorId, root.workspace.anchorTitle(root.anchorId))
+                    }
+                    if (dragging) {
+                        root.workspace.moveDrag(mapToGlobal(mouse.x, mouse.y))
+                    }
+                }
+                onReleased: {
+                    if (dragging) {
+                        root.workspace.endDrag()
+                    }
+                    dragging = false
+                }
+                onCanceled: {
+                    if (dragging) {
+                        root.workspace.cancelDrag()
+                    }
+                    dragging = false
+                }
+                onDoubleClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton) {
+                        Docking.toggleMaximize(root.anchorId)
+                    }
+                }
             }
 
             Row {
@@ -392,6 +437,19 @@ Item {
             text: root.isMaximized ? "Restore Layout" : "Maximize Panel"
             shortcutText: "Ctrl+Shift+Enter"
             onTriggered: Docking.toggleMaximize(root.anchorId)
+        }
+        DockMenuSeparator { theme: root.theme }
+        DockMenuItem {
+            theme: root.theme
+            text: "Move Panel to New Window"
+            visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.anchorCount > 1)
+            onTriggered: root.workspace.detachAnchor(root.anchorId)
+        }
+        DockMenuItem {
+            theme: root.theme
+            text: "Return Panel to Main Window"
+            visible: root.workspace.isFloating
+            onTriggered: root.workspace.returnToMainWindow("anchor", root.anchorId)
         }
         DockMenuSeparator { theme: root.theme }
         DockMenuItem { theme: root.theme; text: "Close Panel"; onTriggered: root.workspace.closeAnchor(root.anchorId) }

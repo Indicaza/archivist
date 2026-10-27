@@ -70,13 +70,40 @@ and how a live instance may move (`TransferPolicy`).
 
 ## Moving live views
 
-Qt Quick items can be reparented inside one window. Qt WebEngine views should
-not be moved between native windows. So:
+View content items (terminals, previews, the live chat) are keyed by view and
+reparent themselves into whichever window shows their view, including from one
+native window to another. Qt WebEngine Quick renders through the scene graph,
+so a page survives the move with its state (a terminal keeps its scrollback and
+session, no reload). Editors share their Anchor's Monaco page, so an editor that
+moves to an Anchor in another window is rebuilt there from the shared buffer and
+its view state (cursor, scroll).
 
 ```text
 same window      reparent the live item (no reload)
-another window   save view state → rebuild in the target window → restore
+another window   reparent the live item; editors rebuild from buffer + view state
 ```
+
+### Floating windows (`App/Domains/Workspace/workspace_store`, `Dock/DockFloatingWindow.qml`)
+
+- Dragging a tab or a panel past every window shows a miniature of the window
+  it would become under the pointer; releasing opens it there. Tabs and panels
+  also have "Move to New Window" and "Return to Main Window".
+- Drags report the pointer in global coordinates, so they cross windows: the
+  window under the pointer previews the drop, others stay still.
+- A window remembers its frame and monitor in the Collection's snapshot and
+  reopens there. When a monitor goes away (at launch or while running), its
+  windows move onto a screen that exists, sized to fit; they go back when the
+  monitor returns.
+- Closing a floating window moves its tabs into the main window. Nothing closes.
+- Coordinates are Qt's device-independent virtual desktop, so mixed-DPI
+  monitors need no special handling.
+
+Platform compromises:
+
+- Wayland does not let apps place windows, so a torn-off window opens where the
+  compositor puts it and saved positions are only a hint there.
+- The tear-off miniature is a translucent tool window; without a compositor
+  (some X11 setups) its corners draw opaque.
 
 This is safe because canonical state lives natively. Document text is in
 `Core/Domains/Documents/document_buffers` (versioned, shared by every view of a

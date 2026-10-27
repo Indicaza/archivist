@@ -296,6 +296,9 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockViewContent.qml
         qml/App/Workbench/Dock/DockEditorHost.qml
         qml/App/Workbench/Dock/DockSplitter.qml
+        qml/App/Workbench/Dock/DockSurfaceArea.qml
+        qml/App/Workbench/Dock/DockFloatingWindow.qml
+        qml/App/Workbench/Dock/DockTearGhost.qml
         qml/App/Workbench/Dock/DockDropOverlay.qml
         qml/App/Workbench/Dock/DockDialogButton.qml
         qml/App/Workbench/Dock/DockNoticeBar.qml
@@ -468,7 +471,7 @@ if(ARCHIVIST_BUILD_TESTS)
         src/App/Domains/Workspace/workspace_store.h
     )
     target_include_directories(workspace-store-test PRIVATE src)
-    target_link_libraries(workspace-store-test PRIVATE archivist-core Qt6::Test)
+    target_link_libraries(workspace-store-test PRIVATE archivist-core Qt6::Gui Qt6::Test)
     set_target_properties(workspace-store-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME workspace-store-test COMMAND workspace-store-test)
 endif()

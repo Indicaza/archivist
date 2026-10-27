@@ -4,7 +4,9 @@
 #include "Core/Domains/Workspace/workspace_codec.h"
 #include "Core/Domains/Workspace/workspace_presets.h"
 
+#include <QGuiApplication>
 #include <QJsonDocument>
+#include <QScreen>
 #include <QUuid>
 #include <QDateTime>
 #include <QJsonArray>
@@ -100,6 +102,18 @@ WorkspaceStore::WorkspaceStore(QObject *parent)
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(400);
     connect(&m_saveTimer, &QTimer::timeout, this, &WorkspaceStore::saveNow);
+
+    // Monitors come and go (a laptop leaves its dock): bring floating
+    // windows back onto a screen that exists.
+    if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        auto recover = [this]() {
+            QTimer::singleShot(250, this, [this]() { recoverSurfaces(); });
+        };
+        connect(app, &QGuiApplication::screenAdded, this, recover);
+        connect(app, &QGuiApplication::screenRemoved, this, recover);
+        connect(app, &QGuiApplication::primaryScreenChanged, this, recover);
+    }
+
     publish();
 }
 
@@ -371,6 +385,12 @@ void WorkspaceStore::publish()
     ++m_revision;
     emit revisionChanged();
 
+    const QStringList floating = floatingSurfaceIds();
+    if (floating != m_publishedSurfaces) {
+        m_publishedSurfaces = floating;
+        emit surfacesChanged();
+    }
+
     if (modelChanged) {
         scheduleSave();
     }
@@ -547,6 +567,7 @@ void WorkspaceStore::setCollection(const QString &collectionId)
         : m_settings.value(QStringLiteral("workspace/collections/%1/docking/layoutId").arg(collectionId)).toString();
     emit layoutsChanged();
     emit collectionIdChanged();
+    m_model.recoverSurfaces(currentScreens());
     publish();
     emit workspaceRestored(collectionId, fromSnapshot);
 }
@@ -1279,7 +1300,75 @@ void WorkspaceStore::updateDragOverTabs(const QString &surfaceId, const QString 
 
 void WorkspaceStore::clearDragTarget()
 {
+    const bool wasDetached = m_dragDetached;
+    m_dragDetached = false;
     setDropTarget({});
+    if (wasDetached) {
+        emit dragChanged();
+    }
+}
+
+bool WorkspaceStore::canDetach(const DragSource &source) const
+{
+    // A panel that is already alone in its own window would only become
+    // another identical window: move the window instead.
+    const QString anchorId = source.kind == DragSource::Kind::View ? m_model.anchorOfView(source.id) : source.id;
+    const AnchorRecord *anchor = m_model.anchor(anchorId);
+    const QString surfaceId = m_model.surfaceOfAnchor(anchorId);
+    const SurfaceRecord *surface = m_model.surface(surfaceId);
+
+    if (!anchor || !surface) {
+        return false;
+    }
+    if (surface->primary) {
+        return true;
+    }
+
+    const bool alone = m_model.anchorIds(surfaceId).size() == 1;
+    return !(alone && (source.kind == DragSource::Kind::Anchor || anchor->views.size() == 1));
+}
+
+void WorkspaceStore::updateDragDetached(double x, double y, double width, double height, const QString &screenName)
+{
+    if (m_drag.kind == DragSource::Kind::None) {
+        return;
+    }
+
+    const QRectF rect(x, y, std::max(320.0, width), std::max(220.0, height));
+    const bool allowed = canDetach(m_drag);
+
+    if (m_dragDetached && m_detachRect == rect && m_detachScreen == screenName && m_dropAllowed == allowed) {
+        return;
+    }
+
+    const bool hadTarget = m_dropTarget.isValid();
+    m_dropTarget = {};
+    m_landingRect = {};
+    m_preview = {};
+    m_previewSurfaceId.clear();
+    m_dragDetached = true;
+    m_detachRect = rect;
+    m_detachScreen = screenName;
+    m_dropAllowed = allowed;
+
+    if (hadTarget) {
+        publish();
+    }
+    emit dragChanged();
+}
+
+QVariantMap WorkspaceStore::detachRect() const
+{
+    if (!m_dragDetached) {
+        return {};
+    }
+    return {
+        {QStringLiteral("x"), m_detachRect.x()},
+        {QStringLiteral("y"), m_detachRect.y()},
+        {QStringLiteral("width"), m_detachRect.width()},
+        {QStringLiteral("height"), m_detachRect.height()},
+        {QStringLiteral("screen"), m_detachScreen},
+    };
 }
 
 void WorkspaceStore::setDropTarget(const DropTarget &target)
@@ -1289,6 +1378,7 @@ void WorkspaceStore::setDropTarget(const DropTarget &target)
         return;
     }
 
+    m_dragDetached = false;
     m_dropTarget = target;
     m_dropAllowed = target.isValid() && m_model.canDrop(m_drag, target).ok;
     m_landingRect = {};
@@ -1304,6 +1394,19 @@ void WorkspaceStore::setDropTarget(const DropTarget &target)
     emit dragChanged();
 }
 
+void WorkspaceStore::resetDrag()
+{
+    m_drag = {};
+    m_dropTarget = {};
+    m_dropAllowed = false;
+    m_dragDetached = false;
+    m_detachRect = {};
+    m_detachScreen.clear();
+    m_landingRect = {};
+    m_preview = {};
+    m_previewSurfaceId.clear();
+}
+
 bool WorkspaceStore::finishDrag()
 {
     if (m_drag.kind == DragSource::Kind::None) {
@@ -1313,17 +1416,23 @@ bool WorkspaceStore::finishDrag()
     const DragSource source = m_drag;
     const DropTarget target = m_dropTarget;
     const bool allowed = m_dropAllowed;
+    const bool detached = m_dragDetached;
+    const QRectF detachRect = m_detachRect;
+    const QString detachScreen = m_detachScreen;
 
-    m_drag = {};
-    m_dropTarget = {};
-    m_dropAllowed = false;
-    m_landingRect = {};
-    m_preview = {};
-    m_previewSurfaceId.clear();
+    resetDrag();
 
     bool ok = false;
 
-    if (allowed) {
+    if (allowed && detached) {
+        const OpResult result = source.kind == DragSource::Kind::View
+            ? m_model.detachView(source.id, detachRect, detachScreen)
+            : m_model.detachAnchor(source.id, detachRect, detachScreen);
+        ok = result.ok;
+        if (!ok) {
+            emit operationFailed(result.message);
+        }
+    } else if (allowed) {
         const OpResult result = m_model.applyDrop(source, target);
         ok = result.ok;
 
@@ -1351,14 +1460,153 @@ void WorkspaceStore::cancelDrag()
         return;
     }
 
-    m_drag = {};
-    m_dropTarget = {};
-    m_dropAllowed = false;
-    m_landingRect = {};
-    m_preview = {};
-    m_previewSurfaceId.clear();
+    resetDrag();
     publish();
     emit dragChanged();
+}
+
+// ---- surfaces ------------------------------------------------------------
+
+QStringList WorkspaceStore::floatingSurfaceIds() const
+{
+    QStringList ids;
+    for (const QString &surfaceId : m_model.surfaceIds()) {
+        const SurfaceRecord *surface = m_model.surface(surfaceId);
+        if (surface && !surface->primary) {
+            ids.append(surfaceId);
+        }
+    }
+    return ids;
+}
+
+QVariantMap WorkspaceStore::surface(const QString &surfaceId) const
+{
+    const SurfaceRecord *record = m_model.surface(surfaceId);
+    if (!record) {
+        return {};
+    }
+
+    int viewCount = 0;
+    const QStringList anchorIds = m_model.anchorIds(surfaceId);
+    for (const QString &anchorId : anchorIds) {
+        if (const AnchorRecord *anchor = m_model.anchor(anchorId)) {
+            viewCount += int(anchor->views.size());
+        }
+    }
+
+    return {
+        {QStringLiteral("surfaceId"), record->id},
+        {QStringLiteral("primary"), record->primary},
+        {QStringLiteral("x"), record->geometry.x()},
+        {QStringLiteral("y"), record->geometry.y()},
+        {QStringLiteral("width"), record->geometry.width()},
+        {QStringLiteral("height"), record->geometry.height()},
+        {QStringLiteral("hasGeometry"), record->geometry.isValid()},
+        {QStringLiteral("screen"), record->screenName},
+        {QStringLiteral("windowMaximized"), record->windowMaximized},
+        {QStringLiteral("anchorCount"), int(anchorIds.size())},
+        {QStringLiteral("viewCount"), viewCount},
+    };
+}
+
+bool WorkspaceStore::setSurfaceGeometry(
+    const QString &surfaceId,
+    double x,
+    double y,
+    double width,
+    double height,
+    const QString &screenName,
+    bool windowMaximized
+)
+{
+    const SurfaceRecord *record = m_model.surface(surfaceId);
+    if (!record || record->primary) {
+        return false;
+    }
+
+    const QRectF geometry(x, y, width, height);
+    if (record->windowMaximized != windowMaximized) {
+        m_model.setSurfaceWindowMaximized(surfaceId, windowMaximized);
+    }
+    // While maximized the frame is the screen's; keep the restored frame.
+    if (!windowMaximized && geometry.isValid() && (record->geometry != geometry || record->screenName != screenName)) {
+        m_model.setSurfaceGeometry(surfaceId, geometry, screenName, true);
+    }
+
+    // Geometry is not layout: save it without republishing every panel.
+    if (m_publishedModelRevision != m_model.revision()) {
+        m_publishedModelRevision = m_model.revision();
+        scheduleSave();
+    }
+    return true;
+}
+
+QString WorkspaceStore::detachView(const QString &viewId, double x, double y, double width, double height, const QString &screenName)
+{
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+    const OpResult result = m_model.detachView(viewId, QRectF(x, y, width, height), screenName);
+    return check(result) ? result.createdId : QString();
+}
+
+QString WorkspaceStore::detachAnchor(const QString &anchorId, double x, double y, double width, double height, const QString &screenName)
+{
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+    const OpResult result = m_model.detachAnchor(anchorId, QRectF(x, y, width, height), screenName);
+    return check(result) ? result.createdId : QString();
+}
+
+bool WorkspaceStore::closeSurface(const QString &surfaceId)
+{
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+    return check(m_model.closeSurface(surfaceId));
+}
+
+QList<ScreenInfo> WorkspaceStore::currentScreens() const
+{
+    if (m_useTestScreens) {
+        return m_testScreens;
+    }
+
+    QList<ScreenInfo> screens;
+    if (!qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        return screens;
+    }
+
+    const QScreen *primary = QGuiApplication::primaryScreen();
+    for (const QScreen *screen : QGuiApplication::screens()) {
+        ScreenInfo info;
+        info.name = screen->name();
+        info.geometry = screen->geometry();
+        info.availableGeometry = screen->availableGeometry();
+        info.devicePixelRatio = screen->devicePixelRatio();
+        info.primary = screen == primary;
+        screens.append(info);
+    }
+    return screens;
+}
+
+void WorkspaceStore::setScreensForTesting(const QList<ScreenInfo> &screens)
+{
+    m_testScreens = screens;
+    m_useTestScreens = true;
+}
+
+QStringList WorkspaceStore::recoverSurfaces()
+{
+    const QStringList moved = m_model.recoverSurfaces(currentScreens());
+    if (!moved.isEmpty()) {
+        publish();
+        for (const QString &surfaceId : moved) {
+            emit surfaceRecovered(surfaceId);
+        }
+    }
+    return moved;
 }
 
 // ---- layouts -------------------------------------------------------------

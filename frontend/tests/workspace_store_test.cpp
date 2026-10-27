@@ -244,6 +244,113 @@ private slots:
         QCOMPARE(store.view(b).value("anchorId").toString(), first);
     }
 
+    void tearOffOpensAFloatingWindowAndClosingBringsTabsBack()
+    {
+        WorkspaceStore store;
+        store.setScreensForTesting({{QStringLiteral("Main"), QRectF(0, 0, 1920, 1080), QRectF(0, 25, 1920, 1055), 2.0, true}});
+        store.setCollection(QStringLiteral("float"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.terminal"), {{"kind", "terminal"}, {"id", "lib:t1"}}, "zsh");
+        QSignalSpy surfaces(&store, &WorkspaceStore::surfacesChanged);
+
+        // Drag the terminal tab out of every window: a drop opens a window.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragDetached(1200, 300, 640, 420, QStringLiteral("Main"));
+        QVERIFY(store.dragDetached());
+        QVERIFY(store.dropAllowed());
+        QCOMPARE(store.detachRect().value("width").toDouble(), 640.0);
+        // Back over the main window: an ordinary drop target again.
+        store.updateDrag(surface, 950, 300);
+        QVERIFY(!store.dragDetached());
+        store.updateDragDetached(1200, 300, 640, 420, QStringLiteral("Main"));
+        QVERIFY(store.finishDrag());
+
+        QCOMPARE(store.floatingSurfaceIds().size(), 1);
+        QCOMPARE(surfaces.count(), 1);
+        const QString floating = store.floatingSurfaceIds().first();
+        QCOMPARE(store.view(b).value("surfaceId").toString(), floating);
+        QCOMPARE(store.view(a).value("surfaceId").toString(), surface);
+        QCOMPARE(store.surface(floating).value("x").toDouble(), 1200.0);
+        QCOMPARE(store.surface(floating).value("viewCount").toInt(), 1);
+        QCOMPARE(store.focusedViewId(), b);
+
+        // Its panel models publish like the main window's.
+        store.setSurfaceSize(floating, 640, 420);
+        KeyedListModel *floatingAnchors = static_cast<KeyedListModel *>(store.anchors(floating));
+        QCOMPARE(floatingAnchors->rowCount(), 1);
+        QCOMPARE(floatingAnchors->get(0).value("rectWidth").toDouble(), 640.0);
+
+        // Tearing the only tab out of its own window again is refused: the
+        // window itself is what moves.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragDetached(100, 100, 640, 420, QStringLiteral("Main"));
+        QVERIFY(!store.dropAllowed());
+        QVERIFY(!store.finishDrag());
+        QCOMPARE(store.floatingSurfaceIds().size(), 1);
+
+        // Dragging it into the main window works across windows.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverTabs(surface, store.view(a).value("anchorId").toString(), -1);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
+        QVERIFY(store.floatingSurfaceIds().isEmpty());
+
+        // Closing a window keeps every tab.
+        const QString again = store.detachView(b, 1200, 300, 640, 420, QStringLiteral("Main"));
+        QVERIFY(!again.isEmpty());
+        QVERIFY(store.setSurfaceGeometry(again, 1300, 320, 700, 500, QStringLiteral("Main"), false));
+        QCOMPARE(store.surface(again).value("width").toDouble(), 700.0);
+        QVERIFY(store.closeSurface(again));
+        QVERIFY(store.floatingSurfaceIds().isEmpty());
+        QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
+        QVERIFY(!store.closeSurface(surface));
+    }
+
+    void floatingWindowsSurviveRestartAndLostMonitors()
+    {
+        const QList<Workspace::ScreenInfo> twoScreens = {
+            {QStringLiteral("Laptop"), QRectF(0, 0, 1512, 982), QRectF(0, 25, 1512, 957), 2.0, true},
+            {QStringLiteral("Studio"), QRectF(1512, -200, 2560, 1440), QRectF(1512, -200, 2560, 1440), 1.0, false},
+        };
+        const QList<Workspace::ScreenInfo> laptopOnly = {twoScreens.first()};
+        QString floating;
+        QString view;
+        {
+            WorkspaceStore store;
+            store.setScreensForTesting(twoScreens);
+            store.setCollection(QStringLiteral("monitors"));
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+            view = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+            floating = store.detachView(view, 2000, 100, 900, 700, QStringLiteral("Studio"));
+            QVERIFY(!floating.isEmpty());
+            store.saveNow();
+        }
+        {
+            // Restarted with the external monitor unplugged: the window comes
+            // back on the laptop, sized to fit, with its tab.
+            WorkspaceStore store;
+            store.setScreensForTesting(laptopOnly);
+            store.setCollection(QStringLiteral("monitors"));
+            QCOMPARE(store.floatingSurfaceIds(), QStringList{floating});
+            QCOMPARE(store.view(view).value("surfaceId").toString(), floating);
+            const QVariantMap rect = store.surface(floating);
+            QVERIFY(QRectF(0, 0, 1512, 982).contains(QRectF(rect.value("x").toDouble(), rect.value("y").toDouble(),
+                rect.value("width").toDouble(), rect.value("height").toDouble())));
+
+            // Plugged back in: it returns to the monitor the user chose.
+            QSignalSpy recovered(&store, &WorkspaceStore::surfaceRecovered);
+            store.setScreensForTesting(twoScreens);
+            QCOMPARE(store.recoverSurfaces(), QStringList{floating});
+            QCOMPARE(recovered.count(), 1);
+            QCOMPARE(store.surface(floating).value("x").toDouble(), 2000.0);
+            QCOMPARE(store.surface(floating).value("screen").toString(), QStringLiteral("Studio"));
+        }
+    }
+
     void snapshotsArePerCollection()
     {
         QString view;
