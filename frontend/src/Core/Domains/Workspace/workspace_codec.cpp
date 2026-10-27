@@ -88,6 +88,14 @@ QJsonObject encodeAnchor(const WorkspaceModel &model, const AnchorRecord &anchor
         object.insert(QStringLiteral("affinity"), toArray(affinity));
     }
 
+    // Anchor identity and configuration. Absent means the default, so older
+    // snapshots and layouts read unchanged.
+    if (!anchor.name.isEmpty()) object.insert(QStringLiteral("name"), anchor.name);
+    if (anchor.layoutLocked) object.insert(QStringLiteral("layoutLocked"), true);
+    if (anchor.contentLocked) object.insert(QStringLiteral("contentLocked"), true);
+    if (anchor.switchable) object.insert(QStringLiteral("switchable"), true);
+    if (!anchor.libraryId.isEmpty()) object.insert(QStringLiteral("libraryId"), anchor.libraryId);
+
     return object;
 }
 
@@ -257,6 +265,11 @@ private:
 
             anchor.pinned = anchorObject.value(QStringLiteral("pinned")).toBool();
             anchor.roles = toStringList(anchorObject.value(QStringLiteral("roles")));
+            anchor.name = anchorObject.value(QStringLiteral("name")).toString().simplified().left(80);
+            anchor.layoutLocked = anchorObject.value(QStringLiteral("layoutLocked")).toBool();
+            anchor.contentLocked = anchorObject.value(QStringLiteral("contentLocked")).toBool();
+            anchor.switchable = anchorObject.value(QStringLiteral("switchable")).toBool();
+            anchor.libraryId = anchorObject.value(QStringLiteral("libraryId")).toString();
             m_result.affinity.insert(anchor.id, toStringList(anchorObject.value(QStringLiteral("affinity"))));
             m_result.data.anchors.insert(anchor.id, anchor);
             m_result.anchorOrder.append(anchor.id);
@@ -607,7 +620,9 @@ LoadReport decodeSnapshot(const QJsonObject &snapshot, const ViewTypeRegistry &r
 
     for (const QString &anchorId : candidate.anchorIds()) {
         const AnchorRecord *anchor = candidate.anchor(anchorId);
-        if (anchor && anchor->views.isEmpty() && !anchor->pinned && candidate.anchorIds().size() > 1) {
+        const bool intentional = anchor && (anchor->pinned || anchor->layoutLocked || anchor->contentLocked
+            || anchor->switchable || !anchor->name.isEmpty() || !anchor->libraryId.isEmpty());
+        if (anchor && anchor->views.isEmpty() && !intentional && candidate.anchorIds().size() > 1) {
             candidate.closeAnchor(anchorId);
         }
     }
@@ -649,6 +664,14 @@ LoadReport applyLayout(const QJsonObject &layoutObject, WorkspaceModel &model)
 
     if (layoutObject.value(QStringLiteral("version")).toInt() > kLayoutVersion) {
         report.error = QStringLiteral("This layout was saved by a newer Archivist.");
+        return report;
+    }
+
+    // A layout rebuilds every panel, which a layout lock forbids.
+    const QStringList locked = model.layoutLockedAnchorIds();
+    if (!locked.isEmpty()) {
+        report.error = QStringLiteral("“%1” has a locked layout, so the layout can't change. Unlock it first.")
+            .arg(model.anchorDisplayName(locked.first()));
         return report;
     }
 

@@ -109,6 +109,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_model.h
     src/Core/Domains/Workspace/workspace_codec.cpp
     src/Core/Domains/Workspace/workspace_codec.h
+    src/Core/Domains/Workspace/workspace_commands.cpp
+    src/Core/Domains/Workspace/workspace_commands.h
     src/Core/Domains/Workspace/workspace_presets.cpp
     src/Core/Domains/Workspace/workspace_presets.h
     src/Core/Domains/Documents/document_buffers.cpp

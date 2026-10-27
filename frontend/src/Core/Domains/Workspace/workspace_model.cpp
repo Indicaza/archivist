@@ -69,6 +69,43 @@ bool edgeLeads(Edge edge)
     return edge == Edge::Left || edge == Edge::Top;
 }
 
+QString originName(Origin origin)
+{
+    switch (origin) {
+    case Origin::User: return QStringLiteral("user");
+    case Origin::Automatic: return QStringLiteral("automatic");
+    case Origin::Agent: return QStringLiteral("agent");
+    }
+    return QStringLiteral("user");
+}
+
+bool parseOrigin(const QString &name, Origin *origin)
+{
+    const QString lower = name.toLower();
+    if (lower == QStringLiteral("user")) {
+        *origin = Origin::User;
+    } else if (lower == QStringLiteral("automatic")) {
+        *origin = Origin::Automatic;
+    } else if (lower == QStringLiteral("agent")) {
+        *origin = Origin::Agent;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+QString librarySourceName(LibraryResolution::Source source)
+{
+    switch (source) {
+    case LibraryResolution::Source::None: return QStringLiteral("none");
+    case LibraryResolution::Source::AnchorBinding: return QStringLiteral("anchor");
+    case LibraryResolution::Source::ActiveView: return QStringLiteral("activeView");
+    case LibraryResolution::Source::Explorer: return QStringLiteral("explorer");
+    case LibraryResolution::Source::Default: return QStringLiteral("default");
+    }
+    return QStringLiteral("none");
+}
+
 namespace
 {
 constexpr double kMinimumFraction = 0.02;
@@ -422,10 +459,12 @@ void WorkspaceModel::detachNode(const QString &nodeId)
     SplitNode &parent = m_nodes[parentId];
     const qsizetype index = parent.children.indexOf(nodeId);
 
+    double freed = 0;
+
     if (index >= 0) {
         parent.children.removeAt(index);
         if (index < parent.sizes.size()) {
-            parent.sizes.removeAt(index);
+            freed = parent.sizes.takeAt(index);
         }
     }
 
@@ -444,7 +483,117 @@ void WorkspaceModel::detachNode(const QString &nodeId)
         return;
     }
 
-    parent.sizes = normalized(parent.sizes);
+    // The freed space goes to unlocked siblings, so a locked anchor keeps
+    // its size when a neighbour leaves.
+    rebalance(parent, freed);
+}
+
+void WorkspaceModel::rebalance(SplitNode &split, double freed, qsizetype skipIndex)
+{
+    double unlocked = 0;
+    int unlockedCount = 0;
+
+    for (qsizetype i = 0; i < split.children.size(); ++i) {
+        if (i != skipIndex && !containsLayoutLocked(split.children.at(i))) {
+            unlocked += split.sizes.value(i);
+            ++unlockedCount;
+        }
+    }
+
+    if (unlockedCount > 0 && unlocked > 0 && unlocked + freed > kMinimumFraction * unlockedCount) {
+        const double factor = (unlocked + freed) / unlocked;
+        for (qsizetype i = 0; i < split.children.size(); ++i) {
+            if (i != skipIndex && !containsLayoutLocked(split.children.at(i))) {
+                split.sizes[i] *= factor;
+            }
+        }
+    }
+
+    split.sizes = normalized(split.sizes);
+}
+
+bool WorkspaceModel::isLayoutLocked(const QString &anchorId) const
+{
+    const auto it = m_anchors.constFind(anchorId);
+    return it != m_anchors.constEnd() && it->layoutLocked;
+}
+
+bool WorkspaceModel::containsLayoutLocked(const QString &nodeId) const
+{
+    QStringList anchors;
+    collectAnchors(nodeId, anchors);
+    for (const QString &anchorId : anchors) {
+        if (isLayoutLocked(anchorId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QStringList WorkspaceModel::layoutLockedAnchorIds() const
+{
+    QStringList result;
+    for (const QString &anchorId : anchorIds()) {
+        if (isLayoutLocked(anchorId)) {
+            result.append(anchorId);
+        }
+    }
+    return result;
+}
+
+OpResult WorkspaceModel::layoutLockFailure(const QString &anchorId, const QString &consequence) const
+{
+    if (!isLayoutLocked(anchorId)) {
+        return OpResult::success();
+    }
+
+    return OpResult::failure(
+        QStringLiteral("LAYOUT_LOCKED"),
+        QStringLiteral("“%1” has a locked layout, so %2. Unlock it first.").arg(anchorDisplayName(anchorId), consequence)
+    );
+}
+
+OpResult WorkspaceModel::surfaceEdgeLockFailure(const QString &surfaceId, Edge edge) const
+{
+    const QString rootId = m_surfaces.value(surfaceId).rootNodeId;
+    const auto root = m_nodes.constFind(rootId);
+
+    if (root == m_nodes.constEnd() || !containsLayoutLocked(rootId)) {
+        return OpResult::success();
+    }
+
+    // Along the root split, the room comes out of unlocked siblings.
+    if (!root->leaf && root->orientation == orientationForEdge(edge)) {
+        for (const QString &child : root->children) {
+            if (!containsLayoutLocked(child)) {
+                return OpResult::success();
+            }
+        }
+    }
+
+    QStringList anchors;
+    collectAnchors(rootId, anchors);
+    for (const QString &anchorId : anchors) {
+        if (isLayoutLocked(anchorId)) {
+            return layoutLockFailure(anchorId, QStringLiteral("nothing can be docked along that window edge"));
+        }
+    }
+    return OpResult::success();
+}
+
+OpResult WorkspaceModel::contentLockFailure(const QString &anchorId, Origin origin) const
+{
+    const auto it = m_anchors.constFind(anchorId);
+
+    if (origin == Origin::User || it == m_anchors.constEnd() || !it->contentLocked) {
+        return OpResult::success();
+    }
+
+    return OpResult::failure(
+        QStringLiteral("CONTENT_LOCKED"),
+        QStringLiteral("“%1” has locked content, so its views can't be changed %2.")
+            .arg(anchorDisplayName(anchorId), origin == Origin::Agent ? QStringLiteral("by an agent") : QStringLiteral("automatically"))
+    );
 }
 
 void WorkspaceModel::insertBeside(const QString &targetNodeId, const QString &newNodeId, Edge edge)
@@ -495,14 +644,12 @@ void WorkspaceModel::insertAtSurfaceEdge(const QString &surfaceId, const QString
 
     if (!root.leaf && root.orientation == orientation) {
         const double share = 1.0 / (root.children.size() + 1);
-        for (double &size : root.sizes) {
-            size *= 1.0 - share;
-        }
         const qsizetype insertAt = lead ? 0 : root.children.size();
         root.children.insert(insertAt, newNodeId);
         root.sizes.insert(insertAt, share);
-        root.sizes = normalized(root.sizes);
         m_nodes[newNodeId].parentId = rootId;
+        // The new panel's room comes out of unlocked panels.
+        rebalance(root, -share, insertAt);
         return;
     }
 
@@ -594,7 +741,11 @@ void WorkspaceModel::collapseIfIncidental(const QString &anchorId)
 {
     const AnchorRecord record = m_anchors.value(anchorId);
 
-    if (!m_anchors.contains(anchorId) || !record.views.isEmpty() || record.pinned) {
+    // Anchors the user configured (named, locked, switchable) are kept.
+    const bool intentional = record.pinned || record.layoutLocked || record.contentLocked || record.switchable
+        || !record.name.isEmpty() || !record.libraryId.isEmpty();
+
+    if (!m_anchors.contains(anchorId) || !record.views.isEmpty() || intentional) {
         return;
     }
 
@@ -649,13 +800,17 @@ void WorkspaceModel::insertViewIntoAnchor(const QString &viewId, const QString &
 
 // ---- views -------------------------------------------------------------------
 
-OpResult WorkspaceModel::openView(ViewRecord record, const QString &anchorId, int index, bool activate)
+OpResult WorkspaceModel::openView(ViewRecord record, const QString &anchorId, int index, bool activate, Origin origin)
 {
     return transact([&]() {
         const QString destination = anchorId.isEmpty() ? targetAnchorId() : anchorId;
 
         if (!m_anchors.contains(destination)) {
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + destination);
+        }
+
+        if (const OpResult locked = contentLockFailure(destination, origin); !locked.ok) {
+            return locked;
         }
 
         if (record.typeId.isEmpty()) {
@@ -675,7 +830,7 @@ OpResult WorkspaceModel::openView(ViewRecord record, const QString &anchorId, in
     });
 }
 
-OpResult WorkspaceModel::closeView(const QString &viewId)
+OpResult WorkspaceModel::closeView(const QString &viewId, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -683,6 +838,11 @@ OpResult WorkspaceModel::closeView(const QString &viewId)
         }
 
         const QString anchorId = m_anchorOfView.value(viewId);
+
+        if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
+            return locked;
+        }
+
         removeViewFromAnchor(viewId);
         m_views.remove(viewId);
         collapseIfIncidental(anchorId);
@@ -726,10 +886,14 @@ OpResult WorkspaceModel::setViewTitle(const QString &viewId, const QString &titl
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setViewResource(const QString &viewId, const ResourceRef &resource)
+OpResult WorkspaceModel::setViewResource(const QString &viewId, const ResourceRef &resource, Origin origin)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
+    }
+
+    if (const OpResult locked = contentLockFailure(m_anchorOfView.value(viewId), origin); !locked.ok) {
+        return locked;
     }
 
     m_views[viewId].resource = resource;
@@ -754,7 +918,7 @@ OpResult WorkspaceModel::setViewType(const QString &viewId, const QString &typeI
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anchorId, Edge edge)
+OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anchorId, Edge edge, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -766,6 +930,14 @@ OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anc
 
         if (!m_anchors.contains(destination)) {
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + destination);
+        }
+
+        if (edge == Edge::Center) {
+            if (const OpResult locked = contentLockFailure(destination, origin); !locked.ok) {
+                return locked;
+            }
+        } else if (const OpResult locked = layoutLockFailure(destination, QStringLiteral("nothing can be split beside it")); !locked.ok) {
+            return locked;
         }
 
         ViewRecord copy = m_views.value(viewId);
@@ -790,7 +962,7 @@ OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anc
     });
 }
 
-OpResult WorkspaceModel::moveView(const QString &viewId, const QString &targetAnchorId, int index)
+OpResult WorkspaceModel::moveView(const QString &viewId, const QString &targetAnchorId, int index, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -802,6 +974,15 @@ OpResult WorkspaceModel::moveView(const QString &viewId, const QString &targetAn
         }
 
         const QString sourceAnchor = m_anchorOfView.value(viewId);
+
+        // Reordering is navigation; moving between anchors changes content.
+        if (sourceAnchor != targetAnchorId) {
+            for (const QString &affected : {sourceAnchor, targetAnchorId}) {
+                if (const OpResult locked = contentLockFailure(affected, origin); !locked.ok) {
+                    return locked;
+                }
+            }
+        }
 
         if (sourceAnchor == targetAnchorId) {
             AnchorRecord &record = m_anchors[sourceAnchor];
@@ -825,10 +1006,10 @@ OpResult WorkspaceModel::moveView(const QString &viewId, const QString &targetAn
     });
 }
 
-OpResult WorkspaceModel::splitView(const QString &viewId, const QString &targetAnchorId, Edge edge)
+OpResult WorkspaceModel::splitView(const QString &viewId, const QString &targetAnchorId, Edge edge, Origin origin)
 {
     if (edge == Edge::Center) {
-        return moveView(viewId, targetAnchorId, -1);
+        return moveView(viewId, targetAnchorId, -1, origin);
     }
 
     return transact([&]() {
@@ -837,6 +1018,14 @@ OpResult WorkspaceModel::splitView(const QString &viewId, const QString &targetA
         }
 
         const QString sourceAnchor = m_anchorOfView.value(viewId);
+
+        if (const OpResult locked = contentLockFailure(sourceAnchor, origin); !locked.ok) {
+            return locked;
+        }
+
+        if (const OpResult locked = layoutLockFailure(targetAnchorId, QStringLiteral("nothing can be split beside it")); !locked.ok) {
+            return locked;
+        }
 
         if (sourceAnchor == targetAnchorId && m_anchors.value(sourceAnchor).views.size() == 1) {
             return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("A tab can't be split away from itself."));
@@ -855,7 +1044,7 @@ OpResult WorkspaceModel::splitView(const QString &viewId, const QString &targetA
     });
 }
 
-OpResult WorkspaceModel::dockViewAtSurfaceEdge(const QString &viewId, const QString &surfaceId, Edge edge)
+OpResult WorkspaceModel::dockViewAtSurfaceEdge(const QString &viewId, const QString &surfaceId, Edge edge, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId) || !m_surfaces.contains(surfaceId)) {
@@ -867,6 +1056,14 @@ OpResult WorkspaceModel::dockViewAtSurfaceEdge(const QString &viewId, const QStr
         }
 
         const QString sourceAnchor = m_anchorOfView.value(viewId);
+
+        if (const OpResult locked = contentLockFailure(sourceAnchor, origin); !locked.ok) {
+            return locked;
+        }
+
+        if (const OpResult locked = surfaceEdgeLockFailure(surfaceId, edge); !locked.ok) {
+            return locked;
+        }
         const QStringList surfaceAnchors = anchorIds(surfaceId);
 
         if (surfaceAnchors == QStringList{sourceAnchor} && m_anchors.value(sourceAnchor).views.size() == 1) {
@@ -886,7 +1083,7 @@ OpResult WorkspaceModel::dockViewAtSurfaceEdge(const QString &viewId, const QStr
     });
 }
 
-OpResult WorkspaceModel::detachView(const QString &viewId, const QRectF &geometry, const QString &screenName)
+OpResult WorkspaceModel::detachView(const QString &viewId, const QRectF &geometry, const QString &screenName, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -894,6 +1091,10 @@ OpResult WorkspaceModel::detachView(const QString &viewId, const QRectF &geometr
         }
 
         const QString sourceAnchor = m_anchorOfView.value(viewId);
+
+        if (const OpResult locked = contentLockFailure(sourceAnchor, origin); !locked.ok) {
+            return locked;
+        }
         const QString surfaceId = createSurface(geometry, screenName);
         AnchorRecord created;
         created.id = newId(QStringLiteral("a"));
@@ -919,6 +1120,10 @@ OpResult WorkspaceModel::createAnchor(const QString &targetAnchorId, Edge edge)
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + target);
         }
 
+        if (const OpResult locked = layoutLockFailure(target, QStringLiteral("nothing can be split beside it")); !locked.ok) {
+            return locked;
+        }
+
         AnchorRecord created;
         created.id = newId(QStringLiteral("a"));
         created.pinned = true;
@@ -930,11 +1135,19 @@ OpResult WorkspaceModel::createAnchor(const QString &targetAnchorId, Edge edge)
     });
 }
 
-OpResult WorkspaceModel::closeAnchor(const QString &anchorId)
+OpResult WorkspaceModel::closeAnchor(const QString &anchorId, Origin origin)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId)) {
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+        }
+
+        if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("it can't be closed")); !locked.ok) {
+            return locked;
+        }
+
+        if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
+            return locked;
         }
 
         for (const QString &viewId : m_anchors.value(anchorId).views) {
@@ -955,7 +1168,7 @@ OpResult WorkspaceModel::closeAnchor(const QString &anchorId)
     });
 }
 
-OpResult WorkspaceModel::mergeAnchor(const QString &anchorId, const QString &targetAnchorId)
+OpResult WorkspaceModel::mergeAnchor(const QString &anchorId, const QString &targetAnchorId, Origin origin)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId) || !m_anchors.contains(targetAnchorId)) {
@@ -964,6 +1177,16 @@ OpResult WorkspaceModel::mergeAnchor(const QString &anchorId, const QString &tar
 
         if (anchorId == targetAnchorId) {
             return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("An anchor can't merge into itself."));
+        }
+
+        if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("it can't be merged into another panel")); !locked.ok) {
+            return locked;
+        }
+
+        for (const QString &affected : {anchorId, targetAnchorId}) {
+            if (const OpResult locked = contentLockFailure(affected, origin); !locked.ok) {
+                return locked;
+            }
         }
 
         const AnchorRecord source = m_anchors.value(anchorId);
@@ -985,10 +1208,10 @@ OpResult WorkspaceModel::mergeAnchor(const QString &anchorId, const QString &tar
     });
 }
 
-OpResult WorkspaceModel::moveAnchor(const QString &anchorId, const QString &targetAnchorId, Edge edge)
+OpResult WorkspaceModel::moveAnchor(const QString &anchorId, const QString &targetAnchorId, Edge edge, Origin origin)
 {
     if (edge == Edge::Center) {
-        return mergeAnchor(anchorId, targetAnchorId);
+        return mergeAnchor(anchorId, targetAnchorId, origin);
     }
 
     return transact([&]() {
@@ -998,6 +1221,14 @@ OpResult WorkspaceModel::moveAnchor(const QString &anchorId, const QString &targ
 
         if (anchorId == targetAnchorId) {
             return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("An anchor can't dock beside itself."));
+        }
+
+        if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("it can't be moved")); !locked.ok) {
+            return locked;
+        }
+
+        if (const OpResult locked = layoutLockFailure(targetAnchorId, QStringLiteral("nothing can be docked beside it")); !locked.ok) {
+            return locked;
         }
 
         const QString sourceSurface = surfaceOfAnchor(anchorId);
@@ -1027,9 +1258,18 @@ OpResult WorkspaceModel::dockAnchorAtSurfaceEdge(const QString &anchorId, const 
             return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("This group already fills the window."));
         }
 
+        if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("it can't be moved")); !locked.ok) {
+            return locked;
+        }
+
         const QString sourceSurface = surfaceOfAnchor(anchorId);
         const QString leafId = leafOfAnchor(anchorId);
         detachNode(leafId);
+
+        if (const OpResult locked = surfaceEdgeLockFailure(surfaceId, edge); !locked.ok) {
+            return locked;
+        }
+
         insertAtSurfaceEdge(surfaceId, leafId, edge);
         dropSurfaceIfEmpty(sourceSurface);
         ensurePrimaryHasAnchor();
@@ -1044,6 +1284,10 @@ OpResult WorkspaceModel::detachAnchor(const QString &anchorId, const QRectF &geo
     return transact([&]() {
         if (!m_anchors.contains(anchorId)) {
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+        }
+
+        if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("it can't move to another window")); !locked.ok) {
+            return locked;
         }
 
         const QString sourceSurface = surfaceOfAnchor(anchorId);
@@ -1140,6 +1384,292 @@ OpResult WorkspaceModel::restoreAnchor(const QString &surfaceId)
     return OpResult::success();
 }
 
+// ---- anchor identity and configuration ---------------------------------------
+
+namespace
+{
+constexpr int kMaximumAnchorNameLength = 80;
+
+OpResult unlockRefused(Origin origin)
+{
+    return OpResult::failure(
+        QStringLiteral("UNLOCK_REFUSED"),
+        origin == Origin::Agent
+            ? QStringLiteral("Only you can unlock a panel; an agent can't.")
+            : QStringLiteral("A panel is only unlocked when you ask for it.")
+    );
+}
+
+QString baseNameForType(const QString &typeId)
+{
+    if (typeId == QStringLiteral("archivist.editor") || typeId == QStringLiteral("archivist.preview")) {
+        return QStringLiteral("Editor");
+    }
+    if (typeId == QStringLiteral("archivist.chat")) {
+        return QStringLiteral("Chat");
+    }
+    if (typeId == QStringLiteral("archivist.terminal")) {
+        return QStringLiteral("Terminal");
+    }
+    if (typeId == QStringLiteral("archivist.diff")) {
+        return QStringLiteral("Review");
+    }
+    return QStringLiteral("Panel");
+}
+} // namespace
+
+OpResult WorkspaceModel::renameAnchor(const QString &anchorId, const QString &name, Origin origin)
+{
+    Q_UNUSED(origin)
+
+    if (!m_anchors.contains(anchorId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+    }
+
+    // One line, trimmed, bounded. Blank resets to the automatic name.
+    QString clean = name.simplified();
+    if (clean.size() > kMaximumAnchorNameLength) {
+        clean = clean.left(kMaximumAnchorNameLength).trimmed();
+    }
+
+    AnchorRecord &record = m_anchors[anchorId];
+    if (record.name != clean) {
+        record.name = clean;
+        bump();
+    }
+    return OpResult::success();
+}
+
+OpResult WorkspaceModel::setAnchorLayoutLocked(const QString &anchorId, bool locked, Origin origin)
+{
+    if (!m_anchors.contains(anchorId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+    }
+
+    AnchorRecord &record = m_anchors[anchorId];
+
+    if (!locked && record.layoutLocked && origin != Origin::User) {
+        return unlockRefused(origin);
+    }
+
+    if (record.layoutLocked != locked) {
+        record.layoutLocked = locked;
+        bump();
+    }
+    return OpResult::success();
+}
+
+OpResult WorkspaceModel::setAnchorContentLocked(const QString &anchorId, bool locked, Origin origin)
+{
+    if (!m_anchors.contains(anchorId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+    }
+
+    AnchorRecord &record = m_anchors[anchorId];
+
+    if (!locked && record.contentLocked && origin != Origin::User) {
+        return unlockRefused(origin);
+    }
+
+    if (record.contentLocked != locked) {
+        record.contentLocked = locked;
+        bump();
+    }
+    return OpResult::success();
+}
+
+OpResult WorkspaceModel::setAnchorSwitchable(const QString &anchorId, bool switchable, Origin origin)
+{
+    if (!m_anchors.contains(anchorId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+    }
+
+    // How the views are presented, not which views: allowed under a content
+    // lock for the user, refused for automation.
+    if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
+        return locked;
+    }
+
+    AnchorRecord &record = m_anchors[anchorId];
+    if (record.switchable != switchable) {
+        record.switchable = switchable;
+        bump();
+    }
+    return OpResult::success();
+}
+
+OpResult WorkspaceModel::setAnchorLibrary(const QString &anchorId, const QString &libraryId, Origin origin)
+{
+    if (!m_anchors.contains(anchorId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+    }
+
+    AnchorRecord &record = m_anchors[anchorId];
+
+    // Global worktree switches never redirect a panel the user configured.
+    if (origin == Origin::Automatic && (record.pinned || record.layoutLocked || record.contentLocked)) {
+        return OpResult::failure(
+            QStringLiteral("CONTENT_LOCKED"),
+            QStringLiteral("“%1” keeps its own worktree.").arg(anchorDisplayName(anchorId))
+        );
+    }
+
+    if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
+        return locked;
+    }
+
+    if (record.libraryId != libraryId) {
+        record.libraryId = libraryId;
+        bump();
+    }
+    return OpResult::success();
+}
+
+QString WorkspaceModel::anchorDisplayName(const QString &anchorId) const
+{
+    const auto it = m_anchors.constFind(anchorId);
+    if (it == m_anchors.constEnd()) {
+        return {};
+    }
+    return it->name.isEmpty() ? automaticAnchorName(anchorId) : it->name;
+}
+
+QString WorkspaceModel::automaticAnchorName(const QString &anchorId) const
+{
+    // "Editor", "Chat", "Terminal" from what the anchor holds (or prefers),
+    // numbered when several anchors would share a name.
+    auto baseName = [this](const AnchorRecord &record) {
+        if (record.switchable) {
+            return QStringLiteral("Shelf");
+        }
+
+        QString base;
+        for (const QString &viewId : record.views) {
+            const QString candidate = baseNameForType(m_views.value(viewId).typeId);
+            if (base.isEmpty()) {
+                base = candidate;
+            } else if (base != candidate) {
+                return QStringLiteral("Panel");
+            }
+        }
+
+        if (base.isEmpty() && !record.roles.isEmpty()) {
+            base = baseNameForType(record.roles.first());
+        }
+        return base.isEmpty() ? QStringLiteral("Panel") : base;
+    };
+
+    const auto it = m_anchors.constFind(anchorId);
+    if (it == m_anchors.constEnd()) {
+        return {};
+    }
+
+    const QString base = baseName(*it);
+    int number = 0;
+    int total = 0;
+
+    for (const QString &other : anchorIds()) {
+        const AnchorRecord &record = m_anchors[other];
+        if (record.name.isEmpty() && baseName(record) == base) {
+            ++total;
+            if (other == anchorId) {
+                number = total;
+            }
+        }
+    }
+
+    return number > 1 ? QStringLiteral("%1 %2").arg(base).arg(number) : base;
+}
+
+AnchorCapabilities WorkspaceModel::anchorCapabilities(const QString &anchorId, Origin origin) const
+{
+    AnchorCapabilities caps;
+    const auto it = m_anchors.constFind(anchorId);
+
+    if (it == m_anchors.constEnd()) {
+        caps.canMove = caps.canClose = caps.canResize = caps.canMerge = caps.canFloat = caps.canDockBeside = false;
+        caps.canAddViews = caps.canRemoveViews = caps.canReplaceContent = caps.canRename = false;
+        caps.canUnlock = caps.canSetWorktree = false;
+        caps.reasons.insert(QStringLiteral("all"), QStringLiteral("No such anchor."));
+        return caps;
+    }
+
+    if (it->layoutLocked) {
+        const QString reason = layoutLockFailure(anchorId, QStringLiteral("its place is fixed")).message;
+        caps.canMove = caps.canClose = caps.canResize = caps.canMerge = caps.canFloat = caps.canDockBeside = false;
+        for (const char *key : {"move", "close", "resize", "merge", "float", "dockBeside"}) {
+            caps.reasons.insert(QString::fromLatin1(key), reason);
+        }
+    }
+
+    const OpResult content = contentLockFailure(anchorId, origin);
+    if (!content.ok) {
+        caps.canAddViews = caps.canRemoveViews = caps.canReplaceContent = caps.canClose = caps.canMerge = false;
+        caps.canSetWorktree = false;
+        for (const char *key : {"addViews", "removeViews", "replaceContent", "setWorktree"}) {
+            caps.reasons.insert(QString::fromLatin1(key), content.message);
+        }
+        if (!caps.reasons.contains(QStringLiteral("close"))) {
+            caps.reasons.insert(QStringLiteral("close"), content.message);
+            caps.reasons.insert(QStringLiteral("merge"), content.message);
+        }
+    }
+
+    if (origin == Origin::Automatic && (it->pinned || it->layoutLocked || it->contentLocked)) {
+        caps.canSetWorktree = false;
+        caps.reasons.insert(QStringLiteral("setWorktree"), QStringLiteral("This panel keeps its own worktree."));
+    }
+
+    caps.canUnlock = origin == Origin::User;
+    if (!caps.canUnlock) {
+        caps.reasons.insert(QStringLiteral("unlock"), unlockRefused(origin).message);
+    }
+
+    return caps;
+}
+
+LibraryResolution WorkspaceModel::resolveLibrary(
+    const QString &anchorId,
+    const QString &explorerLibraryId,
+    const QString &defaultLibraryId,
+    const QStringList &knownLibraryIds
+) const
+{
+    auto usable = [&](const QString &libraryId) {
+        return !libraryId.isEmpty() && (knownLibraryIds.isEmpty() || knownLibraryIds.contains(libraryId));
+    };
+
+    LibraryResolution result;
+    const auto anchor = m_anchors.constFind(anchorId);
+
+    if (anchor != m_anchors.constEnd()) {
+        if (usable(anchor->libraryId)) {
+            result.libraryId = anchor->libraryId;
+            result.source = LibraryResolution::Source::AnchorBinding;
+            return result;
+        }
+
+        const auto active = m_views.constFind(anchor->activeViewId);
+        if (active != m_views.constEnd() && usable(active->resource.libraryId)) {
+            result.libraryId = active->resource.libraryId;
+            result.source = LibraryResolution::Source::ActiveView;
+            return result;
+        }
+    }
+
+    if (usable(explorerLibraryId)) {
+        result.libraryId = explorerLibraryId;
+        result.source = LibraryResolution::Source::Explorer;
+        return result;
+    }
+
+    if (usable(defaultLibraryId)) {
+        result.libraryId = defaultLibraryId;
+        result.source = LibraryResolution::Source::Default;
+    }
+    return result;
+}
+
 // ---- splits ------------------------------------------------------------------
 
 OpResult WorkspaceModel::setSplitSizes(const QString &nodeId, const QList<double> &sizes)
@@ -1158,7 +1688,22 @@ OpResult WorkspaceModel::setSplitSizes(const QString &nodeId, const QList<double
         }
     }
 
-    m_nodes[nodeId].sizes = normalized(sizes);
+    const SplitNode &split = m_nodes[nodeId];
+    const QList<double> next = normalized(sizes);
+
+    for (qsizetype i = 0; i < split.children.size(); ++i) {
+        if (std::abs(next.at(i) - split.sizes.value(i)) > 1e-6 && containsLayoutLocked(split.children.at(i))) {
+            QStringList anchors;
+            collectAnchors(split.children.at(i), anchors);
+            for (const QString &anchorId : anchors) {
+                if (isLayoutLocked(anchorId)) {
+                    return layoutLockFailure(anchorId, QStringLiteral("it can't be resized"));
+                }
+            }
+        }
+    }
+
+    m_nodes[nodeId].sizes = next;
     bump();
     return OpResult::success();
 }
@@ -1169,8 +1714,29 @@ OpResult WorkspaceModel::equalizeSplit(const QString &nodeId)
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such split: ") + nodeId);
     }
 
-    const qsizetype count = m_nodes.value(nodeId).children.size();
-    return setSplitSizes(nodeId, QList<double>(count, 1.0 / count));
+    // Locked panels keep their size; the others share what is left evenly.
+    const SplitNode split = m_nodes.value(nodeId);
+    double unlockedTotal = 0;
+    int unlockedCount = 0;
+
+    for (qsizetype i = 0; i < split.children.size(); ++i) {
+        if (!containsLayoutLocked(split.children.at(i))) {
+            unlockedTotal += split.sizes.value(i);
+            ++unlockedCount;
+        }
+    }
+
+    if (unlockedCount == 0) {
+        return setSplitSizes(nodeId, QList<double>(split.children.size(), 1.0 / split.children.size()));
+    }
+
+    QList<double> sizes = split.sizes;
+    for (qsizetype i = 0; i < split.children.size(); ++i) {
+        if (!containsLayoutLocked(split.children.at(i))) {
+            sizes[i] = unlockedTotal / unlockedCount;
+        }
+    }
+    return setSplitSizes(nodeId, sizes);
 }
 
 OpResult WorkspaceModel::resizeSplit(
@@ -1270,6 +1836,12 @@ OpResult WorkspaceModel::closeSurface(const QString &surfaceId)
 
         if (m_surfaces.value(surfaceId).primary) {
             return OpResult::failure(QStringLiteral("PRIMARY_SURFACE"), QStringLiteral("The main window can't be closed this way."));
+        }
+
+        for (const QString &anchorId : anchorIds(surfaceId)) {
+            if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("its window can't be closed")); !locked.ok) {
+                return locked;
+            }
         }
 
         const QString primaryId = primarySurfaceId();
@@ -1431,11 +2003,14 @@ OpResult WorkspaceModel::canDrop(const DragSource &source, const DropTarget &tar
             if (alone && surfaceAnchors == QStringList{sourceAnchor}) {
                 return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("This tab already fills the window."));
             }
-            return OpResult::success();
+            return surfaceEdgeLockFailure(target.surfaceId, target.edge);
         }
 
         if (target.edge != Edge::Center && sourceAnchor == target.anchorId && alone) {
             return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("A tab can't be split away from itself."));
+        }
+        if (target.edge != Edge::Center) {
+            return layoutLockFailure(target.anchorId, QStringLiteral("nothing can be split beside it"));
         }
         return OpResult::success();
     }
@@ -1445,15 +2020,25 @@ OpResult WorkspaceModel::canDrop(const DragSource &source, const DropTarget &tar
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor."));
         }
 
+        if (const OpResult locked = layoutLockFailure(source.id, QStringLiteral("it can't be moved")); !locked.ok) {
+            return locked;
+        }
+
         if (target.isSurfaceEdge()) {
             if (surfaceAnchors == QStringList{source.id}) {
                 return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("This group already fills the window."));
             }
-            return OpResult::success();
+            // The panel leaves its place first, so judge the window without it.
+            WorkspaceModel after = *this;
+            after.detachNode(after.leafOfAnchor(source.id));
+            return after.surfaceEdgeLockFailure(target.surfaceId, target.edge);
         }
 
         if (target.anchorId == source.id) {
             return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("A group can't dock onto itself."));
+        }
+        if (target.edge != Edge::Center) {
+            return layoutLockFailure(target.anchorId, QStringLiteral("nothing can be docked beside it"));
         }
         return OpResult::success();
     }

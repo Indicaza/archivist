@@ -130,7 +130,7 @@ public:
     // ---- views ------------------------------------------------------------
     // resource: {kind, id, collectionId, libraryId, details}
     // options: {anchorId, index, reveal (default true), duplicate, activate,
-    //           focus (default true), state}
+    //           focus (default true), state, origin (default "user")}
     // With reveal, an existing view of the same type and resource is
     // activated instead of opening another one. Returns the view id.
     Q_INVOKABLE QString openView(
@@ -155,7 +155,9 @@ public:
     Q_INVOKABLE bool mergeViewState(const QString &viewId, const QVariantMap &patch);
     Q_INVOKABLE bool setViewTitle(const QString &viewId, const QString &title);
     Q_INVOKABLE bool setViewType(const QString &viewId, const QString &typeId);
-    Q_INVOKABLE bool setViewResource(const QString &viewId, const QVariantMap &resource);
+    // origin: "user" (default), "automatic" (selection following) or
+    // "agent". A content-locked panel refuses the last two.
+    Q_INVOKABLE bool setViewResource(const QString &viewId, const QVariantMap &resource, const QString &origin = QStringLiteral("user"));
     [[nodiscard]] Q_INVOKABLE QVariantMap view(const QString &viewId) const;
     // The view's published row: view data plus its anchor's rect.
     [[nodiscard]] Q_INVOKABLE QVariantMap viewRow(const QString &viewId) const;
@@ -174,6 +176,33 @@ public:
     Q_INVOKABLE bool cycleFocus(int step);
     Q_INVOKABLE bool cycleView(int step);
     [[nodiscard]] Q_INVOKABLE QVariantMap anchor(const QString &anchorId) const;
+
+    // ---- anchor identity and configuration -------------------------------
+    // Locks are enforced by the model; these report false (and emit
+    // operationFailed with the reason) when one refuses.
+    Q_INVOKABLE bool renameAnchor(const QString &anchorId, const QString &name);
+    Q_INVOKABLE bool setAnchorLayoutLocked(const QString &anchorId, bool locked);
+    Q_INVOKABLE bool setAnchorContentLocked(const QString &anchorId, bool locked);
+    Q_INVOKABLE bool setAnchorSwitchable(const QString &anchorId, bool switchable);
+    // "" clears the binding. Existing views keep their own worktree.
+    Q_INVOKABLE bool setAnchorLibrary(const QString &anchorId, const QString &libraryId);
+    [[nodiscard]] Q_INVOKABLE QString anchorDisplayName(const QString &anchorId) const;
+    // {move, close, resize, merge, float, dockBeside, addViews, ...} plus
+    // `restrictions`: {capability: reason}, for the person.
+    [[nodiscard]] Q_INVOKABLE QVariantMap anchorCapabilities(const QString &anchorId) const;
+    // Which worktree a new terminal (or other resource) opened in
+    // `anchorId` belongs to: {libraryId, source}, source one of anchor,
+    // activeView, explorer, default, none.
+    [[nodiscard]] Q_INVOKABLE QVariantMap resolveLibrary(
+        const QString &anchorId,
+        const QString &explorerLibraryId,
+        const QString &defaultLibraryId,
+        const QStringList &knownLibraryIds = {}
+    ) const;
+    // Runs a workspace command (Core/Domains/Workspace/workspace_commands.h)
+    // with the given origin ("agent" when absent). Removing a view that
+    // holds the last unsaved copy of a document is refused for agents.
+    Q_INVOKABLE QVariantMap runCommand(const QVariantMap &command);
     // Where a new view of `typeId` should go when nothing asks otherwise:
     // documents follow the target anchor; chats and terminals prefer an
     // anchor whose role is that type, then one already showing that type.
