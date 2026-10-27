@@ -189,6 +189,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Files/document_preview_service.h
     src/App/Domains/Library/library_store.cpp
     src/App/Domains/Library/library_store.h
+    src/App/Domains/Worktree/worktree_store.cpp
+    src/App/Domains/Worktree/worktree_store.h
     src/App/Services/runtime_trace_store.cpp
     src/App/Services/runtime_trace_store.h
     src/App/Services/workspace_state_store.cpp
@@ -228,6 +230,10 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceDragSession.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeBar.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeRow.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeField.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeActionButton.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/WorkspaceNavigator.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/SidebarBandHeader.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionBand.qml

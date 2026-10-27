@@ -6,6 +6,7 @@ import Archivist.Services 1.0
 import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "WorkspaceNavigator"
+import "WorktreeBar"
 
 Rectangle {
     id: root
@@ -421,16 +422,25 @@ Rectangle {
         tryRestoreCollectionLibrary()
     }
 
-    function selectLibrary(libraryId) {
+    // `reconcile` rescans the Library against the disk once its catalog
+    // shows; worktrees use it because agents and git change them while they
+    // are off screen.
+    function selectLibrary(libraryId, reconcile) {
         var targetLibraryId = String(libraryId || "")
 
+        if (targetLibraryId.length === 0) {
+            return
+        }
+
         if (
-            targetLibraryId.length === 0
-            || targetLibraryId
+            targetLibraryId
                 === String(
                     LibraryStore.selectedLibraryId || ""
                 )
         ) {
+            if (reconcile === true && !LibraryStore.scanning) {
+                LibraryStore.scanSelectedLibrary()
+            }
             return
         }
 
@@ -446,7 +456,12 @@ Rectangle {
             targetLibraryId
         )
         WorkspaceState.sync()
-        LibraryStore.selectLibrary(targetLibraryId)
+
+        if (reconcile === true) {
+            LibraryStore.selectLibraryAndReconcile(targetLibraryId)
+        } else {
+            LibraryStore.selectLibrary(targetLibraryId)
+        }
     }
 
     function clearPendingReveal() {
@@ -1076,9 +1091,23 @@ Rectangle {
 
     function libraryIndexForId(libraryId) {
         var libraries = scopedLibraries || []
+        var targetId = String(libraryId || "")
+        var catalog = LibraryStore.libraries || []
+
+        // A worktree's Library is not a Collection member of its own; the
+        // Library picker shows the Library it was opened from.
+        for (var catalogIndex = 0; catalogIndex < catalog.length; catalogIndex += 1) {
+            if (
+                String(catalog[catalogIndex].id || "") === targetId
+                && String(catalog[catalogIndex].worktreeOfLibraryId || "").length > 0
+            ) {
+                targetId = String(catalog[catalogIndex].worktreeOfLibraryId)
+                break
+            }
+        }
 
         for (var index = 0; index < libraries.length; index += 1) {
-            if (String(libraries[index].id) === String(libraryId)) {
+            if (String(libraries[index].id) === targetId) {
                 return index
             }
         }
@@ -2164,6 +2193,15 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             sourceComponent: root.activeViewIndex === 0 ? libraryView : placeholderView
+        }
+
+        WorktreeBar {
+            Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
+            theme: root.theme
+            onSwitchRequested: function(libraryId, reconcile) {
+                root.selectLibrary(libraryId, reconcile)
+            }
         }
     }
 

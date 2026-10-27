@@ -419,7 +419,15 @@ Popup {
                         theme: editorRoot.theme
                         heading: "LIBRARIES"
                         description: "Knowledge roots visible in this Collection."
-                        items: LibraryStore.libraries
+                        // Worktrees join a Collection through the
+                        // Library they were opened from.
+                        items: (LibraryStore.libraries || []).filter(
+                            function(library) {
+                                return String(
+                                    library.worktreeOfLibraryId || ""
+                                ).length === 0
+                            }
+                        )
                         selectedIds: editorRoot.selectedLibraryIds
                         itemLabel: function(item) {
                             return String(item.name || "Library")

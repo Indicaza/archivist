@@ -68,6 +68,10 @@ Item {
     property bool libraryCatalogObserved: false
     property bool chatCatalogObserved: false
     property string workspaceScopeId: ""
+    // The worktree Library whose tabs are showing, or "" for the main
+    // checkout. Each worktree keeps its own tabs; the Monaco models behind
+    // hidden tabs stay alive, so unsaved edits survive a switch.
+    property string deskLibraryId: ""
     property bool collectionWorkspaceSwitching: false
     property bool collectionScopeReady: false
     readonly property color activeContourColor: "#5f5a52"
@@ -142,6 +146,148 @@ Item {
         return String(collectionId || "")
     }
 
+    function scopeIdForDesk(collectionId, deskId) {
+        var scopeId = scopeIdForCollection(collectionId)
+        var desk = String(deskId || "")
+
+        return desk.length > 0 && scopeId.length > 0
+            ? scopeId + "/worktrees/" + desk
+            : scopeId
+    }
+
+    function collectionIdOfScope(scopeId) {
+        return String(scopeId || "").split("/worktrees/")[0]
+    }
+
+    function savedDeskForCollection(collectionId) {
+        return String(
+            WorkspaceState.value(
+                workspaceStateKey(collectionId, "activeDesk"),
+                ""
+            ) || ""
+        )
+    }
+
+    function libraryForId(libraryId) {
+        var libraries = LibraryStore.libraries || []
+        var targetId = String(libraryId || "")
+
+        for (var index = 0; index < libraries.length; index += 1) {
+            if (String(libraries[index].id || "") === targetId) {
+                return libraries[index]
+            }
+        }
+
+        return null
+    }
+
+    // Which tab set the selected Library belongs to. A worktree Library has
+    // its own; its anchor (or any Library once the shown worktree is gone)
+    // returns to the main set. Other Libraries keep the current set, so
+    // opening a file from an unrelated Library never swaps the tabs.
+    function deskForSelectedLibrary() {
+        var selected = libraryForId(LibraryStore.selectedLibraryId)
+
+        if (!selected) {
+            return deskLibraryId
+        }
+
+        var worktreeOf = String(selected.worktreeOfLibraryId || "")
+
+        if (worktreeOf.length > 0) {
+            return String(selected.id)
+        }
+
+        if (deskLibraryId.length === 0) {
+            return ""
+        }
+
+        var desk = libraryForId(deskLibraryId)
+
+        if (
+            !desk
+            || desk.archived === true
+            || String(desk.worktreeOfLibraryId || "") === String(selected.id)
+        ) {
+            return ""
+        }
+
+        return deskLibraryId
+    }
+
+    function restoreDirtyFlags() {
+        var collectionId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
+
+        for (var index = 0; index < tabs.count; index += 1) {
+            var tab = tabs.get(index)
+
+            if (String(tab.tabType || "") !== "file") {
+                continue
+            }
+
+            tabs.setProperty(
+                index,
+                "dirty",
+                WorktreeStore.isDocumentDirty(
+                    collectionId
+                        + ":"
+                        + String(tab.libraryId || "")
+                        + ":"
+                        + String(tab.fileId || "")
+                )
+            )
+        }
+    }
+
+    function syncWorktreeDesk() {
+        if (
+            !tabStateRestored
+            || restoringTabState
+            || collectionWorkspaceSwitching
+            || !collectionScopeReady
+        ) {
+            return
+        }
+
+        var collectionId = String(
+            CollectionStore.selectedCollectionId || ""
+        )
+        var nextDesk = deskForSelectedLibrary()
+
+        if (
+            collectionId.length === 0
+            || collectionIdOfScope(workspaceScopeId) !== collectionId
+            || nextDesk === deskLibraryId
+        ) {
+            return
+        }
+
+        tabStateSaveTimer.stop()
+        saveTabState()
+
+        deskLibraryId = nextDesk
+        WorkspaceState.setValue(
+            workspaceStateKey(collectionId, "activeDesk"),
+            nextDesk
+        )
+
+        collectionWorkspaceSwitching = true
+        restoreActiveTabPending = false
+        LibraryStore.clearFilePreview()
+        restoreTabState(scopeIdForDesk(collectionId, nextDesk))
+        restoreDirtyFlags()
+        WorkspaceState.sync()
+
+        if (!restoreActiveTabPending) {
+            finishCollectionWorkspaceSwitch()
+            return
+        }
+
+        Qt.callLater(root.tryRestoreActiveTab)
+    }
+
     function workspaceStateKey(scopeId, suffix) {
         return "workspace/collections/"
             + String(scopeId || "")
@@ -207,6 +353,7 @@ Item {
         var rawStateValue = WorkspaceState.value(stateKey, missingValue)
         var savedActiveValue = WorkspaceState.value(activeKey, missingValue)
         var migrateLegacyState = String(rawStateValue) === missingValue
+            && targetScopeId.indexOf("/worktrees/") < 0
             && !Boolean(
                 WorkspaceState.value(
                     "workspace/collectionTabsMigrated",
@@ -303,9 +450,13 @@ Item {
     }
 
     function switchCollectionWorkspace() {
-        var nextScopeId = scopeIdForCollection(
-            CollectionStore.selectedCollectionId
+        var nextCollectionId = String(
+            CollectionStore.selectedCollectionId || ""
         )
+        var nextDesk = nextCollectionId.length > 0
+            ? savedDeskForCollection(nextCollectionId)
+            : ""
+        var nextScopeId = scopeIdForDesk(nextCollectionId, nextDesk)
 
         if (
             nextScopeId.length === 0
@@ -330,7 +481,9 @@ Item {
         pendingLibraryId = ""
         pendingFileId = ""
         LibraryStore.clearFilePreview()
+        deskLibraryId = nextDesk
         restoreTabState(nextScopeId)
+        restoreDirtyFlags()
     }
 
     function finishCollectionWorkspaceSwitch() {
@@ -344,12 +497,13 @@ Item {
 
         if (
             selectedScopeId.length === 0
-            || selectedScopeId !== workspaceScopeId
+            || selectedScopeId !== collectionIdOfScope(workspaceScopeId)
         ) {
             return
         }
 
         collectionScopeReady = true
+        Qt.callLater(root.syncWorktreeDesk)
 
         if (tabs.count === 0) {
             finishCollectionWorkspaceSwitch()
@@ -1230,6 +1384,7 @@ Item {
 
         function onLibrariesChanged() {
             root.libraryCatalogObserved = true
+            Qt.callLater(root.syncWorktreeDesk)
             Qt.callLater(root.tryRestoreActiveTab)
         }
 
@@ -1247,6 +1402,7 @@ Item {
         }
 
         function onSelectedLibraryIdChanged() {
+            root.syncWorktreeDesk()
             root.tryOpenPending()
             Qt.callLater(root.tryRestoreActiveTab)
         }

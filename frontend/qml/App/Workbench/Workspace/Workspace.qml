@@ -1565,6 +1565,18 @@ Rectangle {
                 dirty
             )
 
+            // documentId is collectionId:libraryId:fileId. The worktree
+            // selector counts unsaved editors per worktree, including tabs
+            // of worktrees that are not on screen.
+            var documentParts = String(documentId || "").split(":")
+            WorktreeStore.setDocumentDirty(
+                documentId,
+                documentParts.length >= 3
+                    ? documentParts[documentParts.length - 2]
+                    : "",
+                dirty
+            )
+
             if (
                 !dirty
                 && documentId

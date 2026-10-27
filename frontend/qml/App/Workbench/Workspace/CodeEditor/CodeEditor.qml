@@ -161,9 +161,37 @@ Rectangle {
     color: root.theme.workspaceBg
     clip: true
 
+    // Every document this editor has opened, by its stable id, with the
+    // Library (worktree) and file it belongs to. Saves are routed through this
+    // map, so a save always lands in the document's own worktree even after
+    // the UI has switched to another one.
+    property var documentTargets: ({})
+
+    function rememberDocumentTarget() {
+        var documentId = String(root.stableDocumentId || "")
+        var libraryId = String(root.documentLibraryId || "")
+        var fileId = String(root.file && root.file.id ? root.file.id : "")
+
+        if (
+            documentId.length === 0
+            || libraryId.length === 0
+            || fileId.length === 0
+        ) {
+            return
+        }
+
+        var targets = root.documentTargets
+        targets[documentId] = {
+            libraryId: libraryId,
+            fileId: fileId
+        }
+        root.documentTargets = targets
+    }
+
     onStableDocumentIdChanged: {
         dirty = false
         initialDocumentLoaded = false
+        rememberDocumentTarget()
     }
 
     onPreviewMatchesDocumentChanged: {
@@ -174,6 +202,8 @@ Rectangle {
     }
 
     Component.onCompleted: {
+        rememberDocumentTarget()
+
         if (previewMatchesDocument) {
             initialDocumentLoaded = true
             documentReady(stableDocumentId)
@@ -324,15 +354,19 @@ Rectangle {
             content,
             expectedModifiedAt
         ) {
-            if (
-                documentId !== root.stableDocumentId
-                || !root.active
-            ) {
+            var target = root.documentTargets[String(documentId || "")]
+
+            if (!target) {
+                ideHost.failSave(
+                    documentId,
+                    "Archivist no longer knows where this document belongs."
+                )
                 return
             }
 
-            LibraryStore.saveFileContent(
-                String(root.file.id || ""),
+            LibraryStore.saveDocumentContent(
+                String(target.libraryId),
+                String(target.fileId),
                 content,
                 expectedModifiedAt
             )

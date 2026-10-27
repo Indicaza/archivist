@@ -198,6 +198,11 @@ void CollectionStore::fetchAppState()
     );
 }
 
+void CollectionStore::refreshScope()
+{
+    fetchSelectedScope();
+}
+
 void CollectionStore::fetchSelectedScope()
 {
     if (m_selectedCollectionId.isEmpty()) {
