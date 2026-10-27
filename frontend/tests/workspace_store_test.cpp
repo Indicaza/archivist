@@ -151,11 +151,11 @@ private slots:
         // flat layer and survive moves between anchors.
         const QVariantMap row = static_cast<KeyedListModel *>(store.views())->row(a);
         QCOMPARE(row.value("anchorId").toString(), created);
-        QVERIFY(row.value("x").toDouble() > 400);
+        QVERIFY(row.value("rectX").toDouble() > 400);
 
         const QVariantMap splitter = static_cast<KeyedListModel *>(splitters)->get(0);
         QVERIFY(store.resizeSplit(surface, splitter.value("nodeId").toString(), 0, 300));
-        QVERIFY(qAbs(static_cast<KeyedListModel *>(anchors)->row(created).value("x").toDouble() - 306) < 1.0);
+        QVERIFY(qAbs(static_cast<KeyedListModel *>(anchors)->row(created).value("rectX").toDouble() - 306) < 1.0);
     }
 
     void dragPreviewsCommitsAndCancels()
@@ -178,14 +178,14 @@ private slots:
         QVERIFY(store.dropAllowed());
         QCOMPARE(store.dropTarget().value("edge").toString(), QStringLiteral("right"));
         QVERIFY(!store.dragLandingRect().isEmpty());
-        QVERIFY(anchors->row(first).value("width").toDouble() < 900);
+        QVERIFY(anchors->row(first).value("rectWidth").toDouble() < 900);
         QCOMPARE(store.model().revision(), revision);
 
         // Escape: back to where it was.
         store.cancelDrag();
         QVERIFY(!store.dragActive());
         QCOMPARE(anchors->rowCount(), 1);
-        QCOMPARE(anchors->row(first).value("width").toDouble(), 1000.0);
+        QCOMPARE(anchors->row(first).value("rectWidth").toDouble(), 1000.0);
 
         // Drop for real.
         QVERIFY(store.beginDrag(QStringLiteral("view"), b));
@@ -201,6 +201,44 @@ private slots:
         QVERIFY(!store.dropAllowed());
         QVERIFY(!store.finishDrag());
         QCOMPARE(store.view(a).value("anchorId").toString(), first);
+    }
+
+    void draggedFromPanelStaysAliveWhileItFolds()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("vacate"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QVERIFY(!store.splitView(b, first, QStringLiteral("right")).isEmpty());
+        const QString second = store.view(b).value("anchorId").toString();
+        const double secondX = anchors->row(second).value("rectX").toDouble();
+
+        // Moving the only tab of the right panel into the left one folds the
+        // right panel away in the preview. Its row stays drawable (it holds
+        // the pointer grab) at its old place, marked as vacating.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverTabs(surface, first, -1);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(anchors->row(second).value("isVacating").toBool());
+        QVERIFY(!anchors->row(second).value("isHidden").toBool());
+        QCOMPARE(anchors->row(second).value("rectX").toDouble(), secondX);
+
+        store.cancelDrag();
+        QVERIFY(!anchors->row(second).value("isVacating").toBool());
+
+        // Same for dragging a whole group onto another.
+        QVERIFY(store.beginDrag(QStringLiteral("anchor"), second));
+        store.updateDragOverTabs(surface, first, -1);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(anchors->row(second).value("isVacating").toBool());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(anchors->rowCount(), 1);
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
     }
 
     void snapshotsArePerCollection()

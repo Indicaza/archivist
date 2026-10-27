@@ -27,7 +27,7 @@ public:
     // Each row is a map from role name to value; rows are matched by the key
     // role. Order follows `rows`.
     void setRows(const QList<QVariantMap> &rows);
-    [[nodiscard]] QVariantMap row(const QString &key) const;
+    [[nodiscard]] Q_INVOKABLE QVariantMap row(const QString &key) const;
     [[nodiscard]] Q_INVOKABLE QVariantMap get(int index) const;
     [[nodiscard]] Q_INVOKABLE int indexOf(const QString &key) const;
 

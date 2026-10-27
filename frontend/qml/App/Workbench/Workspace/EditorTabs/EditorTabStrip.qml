@@ -7,6 +7,9 @@ Item {
     id: root
 
     required property var theme
+    // In the docking workspace the strip is not used: it neither follows the
+    // global selection nor saves or restores tabs.
+    property bool suspended: false
 
     signal dirtyCloseRequested(
         string tabKey,
@@ -1310,11 +1313,16 @@ Item {
     }
 
     Component.onCompleted: {
-        switchCollectionWorkspace()
+        if (!suspended) {
+            switchCollectionWorkspace()
+        }
     }
 
     Component.onDestruction: {
         tabStateSaveTimer.stop()
+        if (suspended) {
+            return
+        }
         saveTabState()
         WorkspaceState.sync()
     }
@@ -1332,6 +1340,7 @@ Item {
 
     Connections {
         target: CollectionStore
+        enabled: !root.suspended
 
         function onSelectedCollectionIdChanged() {
             root.switchCollectionWorkspace()
@@ -1344,6 +1353,7 @@ Item {
 
     Connections {
         target: LibraryStore
+        enabled: !root.suspended
 
         function onSelectedFileChanged() {
             if (root.collectionWorkspaceSwitching) {
@@ -1410,6 +1420,7 @@ Item {
 
     Connections {
         target: ChatStore
+        enabled: !root.suspended
 
         function onSelectedChatIdChanged() {
             if (root.collectionWorkspaceSwitching) {

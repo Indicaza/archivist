@@ -286,6 +286,19 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ChatDock/ChatEditor/ChatEditor.qml
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/IdeHost/IdeHost.qml
+        qml/App/Workbench/Dock/DockWorkspace.qml
+        qml/App/Workbench/Dock/DockAnchor.qml
+        qml/App/Workbench/Dock/DockTab.qml
+        qml/App/Workbench/Dock/DockViewContent.qml
+        qml/App/Workbench/Dock/DockEditorHost.qml
+        qml/App/Workbench/Dock/DockSplitter.qml
+        qml/App/Workbench/Dock/DockDropOverlay.qml
+        qml/App/Workbench/Dock/DockDialogButton.qml
+        qml/App/Workbench/Dock/DockMenu.qml
+        qml/App/Workbench/Dock/DockMenuItem.qml
+        qml/App/Workbench/Dock/DockMenuSeparator.qml
+        qml/App/Workbench/Dock/DockPillButton.qml
+        qml/App/Workbench/Dock/DockSplitGlyph.qml
         qml/App/Workbench/TerminalDock/TerminalDock.qml
         qml/App/Workbench/WorkbenchDock/WorkbenchDock.qml
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml

@@ -44,8 +44,15 @@ Flickable {
     readonly property real minimumZoom: 0.65
     readonly property real maximumZoom: 2.0
     readonly property real paperWidth: 816
-    readonly property real outerMargin: 48
-    readonly property real pageHorizontalPadding: 72
+    // The page keeps its printed proportions when there is room and
+    // narrows to fit small panels instead of scrolling sideways.
+    readonly property real outerMargin: root.width < 560 ? 12 : 48
+    readonly property real naturalPaperWidth: root.paperWidth * root.zoomFactor
+    readonly property real fittedPaperWidth: Math.min(
+        root.naturalPaperWidth,
+        Math.max(240, root.width - root.outerMargin * 2)
+    )
+    readonly property real pageHorizontalPadding: Math.max(18 / root.zoomFactor, 72 * root.fittedPaperWidth / root.naturalPaperWidth)
     readonly property real pageVerticalPadding: 64
 
     signal zoomFactorRequested(real value)
@@ -375,7 +382,7 @@ Flickable {
             anchors.top: parent.top
             anchors.topMargin: root.outerMargin
             anchors.horizontalCenter: parent.horizontalCenter
-            width: root.paperWidth * root.zoomFactor
+            width: root.fittedPaperWidth
             height: Math.max(
                 root.height - root.outerMargin * 2,
                 markdownText.contentHeight + root.pageVerticalPadding * 2 * root.zoomFactor

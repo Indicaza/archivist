@@ -4,6 +4,7 @@ import "ActivityRail"
 import "ExplorerDock"
 import "StatusBar"
 import "../Workspace"
+import "../Dock"
 import "../WorkbenchDock"
 import "../ArtifactDrawer"
 
@@ -311,34 +312,26 @@ Rectangle {
     color: theme.workspaceBg
     clip: true
 
-    Workspace {
-        id: workspace
+    readonly property bool legacyWorkspace: typeof ArchivistDiagnostics !== "undefined"
+        && Boolean(ArchivistDiagnostics.legacyWorkspace)
+    readonly property real workspaceAreaHeight: height
+        - statusBar.height
+        - root.workspaceBottomObstruction
+
+    function revealFileInLibrary(libraryId, fileId, relativePath) {
+        root.activeViewIndex = 0
+        root.explorerOpen = true
+        explorerDock.revealFile(libraryId, fileId, relativePath)
+    }
+
+    Loader {
+        id: workspaceLoader
 
         x: 0
         y: 0
         width: parent.width
-        height: parent.height
-            - statusBar.height
-            - root.workspaceBottomObstruction
-        theme: root.theme
-        leftObstruction: root.workspaceLeftObstruction
-        previewLeftObstruction: root.workspacePreviewLeftObstruction
-        onContextInspectionRequested: function(messageId) {
-            artifactDrawer.openForMessage(messageId)
-        }
-        onRevealInLibraryRequested: function(
-            libraryId,
-            fileId,
-            relativePath
-        ) {
-            root.activeViewIndex = 0
-            root.explorerOpen = true
-            explorerDock.revealFile(
-                libraryId,
-                fileId,
-                relativePath
-            )
-        }
+        height: root.workspaceAreaHeight
+        sourceComponent: root.legacyWorkspace ? legacyWorkspaceComponent : dockWorkspaceComponent
 
         Behavior on height {
             enabled: !root.resizingDock
@@ -346,6 +339,37 @@ Rectangle {
             NumberAnimation {
                 duration: root.theme.motionPanel
                 easing.type: Easing.OutCubic
+            }
+        }
+    }
+
+    Component {
+        id: dockWorkspaceComponent
+
+        DockWorkspace {
+            theme: root.theme
+            leftInset: root.explorerOpen ? root.explorerRight : root.theme.activityRailWidth
+            onContextInspectionRequested: function(messageId) {
+                artifactDrawer.openForMessage(messageId)
+            }
+            onRevealInLibraryRequested: function(libraryId, fileId, relativePath) {
+                root.revealFileInLibrary(libraryId, fileId, relativePath)
+            }
+        }
+    }
+
+    Component {
+        id: legacyWorkspaceComponent
+
+        Workspace {
+            theme: root.theme
+            leftObstruction: root.workspaceLeftObstruction
+            previewLeftObstruction: root.workspacePreviewLeftObstruction
+            onContextInspectionRequested: function(messageId) {
+                artifactDrawer.openForMessage(messageId)
+            }
+            onRevealInLibraryRequested: function(libraryId, fileId, relativePath) {
+                root.revealFileInLibrary(libraryId, fileId, relativePath)
             }
         }
     }
@@ -561,17 +585,17 @@ Rectangle {
         anchors.bottom: parent.bottom
         theme: root.theme
         filePreviewActive:
-            workspace.filePreviewStatusVisible
+            workspaceLoader.item ? workspaceLoader.item.filePreviewStatusVisible : false
         fileAccessLabel:
-            workspace.filePreviewAccessLabel
+            workspaceLoader.item ? workspaceLoader.item.filePreviewAccessLabel : ""
         fileTypeLabel:
-            workspace.filePreviewTypeLabel
+            workspaceLoader.item ? workspaceLoader.item.filePreviewTypeLabel : ""
         filePath:
-            workspace.filePreviewPath
+            workspaceLoader.item ? workspaceLoader.item.filePreviewPath : ""
         fileMetrics:
-            workspace.filePreviewMetrics
+            workspaceLoader.item ? workspaceLoader.item.filePreviewMetrics : ""
         fileAttached:
-            workspace.filePreviewAttached
+            workspaceLoader.item ? workspaceLoader.item.filePreviewAttached : false
         librarySelected:
             LibraryStore.selectedLibraryId.length > 0
         libraryFilesLoading:

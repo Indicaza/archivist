@@ -12,23 +12,26 @@ using namespace Workspace;
 
 namespace
 {
+// Role names avoid Item's own properties (x, state, focus, ...) so QML
+// delegates can take them as required properties.
 const QStringList kAnchorRoles = {
     QStringLiteral("anchorId"),
     QStringLiteral("surfaceId"),
-    QStringLiteral("x"),
-    QStringLiteral("y"),
-    QStringLiteral("width"),
-    QStringLiteral("height"),
-    QStringLiteral("views"),
+    QStringLiteral("rectX"),
+    QStringLiteral("rectY"),
+    QStringLiteral("rectWidth"),
+    QStringLiteral("rectHeight"),
+    QStringLiteral("viewIds"),
     QStringLiteral("activeViewId"),
     QStringLiteral("activeTypeId"),
     QStringLiteral("pinned"),
     QStringLiteral("roles"),
-    QStringLiteral("focused"),
-    QStringLiteral("target"),
-    QStringLiteral("maximized"),
-    QStringLiteral("hidden"),
-    QStringLiteral("dragSource"),
+    QStringLiteral("isFocused"),
+    QStringLiteral("isTarget"),
+    QStringLiteral("isMaximized"),
+    QStringLiteral("isHidden"),
+    QStringLiteral("isDragSource"),
+    QStringLiteral("isVacating"),
 };
 
 const QStringList kViewRoles = {
@@ -40,44 +43,49 @@ const QStringList kViewRoles = {
     QStringLiteral("collectionId"),
     QStringLiteral("libraryId"),
     QStringLiteral("details"),
-    QStringLiteral("state"),
+    QStringLiteral("viewState"),
     QStringLiteral("anchorId"),
     QStringLiteral("surfaceId"),
-    QStringLiteral("index"),
-    QStringLiteral("active"),
-    QStringLiteral("focused"),
-    QStringLiteral("x"),
-    QStringLiteral("y"),
-    QStringLiteral("width"),
-    QStringLiteral("height"),
-    QStringLiteral("hidden"),
+    QStringLiteral("tabIndex"),
+    QStringLiteral("isActive"),
+    QStringLiteral("isFocused"),
+    QStringLiteral("rectX"),
+    QStringLiteral("rectY"),
+    QStringLiteral("rectWidth"),
+    QStringLiteral("rectHeight"),
+    QStringLiteral("isHidden"),
 };
 
 const QStringList kSplitterRoles = {
     QStringLiteral("key"),
     QStringLiteral("nodeId"),
-    QStringLiteral("index"),
+    QStringLiteral("splitIndex"),
     QStringLiteral("orientation"),
-    QStringLiteral("x"),
-    QStringLiteral("y"),
-    QStringLiteral("width"),
-    QStringLiteral("height"),
+    QStringLiteral("rectX"),
+    QStringLiteral("rectY"),
+    QStringLiteral("rectWidth"),
+    QStringLiteral("rectHeight"),
 };
 
 QVariantMap rectMap(const QRectF &rect)
 {
     return {
-        {QStringLiteral("x"), rect.x()},
-        {QStringLiteral("y"), rect.y()},
-        {QStringLiteral("width"), rect.width()},
-        {QStringLiteral("height"), rect.height()},
+        {QStringLiteral("rectX"), rect.x()},
+        {QStringLiteral("rectY"), rect.y()},
+        {QStringLiteral("rectWidth"), rect.width()},
+        {QStringLiteral("rectHeight"), rect.height()},
     };
 }
 
+// Views that hold a document buffer: editors, and rendered previews of text
+// files (so a Markdown preview shows unsaved edits live).
 bool isDocumentView(const ViewRecord &view)
 {
-    return view.typeId == ViewTypes::Editor && view.resource.kind == QStringLiteral("document")
-        && !view.resource.id.isEmpty();
+    if (view.resource.kind != QStringLiteral("document") || view.resource.id.isEmpty()) {
+        return false;
+    }
+    return view.typeId == ViewTypes::Editor
+        || (view.typeId == ViewTypes::Preview && view.resource.details.value(QStringLiteral("textual")).toBool());
 }
 } // namespace
 
@@ -147,9 +155,13 @@ QVariantMap WorkspaceStore::dragLandingRect() const
         return {};
     }
 
-    QVariantMap map = rectMap(m_landingRect);
-    map.insert(QStringLiteral("surfaceId"), m_dropTarget.surfaceId);
-    return map;
+    return {
+        {QStringLiteral("x"), m_landingRect.x()},
+        {QStringLiteral("y"), m_landingRect.y()},
+        {QStringLiteral("width"), m_landingRect.width()},
+        {QStringLiteral("height"), m_landingRect.height()},
+        {QStringLiteral("surfaceId"), m_dropTarget.surfaceId},
+    };
 }
 
 QVariantList WorkspaceStore::presets() const
@@ -226,6 +238,9 @@ void WorkspaceStore::setSurfaceSize(const QString &surfaceId, double width, doub
     }
 
     m_surfaceSizes.insert(surfaceId, size);
+    if (surfaceId == m_model.primarySurfaceId()) {
+        m_primarySize = size;
+    }
 
     // A resize mid-drag invalidates the preview; recompute it.
     if (m_dropTarget.isValid() && m_dropTarget.surfaceId == surfaceId) {
@@ -240,7 +255,14 @@ void WorkspaceStore::setSurfaceSize(const QString &surfaceId, double width, doub
 
 QSizeF WorkspaceStore::surfaceSize(const QString &surfaceId) const
 {
-    const QSizeF size = m_surfaceSizes.value(surfaceId);
+    QSizeF size = m_surfaceSizes.value(surfaceId);
+
+    // Applying a layout or loading a snapshot gives the main window a new
+    // surface id; it is still the same window, with the same size.
+    if (size.isEmpty() && surfaceId == m_model.primarySurfaceId()) {
+        size = m_primarySize;
+    }
+
     return size.isEmpty() ? QSizeF(1200, 800) : size;
 }
 
@@ -252,6 +274,7 @@ void WorkspaceStore::publish()
     const QString focusedAnchor = m_model.focusedAnchorId();
     const QString target = m_model.targetAnchorId();
     QHash<QString, LayoutGeometry> geometries;
+    QHash<QString, QRectF> lastRects;
 
     for (const QString &surfaceId : m_model.surfaceIds()) {
         geometries.insert(
@@ -275,7 +298,15 @@ void WorkspaceStore::publish()
                     continue;
                 }
 
-                QVariantMap row = rectMap(rect);
+                // A hidden view keeps its last place, so it never flies in
+                // from a corner (and never squeezes a terminal to nothing).
+                if (!hidden) {
+                    lastRects.insert(view->id, rect);
+                }
+                QVariantMap row = rectMap(hidden ? m_lastViewRects.value(view->id, rect) : rect);
+                if (hidden && m_lastViewRects.contains(view->id)) {
+                    lastRects.insert(view->id, m_lastViewRects.value(view->id));
+                }
                 row.insert(QStringLiteral("viewId"), view->id);
                 row.insert(QStringLiteral("typeId"), view->typeId);
                 row.insert(QStringLiteral("title"), view->title);
@@ -284,19 +315,20 @@ void WorkspaceStore::publish()
                 row.insert(QStringLiteral("collectionId"), view->resource.collectionId);
                 row.insert(QStringLiteral("libraryId"), view->resource.libraryId);
                 row.insert(QStringLiteral("details"), view->resource.details);
-                row.insert(QStringLiteral("state"), view->state);
+                row.insert(QStringLiteral("viewState"), view->state);
                 row.insert(QStringLiteral("anchorId"), anchorId);
                 row.insert(QStringLiteral("surfaceId"), surfaceId);
-                row.insert(QStringLiteral("index"), index);
-                row.insert(QStringLiteral("active"), anchor->activeViewId == view->id);
-                row.insert(QStringLiteral("focused"), anchor->activeViewId == view->id && focusedAnchor == anchorId);
-                row.insert(QStringLiteral("hidden"), hidden);
+                row.insert(QStringLiteral("tabIndex"), index);
+                row.insert(QStringLiteral("isActive"), anchor->activeViewId == view->id);
+                row.insert(QStringLiteral("isFocused"), anchor->activeViewId == view->id && focusedAnchor == anchorId);
+                row.insert(QStringLiteral("isHidden"), hidden);
                 viewRows.append(row);
             }
         }
     }
 
     m_views->setRows(viewRows);
+    m_lastViewRects = lastRects;
 
     for (auto it = m_anchorModels.cbegin(); it != m_anchorModels.cend(); ++it) {
         publishSurface(it.key());
@@ -353,24 +385,49 @@ void WorkspaceStore::publishSurface(const QString &surfaceId)
     if (KeyedListModel *anchors = m_anchorModels.value(surfaceId)) {
         QList<QVariantMap> rows;
 
+        // The Anchor the pointer is dragging from must stay alive while the
+        // drag lasts, even when the preview folds it away: it holds the
+        // pointer grab. It keeps its old place and fades out instead.
+        QString holder;
+        if (m_drag.kind == DragSource::Kind::Anchor) {
+            holder = m_drag.id;
+        } else if (m_drag.kind == DragSource::Kind::View) {
+            holder = m_model.anchorOfView(m_drag.id);
+        }
+        LayoutGeometry committed;
+        const bool previewing = m_previewSurfaceId == surfaceId;
+        if (previewing && !holder.isEmpty() && !geometry.anchors.contains(holder)) {
+            committed = m_model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
+        }
+
         if (surface) {
             for (const QString &anchorId : m_model.anchorIds(surfaceId)) {
                 const AnchorRecord *anchor = m_model.anchor(anchorId);
                 const ViewRecord *active = m_model.view(anchor->activeViewId);
-                QVariantMap row = rectMap(geometry.anchors.value(anchorId));
+                const bool vacating = previewing && anchorId == holder
+                    && !geometry.anchors.contains(anchorId) && committed.anchors.contains(anchorId);
+                const bool shown = vacating || geometry.anchors.contains(anchorId);
+                const QRectF rect = vacating ? committed.anchors.value(anchorId)
+                    : shown ? geometry.anchors.value(anchorId)
+                    : m_lastAnchorRects.value(anchorId);
+                if (shown) {
+                    m_lastAnchorRects.insert(anchorId, rect);
+                }
+                QVariantMap row = rectMap(rect);
                 row.insert(QStringLiteral("anchorId"), anchorId);
                 row.insert(QStringLiteral("surfaceId"), surfaceId);
-                row.insert(QStringLiteral("views"), anchor->views);
+                row.insert(QStringLiteral("viewIds"), anchor->views);
                 row.insert(QStringLiteral("activeViewId"), anchor->activeViewId);
                 row.insert(QStringLiteral("activeTypeId"), active ? active->typeId : QString());
                 row.insert(QStringLiteral("pinned"), anchor->pinned);
                 row.insert(QStringLiteral("roles"), anchor->roles);
-                row.insert(QStringLiteral("focused"), anchorId == focusedAnchor);
-                row.insert(QStringLiteral("target"), anchorId == target);
-                row.insert(QStringLiteral("maximized"), surface->maximizedAnchorId == anchorId);
-                row.insert(QStringLiteral("hidden"), !geometry.anchors.contains(anchorId));
+                row.insert(QStringLiteral("isFocused"), anchorId == focusedAnchor);
+                row.insert(QStringLiteral("isTarget"), anchorId == target);
+                row.insert(QStringLiteral("isMaximized"), surface->maximizedAnchorId == anchorId);
+                row.insert(QStringLiteral("isHidden"), !vacating && !geometry.anchors.contains(anchorId));
+                row.insert(QStringLiteral("isVacating"), vacating);
                 row.insert(
-                    QStringLiteral("dragSource"),
+                    QStringLiteral("isDragSource"),
                     m_drag.kind == DragSource::Kind::Anchor && m_drag.id == anchorId
                 );
                 rows.append(row);
@@ -393,7 +450,7 @@ void WorkspaceStore::publishSurface(const QString &surfaceId)
                 QVariantMap row = rectMap(handle.rect);
                 row.insert(QStringLiteral("key"), handle.nodeId + QLatin1Char(':') + QString::number(handle.index));
                 row.insert(QStringLiteral("nodeId"), handle.nodeId);
-                row.insert(QStringLiteral("index"), handle.index);
+                row.insert(QStringLiteral("splitIndex"), handle.index);
                 row.insert(QStringLiteral("orientation"), orientationName(handle.orientation));
                 rows.append(row);
             }
@@ -565,7 +622,10 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
     const bool reveal = options.value(QStringLiteral("reveal"), true).toBool()
         && !options.value(QStringLiteral("duplicate")).toBool();
     const bool focus = options.value(QStringLiteral("focus"), true).toBool();
-    const QString anchorId = options.value(QStringLiteral("anchorId")).toString();
+    QString anchorId = options.value(QStringLiteral("anchorId")).toString();
+    if (anchorId.isEmpty() || !m_model.anchor(anchorId)) {
+        anchorId = preferredAnchorFor(typeId);
+    }
 
     if (reveal && !resource.isEmpty()) {
         // Prefer a view in the requested (or target) anchor, then any.
@@ -641,6 +701,11 @@ QStringList WorkspaceStore::unsavedDocumentsForViews(const QStringList &viewIds)
 
     for (const QString &viewId : viewIds) {
         const QString documentId = m_retained.value(viewId);
+        const ViewRecord *closingView = m_model.view(viewId);
+
+        if (!closingView || closingView->typeId != ViewTypes::Editor) {
+            continue;
+        }
 
         if (documentId.isEmpty() || documents.contains(documentId) || !m_documents->isDirty(documentId)) {
             continue;
@@ -648,8 +713,12 @@ QStringList WorkspaceStore::unsavedDocumentsForViews(const QStringList &viewIds)
 
         bool shownElsewhere = false;
 
+        // Only another editor counts: a rendered preview does not show that
+        // the text is unsaved.
         for (auto it = m_retained.cbegin(); it != m_retained.cend(); ++it) {
-            if (it.value() == documentId && !closing.contains(it.key())) {
+            const ViewRecord *other = m_model.view(it.key());
+            if (it.value() == documentId && !closing.contains(it.key()) && other
+                && other->typeId == ViewTypes::Editor) {
                 shownElsewhere = true;
                 break;
             }
@@ -890,6 +959,11 @@ QVariantMap WorkspaceStore::view(const QString &viewId) const
     };
 }
 
+QVariantMap WorkspaceStore::viewRow(const QString &viewId) const
+{
+    return m_views->row(viewId);
+}
+
 QStringList WorkspaceStore::viewsForResource(const QString &kind, const QString &id) const
 {
     return m_model.viewsForResource(kind, id);
@@ -1065,6 +1139,52 @@ QVariantMap WorkspaceStore::anchor(const QString &anchorId) const
         {QStringLiteral("roles"), anchor->roles},
         {QStringLiteral("maximized"), surface && surface->maximizedAnchorId == anchorId},
     };
+}
+
+QString WorkspaceStore::preferredAnchorFor(const QString &typeId) const
+{
+    const bool document = typeId == ViewTypes::Editor || typeId == ViewTypes::Preview || typeId == ViewTypes::Diff;
+
+    if (document || typeId.isEmpty()) {
+        return m_model.targetAnchorId();
+    }
+
+    QString holding;
+
+    for (const QString &anchorId : m_model.anchorIds()) {
+        const AnchorRecord *anchor = m_model.anchor(anchorId);
+        if (anchor->roles.contains(typeId)) {
+            return anchorId;
+        }
+        if (holding.isEmpty()) {
+            for (const QString &viewId : anchor->views) {
+                const ViewRecord *view = m_model.view(viewId);
+                if (view && view->typeId == typeId) {
+                    holding = anchorId;
+                    break;
+                }
+            }
+        }
+    }
+
+    return holding.isEmpty() ? m_model.targetAnchorId() : holding;
+}
+
+QVariantMap WorkspaceStore::tabStripAt(const QString &surfaceId, double x, double y, double stripHeight) const
+{
+    const LayoutGeometry geometry = m_model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
+
+    for (auto it = geometry.anchors.cbegin(); it != geometry.anchors.cend(); ++it) {
+        const QRectF strip(it.value().left(), it.value().top(), it.value().width(), stripHeight);
+        if (strip.contains(QPointF(x, y))) {
+            return {
+                {QStringLiteral("anchorId"), it.key()},
+                {QStringLiteral("localX"), x - it.value().left()},
+            };
+        }
+    }
+
+    return {};
 }
 
 // ---- splits --------------------------------------------------------------

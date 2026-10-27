@@ -222,6 +222,12 @@ int main(int argc, char *argv[])
         "chatPlainMessages",
         qEnvironmentVariableIsSet("ARCHIVIST_CHAT_PLAIN_MESSAGES")
     );
+    // Escape hatch while the docking workspace beds in: the old single
+    // workspace with its tab strip.
+    diagnostics.insert(
+        "legacyWorkspace",
+        qEnvironmentVariableIsSet("ARCHIVIST_LEGACY_WORKSPACE")
+    );
     engine.rootContext()->setContextProperty(
         "ArchivistDiagnostics",
         diagnostics

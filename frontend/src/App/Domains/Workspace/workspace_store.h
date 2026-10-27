@@ -120,6 +120,8 @@ public:
     Q_INVOKABLE bool setViewType(const QString &viewId, const QString &typeId);
     Q_INVOKABLE bool setViewResource(const QString &viewId, const QVariantMap &resource);
     [[nodiscard]] Q_INVOKABLE QVariantMap view(const QString &viewId) const;
+    // The view's published row: view data plus its anchor's rect.
+    [[nodiscard]] Q_INVOKABLE QVariantMap viewRow(const QString &viewId) const;
     [[nodiscard]] Q_INVOKABLE QStringList viewsForResource(const QString &kind, const QString &id) const;
     [[nodiscard]] Q_INVOKABLE QStringList viewIdsOfType(const QString &typeId) const;
     [[nodiscard]] Q_INVOKABLE QVariantMap viewType(const QString &typeId) const;
@@ -135,6 +137,13 @@ public:
     Q_INVOKABLE bool cycleFocus(int step);
     Q_INVOKABLE bool cycleView(int step);
     [[nodiscard]] Q_INVOKABLE QVariantMap anchor(const QString &anchorId) const;
+    // Where a new view of `typeId` should go when nothing asks otherwise:
+    // documents follow the target anchor; chats and terminals prefer an
+    // anchor whose role is that type, then one already showing that type.
+    [[nodiscard]] Q_INVOKABLE QString preferredAnchorFor(const QString &typeId) const;
+    // The anchor whose tab strip (top `stripHeight` px, committed layout)
+    // is under the point: {anchorId, localX} or {}.
+    [[nodiscard]] Q_INVOKABLE QVariantMap tabStripAt(const QString &surfaceId, double x, double y, double stripHeight) const;
 
     // ---- splits -----------------------------------------------------------
     Q_INVOKABLE bool resizeSplit(const QString &surfaceId, const QString &nodeId, int index, double position);
@@ -194,6 +203,7 @@ private:
     QHash<QString, KeyedListModel *> m_anchorModels;
     QHash<QString, KeyedListModel *> m_splitterModels;
     QHash<QString, QSizeF> m_surfaceSizes;
+    QSizeF m_primarySize;
     QPointer<DocumentStore> m_documents;
     QHash<QString, QString> m_retained; // editor view -> document it holds
     QSettings m_settings;
@@ -206,4 +216,6 @@ private:
     QRectF m_landingRect;
     Workspace::LayoutGeometry m_preview;
     QString m_previewSurfaceId;
+    QHash<QString, QRectF> m_lastViewRects;
+    QHash<QString, QRectF> m_lastAnchorRects;
 };
