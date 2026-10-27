@@ -15,7 +15,8 @@ const QString nowSql = QStringLiteral("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
 const QString runSelect = QStringLiteral(
     "SELECT id, chat_id, library_id, agent_id, user_message_id, assistant_message_id, context_run_id, "
     "context_compiler_id, context_compiler_version, status, phase, provider, model, final_response, "
-    "error_code, error_message, started_at, completed_at, cancelled_at FROM ai_runs "
+    "error_code, error_message, started_at, completed_at, cancelled_at, workspace_root, repository_key, "
+    "worktree_branch, worktree_head FROM ai_runs "
 );
 
 const QString eventSelect = QStringLiteral(
@@ -71,6 +72,17 @@ QVariantMap mapRun(const QVariantMap &row)
         {QStringLiteral("startedAt"), row.value(QStringLiteral("started_at"))},
         {QStringLiteral("completedAt"), nullable(row.value(QStringLiteral("completed_at")))},
         {QStringLiteral("cancelledAt"), nullable(row.value(QStringLiteral("cancelled_at")))},
+        // Where the run executes, fixed when it starts. The UI switching to
+        // another worktree never changes it.
+        {
+            QStringLiteral("workspace"),
+            QVariantMap{
+                {QStringLiteral("root"), nullable(row.value(QStringLiteral("workspace_root")))},
+                {QStringLiteral("repositoryKey"), nullable(row.value(QStringLiteral("repository_key")))},
+                {QStringLiteral("branch"), nullable(row.value(QStringLiteral("worktree_branch")))},
+                {QStringLiteral("head"), nullable(row.value(QStringLiteral("worktree_head")))},
+            },
+        },
     };
 }
 
@@ -182,12 +194,14 @@ QVariantMap createRun(CoreDatabase &database, const QVariantMap &input)
     const QVariantMap compiler = input.value(QStringLiteral("contextCompiler")).toMap();
     const QString runId = newId();
     const QVariant libraryId = input.value(QStringLiteral("libraryId"));
+    const QVariantMap workspace = input.value(QStringLiteral("workspace")).toMap();
 
     database
         .prepare(QStringLiteral(
             "INSERT INTO ai_runs (id, chat_id, library_id, agent_id, user_message_id, assistant_message_id, "
-            "context_compiler_id, context_compiler_version, status, phase, provider, model) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', 'run.started', ?, ?)"
+            "context_compiler_id, context_compiler_version, status, phase, provider, model, workspace_root, "
+            "repository_key, worktree_branch, worktree_head) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', 'run.started', ?, ?, ?, ?, ?, ?)"
         ))
         .bind(1, runId)
         .bind(2, chatId)
@@ -199,6 +213,10 @@ QVariantMap createRun(CoreDatabase &database, const QVariantMap &input)
         .bind(8, compiler.value(QStringLiteral("version")))
         .bind(9, input.value(QStringLiteral("provider")))
         .bind(10, input.value(QStringLiteral("model")))
+        .bind(11, nullableString(workspace.value(QStringLiteral("workspaceRoot")).toString()))
+        .bind(12, nullableString(workspace.value(QStringLiteral("repositoryKey")).toString()))
+        .bind(13, nullableString(workspace.value(QStringLiteral("branch")).toString()))
+        .bind(14, nullableString(workspace.value(QStringLiteral("head")).toString()))
         .run();
 
     return requireRun(database, runId);

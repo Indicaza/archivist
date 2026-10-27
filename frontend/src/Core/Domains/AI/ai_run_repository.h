@@ -19,7 +19,9 @@ QVariantMap requireRun(CoreDatabase &database, const QString &runId);
 [[nodiscard]] std::optional<QVariantMap> activeRunByChat(CoreDatabase &database, const QString &chatId);
 
 // input: chatId, libraryId (may be null), agentId, userMessageId,
-// assistantMessageId, contextCompiler {id, version}, provider, model.
+// assistantMessageId, contextCompiler {id, version}, provider, model, and
+// optionally workspace {workspaceRoot, repositoryKey, branch, head}
+// (WorktreeRepository::executionContext) recording where the run executes.
 // Throws with details {runId} when the Chat already has an active run.
 QVariantMap createRun(CoreDatabase &database, const QVariantMap &input);
 

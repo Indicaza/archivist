@@ -96,6 +96,12 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Themes/code_theme.h
     src/Core/Domains/Themes/code_theme_library.cpp
     src/Core/Domains/Themes/code_theme_library.h
+    src/Core/Domains/Worktrees/git_worktrees.cpp
+    src/Core/Domains/Worktrees/git_worktrees.h
+    src/Core/Domains/Worktrees/workspace_change_journal.cpp
+    src/Core/Domains/Worktrees/workspace_change_journal.h
+    src/Core/Domains/Worktrees/worktree_repository.cpp
+    src/Core/Domains/Worktrees/worktree_repository.h
     src/Core/Support/core_values.h
     src/Core/Support/js_compat.h
     src/Core/Support/secret_store.cpp
@@ -384,6 +390,11 @@ if(ARCHIVIST_BUILD_TESTS)
     )
     set_target_properties(core-code-themes-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-code-themes-test COMMAND core-code-themes-test)
+
+    qt_add_executable(core-worktrees-test tests/core_worktrees_test.cpp)
+    target_link_libraries(core-worktrees-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-worktrees-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-worktrees-test COMMAND core-worktrees-test)
 
     qt_add_executable(core-ide-test tests/core_ide_test.cpp)
     target_link_libraries(core-ide-test PRIVATE archivist-core Qt6::Network Qt6::Test)

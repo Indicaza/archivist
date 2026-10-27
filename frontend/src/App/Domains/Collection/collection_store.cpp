@@ -540,7 +540,8 @@ void CollectionStore::restoreCollection(const QString &collectionId)
 bool CollectionStore::includesLibrary(const QString &libraryId) const
 {
     return m_selectedCollectionId.isEmpty()
-        || scopeContains(QStringLiteral("libraryIds"), libraryId);
+        || scopeContains(QStringLiteral("libraryIds"), libraryId)
+        || scopeContains(QStringLiteral("worktreeLibraryIds"), libraryId);
 }
 
 bool CollectionStore::includesChat(const QString &chatId) const
