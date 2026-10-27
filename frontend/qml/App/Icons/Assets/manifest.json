@@ -63,6 +63,7 @@
     "error": "streamline-flex:monitor-error",
     "info": "streamline-flex:information-circle",
     "git-branch": "streamline-flex:new-file",
+    "lock": "hand-drawn",
     "arrow-left-right": "streamline-flex:line-arrow-rotate-left-2-remix",
     "actual-size": "streamline-flex:focus-frame",
     "context-memory": "streamline-flex:database"

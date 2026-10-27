@@ -530,6 +530,15 @@ bool WorkspaceModel::containsLayoutLocked(const QString &nodeId) const
     return false;
 }
 
+bool WorkspaceModel::isSplitBoundaryLocked(const QString &nodeId, int index) const
+{
+    const auto it = m_nodes.constFind(nodeId);
+    if (it == m_nodes.constEnd() || it->leaf || index < 0 || index + 1 >= it->children.size()) {
+        return false;
+    }
+    return containsLayoutLocked(it->children.at(index)) || containsLayoutLocked(it->children.at(index + 1));
+}
+
 QStringList WorkspaceModel::layoutLockedAnchorIds() const
 {
     QStringList result;
@@ -1568,9 +1577,14 @@ QString WorkspaceModel::automaticAnchorName(const QString &anchorId) const
     int number = 0;
     int total = 0;
 
-    for (const QString &other : anchorIds()) {
-        const AnchorRecord &record = m_anchors[other];
-        if (record.name.isEmpty() && baseName(record) == base) {
+    // Anchors that hold something are numbered first, so an empty panel
+    // waiting for a terminal doesn't turn the only real one into "Terminal 2".
+    for (const bool holdingViews : {true, false}) {
+        for (const QString &other : anchorIds()) {
+            const AnchorRecord &record = m_anchors[other];
+            if (record.views.isEmpty() == holdingViews || !record.name.isEmpty() || baseName(record) != base) {
+                continue;
+            }
             ++total;
             if (other == anchorId) {
                 number = total;

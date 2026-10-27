@@ -111,6 +111,46 @@ document). Terminal processes live in `TerminalSessions` and replay scrollback
 when a view reattaches. Chats and AI runs live in their stores and the AI
 runtime.
 
+## Anchors as workstations
+
+An anchor can be configured, and the configuration belongs to the anchor, so
+it survives docking, splitting, floating, layouts and restarts.
+
+- **Name.** `renameAnchor`; an empty name goes back to the automatic one
+  ("Editor", "Chat", "Terminal 2", "Shelf"). Anchors that hold views are
+  numbered before empty ones.
+- **Layout lock.** Nobody (person, automation or agent) can move, close,
+  resize, merge, float or dock beside the anchor, take tabs out of it, or apply
+  a layout over it. Freed or needed space goes to unlocked siblings, so a
+  locked anchor keeps its size. Its content stays usable.
+- **Content lock.** Automation and agents can't replace, retarget or add to
+  what the anchor holds (a locked "Architecture" chat never becomes another
+  chat). The person still can.
+- **Shelf** (`switchable`). The anchor shows one view and a picker instead of
+  tabs. The items are ordinary views, so switching never closes, reloads or
+  restarts anything.
+- **Worktree binding** (`libraryId`). New terminals and other new resources
+  started from the anchor use it. Without one, `resolveLibrary` tries the
+  active view's Library, then the Explorer's, then the project default. A
+  resource keeps the Library it was created with.
+
+Each mutating operation takes an `Origin` (`User`, `Automatic`, `Agent`). The
+rules are checked in the model, so the UI, the store and the command layer all
+get the same answers. Refusals carry a code (`LAYOUT_LOCKED`,
+`CONTENT_LOCKED`, `UNLOCK_REFUSED`) and a sentence for the person. Agents and
+automation may lock an anchor but never unlock one. `anchorCapabilities`
+answers what a caller may do, with a reason for each refusal.
+
+`workspace_commands` exposes these as named commands (`anchor.list`,
+`anchor.describe`, `anchor.rename`, `anchor.setLayoutLock`,
+`anchor.setContentLock`, `anchor.setSwitchable`, `anchor.setWorktree`,
+`anchor.addResource`, `anchor.removeResource`, `anchor.selectResource`,
+`anchor.reorderResource`, `view.open`, `view.move`) for a future agent tool.
+`WorkspaceStore.runCommand` runs them from QML, as an agent by default.
+
+All of this is optional in saved snapshots; older snapshots read with
+defaults.
+
 ## Document buffers (`Core/Domains/Documents`)
 
 Monaco pages hold copies of a document and sync through versioned edits.

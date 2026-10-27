@@ -73,6 +73,7 @@ const QStringList kSplitterRoles = {
     QStringLiteral("nodeId"),
     QStringLiteral("splitIndex"),
     QStringLiteral("orientation"),
+    QStringLiteral("locked"),
     QStringLiteral("rectX"),
     QStringLiteral("rectY"),
     QStringLiteral("rectWidth"),
@@ -488,6 +489,7 @@ void WorkspaceStore::publishSurface(const QString &surfaceId)
                 row.insert(QStringLiteral("nodeId"), handle.nodeId);
                 row.insert(QStringLiteral("splitIndex"), handle.index);
                 row.insert(QStringLiteral("orientation"), orientationName(handle.orientation));
+                row.insert(QStringLiteral("locked"), m_model.isSplitBoundaryLocked(handle.nodeId, handle.index));
                 rows.append(row);
             }
         }

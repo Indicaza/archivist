@@ -306,6 +306,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockNoticeBar.qml
         qml/App/Workbench/Dock/DockLayoutCard.qml
         qml/App/Workbench/Dock/DockLayoutPicker.qml
+        qml/App/Workbench/Dock/DockShelfPicker.qml
         qml/App/Workbench/Dock/DockLayoutThumb.qml
         qml/App/Workbench/Dock/DockMenu.qml
         qml/App/Workbench/Dock/DockMenuItem.qml

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "../../Icons"
 
 MenuItem {
     id: root
@@ -11,8 +12,22 @@ MenuItem {
     leftPadding: 10
     rightPadding: 10
 
+    // A checked item shows a small check at the right edge, so labels line up.
+    indicator: Item {}
+
     contentItem: Item {
         implicitHeight: 30
+
+        AppIcon {
+            id: check
+
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.checkable && root.checked
+            name: "check"
+            tone: "accent"
+            iconSize: 12
+        }
 
         Text {
             anchors.left: parent.left
@@ -27,6 +42,7 @@ MenuItem {
         Text {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
+            visible: !check.visible
             text: root.shortcutText
             color: root.theme.mutedText
             font.family: root.theme.bodyFontFamily

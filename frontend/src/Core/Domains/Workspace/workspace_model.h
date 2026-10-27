@@ -135,6 +135,9 @@ public:
         const QString &defaultLibraryId,
         const QStringList &knownLibraryIds = {}
     ) const;
+    // True when moving the divider between children[index] and
+    // children[index + 1] of `nodeId` would resize a layout-locked anchor.
+    [[nodiscard]] bool isSplitBoundaryLocked(const QString &nodeId, int index) const;
     // Anchors that are layout locked, in tree order.
     [[nodiscard]] QStringList layoutLockedAnchorIds() const;
 

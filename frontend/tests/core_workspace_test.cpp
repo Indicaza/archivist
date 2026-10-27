@@ -896,6 +896,13 @@ private slots:
         // A custom name takes a panel out of the numbering.
         QVERIFY(model.renameAnchor(first, QStringLiteral("Main")).ok);
         QCOMPARE(model.anchorDisplayName(second), QStringLiteral("Editor"));
+
+        // An empty panel waiting for editors, earlier in the layout, is
+        // numbered after the one that holds an editor.
+        const QString waiting = model.createAnchor(second, Edge::Left).createdId;
+        QVERIFY(model.setAnchorRoles(waiting, {QStringLiteral("archivist.editor")}).ok);
+        QCOMPARE(model.anchorDisplayName(second), QStringLiteral("Editor"));
+        QCOMPARE(model.anchorDisplayName(waiting), QStringLiteral("Editor 2"));
     }
 
     void layoutLockRejectsStructuralChanges()
