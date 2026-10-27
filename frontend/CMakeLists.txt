@@ -92,6 +92,10 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Libraries/library_text_chunker.h
     src/Core/Domains/Models/model_catalog_cache.cpp
     src/Core/Domains/Models/model_catalog_cache.h
+    src/Core/Domains/Themes/code_theme.cpp
+    src/Core/Domains/Themes/code_theme.h
+    src/Core/Domains/Themes/code_theme_library.cpp
+    src/Core/Domains/Themes/code_theme_library.h
     src/Core/Support/core_values.h
     src/Core/Support/js_compat.h
     src/Core/Support/secret_store.cpp
@@ -111,6 +115,13 @@ qt_add_resources(archivist-core "archivist-core-migrations"
     PREFIX "/archivist/core/migrations"
     BASE "src/Core/Database/Migrations"
     FILES ${ARCHIVIST_CORE_MIGRATIONS}
+)
+
+# Archivist's own colors as a VS Code color theme, for export.
+qt_add_resources(archivist-core "archivist-core-themes"
+    PREFIX "/archivist/themes"
+    BASE "src/Core/Domains/Themes"
+    FILES src/Core/Domains/Themes/archivist-dark-color-theme.json
 )
 
 cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH ARCHIVIST_REPOSITORY_ROOT)
@@ -204,6 +215,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Files/Renderers/PdfRenderer.qml
         qml/App/Files/Renderers/DocumentLoadingState.qml
         qml/App/Topbar/Topbar.qml
+        qml/App/Topbar/CodeThemePicker.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
@@ -364,6 +376,14 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-ai-runtime-test PRIVATE archivist-core Qt6::Network Qt6::Test)
     set_target_properties(core-ai-runtime-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-ai-runtime-test COMMAND core-ai-runtime-test)
+
+    qt_add_executable(core-code-themes-test tests/core_code_themes_test.cpp)
+    target_link_libraries(core-code-themes-test PRIVATE archivist-core Qt6::Test)
+    target_compile_definitions(core-code-themes-test PRIVATE
+        ARCHIVIST_TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+    )
+    set_target_properties(core-code-themes-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-code-themes-test COMMAND core-code-themes-test)
 
     qt_add_executable(core-ide-test tests/core_ide_test.cpp)
     target_link_libraries(core-ide-test PRIVATE archivist-core Qt6::Network Qt6::Test)

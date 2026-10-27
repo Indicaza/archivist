@@ -1,0 +1,14 @@
+{
+  "name": "Dark Plus Like",
+  "type": "dark",
+  "include": "./base.json",
+  "colors": { "editorCursor.foreground": "#AEAFAD80" },
+  "tokenColors": [
+    /* Specific rules override general ones. */
+    { "scope": "keyword.control", "settings": { "foreground": "#C586C0" } },
+    { "scope": "entity.name.function, support.function", "settings": { "foreground": "#DCDCAA" } },
+    { "scope": "entity.name.type", "settings": { "foreground": "#4EC9B0", "fontStyle": "italic bold" } },
+    { "scope": "source.python string", "settings": { "foreground": "#FF0000" } },
+    { "scope": "markup.inserted", "settings": { "foreground": "#B5CEA8" } }
+  ]
+}

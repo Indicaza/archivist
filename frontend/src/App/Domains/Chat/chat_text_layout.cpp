@@ -705,7 +705,37 @@ void highlightCode(QTextDocument *document, const QString &text, const QString &
         }
     }
 
-    formats[int(ChatSyntax::Kind::Comment)].setFontItalic(true);
+    // "<kind>FontStyle" ("italic bold", or "" for plain) comes from imported
+    // themes; comments are italic unless the style says otherwise.
+    for (int index = 0; index < 10; ++index) {
+        const QString fontStyleKey = QLatin1String(keys[index]) + QStringLiteral("FontStyle");
+        const bool comment = index == int(ChatSyntax::Kind::Comment);
+
+        if (!style.contains(fontStyleKey)) {
+            if (comment) {
+                formats[index].setFontItalic(true);
+            }
+
+            continue;
+        }
+
+        const QString fontStyle = style.value(fontStyleKey).toString();
+
+        if (fontStyle.contains(QLatin1String("italic"))) {
+            formats[index].setFontItalic(true);
+            valid[index] = true;
+        }
+
+        if (fontStyle.contains(QLatin1String("bold"))) {
+            formats[index].setFontWeight(QFont::Bold);
+            valid[index] = true;
+        }
+
+        if (fontStyle.contains(QLatin1String("underline"))) {
+            formats[index].setFontUnderline(true);
+            valid[index] = true;
+        }
+    }
 
     QTextCursor cursor(document);
 

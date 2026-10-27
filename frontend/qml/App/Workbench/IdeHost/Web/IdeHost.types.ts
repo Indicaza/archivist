@@ -15,6 +15,23 @@ export interface ArchivistTheme {
   codeBlockText: string;
   monospaceFontFamily: string;
   textControlSize: number;
+  // A theme imported from VS Code, TextMate or Sublime Text, or null while
+  // Archivist's own colors are in use.
+  codeTheme?: ArchivistCodeTheme | null;
+}
+
+export interface ArchivistCodeTokenStyle {
+  foreground?: string;
+  fontStyle?: string;
+}
+
+export interface ArchivistCodeTheme {
+  name: string;
+  type: "dark" | "light" | "hc-dark" | "hc-light";
+  // Monaco token name ("" is the default text) to its style.
+  tokens: Record<string, ArchivistCodeTokenStyle>;
+  // VS Code color keys ("editor.background" ...) to #rrggbb[aa].
+  editorColors: Record<string, string>;
 }
 
 export interface ArchivistDocument {

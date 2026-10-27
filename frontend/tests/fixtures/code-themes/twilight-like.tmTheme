@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Twilight Like</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>background</key><string>#141414</string>
+        <key>foreground</key><string>#F8F8F8</string>
+        <key>caret</key><string>#A7A7A7</string>
+        <key>selection</key><string>#DDF0FF33</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Comment</string>
+      <key>scope</key><string>comment</string>
+      <key>settings</key>
+      <dict>
+        <key>fontStyle</key><string>italic</string>
+        <key>foreground</key><string>#5F5A60</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>keyword, storage</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#CDA869</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>string</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#8F9D6A</string></dict>
+    </dict>
+  </array>
+</dict>
+</plist>

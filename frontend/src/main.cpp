@@ -23,6 +23,7 @@
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
 #include "Core/Domains/Ide/ide_server.h"
+#include "Core/Domains/Themes/code_theme_library.h"
 #include "Core/Support/login_environment.h"
 #include "Core/core_runtime.h"
 
@@ -85,6 +86,8 @@ int main(int argc, char *argv[])
     ChatUi chatUi;
     RuntimeTraceStore runtimeTraceStore;
     WorkspaceStateStore workspaceState;
+    // Code colors imported from VS Code, TextMate and Sublime themes.
+    CodeThemeLibrary codeThemes;
 
     QObject::connect(
         &chatStore,
@@ -139,6 +142,8 @@ int main(int argc, char *argv[])
         "WorkspaceState",
         &workspaceState
     );
+
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "CodeThemes", &codeThemes);
 
     QQmlApplicationEngine engine;
 
