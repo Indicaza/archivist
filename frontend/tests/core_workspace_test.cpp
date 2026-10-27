@@ -422,6 +422,54 @@ private slots:
         QVERIFY(s.model.surface(primary)->maximizedAnchorId.isEmpty());
     }
 
+    void resizingSplitsHonoursNeighbourMinimums()
+    {
+        Arranged s = arranged();
+        const QString primary = s.model.primarySurfaceId();
+        const QString root = s.model.surface(primary)->rootNodeId;
+        const int before = s.model.revision();
+
+        // Drag the vertical divider to x = 400.
+        QVERIFY(s.model.resizeSplit(primary, root, 0, 400, kSurface, kMetrics).ok);
+        LayoutGeometry geometry = s.model.computeGeometry(primary, kSurface, kMetrics);
+        QVERIFY2(qAbs(geometry.anchors.value(s.first).width() - 400) < 1.0, qPrintable(QString::number(geometry.anchors.value(s.first).width())));
+        QVERIFY(s.model.revision() > before);
+
+        // Far left: clamps to the left anchor's minimum width.
+        QVERIFY(s.model.resizeSplit(primary, root, 0, 5, kSurface, kMetrics).ok);
+        geometry = s.model.computeGeometry(primary, kSurface, kMetrics);
+        QVERIFY(geometry.anchors.value(s.first).width() >= kMetrics.minimumAnchorWidth - 0.5);
+
+        // Far right: clamps to the right side's minimum.
+        QVERIFY(s.model.resizeSplit(primary, root, 0, 5000, kSurface, kMetrics).ok);
+        geometry = s.model.computeGeometry(primary, kSurface, kMetrics);
+        QVERIFY(geometry.anchors.value(s.editors).width() >= kMetrics.minimumAnchorWidth - 0.5);
+        QVERIFY(s.model.validate().isEmpty());
+
+        // Bad requests change nothing.
+        const QByteArray snapshot = snapshotBytes(s.model);
+        QVERIFY(!s.model.resizeSplit(primary, root, 3, 400, kSurface, kMetrics).ok);
+        QVERIFY(!s.model.resizeSplit(primary, QStringLiteral("nope"), 0, 400, kSurface, kMetrics).ok);
+        QCOMPARE(snapshotBytes(s.model), snapshot);
+    }
+
+    void changingViewTypeKeepsPlaceAndResource()
+    {
+        Arranged s = arranged();
+        const ResourceRef resource = s.model.view(s.a)->resource;
+        const int index = int(s.model.anchor(s.editors)->views.indexOf(s.a));
+
+        QVERIFY(s.model.setViewType(s.a, ViewTypes::Preview).ok);
+        QCOMPARE(s.model.view(s.a)->typeId, ViewTypes::Preview);
+        QCOMPARE(s.model.view(s.a)->resource, resource);
+        QCOMPARE(s.model.anchorOfView(s.a), s.editors);
+        QCOMPARE(int(s.model.anchor(s.editors)->views.indexOf(s.a)), index);
+
+        QVERIFY(!s.model.setViewType(s.a, QString()).ok);
+        QVERIFY(!s.model.setViewType(QStringLiteral("missing"), ViewTypes::Editor).ok);
+        QVERIFY(s.model.validate().isEmpty());
+    }
+
     void keyboardNavigation()
     {
         Arranged s = arranged();

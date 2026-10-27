@@ -4,6 +4,7 @@ import type {
   ArchivistDocument,
   ArchivistEditorCommand,
   ArchivistSaveResult,
+  ArchivistSyncCommand,
   ArchivistTerminalCommand,
   ArchivistTerminalContext,
   ArchivistTheme,
@@ -13,6 +14,7 @@ import type {
 interface EditorSurface {
   applyCommand(command: ArchivistEditorCommand): void;
   applySaveResult(result: ArchivistSaveResult): void;
+  applySyncCommand(command: ArchivistSyncCommand): void;
   applyTheme(theme: ArchivistTheme): void;
   layout(): void;
   openDocument(document: ArchivistDocument): void;
@@ -124,9 +126,63 @@ function parseDocument(
       content: String(document.content || ""),
       modifiedAt: String(document.modifiedAt || ""),
       readOnly: document.readOnly !== false,
+      synced: document.synced === true,
+      version: Number(document.version || 0),
+      viewId: String(document.viewId || ""),
+      viewState: String(document.viewState || ""),
+      nonce: String(document.nonce || ""),
     };
   } catch {
     return emptyDocument;
+  }
+}
+
+function parseSyncCommand(
+  commandJson: string,
+): ArchivistSyncCommand | null {
+  try {
+    const command = JSON.parse(
+      commandJson,
+    ) as Partial<ArchivistSyncCommand> & Record<string, unknown>;
+    const documentId = String(command.documentId || "");
+
+    if (!documentId) {
+      return null;
+    }
+
+    switch (command.type) {
+      case "applyEdits":
+        return {
+          type: "applyEdits",
+          documentId,
+          baseVersion: Number(command.baseVersion || 0),
+          version: Number(command.version || 0),
+          changes: Array.isArray(command.changes)
+            ? command.changes.map((change) => ({
+                offset: Number(change.offset || 0),
+                length: Number(change.length || 0),
+                text: String(change.text || ""),
+              }))
+            : [],
+        };
+      case "reset":
+        return {
+          type: "reset",
+          documentId,
+          content: String(command.content || ""),
+          version: Number(command.version || 0),
+          readOnly: command.readOnly === true,
+        };
+      case "forget":
+        return {
+          type: "forget",
+          documentId,
+        };
+      default:
+        return null;
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -367,6 +423,14 @@ class IdeHost {
       }
     });
 
+    this.bridge.syncCommand?.connect((commandJson: string) => {
+      const command = parseSyncCommand(commandJson);
+
+      if (command) {
+        this.editor?.applySyncCommand(command);
+      }
+    });
+
     this.bridge.saveResultJsonChanged.connect(() => {
       if (!this.bridge || !this.editor) {
         return;
@@ -430,6 +494,29 @@ class IdeHost {
                 filePath,
                 lineNumber,
                 columnNumber,
+              );
+            },
+            reportEdits: (
+              documentId,
+              baseVersion,
+              changes,
+              length,
+            ) => {
+              this.bridge?.reportEdits?.(
+                documentId,
+                baseVersion,
+                JSON.stringify(changes),
+                length,
+              );
+            },
+            requestResync: (documentId) => {
+              this.bridge?.requestResync?.(documentId);
+            },
+            reportViewState: (viewId, documentId, stateJson) => {
+              this.bridge?.reportViewState?.(
+                viewId,
+                documentId,
+                stateJson,
               );
             },
           },

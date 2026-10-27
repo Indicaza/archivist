@@ -47,6 +47,8 @@ import type {
   ArchivistDocument,
   ArchivistEditorCommand,
   ArchivistSaveResult,
+  ArchivistSyncCommand,
+  ArchivistTextChange,
   ArchivistTheme,
 } from "../IdeHost.types.js";
 
@@ -67,6 +69,19 @@ interface MonacoEditorCallbacks {
     lineNumber: number,
     columnNumber: number,
   ): void;
+  // Synced documents only.
+  reportEdits?(
+    documentId: string,
+    baseVersion: number,
+    changes: ArchivistTextChange[],
+    length: number,
+  ): void;
+  requestResync?(documentId: string): void;
+  reportViewState?(
+    viewId: string,
+    documentId: string,
+    stateJson: string,
+  ): void;
 }
 
 interface DocumentState {
@@ -74,6 +89,61 @@ interface DocumentState {
   modifiedAt: string;
   readOnly: boolean;
   savedContent: string;
+  // Synced with the native buffer store: `version` is the store version
+  // this model's text matches (counting edits already reported).
+  synced: boolean;
+  version: number;
+  contentListener?: monaco.IDisposable;
+}
+
+// Replaces `model`'s text with `text` by editing only the part that
+// differs, so cursors and the undo stack around it survive.
+function replaceDifferingText(
+  model: monaco.editor.ITextModel,
+  text: string,
+): void {
+  const current = model.getValue();
+
+  if (current === text) {
+    return;
+  }
+
+  const limit = Math.min(current.length, text.length);
+  let start = 0;
+
+  while (
+    start < limit
+    && current.charCodeAt(start) === text.charCodeAt(start)
+  ) {
+    start += 1;
+  }
+
+  let currentEnd = current.length;
+  let textEnd = text.length;
+
+  while (
+    currentEnd > start
+    && textEnd > start
+    && current.charCodeAt(currentEnd - 1)
+      === text.charCodeAt(textEnd - 1)
+  ) {
+    currentEnd -= 1;
+    textEnd -= 1;
+  }
+
+  model.pushEditOperations(
+    [],
+    [
+      {
+        range: monaco.Range.fromPositions(
+          model.getPositionAt(start),
+          model.getPositionAt(currentEnd),
+        ),
+        text: text.slice(start, textEnd),
+      },
+    ],
+    () => null,
+  );
 }
 
 const monacoGlobal = globalThis as typeof globalThis & {
@@ -172,6 +242,20 @@ function loadPersistedViewState(
     return value
       ? (JSON.parse(value) as monaco.editor.ICodeEditorViewState)
       : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseViewState(
+  value: string,
+): monaco.editor.ICodeEditorViewState | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as monaco.editor.ICodeEditorViewState;
   } catch {
     return null;
   }
@@ -306,6 +390,9 @@ export class MonacoEditor {
   private wordWrap = loadWordWrap();
   private viewStateSaveTimer: number | null = null;
   private activeModelKey = "";
+  // Key for view state: the workspace view id when known, else the model.
+  private activeViewKey = "";
+  private activeViewId = "";
   private suppressContentEvents = false;
 
   constructor(
@@ -471,7 +558,10 @@ export class MonacoEditor {
     });
 
     this.editor.onDidChangeModelContent(() => {
-      if (!this.suppressContentEvents) {
+      if (
+        !this.suppressContentEvents
+        && !this.activeState()?.state.synced
+      ) {
         this.reportActiveDirtyState();
       }
     });
@@ -516,6 +606,8 @@ export class MonacoEditor {
     if (!documentKey) {
       this.rememberViewState();
       this.activeModelKey = "";
+      this.activeViewKey = "";
+      this.activeViewId = "";
       this.editor.setModel(null);
       return;
     }
@@ -524,9 +616,12 @@ export class MonacoEditor {
 
     const uri = documentUri(document);
     const modelKey = uri.toString();
-    const requestedLanguage = normalizeLanguageId(
-      document.language,
-    );
+    const viewKey = document.viewId || modelKey;
+
+    if (document.synced) {
+      this.openSyncedDocument(document, uri, modelKey, viewKey);
+      return;
+    }
 
     let model = monaco.editor.getModel(uri);
     let state = this.statesByModelKey.get(modelKey);
@@ -549,6 +644,8 @@ export class MonacoEditor {
         modifiedAt: document.modifiedAt,
         readOnly: document.readOnly,
         savedContent: document.content,
+        synced: false,
+        version: 0,
       };
       this.statesByModelKey.set(modelKey, state);
       this.modelKeyByDocumentId.set(
@@ -572,7 +669,23 @@ export class MonacoEditor {
       }
     }
 
+    this.showModel(model, modelKey, viewKey, document, state);
+  }
+
+  private showModel(
+    model: monaco.editor.ITextModel,
+    modelKey: string,
+    viewKey: string,
+    document: ArchivistDocument,
+    state: DocumentState,
+  ): void {
+    const requestedLanguage = normalizeLanguageId(
+      document.language,
+    );
+
     this.activeModelKey = modelKey;
+    this.activeViewKey = viewKey;
+    this.activeViewId = document.viewId || "";
     this.editor.setModel(model);
     this.editor.updateOptions({
       readOnly: state.readOnly,
@@ -580,11 +693,12 @@ export class MonacoEditor {
     });
 
     const viewState =
-      this.viewStates.get(modelKey)
+      this.viewStates.get(viewKey)
+      ?? parseViewState(document.viewState || "")
       ?? loadPersistedViewState(state.documentId);
 
     if (viewState) {
-      this.viewStates.set(modelKey, viewState);
+      this.viewStates.set(viewKey, viewState);
       this.editor.restoreViewState(viewState);
     }
 
@@ -612,6 +726,220 @@ export class MonacoEditor {
 
     this.editor.layout();
     this.reportActiveDirtyState();
+  }
+
+  private openSyncedDocument(
+    document: ArchivistDocument,
+    uri: monaco.Uri,
+    modelKey: string,
+    viewKey: string,
+  ): void {
+    const version = Number(document.version || 0);
+    let model = monaco.editor.getModel(uri);
+    let state = this.statesByModelKey.get(modelKey);
+
+    if (!model) {
+      model = monaco.editor.createModel(
+        document.content,
+        "plaintext",
+        uri,
+      );
+    }
+
+    if (!state) {
+      state = {
+        documentId: document.id,
+        modifiedAt: document.modifiedAt,
+        readOnly: document.readOnly,
+        savedContent: document.content,
+        synced: true,
+        version,
+      };
+      this.statesByModelKey.set(modelKey, state);
+      this.modelKeyByDocumentId.set(document.id, modelKey);
+    }
+
+    if (!state.synced) {
+      state.synced = true;
+    }
+
+    state.readOnly = document.readOnly;
+    state.modifiedAt = document.modifiedAt;
+
+    if (!state.contentListener) {
+      state.contentListener = this.listenForEdits(model, modelKey);
+    }
+
+    if (
+      state.version !== version
+      || model.getValue() !== document.content
+    ) {
+      this.adoptText(model, state, document.content, version);
+    }
+
+    this.showModel(model, modelKey, viewKey, document, state);
+  }
+
+  // Reports each edit of a synced model to the store, against the version
+  // the model was at.
+  private listenForEdits(
+    model: monaco.editor.ITextModel,
+    modelKey: string,
+  ): monaco.IDisposable {
+    return model.onDidChangeContent((event) => {
+      if (this.suppressContentEvents) {
+        return;
+      }
+
+      const state = this.statesByModelKey.get(modelKey);
+
+      if (!state || !state.synced) {
+        return;
+      }
+
+      const baseVersion = state.version;
+      state.version += 1;
+      this.callbacks.reportEdits?.(
+        state.documentId,
+        baseVersion,
+        event.changes.map((change) => ({
+          offset: change.rangeOffset,
+          length: change.rangeLength,
+          text: change.text,
+        })),
+        model.getValueLength(),
+      );
+    });
+  }
+
+  // Brings a synced model to the store's text at `version`. When Monaco
+  // normalizes line endings the model cannot match exactly; the normalized
+  // text is then reported back so the store and the page agree again.
+  private adoptText(
+    model: monaco.editor.ITextModel,
+    state: DocumentState,
+    text: string,
+    version: number,
+  ): void {
+    this.suppressContentEvents = true;
+    try {
+      replaceDifferingText(model, text);
+    } finally {
+      this.suppressContentEvents = false;
+    }
+
+    state.version = version;
+
+    const normalized = model.getValue();
+
+    if (normalized !== text) {
+      state.version = version + 1;
+      this.callbacks.reportEdits?.(
+        state.documentId,
+        version,
+        [
+          {
+            offset: 0,
+            length: text.length,
+            text: normalized,
+          },
+        ],
+        normalized.length,
+      );
+    }
+  }
+
+  applySyncCommand(command: ArchivistSyncCommand): void {
+    const document = this.documentState(command.documentId);
+
+    if (!document || !document.state.synced) {
+      return;
+    }
+
+    switch (command.type) {
+      case "applyEdits": {
+        if (document.state.version >= command.version) {
+          return; // already has it
+        }
+
+        if (document.state.version !== command.baseVersion) {
+          this.callbacks.requestResync?.(command.documentId);
+          return;
+        }
+
+        const model = document.model;
+        const length = model.getValueLength();
+        const fits = command.changes.every(
+          (change) =>
+            change.offset >= 0
+            && change.length >= 0
+            && change.offset + change.length <= length,
+        );
+
+        if (!fits) {
+          this.callbacks.requestResync?.(command.documentId);
+          return;
+        }
+
+        const operations = command.changes.map((change) => ({
+          range: monaco.Range.fromPositions(
+            model.getPositionAt(change.offset),
+            model.getPositionAt(change.offset + change.length),
+          ),
+          text: change.text,
+        }));
+
+        this.suppressContentEvents = true;
+        try {
+          model.pushEditOperations([], operations, () => null);
+        } finally {
+          this.suppressContentEvents = false;
+        }
+
+        document.state.version = command.version;
+        break;
+      }
+      case "reset":
+        document.state.readOnly = command.readOnly === true;
+        this.adoptText(
+          document.model,
+          document.state,
+          command.content,
+          command.version,
+        );
+
+        if (this.activeModelKey === document.modelKey) {
+          this.editor.updateOptions({
+            readOnly: document.state.readOnly,
+          });
+        }
+        break;
+      case "forget":
+        this.forgetDocument(command.documentId);
+        break;
+    }
+  }
+
+  private forgetDocument(documentId: string): void {
+    const document = this.documentState(documentId);
+
+    if (!document) {
+      return;
+    }
+
+    if (this.activeModelKey === document.modelKey) {
+      this.rememberViewState();
+      this.activeModelKey = "";
+      this.activeViewKey = "";
+      this.activeViewId = "";
+      this.editor.setModel(null);
+    }
+
+    document.state.contentListener?.dispose();
+    document.model.dispose();
+    this.statesByModelKey.delete(document.modelKey);
+    this.modelKeyByDocumentId.delete(documentId);
+    this.languageRevisionByModelKey.delete(document.modelKey);
   }
 
   private applyLanguage(
@@ -685,6 +1013,15 @@ export class MonacoEditor {
       : null;
 
     if (!model || !state) {
+      return;
+    }
+
+    if (state.synced) {
+      this.callbacks.reportStatus(
+        result.ok
+          ? "Saved"
+          : result.message || "The file could not be saved.",
+      );
       return;
     }
 
@@ -1274,6 +1611,17 @@ export class MonacoEditor {
       return;
     }
 
+    if (document.state.synced) {
+      // The store holds the same text and owns saving.
+      this.callbacks.reportStatus("Saving…");
+      this.callbacks.requestSave(
+        documentId,
+        "",
+        document.state.modifiedAt,
+      );
+      return;
+    }
+
     const content = document.model.getValue();
 
     if (content === document.state.savedContent) {
@@ -1303,7 +1651,7 @@ export class MonacoEditor {
   private reportActiveDirtyState(): void {
     const active = this.activeState();
 
-    if (!active) {
+    if (!active || active.state.synced) {
       return;
     }
 
@@ -1333,6 +1681,7 @@ export class MonacoEditor {
     this.suppressContentEvents = false;
     this.callbacks.reportDirty(documentId, false);
 
+    document.state.contentListener?.dispose();
     document.model.dispose();
     this.statesByModelKey.delete(document.modelKey);
     this.modelKeyByDocumentId.delete(documentId);
@@ -1367,7 +1716,7 @@ export class MonacoEditor {
     );
 
     this.viewStates.set(
-      this.activeModelKey,
+      this.activeViewKey || this.activeModelKey,
       viewState,
     );
 
@@ -1376,6 +1725,14 @@ export class MonacoEditor {
         state.documentId,
         viewState,
       );
+
+      if (this.activeViewId && viewState) {
+        this.callbacks.reportViewState?.(
+          this.activeViewId,
+          state.documentId,
+          JSON.stringify(viewState),
+        );
+      }
     }
   }
 }

@@ -71,6 +71,9 @@ public:
     OpResult setViewTitle(const QString &viewId, const QString &title);
     // Rebinds the view to another resource (for example after a rename).
     OpResult setViewResource(const QString &viewId, const ResourceRef &resource);
+    // Changes how a view presents its resource (rendered Markdown -> source
+    // editor) without moving it or changing its id.
+    OpResult setViewType(const QString &viewId, const QString &typeId, int stateVersion = 1);
     // Adds a second view of the same resource next to the original (or in
     // `anchorId`). The copy shares the resource, never its canonical state.
     OpResult duplicateView(const QString &viewId, const QString &anchorId = {}, Edge edge = Edge::Center);
@@ -107,6 +110,17 @@ public:
     OpResult setSplitSizes(const QString &nodeId, const QList<double> &sizes);
     // Evenly redistributes a split (double-click on a splitter).
     OpResult equalizeSplit(const QString &nodeId);
+    // Moves the boundary between children[index] and children[index + 1] of
+    // a split to `position` (surface coordinates along the split's axis),
+    // honouring both neighbours' minimum sizes.
+    OpResult resizeSplit(
+        const QString &surfaceId,
+        const QString &nodeId,
+        int index,
+        double position,
+        const QSizeF &surfaceSize,
+        const LayoutMetrics &metrics
+    );
 
     // ---- surfaces --------------------------------------------------------
 

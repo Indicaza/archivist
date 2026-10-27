@@ -19,6 +19,8 @@
 #include "App/Domains/Files/document_preview_service.h"
 #include "App/Domains/Library/library_store.h"
 #include "App/Domains/Worktree/worktree_store.h"
+#include "App/Domains/Documents/document_store.h"
+#include "App/Domains/Workspace/workspace_store.h"
 #include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
 #include "Core/Domains/AI/ai_runtime.h"
@@ -92,6 +94,15 @@ int main(int argc, char *argv[])
     // Git worktrees of the selected Library's repository, for the selector at
     // the bottom of the side panel.
     WorktreeStore worktreeStore;
+    // Shared document buffers and the docking workspace (Anchors and views).
+    DocumentStore documentStore;
+    WorkspaceStore dockingStore;
+    documentStore.setSaver([&libraryStore](const QString &libraryId, const QString &fileId, const QString &text, const QString &expectedModifiedAt) {
+        libraryStore.saveDocumentContent(libraryId, fileId, text, expectedModifiedAt);
+    });
+    QObject::connect(&libraryStore, &LibraryStore::fileSaved, &documentStore, &DocumentStore::noteFileSaved);
+    QObject::connect(&libraryStore, &LibraryStore::fileSaveFailed, &documentStore, &DocumentStore::noteFileSaveFailed);
+    dockingStore.setDocumentStore(&documentStore);
 
     QObject::connect(
         &chatStore,
@@ -189,6 +200,8 @@ int main(int argc, char *argv[])
 
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "CodeThemes", &codeThemes);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "WorktreeStore", &worktreeStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Documents", &documentStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Docking", &dockingStore);
 
     QQmlApplicationEngine engine;
 
