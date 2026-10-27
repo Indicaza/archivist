@@ -4,22 +4,38 @@ import type {
 } from "../../IdeHost.types.js";
 import {
   completionResult,
+  describeOtherFiles,
+  diagnosticMarker,
+  documentHighlightsResult,
+  documentSymbolsResult,
   hoverContents,
   locationResult,
   lspLanguageId,
   markdownValue,
   parseSessionResponse,
   pathWithin,
+  rangesIntersect,
+  singleDocumentEdit,
+  textEditsResult,
   toLspPosition,
+  toLspRange,
   toMonacoRange,
 } from "./LspMonacoConversions.js";
 import type {
+  LspCodeAction,
+  LspCommand,
   LspCompletionItem,
   LspCompletionList,
+  LspDocumentHighlight,
+  LspDocumentSymbol,
   LspHover,
   LspLocation,
   LspLocationLink,
+  LspPrepareRenameResult,
   LspSignatureHelp,
+  LspSymbolInformation,
+  LspTextEdit,
+  LspWorkspaceEdit,
 } from "./LspTypes.js";
 import {
   LibraryModelResolver,
@@ -44,6 +60,29 @@ type Disposable = {
 };
 
 export type DefinitionLocation = Monaco.languages.Location;
+
+/** Monaco command that runs a language-server command for a code action. */
+const executeServerCommandId = "archivist.languageSupport.executeCommand";
+
+/**
+ * Languages whose Monaco built-in formatter already matches the language
+ * server's formatter, so the built-in one stays in charge.
+ */
+const builtInFormattingLanguages = new Set([
+  "typescript",
+  "javascript",
+]);
+
+const codeActionKinds = [
+  "quickfix",
+  "refactor",
+  "refactor.extract",
+  "refactor.inline",
+  "refactor.rewrite",
+  "source",
+  "source.organizeImports",
+  "source.fixAll",
+];
 
 export class LanguageSupportClient {
   private readonly clientsByKey = new Map<
@@ -77,6 +116,17 @@ export class LanguageSupportClient {
   ) {
     this.modelResolver = new LibraryModelResolver(monaco);
     this.registerProviders();
+    this.disposables.push(
+      this.monaco.editor.registerCommand(
+        executeServerCommandId,
+        (_accessor, clientKey: unknown, command: unknown) => {
+          void this.executeServerCommand(
+            String(clientKey || ""),
+            command as LspCommand,
+          );
+        },
+      ),
+    );
     this.disposables.push(
       this.monaco.editor.onDidChangeMarkers((resources) => {
         this.recordMarkerTelemetry(resources);
@@ -558,6 +608,11 @@ export class LanguageSupportClient {
           languageId,
           definition,
         );
+        this.registerEditingProviders(languageId);
+
+        if (!builtInFormattingLanguages.has(languageId)) {
+          this.registerFormattingProviders(languageId);
+        }
 
         if (definition.signatureHelp) {
           this.registerSignatureHelpProvider(languageId);
@@ -800,6 +855,475 @@ export class LanguageSupportClient {
               },
               dispose(): void {},
             };
+          },
+        },
+      ),
+    );
+  }
+
+  private async executeServerCommand(
+    clientKey: string,
+    command: LspCommand,
+  ): Promise<void> {
+    const client = this.clientsByKey.get(clientKey);
+
+    if (!client || !command || typeof command.command !== "string") {
+      this.callbacks.reportStatus(
+        "The language server for this action is no longer running.",
+      );
+      return;
+    }
+
+    try {
+      await client.request("workspace/executeCommand", {
+        command: command.command,
+        arguments: command.arguments ?? [],
+      });
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : String(error || "Unknown language-server error.");
+
+      console.warn(
+        `[Language Support] ${command.command} failed: ${message}`,
+      );
+      this.callbacks.reportStatus(
+        `${command.title || "Action"} failed: ${message}`,
+      );
+    }
+  }
+
+  private monacoWorkspaceEdit(
+    model: Monaco.editor.ITextModel,
+    versionId: number,
+    edits: readonly LspTextEdit[],
+  ): Monaco.languages.WorkspaceEdit {
+    return {
+      edits: textEditsResult(this.monaco, edits).map((textEdit) => ({
+        resource: model.uri,
+        textEdit,
+        versionId,
+      })),
+    };
+  }
+
+  private codeActionResult(
+    client: WorkspaceLanguageClient,
+    model: Monaco.editor.ITextModel,
+    versionId: number,
+    value: LspCodeAction | LspCommand,
+  ): Monaco.languages.CodeAction | null {
+    if (typeof value.command === "string") {
+      const command = value as LspCommand;
+
+      return client.supportsCommand(command.command)
+        ? {
+            title: command.title,
+            command: {
+              id: executeServerCommandId,
+              title: command.title,
+              arguments: [client.key, command],
+            },
+          }
+        : null;
+    }
+
+    const action = value as LspCodeAction;
+
+    // Move refactors always produce new files, and some servers create those
+    // files on disk before asking for the edit. Hide them rather than leave
+    // empty files behind when the edit is refused.
+    if (action.kind?.startsWith("refactor.move")) {
+      return null;
+    }
+
+    const result: Monaco.languages.CodeAction = {
+      title: action.title,
+      kind: action.kind,
+      isPreferred: action.isPreferred,
+      disabled: action.disabled?.reason,
+      diagnostics: action.diagnostics?.map((diagnostic) =>
+        diagnosticMarker(this.monaco, diagnostic)
+      ),
+    };
+    const command = action.command
+      && client.supportsCommand(action.command.command)
+        ? action.command
+        : null;
+
+    if (action.edit) {
+      const split = singleDocumentEdit(
+        this.monaco,
+        action.edit,
+        model.uri.toString(),
+      );
+
+      if (split.otherUris.length > 0 || split.resourceOperations > 0) {
+        result.disabled = split.otherUris.length > 0
+          ? `Also changes ${describeOtherFiles(this.monaco, split.otherUris)}`
+          : "Creates, renames, or deletes files";
+      } else {
+        result.edit = this.monacoWorkspaceEdit(
+          model,
+          versionId,
+          split.edits,
+        );
+      }
+    } else if (!command && !action.disabled) {
+      // Needs codeAction/resolve or an unsupported command.
+      return null;
+    }
+
+    if (command) {
+      result.command = {
+        id: executeServerCommandId,
+        title: command.title,
+        arguments: [client.key, command],
+      };
+    }
+
+    return result;
+  }
+
+  private registerEditingProviders(
+    languageId: string,
+  ): void {
+    this.disposables.push(
+      this.monaco.languages.registerRenameProvider(
+        languageId,
+        {
+          resolveRenameLocation: async (model, position, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client || !client.supportsPrepareRename()) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              LspPrepareRenameResult | null
+            >(
+              client,
+              model,
+              "textDocument/prepareRename",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+              },
+            );
+
+            if (token.isCancellationRequested) {
+              return null;
+            }
+
+            if (!result) {
+              return {
+                range: new this.monaco.Range(
+                  position.lineNumber,
+                  position.column,
+                  position.lineNumber,
+                  position.column,
+                ),
+                text: "",
+                rejectReason: "This symbol can't be renamed.",
+              };
+            }
+
+            if ("defaultBehavior" in result) {
+              return null;
+            }
+
+            const lspRange = "range" in result ? result.range : result;
+            const range = toMonacoRange(this.monaco, lspRange);
+
+            return {
+              range,
+              text: "placeholder" in result
+                ? result.placeholder
+                : model.getValueInRange(range),
+            };
+          },
+          provideRenameEdits: async (model, position, newName, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client || !client.supports("renameProvider")) {
+              return null;
+            }
+
+            const versionId = model.getVersionId();
+            const result = await this.requestForModel<
+              LspWorkspaceEdit | null
+            >(
+              client,
+              model,
+              "textDocument/rename",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+                newName,
+              },
+            );
+
+            if (!result || token.isCancellationRequested) {
+              return null;
+            }
+
+            const split = singleDocumentEdit(
+              this.monaco,
+              result,
+              model.uri.toString(),
+            );
+
+            if (split.otherUris.length > 0 || split.resourceOperations > 0) {
+              const reason = split.otherUris.length > 0
+                ? "This rename would also change "
+                  + describeOtherFiles(this.monaco, split.otherUris)
+                  + ". Renaming across files isn't supported yet."
+                : "This rename would create, move, or delete files,"
+                  + " which isn't supported yet.";
+
+              this.callbacks.reportStatus(reason);
+              return {
+                edits: [],
+                rejectReason: reason,
+              };
+            }
+
+            return this.monacoWorkspaceEdit(
+              model,
+              versionId,
+              split.edits,
+            );
+          },
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerCodeActionProvider(
+        languageId,
+        {
+          provideCodeActions: async (model, range, context, token) => {
+            const client = this.clientForModel(model);
+            const empty = {
+              actions: [],
+              dispose(): void {},
+            };
+
+            if (!client || !client.supports("codeActionProvider")) {
+              return empty;
+            }
+
+            const lspRange = toLspRange(range);
+            const versionId = model.getVersionId();
+            const diagnostics = client
+              .diagnosticsFor(model.uri.toString())
+              .filter((diagnostic) =>
+                rangesIntersect(diagnostic.range, lspRange)
+              );
+            const result = await this.requestForModel<
+              (LspCodeAction | LspCommand)[] | null
+            >(
+              client,
+              model,
+              "textDocument/codeAction",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                range: lspRange,
+                context: {
+                  diagnostics,
+                  only: context.only ? [context.only] : undefined,
+                  triggerKind: context.trigger,
+                },
+              },
+            );
+
+            if (
+              !result
+              || token.isCancellationRequested
+              || model.isDisposed()
+            ) {
+              return empty;
+            }
+
+            return {
+              actions: result.flatMap((value) => {
+                const action = this.codeActionResult(
+                  client,
+                  model,
+                  versionId,
+                  value,
+                );
+
+                return action ? [action] : [];
+              }),
+              dispose(): void {},
+            };
+          },
+        },
+        {
+          providedCodeActionKinds: codeActionKinds,
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerDocumentSymbolProvider(
+        languageId,
+        {
+          displayName: "Archivist language support",
+          provideDocumentSymbols: async (model, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client || !client.supports("documentSymbolProvider")) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              (LspDocumentSymbol | LspSymbolInformation)[] | null
+            >(
+              client,
+              model,
+              "textDocument/documentSymbol",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+              },
+            );
+
+            return !result || token.isCancellationRequested
+              ? null
+              : documentSymbolsResult(
+                  this.monaco,
+                  result,
+                  model.uri.toString(),
+                );
+          },
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerDocumentHighlightProvider(
+        languageId,
+        {
+          provideDocumentHighlights: async (model, position, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client || !client.supports("documentHighlightProvider")) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              LspDocumentHighlight[] | null
+            >(
+              client,
+              model,
+              "textDocument/documentHighlight",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                position: toLspPosition(position),
+              },
+            );
+
+            return !result || token.isCancellationRequested
+              ? null
+              : documentHighlightsResult(this.monaco, result);
+          },
+        },
+      ),
+    );
+  }
+
+  private registerFormattingProviders(
+    languageId: string,
+  ): void {
+    this.disposables.push(
+      this.monaco.languages.registerDocumentFormattingEditProvider(
+        languageId,
+        {
+          displayName: "Archivist language support",
+          provideDocumentFormattingEdits: async (model, options, token) => {
+            const client = this.clientForModel(model);
+
+            if (!client || !client.supports("documentFormattingProvider")) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              LspTextEdit[] | null
+            >(
+              client,
+              model,
+              "textDocument/formatting",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                options: {
+                  tabSize: options.tabSize,
+                  insertSpaces: options.insertSpaces,
+                },
+              },
+            );
+
+            return token.isCancellationRequested
+              ? null
+              : textEditsResult(this.monaco, result);
+          },
+        },
+      ),
+    );
+
+    this.disposables.push(
+      this.monaco.languages.registerDocumentRangeFormattingEditProvider(
+        languageId,
+        {
+          displayName: "Archivist language support",
+          provideDocumentRangeFormattingEdits: async (
+            model,
+            range,
+            options,
+            token,
+          ) => {
+            const client = this.clientForModel(model);
+
+            if (
+              !client
+              || !client.supports("documentRangeFormattingProvider")
+            ) {
+              return null;
+            }
+
+            const result = await this.requestForModel<
+              LspTextEdit[] | null
+            >(
+              client,
+              model,
+              "textDocument/rangeFormatting",
+              {
+                textDocument: {
+                  uri: model.uri.toString(),
+                },
+                range: toLspRange(range),
+                options: {
+                  tabSize: options.tabSize,
+                  insertSpaces: options.insertSpaces,
+                },
+              },
+            );
+
+            return token.isCancellationRequested
+              ? null
+              : textEditsResult(this.monaco, result);
           },
         },
       ),

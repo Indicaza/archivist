@@ -24,6 +24,7 @@ import {
 import {
   EditorCommandRegistry,
   type EditorCommandContext,
+  type EditorCommandDefinition,
 } from "./Commands/EditorCommandRegistry.js";
 import {
   EditorContextMenu,
@@ -31,6 +32,17 @@ import {
 import {
   LanguageSupportClient,
 } from "./LanguageSupport/LanguageSupportClient.js";
+import {
+  describeOtherFiles,
+  singleDocumentEdit,
+  toMonacoRange,
+} from "./LanguageSupport/LspMonacoConversions.js";
+import type {
+  LspWorkspaceEdit,
+} from "./LanguageSupport/LspTypes.js";
+import type {
+  WorkspaceEditOutcome,
+} from "./LanguageSupport/WorkspaceLanguageClient.js";
 import type {
   ArchivistDocument,
   ArchivistEditorCommand,
@@ -116,6 +128,20 @@ function configureMonacoTypeScriptDefaults(): void {
 
   typescriptDefaults.setDiagnosticsOptions(diagnostics);
   javascriptDefaults.setDiagnosticsOptions(diagnostics);
+
+  // The workspace language server owns these features. Monaco's built-in
+  // TypeScript worker only sees open files, so its rename and quick fixes
+  // could edit preloaded, unsaveable models, and its symbols and highlights
+  // would duplicate the server's.
+  for (const defaults of [typescriptDefaults, javascriptDefaults]) {
+    defaults.setModeConfiguration({
+      ...defaults.modeConfiguration,
+      rename: false,
+      codeActions: false,
+      documentSymbols: false,
+      documentHighlights: false,
+    });
+  }
   typescriptDefaults.setCompilerOptions({
     ...typescriptDefaults.getCompilerOptions(),
     ...compilerOptions,
@@ -164,6 +190,27 @@ function persistViewState(
     window.localStorage.setItem(
       editorViewStateStorageKey(documentId),
       JSON.stringify(viewState),
+    );
+  } catch {
+    return;
+  }
+}
+
+const wordWrapStorageKey = "archivist.monaco.word-wrap.v1";
+
+function loadWordWrap(): boolean {
+  try {
+    return window.localStorage.getItem(wordWrapStorageKey) === "on";
+  } catch {
+    return false;
+  }
+}
+
+function persistWordWrap(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(
+      wordWrapStorageKey,
+      enabled ? "on" : "off",
     );
   } catch {
     return;
@@ -256,6 +303,7 @@ export class MonacoEditor {
     number
   >();
 
+  private wordWrap = loadWordWrap();
   private viewStateSaveTimer: number | null = null;
   private activeModelKey = "";
   private suppressContentEvents = false;
@@ -269,7 +317,13 @@ export class MonacoEditor {
     this.sqlLanguageSupport = registerSqlLanguageSupport(monaco);
     this.languageSupport = new LanguageSupportClient(
       monaco,
-      callbacks,
+      {
+        reportStatus: (message) => {
+          callbacks.reportStatus(message);
+        },
+        applyWorkspaceEdit: (edit, label) =>
+          this.applyLanguageServerEdit(edit, label),
+      },
     );
     this.editor = monaco.editor.create(element, {
       model: null,
@@ -312,7 +366,7 @@ export class MonacoEditor {
       stickyScroll: {
         enabled: true,
       },
-      wordWrap: "off",
+      wordWrap: this.wordWrap ? "on" : "off",
     });
 
     this.editorOpener = monaco.editor.registerEditorOpener({
@@ -422,12 +476,27 @@ export class MonacoEditor {
       }
     });
 
-    this.editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
-      () => {
+    this.editor.addAction({
+      id: "archivist.saveFile",
+      label: "Save File",
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+      ],
+      run: () => {
         this.saveActiveDocument();
       },
-    );
+    });
+
+    this.editor.addAction({
+      id: "archivist.toggleWordWrap",
+      label: "View: Toggle Word Wrap",
+      keybindings: [
+        monaco.KeyMod.Alt | monaco.KeyCode.KeyZ,
+      ],
+      run: () => {
+        this.toggleWordWrap();
+      },
+    });
 
   }
 
@@ -716,7 +785,12 @@ export class MonacoEditor {
     const isMac = /Mac|iPhone|iPad|iPod/.test(
       navigator.userAgent,
     );
+    const isLinux = !isMac && /Linux/.test(navigator.userAgent);
     const primary = isMac ? "⌘" : "Ctrl+";
+    const shortcut = (mac: string, windows: string, linux = windows) =>
+      isMac ? mac : isLinux ? linux : windows;
+    const editable = (context: EditorCommandContext): boolean =>
+      !context.readOnly;
 
     this.commandDisposables.push(
       this.commandRegistry.register({
@@ -731,6 +805,93 @@ export class MonacoEditor {
             context.model,
             context.position,
           ),
+      }),
+      this.editorActionCommand({
+        id: "editor.peekDefinition",
+        label: "Peek Definition",
+        group: "navigation",
+        groupOrder: 10,
+        order: 20,
+        shortcut: shortcut("⌥F12", "Alt+F12", "Ctrl+Shift+F10"),
+        actionId: "editor.action.peekDefinition",
+      }),
+      this.editorActionCommand({
+        id: "editor.findReferences",
+        label: "Find All References",
+        group: "navigation",
+        groupOrder: 10,
+        order: 30,
+        shortcut: shortcut("⇧F12", "Shift+F12"),
+        actionId: "editor.action.goToReferences",
+      }),
+      this.editorActionCommand({
+        id: "editor.goToSymbol",
+        label: "Go to Symbol…",
+        group: "navigation",
+        groupOrder: 10,
+        order: 40,
+        shortcut: shortcut("⇧⌘O", "Ctrl+Shift+O"),
+        actionId: "editor.action.quickOutline",
+      }),
+      this.editorActionCommand({
+        id: "editor.rename",
+        label: "Rename Symbol",
+        group: "refactor",
+        groupOrder: 15,
+        order: 10,
+        shortcut: "F2",
+        actionId: "editor.action.rename",
+        isEnabled: editable,
+      }),
+      this.editorActionCommand({
+        id: "editor.changeAll",
+        label: "Change All Occurrences",
+        group: "refactor",
+        groupOrder: 15,
+        order: 20,
+        shortcut: shortcut("⌘F2", "Ctrl+F2"),
+        actionId: "editor.action.changeAll",
+        isEnabled: editable,
+      }),
+      this.editorActionCommand({
+        id: "editor.quickFix",
+        label: "Quick Fix…",
+        group: "refactor",
+        groupOrder: 15,
+        order: 30,
+        shortcut: `${primary}.`,
+        actionId: "editor.action.quickFix",
+        isEnabled: editable,
+      }),
+      this.editorActionCommand({
+        id: "editor.formatDocument",
+        label: "Format Document",
+        group: "refactor",
+        groupOrder: 15,
+        order: 40,
+        shortcut: shortcut("⇧⌥F", "Shift+Alt+F", "Ctrl+Shift+I"),
+        actionId: "editor.action.formatDocument",
+        isEnabled: editable,
+      }),
+      this.editorActionCommand({
+        id: "editor.formatSelection",
+        label: "Format Selection",
+        group: "refactor",
+        groupOrder: 15,
+        order: 50,
+        actionId: "editor.action.formatSelection",
+        isVisible: (context) => !context.selection.isEmpty(),
+        isEnabled: editable,
+      }),
+      this.editorActionCommand({
+        id: "editor.toggleLineComment",
+        label: "Toggle Line Comment",
+        group: "refactor",
+        groupOrder: 15,
+        order: 60,
+        shortcut: `${primary}/`,
+        actionId: "editor.action.commentLine",
+        isEnabled: editable,
       }),
       this.commandRegistry.register({
         id: "editor.cut",
@@ -789,7 +950,115 @@ export class MonacoEditor {
             "Select All is unavailable.",
           ),
       }),
+      this.commandRegistry.register({
+        id: "editor.toggleWordWrap",
+        label: "Toggle Word Wrap",
+        group: "view",
+        groupOrder: 40,
+        order: 10,
+        shortcut: shortcut("⌥Z", "Alt+Z"),
+        run: () => {
+          this.toggleWordWrap();
+        },
+      }),
+      this.editorActionCommand({
+        id: "editor.commandPalette",
+        label: "Command Palette…",
+        group: "view",
+        groupOrder: 40,
+        order: 20,
+        shortcut: "F1",
+        actionId: "editor.action.quickCommand",
+      }),
     );
+  }
+
+  private editorActionCommand(
+    definition: Omit<EditorCommandDefinition, "run"> & {
+      actionId: string;
+    },
+  ): {
+    dispose(): void;
+  } {
+    const { actionId, ...command } = definition;
+
+    return this.commandRegistry.register({
+      ...command,
+      run: () =>
+        this.runEditorAction(
+          actionId,
+          `${command.label} is unavailable.`,
+        ),
+    });
+  }
+
+  private toggleWordWrap(): void {
+    this.wordWrap = !this.wordWrap;
+    persistWordWrap(this.wordWrap);
+    this.editor.updateOptions({
+      wordWrap: this.wordWrap ? "on" : "off",
+    });
+    this.callbacks.reportStatus(
+      this.wordWrap ? "Word wrap on" : "Word wrap off",
+    );
+  }
+
+  /**
+   * Applies an edit the language server asked for (for example after a
+   * code-action command). Only the open, editable document is changed; an
+   * edit that reaches into other files is refused as a whole so a refactor is
+   * never half-applied.
+   */
+  private applyLanguageServerEdit(
+    edit: LspWorkspaceEdit,
+    label: string,
+  ): WorkspaceEditOutcome {
+    const active = this.activeState();
+    const action = label || "This edit";
+
+    if (!active || active.state.readOnly) {
+      return {
+        applied: false,
+        failureReason: "No editable document is open.",
+      };
+    }
+
+    const split = singleDocumentEdit(
+      monaco,
+      edit,
+      active.model.uri.toString(),
+    );
+
+    if (split.otherUris.length > 0 || split.resourceOperations > 0) {
+      const failureReason = split.otherUris.length > 0
+        ? `${action} would also change `
+          + describeOtherFiles(monaco, split.otherUris)
+          + ". Archivist only applies edits to the open file."
+        : `${action} would create, move, or delete files,`
+          + " which isn't supported yet.";
+
+      this.callbacks.reportStatus(failureReason);
+      return {
+        applied: false,
+        failureReason,
+      };
+    }
+
+    if (split.edits.length > 0) {
+      this.editor.pushUndoStop();
+      this.editor.executeEdits(
+        "archivist-language-server",
+        split.edits.map((textEdit) => ({
+          range: toMonacoRange(monaco, textEdit.range),
+          text: textEdit.newText,
+        })),
+      );
+      this.editor.pushUndoStop();
+    }
+
+    return {
+      applied: true,
+    };
   }
 
   private openContextMenu(event: MouseEvent): void {
