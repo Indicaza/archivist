@@ -346,6 +346,8 @@ QList<Command> commands()
          QStringLiteral("Let the message box float where you put it."), QString()},
         {Commands::Restore, QStringLiteral("Restore default position"),
          QStringLiteral("Back to the bottom, in this space's default mode."), QStringLiteral("Ctrl+Shift+J")},
+        {Commands::RememberForConversation, QStringLiteral("Keep this view for this conversation"),
+         QStringLiteral("Always open this conversation as it is now."), QString()},
     };
 }
 

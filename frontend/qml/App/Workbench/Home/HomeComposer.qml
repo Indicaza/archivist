@@ -36,6 +36,9 @@ FocusScope {
     property bool showAdd: true
     // An expand button beside Send: grow into the docked workbench.
     property bool showExpand: false
+    // An options button beside Expand: where the composer sits.
+    property bool showOptions: false
+    property string optionsToolTip: "Options"
     // The folder chip; off where the folder is already decided.
     property bool showLibrary: true
     // Floating over content (the workspace's compact chat): a raised,
@@ -64,6 +67,7 @@ FocusScope {
     signal addFolderRequested()
     signal newProjectRequested()
     signal expandRequested()
+    signal optionsRequested(Item source)
 
     function submit() {
         if (!canSend) {
@@ -331,10 +335,24 @@ FocusScope {
             }
 
             HomeChip {
+                id: optionsButton
+
+                objectName: "composer.options"
+                visible: root.showOptions
+                theme: root.theme
+                iconName: "more"
+                round: true
+                toolTipText: root.optionsToolTip
+                Accessible.name: root.optionsToolTip
+                onClicked: root.optionsRequested(optionsButton)
+            }
+
+            HomeChip {
                 id: expandButton
 
                 visible: root.showExpand
                 theme: root.theme
+                objectName: "composer.expand"
                 iconName: "expand"
                 round: true
                 toolTipText: root.expandToolTip

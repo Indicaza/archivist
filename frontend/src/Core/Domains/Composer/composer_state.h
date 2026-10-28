@@ -137,12 +137,14 @@ namespace Commands
 {
 inline const QString Expand = QStringLiteral("composer.expand");
 inline const QString Collapse = QStringLiteral("composer.collapse");
-inline const QString ToggleMode = QStringLiteral("composer.mode.toggle");
+inline const QString ToggleMode = QStringLiteral("composer.toggle");
 inline const QString SelectModePrefix = QStringLiteral("composer.mode."); // + mode id
 inline const QString DockInConversation = QStringLiteral("composer.place.anchor");
 inline const QString MoveToBottom = QStringLiteral("composer.place.bottom");
 inline const QString Float = QStringLiteral("composer.place.floating");
 inline const QString Restore = QStringLiteral("composer.restore");
+// Keep the current mode for this conversation whatever the space does.
+inline const QString RememberForConversation = QStringLiteral("composer.remember");
 } // namespace Commands
 
 struct Command

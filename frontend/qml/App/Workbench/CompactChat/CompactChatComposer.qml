@@ -15,6 +15,8 @@ import "../Home"
 FocusScope {
     id: root
 
+    objectName: "composer.compact"
+
     required property var theme
 
     readonly property string chatId: String(ChatStore.selectedChatId || "")
@@ -40,7 +42,17 @@ FocusScope {
         return ""
     }
 
+    // Docked in an anchor, the composer belongs to the chat that anchor
+    // shows. When that isn't the selected chat (another pane was used
+    // since), focusing the composer asks for it to be selected first.
+    property string targetChatId: ""
+    property string targetChatTitle: ""
+    readonly property bool targetPending: targetChatId.length > 0 && targetChatId !== chatId
+
     signal expandRequested()
+    signal optionsRequested(Item source, real x, real y)
+    // Focus arrived: the shell makes sure it talks to the right chat.
+    signal activated()
 
     implicitHeight: composer.implicitHeight
 
@@ -60,6 +72,11 @@ FocusScope {
     }
 
     function send(text) {
+        if (targetPending) {
+            // Never send to a chat other than the one this sits in.
+            root.activated()
+            return
+        }
         if (ChatStore.responding || ChatStore.mutating || ChatStore.assigningAgent) {
             return
         }
@@ -125,24 +142,45 @@ FocusScope {
         showAdd: false
         showLibrary: false
         showExpand: true
+        showOptions: true
+        optionsToolTip: "Where the message box sits"
         agents: AgentStore.agents || []
         agentId: root.agentId
-        expandToolTip: "Expand into the chat and terminal dock"
-        placeholder: root.hasChat
-            ? "Message " + String(ChatStore.selectedChat.title || "this chat")
-            : "Start a new chat"
+        expandToolTip: "Expand workbench  (" + (Qt.platform.os === "osx" ? "⌘J" : "Ctrl+J") + ")"
+        placeholder: root.targetPending
+            ? "Message " + (root.targetChatTitle.length > 0 ? root.targetChatTitle : "this chat")
+            : root.hasChat
+                ? "Message " + String(ChatStore.selectedChat.title || "this chat")
+                : "Start a new chat"
         blockedReason: root.blockedReason
         sending: root.starting
         streaming: ChatStore.responding
         onSubmitRequested: function(text) { root.send(text) }
         onStopRequested: ChatStore.cancelActiveRun()
         onExpandRequested: root.expandRequested()
+        onOptionsRequested: function(source) {
+            // Opens upward: the composer sits at the bottom of its pane.
+            root.optionsRequested(source, source.width, -6)
+        }
+        onFocusedChanged: {
+            if (composer.focused) {
+                root.activated()
+            }
+        }
         onAgentChosen: function(agentId) {
             if (root.hasChat) {
                 ChatStore.assignAgentToSelectedChat(agentId)
             } else {
                 root.chosenAgentId = agentId
             }
+        }
+    }
+
+    // Right-click anywhere on the bubble: the same options.
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: function(eventPoint) {
+            root.optionsRequested(root, eventPoint.position.x, eventPoint.position.y)
         }
     }
 

@@ -35,6 +35,37 @@ Item {
         }
     }
 
+    // The anchor the compact composer is docked in ("" at the bottom).
+    property string composerAnchorId: ""
+    // Where that anchor shows its chat, in this item's coordinates, plus
+    // which chat it is: the docked composer sits at its bottom and talks
+    // to that conversation. Null when the anchor's active tab isn't a chat
+    // here, so the composer goes back to the bottom until it is again.
+    readonly property var composerAnchorFrame: {
+        Docking.revision
+        if (composerAnchorId.length === 0) {
+            return null
+        }
+        var activeViewId = String(Docking.anchor(composerAnchorId).activeViewId || "")
+        if (activeViewId.length === 0) {
+            return null
+        }
+        var row = Docking.viewRow(activeViewId)
+        if (row.typeId !== "archivist.chat" || row.isHidden || String(row.surfaceId || "") !== root.surfaceId) {
+            return null
+        }
+        // The live chat springs with the layout: follow it exactly.
+        var live = chatSurface.placed && chatSurface.row.viewId === activeViewId && chatSurface.surfaceArea === area
+        return {
+            x: area.x + (live ? chatSurface.x : row.rectX + 1),
+            y: area.y + (live ? chatSurface.y : row.rectY + root.theme.editorTabHeight),
+            width: live ? chatSurface.width : Math.max(0, row.rectWidth - 2),
+            height: live ? chatSurface.height : Math.max(0, row.rectHeight - root.theme.editorTabHeight - 1),
+            viewId: activeViewId,
+            chatId: String(row.resourceId || "")
+        }
+    }
+
     signal contextInspectionRequested(string messageId)
     signal revealInLibraryRequested(string libraryId, string fileId, string relativePath)
 
@@ -1282,8 +1313,12 @@ Item {
                 theme: root.theme
                 dockedMode: true
                 leftObstruction: 0
+                // Clear of the compact composer when it floats over this
+                // pane: at the bottom of the window, or docked in its anchor.
                 bottomOverlay: placed && surfaceArea !== null
-                    && y + height >= surfaceArea.height - 4
+                    && (root.composerAnchorFrame !== null
+                        ? row.anchorId === root.composerAnchorId
+                        : y + height >= surfaceArea.height - 4)
                     ? root.bottomOverlay
                     : 0
                 previewLeftObstruction: 0

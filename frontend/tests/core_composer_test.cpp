@@ -202,6 +202,11 @@ private slots:
         QVERIFY(ids.contains(Commands::DockInConversation));
         QVERIFY(ids.contains(Commands::Float));
         QVERIFY(ids.contains(Commands::Restore));
+        QVERIFY(ids.contains(Commands::RememberForConversation));
+        // No fixed command can be mistaken for a mode's own command.
+        for (const QString &id : ids) {
+            QVERIFY2(!id.startsWith(Commands::SelectModePrefix), qPrintable(id));
+        }
     }
 };
 

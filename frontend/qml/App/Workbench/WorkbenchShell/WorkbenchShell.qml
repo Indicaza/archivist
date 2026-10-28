@@ -27,11 +27,32 @@ Rectangle {
     property bool homeSending: false
     property string pendingChatId: ""
     property var pendingDocument: null
-    // How the conversation sits in the workspace: "workbench" is the docked
-    // chat and terminal panel, "compact" a ChatGPT-style composer floating
-    // over the workspace. Saved per project.
-    property string chatMode: "workbench"
-    readonly property bool compactChat: chatMode === "compact"
+    // How the conversation sits in the workspace. The workspace store owns
+    // it (saved per project, placement moves are undo steps): the mode is
+    // "compact", a ChatGPT-style composer over the workspace, or
+    // "workbench", the chat, terminal and problems panel at the bottom; a
+    // conversation can keep its own. Placement is separate: the compact
+    // composer sits at the bottom or docked in a chat anchor. A plugin mode
+    // presents as the compact composer until it brings its own surface.
+    readonly property var composerState: Docking.composer
+    readonly property string chatMode: {
+        root.composerState
+        return Docking.composerMode(String(ChatStore.selectedChatId || ""))
+    }
+    readonly property bool compactChat: chatMode !== "workbench"
+    readonly property var compactPlacement: {
+        root.composerState
+        return Docking.composerPlacement("compact")
+    }
+    readonly property string composerAnchorId: compactPlacement.kind === "anchor"
+        ? String(compactPlacement.anchorId || "")
+        : ""
+    // The conversation keeps its own mode.
+    readonly property bool modeRemembered: {
+        var pins = root.composerState.conversationModes || ({})
+        var chatId = String(ChatStore.selectedChatId || "")
+        return chatId.length > 0 && pins[chatId] !== undefined
+    }
     // 0 is the docked workbench, 1 the compact composer; in between, one
     // morphs into the other.
     property real compactProgress: compactChat ? 1 : 0
@@ -98,18 +119,32 @@ Rectangle {
         ? workspaceLoader.item.chatFrame
         : null
     readonly property bool compactOnChat: chatFrame !== null && chatFrame.width >= 360
-    readonly property real compactAreaX: compactOnChat ? chatFrame.x : attachedDockX
-    readonly property real compactAreaWidth: compactOnChat ? chatFrame.width : width - attachedDockX
-    readonly property real compactGap: 18
+    // Docked in a chat anchor: under that anchor's messages, sized to it.
+    readonly property var dockedFrame: workspaceLoader.item && workspaceLoader.item.composerAnchorFrame
+        ? workspaceLoader.item.composerAnchorFrame
+        : null
+    readonly property bool compactDocked: dockedFrame !== null && dockedFrame.width >= 300 && dockedFrame.height >= 160
+    readonly property real compactAreaX: compactDocked ? dockedFrame.x : compactOnChat ? chatFrame.x : attachedDockX
+    readonly property real compactAreaWidth: compactDocked
+        ? dockedFrame.width
+        : compactOnChat ? chatFrame.width : width - attachedDockX
+    readonly property real compactAreaBottom: compactDocked
+        ? dockedFrame.y + dockedFrame.height
+        : height - theme.statusBarHeight
+    readonly property real compactGap: compactDocked ? 12 : 18
+    readonly property real compactSideMargin: compactDocked ? 14 : 28
     readonly property real compactWidth: Math.max(
         280,
-        Math.min(theme.homeComposerWidth, compactAreaWidth - 2 * 28)
+        Math.min(theme.homeComposerWidth, compactAreaWidth - 2 * compactSideMargin)
     )
-    readonly property real compactX: compactAreaX + Math.max(16, (compactAreaWidth - compactWidth) / 2)
+    readonly property real compactX: compactAreaX + Math.max(compactDocked ? 10 : 16, (compactAreaWidth - compactWidth) / 2)
     readonly property real compactHeight: compactComposer.implicitHeight
     // What the conversation keeps clear under its last message.
     readonly property real compactOverlay: compactHeight + compactGap + 14
-    readonly property real compactY: height - theme.statusBarHeight - compactGap - compactHeight
+    readonly property real compactY: compactAreaBottom - compactGap - compactHeight
+    // A move between places glides; following a sidebar or a splitter
+    // stays immediate.
+    property bool composerMoving: false
     readonly property real compactEase: Math.max(0, Math.min(1, compactProgress))
     readonly property real workspaceLeftObstruction: explorerEncroachesWorkspace
         ? explorerRight
@@ -126,13 +161,21 @@ Rectangle {
         return Math.max(0, Math.min(1, (t - start) / (end - start)))
     }
 
+    // The user picked a mode. A conversation that keeps its own mode keeps
+    // this one instead.
     function setChatMode(mode) {
-        var next = mode === "compact" ? "compact" : "workbench"
+        var next = String(mode || "")
         if (chatMode === next) {
             return
         }
-        chatMode = next
-        if (next === "compact") {
+        var chatId = String(ChatStore.selectedChatId || "")
+        var changed = modeRemembered
+            ? Docking.setConversationComposerMode(chatId, next)
+            : Docking.setComposerMode(next)
+        if (!changed) {
+            return
+        }
+        if (next !== "workbench") {
             Qt.callLater(function() {
                 var workspace = workspaceLoader.item
                 if (workspace && workspace.followSelectedChat && ChatStore.selectedChatId.length > 0) {
@@ -145,6 +188,74 @@ Rectangle {
             dockCollapsed = false
         }
         reportCommandSurface()
+    }
+
+    function toggleChatMode() {
+        setChatMode(compactChat ? "workbench" : "compact")
+    }
+
+    function rememberModeForConversation(remember) {
+        var chatId = String(ChatStore.selectedChatId || "")
+        if (chatId.length > 0) {
+            Docking.setConversationComposerMode(chatId, remember ? chatMode : "")
+        }
+    }
+
+    // The chat anchor "Dock in conversation" means: where the live chat is.
+    function conversationAnchorId() {
+        var workspace = workspaceLoader.item
+        var row = workspace && workspace.liveChatRow ? workspace.liveChatRow : ({})
+        return String(row.anchorId || "")
+    }
+
+    function dockComposerInConversation() {
+        var anchorId = conversationAnchorId()
+        if (anchorId.length > 0 && Docking.dockComposer(anchorId)) {
+            if (!compactChat) {
+                setChatMode("compact")
+            }
+            Qt.callLater(compactComposer.focusInput)
+        }
+    }
+
+    function moveComposerToBottom() {
+        if (Docking.moveComposerToBottom() && !compactChat) {
+            setChatMode("compact")
+        }
+    }
+
+    function restoreComposer() {
+        Docking.restoreComposer()
+        if (compactChat) {
+            Qt.callLater(compactComposer.focusInput)
+        }
+    }
+
+    // A negative y opens the menu upward from there, its right edge at x
+    // (the options button); otherwise at the pointer.
+    function openComposerMenu(source, x, y) {
+        if (y < 0) {
+            composerMenu.upwardFrom = y
+            composerMenu.popup(source, x - composerMenu.width, y - composerMenu.height)
+        } else {
+            composerMenu.upwardFrom = 0
+            composerMenu.popup(source, x, y)
+        }
+    }
+
+    onCompactPlacementChanged: {
+        if (theme.reducedMotion) {
+            return
+        }
+        composerMoving = true
+        composerMoveTimer.restart()
+    }
+
+    Timer {
+        id: composerMoveTimer
+
+        interval: 260
+        onTriggered: root.composerMoving = false
     }
 
     Behavior on compactProgress {
@@ -228,10 +339,6 @@ Rectangle {
             explorerWidth
         )
         WorkspaceState.setValue(
-            workspaceStateKey(workspaceScopeId, "chatMode"),
-            chatMode
-        )
-        WorkspaceState.setValue(
             workspaceStateKey(workspaceScopeId, "dockHeight"),
             dockHeight
         )
@@ -310,12 +417,6 @@ Rectangle {
                 theme.explorerDefaultWidth
             )
         )
-        chatMode = String(
-            WorkspaceState.value(
-                workspaceStateKey(targetScopeId, "chatMode"),
-                "workbench"
-            )
-        ) === "compact" ? "compact" : "workbench"
         dockHeight = Number(
             readStateValue(
                 "dockHeight",
@@ -420,6 +521,7 @@ Rectangle {
 
     Component.onCompleted: {
         switchCollectionWorkspace()
+        migrateChatMode(Docking.collectionId)
         if (Shell.homeActive) {
             Qt.callLater(homeView.focusComposer)
         }
@@ -433,7 +535,7 @@ Rectangle {
     onActiveViewIndexChanged: scheduleWorkspaceStateSave()
     onExplorerOpenChanged: scheduleWorkspaceStateSave()
     onExplorerWidthChanged: scheduleWorkspaceStateSave()
-    onChatModeChanged: scheduleWorkspaceStateSave()
+    onChatModeChanged: reportCommandSurface()
     onDockHeightChanged: scheduleWorkspaceStateSave()
     onDockCollapsedChanged: {
         scheduleWorkspaceStateSave()
@@ -449,8 +551,31 @@ Rectangle {
         )
     }
 
+    // The mode used to be saved by the shell; the store has it now. A
+    // project's old choice moves over once.
+    function migrateChatMode(collectionId) {
+        var scopeId = String(collectionId || "")
+        if (scopeId.length === 0) {
+            return
+        }
+        var key = workspaceStateKey(scopeId, "chatMode")
+        var missing = "__archivist_missing__"
+        var saved = String(WorkspaceState.value(key, missing))
+        if (saved === missing) {
+            return
+        }
+        if (String(Docking.composer.chosenMode || "").length === 0) {
+            Docking.setComposerMode(saved === "compact" ? "compact" : "workbench")
+        }
+        WorkspaceState.remove(key)
+    }
+
     Connections {
         target: Docking
+
+        function onCollectionIdChanged() {
+            root.migrateChatMode(Docking.collectionId)
+        }
 
         // An agent asked for the chat or terminal ("beside our
         // conversation", "bring up the terminal").
@@ -683,6 +808,24 @@ Rectangle {
         onActivated: Shell.toggleHome()
     }
 
+    // composer.toggle: expand into the workbench or collapse to chat.
+    Shortcut {
+        objectName: "composer.toggle"
+        sequences: ["Ctrl+J"]
+        context: Qt.ApplicationShortcut
+        enabled: !Shell.homeActive
+        onActivated: root.toggleChatMode()
+    }
+
+    // composer.restore: back to the bottom, in the space's default mode.
+    Shortcut {
+        objectName: "composer.restore"
+        sequences: ["Ctrl+Shift+J"]
+        context: Qt.ApplicationShortcut
+        enabled: !Shell.homeActive
+        onActivated: root.restoreComposer()
+    }
+
     onWorkspaceHiddenChanged: {
         if (!workspaceHidden) {
             return
@@ -721,6 +864,7 @@ Rectangle {
             theme: root.theme
             leftInset: root.explorerOpen ? root.explorerRight : root.theme.activityRailWidth
             bottomOverlay: root.compactChat ? root.compactOverlay : 0
+            composerAnchorId: root.composerAnchorId
             onContextInspectionRequested: function(messageId) {
                 artifactDrawer.openForMessage(messageId)
             }
@@ -901,6 +1045,9 @@ Rectangle {
         z: 30
 
         onCompactRequested: root.setChatMode("compact")
+        onOptionsRequested: function(source, x, y) {
+            root.openComposerMenu(source, x, y)
+        }
         onCollapseToggleRequested: root.dockCollapsed = !root.dockCollapsed
         onExpandRequested: root.dockCollapsed = false
         onActiveViewChanged: root.reportCommandSurface()
@@ -999,12 +1146,17 @@ Rectangle {
 
         x: root.compactAreaX
         width: root.compactAreaWidth
-        y: root.compactY - 64
-        height: root.height - root.theme.statusBarHeight - y
+        // Docked, it stays inside the conversation's pane.
+        y: Math.max(root.compactDocked ? root.dockedFrame.y : 0, root.compactY - 64)
+        height: Math.max(0, root.compactAreaBottom - y)
         visible: !root.workspaceHidden && root.compactEase > 0
         opacity: root.phase(root.compactEase, 0.3, 1)
         // Below the side panel, so a moving sidebar slides over it.
         z: 11
+
+        Behavior on x { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on y { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on width { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.fill: parent
@@ -1037,7 +1189,118 @@ Rectangle {
         // shadow as it moves, never the other way round.
         z: 13
 
+        targetChatId: root.compactDocked ? root.dockedFrame.chatId : ""
+        targetChatTitle: root.compactDocked && workspaceLoader.item && workspaceLoader.item.chatTitle
+            ? workspaceLoader.item.chatTitle(root.dockedFrame.chatId)
+            : ""
+
         onExpandRequested: root.setChatMode("workbench")
+        onOptionsRequested: function(source, x, y) {
+            root.openComposerMenu(source, x, y)
+        }
+        // Docked, it talks to the chat its anchor shows.
+        onActivated: {
+            if (compactComposer.targetPending && workspaceLoader.item && workspaceLoader.item.makeChatLive) {
+                workspaceLoader.item.makeChatLive(root.dockedFrame.viewId)
+            }
+        }
+
+        Behavior on x { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on y { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on width { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    }
+
+    // Where the composer sits and what it is. Each item's objectName is
+    // its command id (Docking.composerCommands).
+    DockMenu {
+        id: composerMenu
+
+        theme: root.theme
+        width: 268
+        // Never cut off by the window's edge.
+        margins: 8
+        // Opened upward: its bottom stays here as its items lay out.
+        property real upwardFrom: 0
+        onHeightChanged: {
+            if (upwardFrom < 0 && visible) {
+                y = upwardFrom - height
+            }
+        }
+
+        DockMenuItem {
+            objectName: "composer.place.anchor"
+            theme: root.theme
+            text: "Dock in conversation"
+            // From the workbench too: it collapses into the conversation.
+            visible: root.conversationAnchorId().length > 0
+                && !(root.compactChat && root.compactDocked && root.composerAnchorId === root.conversationAnchorId())
+            onTriggered: root.dockComposerInConversation()
+        }
+        DockMenuItem {
+            objectName: "composer.place.bottom"
+            theme: root.theme
+            text: "Move to bottom"
+            visible: root.compactChat && root.compactPlacement.kind !== "bottom"
+            onTriggered: root.moveComposerToBottom()
+        }
+        DockMenuItem {
+            objectName: "composer.expand"
+            theme: root.theme
+            text: "Expand workbench"
+            shortcutText: Qt.platform.os === "osx" ? "⌘J" : "Ctrl+J"
+            visible: root.compactChat
+            onTriggered: root.setChatMode("workbench")
+        }
+        DockMenuItem {
+            objectName: "composer.collapse"
+            theme: root.theme
+            text: "Collapse to chat"
+            shortcutText: Qt.platform.os === "osx" ? "⌘J" : "Ctrl+J"
+            visible: !root.compactChat
+            onTriggered: root.setChatMode("compact")
+        }
+        // Modes a plugin registered, beside the two built in.
+        Instantiator {
+            model: (Docking.composerModes || []).filter(function(mode) { return !mode.builtIn })
+
+            delegate: DockMenuItem {
+                required property var modelData
+
+                objectName: "composer.mode." + modelData.id
+                theme: root.theme
+                text: modelData.label
+                checkable: true
+                checked: root.chatMode === modelData.id
+                onTriggered: {
+                    root.setChatMode(modelData.id)
+                    // The store decides; keep showing what it says.
+                    checked = Qt.binding(function() { return root.chatMode === modelData.id })
+                }
+            }
+
+            onObjectAdded: function(index, object) { composerMenu.insertItem(4 + index, object) }
+            onObjectRemoved: function(index, object) { composerMenu.removeItem(object) }
+        }
+        DockMenuSeparator { theme: root.theme }
+        DockMenuItem {
+            objectName: "composer.remember"
+            theme: root.theme
+            text: "Keep this view for this conversation"
+            checkable: true
+            checked: root.modeRemembered
+            enabled: String(ChatStore.selectedChatId || "").length > 0
+            onTriggered: {
+                root.rememberModeForConversation(!root.modeRemembered)
+                checked = Qt.binding(function() { return root.modeRemembered })
+            }
+        }
+        DockMenuItem {
+            objectName: "composer.restore"
+            theme: root.theme
+            text: "Restore default position"
+            shortcutText: Qt.platform.os === "osx" ? "⇧⌘J" : "Ctrl+Shift+J"
+            onTriggered: root.restoreComposer()
+        }
     }
 
     MouseArea {
