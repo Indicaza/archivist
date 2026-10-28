@@ -988,9 +988,9 @@ Item {
         function onWorkspaceRestored(collectionId, fromSnapshot) {
             root.surfaceId = Docking.primarySurfaceId
             if (!fromSnapshot) {
-                root.quietLayout = true
-                Docking.applyPreset("development")
-                root.quietLayout = false
+                // A new collection starts with one editor area: Chat and
+                // Terminal already live in the bottom panel. Layouts with
+                // more panels are a choice in the layout picker.
                 root.migrateLegacyTabs(collectionId)
             }
             var chats = Docking.viewIdsOfType("archivist.chat")
