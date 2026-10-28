@@ -1156,6 +1156,7 @@ Rectangle {
                 Layout.fillHeight: true
                 theme: root.theme
                 store: ChatStore
+                drafts: ChatDrafts
                 dock: root
                 onSubmitRequested: root.submitDraft()
                 onAgentChipClicked: root.activePanel = root.activePanel === "agents"
