@@ -988,8 +988,8 @@ Rectangle {
         )
         border.width: 1
         border.color: root.theme.compactComposerBorder
-        // Under the dock while it's still showing, under the card after.
-        z: 29
+        // Above the workspace, below the side panel (15) and the dock (30).
+        z: 12
     }
 
     // A dark scrim under the compact composer: the conversation scrolls on
@@ -1003,7 +1003,8 @@ Rectangle {
         height: root.height - root.theme.statusBarHeight - y
         visible: !root.workspaceHidden && root.compactEase > 0
         opacity: root.phase(root.compactEase, 0.3, 1)
-        z: 28
+        // Below the side panel, so a moving sidebar slides over it.
+        z: 11
 
         Rectangle {
             anchors.fill: parent
@@ -1032,7 +1033,9 @@ Rectangle {
         transformOrigin: Item.Bottom
         visible: !root.workspaceHidden && root.compactEase > 0
         enabled: root.compactChat
-        z: 31
+        // Below the side panel (15): the sidebar covers the bubble and its
+        // shadow as it moves, never the other way round.
+        z: 13
 
         onExpandRequested: root.setChatMode("workbench")
     }
