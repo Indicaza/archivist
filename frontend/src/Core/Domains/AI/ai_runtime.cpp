@@ -136,6 +136,143 @@ const QRegularExpression &lastingPreferencePattern()
     return pattern;
 }
 
+// Follow-ups that only make sense after a workspace request: "try another",
+// "switch back", "do that again".
+const QRegularExpression &workspaceFollowUpPattern()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral(
+            "\\b(?:try\\s+(?:another|again|a\\s+different|something\\s+else)|another\\s+one|a\\s+different\\s+one|the\\s+other\\s+one|"
+            "switch\\s+back|go\\s+back|change\\s+it\\s+back|back\\s+to\\s+(?:the\\s+)?(?:last|previous|old|other)|put\\s+it\\s+back|"
+            "undo|revert|do\\s+(?:that|it)\\s+again|again|one\\s+more|next\\s+one|keep\\s+(?:it|that|this)|save\\s+(?:it|that|this)|"
+            "bigger|smaller|wider|narrower|swap\\s+them|flip\\s+(?:it|them)|mirror)\\b"
+        ),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    return pattern;
+}
+
+// Asks for files to be found, which only Library search can answer.
+const QRegularExpression &libraryLookupPattern()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral(
+            "\\b(?:find|search|look\\s+for|relevant|related|important|which\\s+files?|files?\\s+(?:for|about|that|related|where)|"
+            "where\\s+is|implement(?:s|ed|ation)?|understand|explain|subsystem|how\\s+does)\\b"
+            "|[\\w-]+\\.(?:cpp|h|hpp|qml|js|ts|tsx|py|md|json|txt|rs|go|java|swift|kt|css|html)\\b"
+        ),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    return pattern;
+}
+
+// What a message wants from the workspace, read with the conversation
+// before it. This only routes the turn (skip Library search, which hints
+// to give); it never authorises anything.
+struct WorkspaceIntent
+{
+    bool wanted = false;     // a workspace request, direct or a follow-up
+    bool layoutOnly = false; // and nothing in it needs Library search
+    bool followUp = false;
+};
+
+WorkspaceIntent classifyWorkspaceIntent(
+    const QString &message,
+    const QStringList &earlierUserMessages,
+    const QString &lastAssistantMessage,
+    const QStringList &layoutNames = {}
+)
+{
+    static const QRegularExpression workspaceReply(
+        QStringLiteral("\\b(?:layouts?|panels?|workspace|arrange(?:d|ment)?|switched|rearranged)\\b"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    WorkspaceIntent intent;
+    bool direct = workspaceRequestPattern().match(message).hasMatch();
+    // "Switch to Research", "Research please": a short message naming a layout.
+    if (!direct && message.size() <= 120) {
+        for (const QString &name : layoutNames) {
+            const QRegularExpression named(QStringLiteral("(?:^|\\W)%1(?:$|\\W)").arg(QRegularExpression::escape(name)), QRegularExpression::CaseInsensitiveOption);
+            if (!name.trimmed().isEmpty() && named.match(message).hasMatch()) {
+                direct = true;
+                break;
+            }
+        }
+    }
+    if (!direct && message.size() <= 200 && workspaceFollowUpPattern().match(message).hasMatch()) {
+        bool context = workspaceReply.match(lastAssistantMessage).hasMatch();
+        for (const QString &earlier : earlierUserMessages) {
+            context = context || workspaceRequestPattern().match(earlier).hasMatch();
+        }
+        intent.followUp = context;
+    }
+    intent.wanted = direct || intent.followUp;
+    intent.layoutOnly = intent.wanted && !libraryLookupPattern().match(message).hasMatch();
+    return intent;
+}
+
+// The workspace in a few lines for the model: panels with what they show,
+// and the layouts it can switch to.
+QString workspaceSnapshotText(const QVariantMap &described)
+{
+    QStringList lines;
+    for (const QVariant &value : described.value(QStringLiteral("areas")).toList()) {
+        const QVariantMap area = value.toMap();
+        QStringList shows;
+        for (const QVariant &entry : area.value(QStringLiteral("shows")).toList()) {
+            const QVariantMap view = entry.toMap();
+            const QString path = view.value(QStringLiteral("path")).toString();
+            shows.append(path.isEmpty() ? view.value(QStringLiteral("title")).toString() : path);
+        }
+        QStringList traits{area.value(QStringLiteral("position")).toString(), QStringLiteral("%1%").arg(area.value(QStringLiteral("sizePercent")).toInt())};
+        if (area.value(QStringLiteral("window")).toString() == QStringLiteral("floating")) {
+            traits.append(QStringLiteral("floating"));
+        }
+        if (area.value(QStringLiteral("focused")).toBool()) {
+            traits.append(QStringLiteral("focused"));
+        }
+        if (area.contains(QStringLiteral("locked"))) {
+            traits.append(area.value(QStringLiteral("locked")).toString());
+        }
+        lines.append(QStringLiteral("- %1 (%2): %3").arg(
+            area.value(QStringLiteral("area")).toString(),
+            traits.join(QStringLiteral(", ")),
+            shows.isEmpty() ? QStringLiteral("empty") : shows.mid(0, 8).join(QStringLiteral(", "))
+        ));
+    }
+    if (described.contains(QStringLiteral("conversation"))) {
+        lines.append(QStringLiteral("This chat: %1.").arg(described.value(QStringLiteral("conversation")).toString()));
+    }
+    QStringList layouts;
+    for (const QVariant &value : described.value(QStringLiteral("layouts")).toList()) {
+        const QVariantMap layout = value.toMap();
+        layouts.append(layout.value(QStringLiteral("name")).toString() + (layout.value(QStringLiteral("kind")).toString().startsWith(QStringLiteral("saved")) ? QStringLiteral(" (saved)") : QString()));
+    }
+    if (!layouts.isEmpty()) {
+        lines.append(QStringLiteral("Layouts: %1.").arg(layouts.join(QStringLiteral(", "))));
+    }
+    if (described.contains(QStringLiteral("currentLayout"))) {
+        lines.append(QStringLiteral("Current layout: %1.").arg(described.value(QStringLiteral("currentLayout")).toString()));
+    }
+    if (described.value(QStringLiteral("temporaryArrangementSince")).isValid()) {
+        lines.append(QStringLiteral("An earlier arrangement can be put back."));
+    }
+    for (const QString &preference : described.value(QStringLiteral("preferences")).toStringList()) {
+        lines.append(QStringLiteral("Preference: %1.").arg(preference));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+// A reply that claims a workspace change.
+const QRegularExpression &workspaceClaimPattern()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("\\b(?:done|created|saved|applied|switched|set\\s+up|arranged|rearranged|moved|opened|resized|restored|put\\s+(?:it|everything)\\s+back)\\b"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    return pattern;
+}
+
 // Words that only ever mean changing file contents, so a request that also
 // mentions panels ("move the docs to the right") stays a layout request.
 const QRegularExpression &strongLibraryMutationPattern()
@@ -189,21 +326,15 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
     }
 
     if (input.workspaceToolsAvailable) {
-        lines << QStringLiteral("You can show and arrange things in the person's workspace with the workspace_* tools. Use them only for what the person asked to see, open, arrange, resize or restore in this message.")
-              << QStringLiteral("What the workspace can do: panels (areas) hold tabs of files, chats, terminals and previews, side by side or in floating windows. The bottom panel holds this chat, the terminal and problems. You can open files into a named or described panel, move tabs and panels, resize or maximize a panel, add an empty named panel on any side, remove a panel (its tabs move elsewhere), name panels, lock one in place, switch to a named layout, save the current arrangement as a new layout, rename or delete the person's layouts, undo your last change, put everything back, and remember preferences. The person can also make a panel a shelf, lock its content and bind it to a worktree from its menu; you can't unlock anything.")
-              << QStringLiteral("Each tool call takes the person's time, so do a request in one call whenever you can. For the arrangement as a whole (setting up, building or changing a layout, \"code on the left and docs on the right\", \"set me up for reviewing\"), describe the result you want in one workspace_compose call, with the files in their panels and save_as when the person wants it kept as a named layout. For one small change (make the code bigger, move the chat), use one workspace_arrange call. To switch to an existing layout, call workspace_layout apply once. Never describe how the person could rearrange things themselves when you can do it.")
-              << (input.workspaceSnapshot.isEmpty()
-                      ? QStringLiteral("Call workspace_view first unless you already know the areas. Refer to areas by the names it returns, or describe them plainly (\"the code\", \"the right panel\").")
-                      : QStringLiteral("The workspace as this message began is below; don't call workspace_view unless something changed since. Refer to areas by these names, or describe them plainly (\"the code\", \"the right panel\").\n<workspace>%1</workspace>").arg(input.workspaceSnapshot))
-              << QStringLiteral("Prefer one workspace_show call with every item over several calls, reuse what is already open, and leave where empty unless the person said where.")
-              << QStringLiteral("To find the relevant files, use Library evidence or search first, then show only the files that matter (usually two to five).")
-              << QStringLiteral("\"Put everything back\" or \"restore my workspace\" means workspace_restore with before_task; \"undo that\" means last_change.")
-              << QStringLiteral("Talk about areas and panels in the person's words; never mention anchors, view ids or tool names.")
-              << QStringLiteral("When a workspace result says suggested, the change was prepared but not applied: say it is ready to apply from the notice. When it fails, say why in one sentence and do not retry the same change.")
-              << (input.workspaceRequested
-                      ? QStringLiteral("This message asks for a workspace change: make it now with the tools.")
-                      : QStringLiteral("This message may not be about the workspace. Leave it alone unless the person clearly asked to see or arrange something; a change you make is shown to them to apply."))
-              << QStringLiteral("When the person states how they like their workspace (\"I like my chat at the bottom\", \"use the right panel for documentation\"), record it with workspace_preference; never turn a one-off request into a preference. Say whether it is kept for this session or always, and that they can forget it from the Layouts menu.");
+        // How to use each tool lives in its description; this only frames the turn.
+        lines << QStringLiteral("The workspace_* tools change the person's panels and layouts. Use them only for what the person asked; do it in one call (workspace_compose for a new arrangement, workspace_layout apply to switch, workspace_arrange for one small change, workspace_restore to put things back).")
+              << QStringLiteral("Only say a change happened when its tool result says applied; say suggested results are waiting for the person, and failures in one sentence. Describe only what the result reports.");
+        if (input.workspaceRequested) {
+            lines << QStringLiteral("This message asks for a workspace change. Act on it now; don't search the Library or look at the workspace first.");
+        }
+        if (!input.workspaceSnapshot.isEmpty()) {
+            lines << QStringLiteral("<workspace>\n%1\n</workspace>").arg(input.workspaceSnapshot);
+        }
     }
 
     if (input.initialRetrievalAvailable) {
@@ -503,6 +634,13 @@ private:
     bool m_mutationProposalRequested = false;
     bool m_workspaceRequested = false;   // the message asked for a workspace change
     bool m_workspaceToolsOffered = false; // the tools are there either way
+    WorkspaceIntent m_workspaceIntent;
+    QVariantMap m_workspaceDescribed;
+    QElapsedTimer m_prepareTimer;
+    // What workspace tools did this turn, to check the reply against.
+    int m_workspaceApplied = 0;
+    int m_workspaceStaged = 0;
+    QStringList m_workspaceErrors;
     bool m_workspaceLastingPreference = false;
     QString m_instructions;
     QJsonArray m_initialInput;
@@ -537,11 +675,51 @@ void ChatRunJob::prepare()
         throw CoreError(QStringLiteral("AI provider \"%1\" is not registered.").arg(m_provider));
     }
 
+    m_prepareTimer.start();
     const QString userMessageId = m_userMessage.value(QStringLiteral("id")).toString();
     const QString userContent = m_userMessage.value(QStringLiteral("content")).toString();
     const QVariantList storedMessages = ChatRepository::messages(db(), m_chatId);
 
-    emitEvent(QStringLiteral("retrieval.started"), {{QStringLiteral("libraryId"), m_libraryId.isEmpty() ? QVariant::fromValue(nullptr) : QVariant(m_libraryId)}});
+    // Route before retrieval: a pure layout request ("switch to Research",
+    // "try another") needs the workspace, not a Library search.
+    {
+        QStringList earlierUser;
+        QString lastAssistant;
+        for (const QVariant &value : storedMessages) {
+            const QVariantMap message = value.toMap();
+            if (message.value(QStringLiteral("id")).toString() == userMessageId
+                || message.value(QStringLiteral("status")).toString() != QStringLiteral("complete")) {
+                continue;
+            }
+            if (message.value(QStringLiteral("role")).toString() == QStringLiteral("user")) {
+                earlierUser.append(message.value(QStringLiteral("content")).toString());
+            } else if (message.value(QStringLiteral("role")).toString() == QStringLiteral("assistant")) {
+                lastAssistant = message.value(QStringLiteral("content")).toString();
+            }
+        }
+        m_workspaceToolsOffered = Workspace::Gateway::installed();
+        if (m_workspaceToolsOffered) {
+            // One look at the workspace serves both the routing (layout
+            // names) and the model's summary.
+            m_workspaceDescribed = Workspace::Gateway::call({
+                {QStringLiteral("action"), QStringLiteral("describe")},
+                {QStringLiteral("runId"), m_runId},
+                {QStringLiteral("chatId"), m_chatId},
+                {QStringLiteral("explicit"), true},
+            });
+            QStringList layoutNames;
+            for (const QVariant &layout : m_workspaceDescribed.value(QStringLiteral("layouts")).toList()) {
+                layoutNames.append(layout.toMap().value(QStringLiteral("name")).toString());
+            }
+            m_workspaceIntent = classifyWorkspaceIntent(userContent, earlierUser.mid(std::max<qsizetype>(0, earlierUser.size() - 1)), lastAssistant, layoutNames);
+        }
+    }
+    const bool skipRetrieval = m_workspaceIntent.layoutOnly;
+
+    emitEvent(QStringLiteral("retrieval.started"), {
+        {QStringLiteral("libraryId"), m_libraryId.isEmpty() ? QVariant::fromValue(nullptr) : QVariant(m_libraryId)},
+        {QStringLiteral("skipped"), skipRetrieval},
+    });
 
     const ChatEvidence::AttachmentEvidence attachments = ChatEvidence::attachments(db(), m_chatId, m_userMessage);
     throwIfAborted();
@@ -555,7 +733,9 @@ void ChatRunJob::prepare()
         }
     }
 
-    const ChatEvidence::RetrievalEvidence retrieval = ChatEvidence::libraryRetrieval(db(), m_chatId, m_libraryId, m_userMessage, attachedFileIds);
+    const ChatEvidence::RetrievalEvidence retrieval = skipRetrieval
+        ? ChatEvidence::RetrievalEvidence()
+        : ChatEvidence::libraryRetrieval(db(), m_chatId, m_libraryId, m_userMessage, attachedFileIds);
     QSet<QString> retrievedFileIds;
 
     for (const QVariant &source : retrieval.manifestSources) {
@@ -573,6 +753,8 @@ void ChatRunJob::prepare()
         {QStringLiteral("retrievedFileCount"), retrievedFileIds.size()},
         {QStringLiteral("retrievedSources"), retrieval.manifestSources},
         {QStringLiteral("warningCount"), attachments.warnings.size() + retrieval.warnings.size()},
+        {QStringLiteral("skipped"), skipRetrieval},
+        {QStringLiteral("reason"), skipRetrieval ? QVariant(QStringLiteral("workspace request")) : QVariant()},
     });
 
     // selectContextSourceMessages
@@ -591,8 +773,9 @@ void ChatRunJob::prepare()
         }
     }
 
-    const bool focused = !retrieval.manifestSources.isEmpty() && completeMessages.size() > maximumFocusedConversationMessages + 2
-        && !conversationReferencePattern().match(userContent).hasMatch();
+    // Layout requests only need the recent conversation.
+    const bool focused = completeMessages.size() > maximumFocusedConversationMessages + 2
+        && (skipRetrieval || (!retrieval.manifestSources.isEmpty() && !conversationReferencePattern().match(userContent).hasMatch()));
     QList<SourceMessage> sourceMessages;
     int omittedHistoryMessageCount = 0;
 
@@ -755,11 +938,11 @@ void ChatRunJob::prepare()
     const bool toolTestingRequested = explicitToolTestingPattern().match(userContent).hasMatch();
     const bool verificationRequested = explicitToolRequestPattern().match(userContent).hasMatch() || toolTestingRequested;
     const bool verificationToolsAvailable = initialRetrievalAvailable && verificationRequested;
-    // The workspace tools are always offered, so a request phrased in
-    // unexpected words still gets acted on. Only a recognised request
-    // applies changes right away; anything else is staged for the person.
-    m_workspaceToolsOffered = Workspace::Gateway::installed();
-    m_workspaceRequested = m_workspaceToolsOffered && workspaceRequestPattern().match(userContent).hasMatch();
+    // The workspace tools are offered on every turn, so a request phrased in
+    // unexpected words still gets acted on. Whether a change applies right
+    // away is the workspace's call (the conversation in front, locks); the
+    // classification only routes the turn.
+    m_workspaceRequested = m_workspaceIntent.wanted;
     m_workspaceLastingPreference = m_workspaceRequested && lastingPreferencePattern().match(userContent).hasMatch();
     // "Save this layout" or "create a new layout" is about the workspace, not files.
     static const QRegularExpression layoutVerbs(
@@ -775,7 +958,8 @@ void ChatRunJob::prepare()
 
     QVariantList providerTools;
 
-    if (!m_libraryId.isEmpty()
+    // A pure layout request gets the workspace tools only.
+    if (!m_libraryId.isEmpty() && !m_workspaceIntent.layoutOnly
         && (!initialRetrievalAvailable || verificationToolsAvailable || m_mutationProposalRequested || toolTestingRequested)) {
         AITools::Availability availability;
         availability.discovery = !discoveryToolsSuppressed;
@@ -794,7 +978,7 @@ void ChatRunJob::prepare()
         workspaceOnly.verification = false;
         workspaceOnly.workspace = true;
         providerTools.append(AITools::providerTools(workspaceOnly));
-        m_maximumToolRounds = std::max(m_maximumToolRounds, m_workspaceRequested ? 8 : 3);
+        m_maximumToolRounds = m_workspaceIntent.layoutOnly ? 4 : std::max(m_maximumToolRounds, m_workspaceRequested ? 8 : 3);
     }
 
     QVariantList toolIds;
@@ -820,20 +1004,12 @@ void ChatRunJob::prepare()
     flags.toolTestingRequested = toolTestingRequested;
     flags.workspaceToolsAvailable = m_workspaceToolsOffered;
     flags.workspaceRequested = m_workspaceRequested;
-    if (m_workspaceToolsOffered) {
+    if (m_workspaceRequested) {
         // Saves a round trip: the model starts out knowing the panels and layouts.
-        QVariantMap described = Workspace::Gateway::call({
-            {QStringLiteral("action"), QStringLiteral("describe")},
-            {QStringLiteral("runId"), m_runId},
-            {QStringLiteral("chatId"), m_chatId},
-            {QStringLiteral("explicit"), true},
-        });
+        const QVariantMap &described = m_workspaceDescribed;
         if (described.value(QStringLiteral("ok")).toBool()) {
-            described.remove(QStringLiteral("ok"));
-            const QString snapshot = QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(described)).toJson(QJsonDocument::Compact));
-            if (snapshot.size() <= 8000) {
-                flags.workspaceSnapshot = snapshot;
-            }
+            const QString snapshot = workspaceSnapshotText(described);
+            flags.workspaceSnapshot = snapshot.size() <= 4000 ? snapshot : snapshot.left(4000) + QStringLiteral("\n…");
         }
     }
     m_instructions = toolAwareInstructions(AgentInstructions::build(m_agent), flags);
@@ -858,6 +1034,10 @@ void ChatRunJob::prepare()
         {QStringLiteral("toolTestingRequested"), toolTestingRequested},
         {QStringLiteral("workspaceRequested"), m_workspaceRequested},
         {QStringLiteral("workspaceToolsOffered"), m_workspaceToolsOffered},
+        {QStringLiteral("workspaceIntent"), !m_workspaceIntent.wanted ? QStringLiteral("none") : m_workspaceIntent.layoutOnly ? QStringLiteral("layout") : QStringLiteral("mixed")},
+        {QStringLiteral("workspaceFollowUp"), m_workspaceIntent.followUp},
+        {QStringLiteral("retrievalSkipped"), m_workspaceIntent.layoutOnly},
+        {QStringLiteral("prepareMs"), roundedMs(m_prepareTimer)},
         {QStringLiteral("discoveryToolsSuppressed"), discoveryToolsSuppressed},
         {QStringLiteral("fullFileReadSuppressed"), fullFileReadSuppressed},
         {QStringLiteral("focusedHistory"), focused},
@@ -1057,6 +1237,17 @@ void ChatRunJob::roundFinished(const QString &responseId)
             ++m_successfulMutationProposals;
         }
 
+        if (AITools::isWorkspaceTool(name)) {
+            const QString status = result.value(QStringLiteral("status")).toString();
+            if (!output.value(QStringLiteral("ok")).toBool()) {
+                m_workspaceErrors.append(output.value(QStringLiteral("error")).toMap().value(QStringLiteral("message")).toString());
+            } else if (status == QStringLiteral("applied")) {
+                ++m_workspaceApplied;
+            } else if (status == QStringLiteral("suggested")) {
+                ++m_workspaceStaged;
+            }
+        }
+
         const QString serialized = JsonValues::toJsonString(output);
         m_toolResultEstimatedTokens += ContextCompilers::estimateTokens(serialized);
         outputs.append(QJsonObject{
@@ -1126,7 +1317,9 @@ QVariantMap ChatRunJob::executeToolCall(const QVariantMap &call)
     context.libraryId = m_libraryId;
     context.cancelled = [this]() { return m_aborted; };
     context.emitEvent = [this](const QString &type, const QVariantMap &payload) { m_worker.appendEvent(m_runId, type, payload); };
-    context.workspaceExplicit = m_workspaceRequested;
+    // The person sent this message; the workspace decides what applies now.
+    context.workspaceExplicit = true;
+    context.workspaceAsked = m_workspaceRequested;
     context.workspaceLastingPreference = m_workspaceLastingPreference;
 
     QString code;
@@ -1170,11 +1363,25 @@ QVariantMap ChatRunJob::executeToolCall(const QVariantMap &call)
 void ChatRunJob::finish(const QString &text)
 {
     const double providerDurationMs = roundedMs(m_providerTimer);
-    const QString finalText = m_mutationProposalRequested ? mutationTurnResponse(m_successfulMutationProposals > 0) : text;
+    QString finalText = m_mutationProposalRequested ? mutationTurnResponse(m_successfulMutationProposals > 0) : text;
 
     if (m_mutationProposalRequested) {
         m_streamedText = finalText;
         emitEvent(QStringLiteral("model.delta"), {{QStringLiteral("delta"), finalText}});
+    }
+
+    // Never let a reply claim a workspace change that didn't happen.
+    const bool workspaceTouched = m_workspaceApplied + m_workspaceStaged + m_workspaceErrors.size() > 0;
+    if (!m_mutationProposalRequested && (m_workspaceRequested || workspaceTouched) && m_workspaceApplied == 0
+        && workspaceClaimPattern().match(finalText).hasMatch()) {
+        const QString correction = !m_workspaceErrors.isEmpty()
+            ? QStringLiteral("\n\n_The workspace didn't change: %1_").arg(m_workspaceErrors.last())
+            : m_workspaceStaged > 0
+            ? QStringLiteral("\n\n_Not applied yet: use Apply in the workspace notice._")
+            : QStringLiteral("\n\n_The workspace didn't change in this reply._");
+        finalText += correction;
+        m_streamedText += correction;
+        emitEvent(QStringLiteral("model.delta"), {{QStringLiteral("delta"), correction}});
     }
 
     emitEvent(QStringLiteral("model.completed"), {
@@ -1186,6 +1393,9 @@ void ChatRunJob::finish(const QString &text)
         {QStringLiteral("toolResultEstimatedTokens"), m_toolResultEstimatedTokens},
         {QStringLiteral("providerRoundCount"), 1 + (m_tools.isEmpty() ? 0 : m_toolRoundCount)},
         {QStringLiteral("providerDurationMs"), providerDurationMs},
+        {QStringLiteral("workspaceApplied"), m_workspaceApplied},
+        {QStringLiteral("workspaceStaged"), m_workspaceStaged},
+        {QStringLiteral("workspaceFailed"), m_workspaceErrors.size()},
     });
 
     const QString assistantId = m_assistantMessage.value(QStringLiteral("id")).toString();

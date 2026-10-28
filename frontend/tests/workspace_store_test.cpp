@@ -1508,6 +1508,34 @@ private slots:
         QVERIFY(store.temporaryArrangement().isEmpty());
     }
 
+    // Authorisation is the workspace's: a request from the person in the
+    // conversation in front applies, however it was phrased. Only the
+    // "unless I ask" preference looks at whether it read as a request.
+    void foregroundRequestsApply()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("foreground-requests"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        auto add = [](const QString &name, bool asked) {
+            return QVariantMap{{"action", "add"}, {"target", ""}, {"to", "right"}, {"name", name}, {"explicit", true}, {"asked", asked}, {"chatId", "chat-1"}};
+        };
+
+        // "try another" didn't read as a workspace request, but the person asked in front.
+        QCOMPARE(store.runAgentRequest(add("One", false), true).value("status").toString(), QStringLiteral("applied"));
+        // A background conversation is staged.
+        QCOMPARE(store.runAgentRequest(add("Two", true), false).value("status").toString(), QStringLiteral("suggested"));
+        store.dismissAgentSuggestion();
+        // "Don't rearrange unless I ask" holds back what wasn't a request.
+        QVERIFY(store.setPreference(QStringLiteral("rearranging"), QStringLiteral("only_when_asked"), {}, false).value("ok").toBool());
+        QCOMPARE(store.runAgentRequest(add("Three", false), true).value("status").toString(), QStringLiteral("suggested"));
+        store.dismissAgentSuggestion();
+        QCOMPARE(store.runAgentRequest(add("Four", true), true).value("status").toString(), QStringLiteral("applied"));
+        QCOMPARE(agentAreas(store).size(), 3);
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

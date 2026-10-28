@@ -186,8 +186,32 @@ workspace should look like instead of how to get there:
   that couldn't be found (`unresolved`) instead of failing.
 - **Background chats** get a staged suggestion, as with every other tool.
 
-The tools are offered on every turn. Only a message that reads as a
-workspace request applies changes right away; anything else is staged.
+### How a turn is routed
+
+- **Routing comes before retrieval.** The runtime reads the message with
+  the turn before it and the layout names (`classifyWorkspaceIntent`):
+  - a workspace request ("switch to Research", "Research please")
+  - a follow-up to one ("try another", "switch back", "do that again")
+  - a mixed request that also needs files found ("open the files that
+    explain X beside the chat")
+- **Pure layout requests skip Library search** and the Library tools. They
+  keep only the recent conversation, and the model gets a short text
+  summary of the panels and layouts. The target is one tool call.
+- **Routing never authorises anything.** The tools are offered on every
+  turn, and the workspace decides what applies:
+  - the person's message in the conversation in front applies right away
+  - background conversations are staged
+  - drags in progress and locks refuse
+  - "Don't rearrange unless I ask" stages what didn't read as a request
+- **Replies are checked against results.** If a reply claims a change
+  ("done", "switched", "created") but no workspace tool reported `applied`,
+  the runtime adds a line saying the workspace didn't change and why.
+- **Results are checked against the committed model.** Compose results are
+  verified before they're reported, and so is the current layout after a
+  switch.
+- **Timings.** `model.started` carries `workspaceIntent`, `retrievalSkipped`
+  and `prepareMs`; `model.completed` carries the tool and round counts plus
+  `workspaceApplied`, `workspaceStaged` and `workspaceFailed`.
 
 Each model round trip takes seconds, so a request should take as few as
 possible. The runtime puts a description of the workspace (panels and

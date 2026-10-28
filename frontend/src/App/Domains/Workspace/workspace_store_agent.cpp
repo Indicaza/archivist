@@ -199,6 +199,7 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
     intent.remove(QStringLiteral("chatId"));
     intent.remove(QStringLiteral("explicit"));
     intent.remove(QStringLiteral("saveAs"));
+    intent.remove(QStringLiteral("asked"));
 
     if (action == QStringLiteral("compose")) {
         return composeIntent(request, failed);
@@ -562,7 +563,8 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
     }
 
     // "Don't rearrange my windows unless I ask": only explicit requests.
-    if (holdBack.isEmpty() && preferenceEffects().onlyWhenAsked && !request.value(QStringLiteral("explicit")).toBool()) {
+    const bool asked = request.contains(QStringLiteral("asked")) ? request.value(QStringLiteral("asked")).toBool() : request.value(QStringLiteral("explicit")).toBool();
+    if (holdBack.isEmpty() && preferenceEffects().onlyWhenAsked && !asked) {
         holdBack = QStringLiteral("the person asked not to rearrange unless they ask");
     }
 
@@ -597,6 +599,22 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
         || (action == QStringLiteral("compose") && !intent.value(QStringLiteral("focusAnchor")).toString().isEmpty());
     QVariantMap result = applyAgentIntent(intent, chatId, focusWanted && !userBusy());
     if (action == QStringLiteral("compose") && result.value(QStringLiteral("ok")).toBool()) {
+        // Check what was committed before anyone says it happened.
+        QStringList missing;
+        for (const QVariant &value : intent.value(QStringLiteral("slots")).toList()) {
+            const QString anchorId = value.toMap().value(QStringLiteral("anchorId")).toString();
+            if (!m_model.anchor(anchorId)) {
+                missing.append(anchorId);
+            }
+        }
+        if (!missing.isEmpty()) {
+            QString code;
+            QString error;
+            if (result.value(QStringLiteral("status")).toString() == QStringLiteral("applied")) {
+                restoreAgentSteps(1, &code, &error);
+            }
+            return failure(QStringLiteral("VERIFY_FAILED"), QStringLiteral("The new arrangement didn't hold together, so nothing was changed."));
+        }
         result.insert(QStringLiteral("panels"), panelsForAgent());
         if (!intent.value(QStringLiteral("unresolved")).toStringList().isEmpty()) {
             result.insert(QStringLiteral("unresolved"), intent.value(QStringLiteral("unresolved")));
@@ -916,7 +934,7 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
         if (!report.ok) {
             return failure(QStringLiteral("LAYOUT_LOCKED"), report.error);
         }
-        if (!applyLayout(layoutId)) {
+        if (!applyLayout(layoutId) || currentLayoutId() != layoutId) {
             return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be applied."));
         }
         AgentStep step;
@@ -931,6 +949,8 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
             {QStringLiteral("ok"), true},
             {QStringLiteral("status"), QStringLiteral("applied")},
             {QStringLiteral("notes"), QStringList{step.summary}},
+            {QStringLiteral("currentLayout"), currentLayoutName()},
+            {QStringLiteral("panels"), panelsForAgent()},
         };
     }
 

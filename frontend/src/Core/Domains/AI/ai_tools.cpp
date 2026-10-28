@@ -912,6 +912,7 @@ QVariantMap callWorkspace(Context &context, QVariantMap request)
     request.insert(QStringLiteral("runId"), context.runId);
     request.insert(QStringLiteral("chatId"), context.chatId);
     request.insert(QStringLiteral("explicit"), context.workspaceExplicit);
+    request.insert(QStringLiteral("asked"), context.workspaceAsked);
     const QVariantMap result = context.workspace ? context.workspace(request) : Workspace::Gateway::call(request);
 
     if (!result.value(QStringLiteral("ok")).toBool()) {
@@ -1432,7 +1433,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_view"),
             QStringLiteral("View Workspace"),
-            QStringLiteral("Describe the person's workspace: each area (panel) with its name, position, size, what it shows and its locks, where the conversation is, whether a temporary arrangement can be undone, and the person's workspace preferences. Read it before arranging anything."),
+            QStringLiteral("Describe the person's workspace: each area (panel) with its name, position, size, what it shows and its locks, where the conversation is, whether a temporary arrangement can be undone, and the person's workspace preferences. Usually not needed: a summary is in your instructions when the person asks for a change."),
             readOnly, workspaceMode,
             objectSchema({}, {}),
             [](const QVariant &input) { return strictObject(input, {}); },
@@ -1455,7 +1456,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_show"),
             QStringLiteral("Show in Workspace"),
-            QStringLiteral("Open or bring forward files, chats or terminals in the workspace. Things already open are reused, not duplicated; several files share one area as tabs. Leave where empty to let Archivist choose. Only call this when the person asked to see, open or bring something up."),
+            QStringLiteral("Open or bring forward files, chats or terminals in the workspace. Things already open are reused, not duplicated; several files share one area as tabs. Put every item in one call and leave where empty unless the person said where. Only call this when the person asked to see, open or bring something up; to find which files matter, use Library evidence first and show two to five."),
             mutation, workspaceMode,
             objectSchema(
                 {
@@ -1673,7 +1674,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_restore"),
             QStringLiteral("Restore Workspace"),
-            QStringLiteral("Put the workspace back. before_task: how it was before you started rearranging for this task (\"put everything back\", \"restore my workspace\"). last_change: undo only your most recent change. saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed."),
+            QStringLiteral("Put the workspace back. before_task: how it was before you started rearranging (\"put everything back\", \"restore my workspace\", \"put it back\"). last_change: undo only your most recent change (\"undo that\", \"switch back\" after a change). saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed."),
             mutation, workspaceMode,
             objectSchema(
                 {
@@ -1697,7 +1698,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_layout"),
             QStringLiteral("Workspace Layouts"),
-            QStringLiteral("Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable). save stores the current arrangement under name (workspace_arrange save_as does this in the same call as the arranging). Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask."),
+            QStringLiteral("Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable); \"try another\" means apply a different one than the current layout. save stores the current arrangement under name (workspace_arrange save_as does this in the same call as the arranging). Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask."),
             mutation, workspaceMode,
             objectSchema(
                 {
