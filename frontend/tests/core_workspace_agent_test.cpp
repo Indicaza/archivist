@@ -4,6 +4,7 @@
 #include "Core/Domains/Workspace/view_type_registry.h"
 #include "Core/Domains/Workspace/workspace_arrangements.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
+#include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 #include "Core/Domains/Workspace/workspace_placement.h"
@@ -116,6 +117,21 @@ double share(const WorkspaceModel &model, const QString &anchorId, const QSizeF 
     const QRectF rect = model.computeGeometry(model.surfaceOfAnchor(anchorId), size, {}).anchors.value(anchorId);
     return rect.width() * rect.height() / (size.width() * size.height());
 }
+
+QRectF rectOf(const WorkspaceModel &model, const QString &anchorId, const QSizeF &size)
+{
+    return model.computeGeometry(model.surfaceOfAnchor(anchorId), size, {}).anchors.value(anchorId);
+}
+
+Compose::Slot panel(const QString &name, const QStringList &holds, double weight, const QVariantList &items = {})
+{
+    Compose::Slot slot;
+    slot.name = name;
+    slot.holds = holds;
+    slot.weight = weight;
+    slot.items = items;
+    return slot;
+}
 } // namespace
 
 class CoreWorkspaceAgentTest final : public QObject
@@ -155,7 +171,440 @@ private:
         return d;
     }
 
+    // "Make chat dominant and show three images stacked on the right."
+    Compose::Spec chatAndThreeImages(const Desk &d, double chatWeight, double imageWeight, const QSizeF &viewport) const
+    {
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("focus_with_sidebar");
+        spec.viewport = viewport;
+        spec.panels = {panel(QStringLiteral("Chat"), {QStringLiteral("chat")}, chatWeight, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}})};
+        for (const QString &name : {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")}) {
+            spec.panels.append(panel(QStringLiteral("Image ") + name.toUpper(), {QStringLiteral("preview")}, imageWeight,
+                {fileItem(QStringLiteral("images/") + name + QStringLiteral(".png"))}));
+        }
+        return spec;
+    }
+
 private slots:
+    // "Code on the left with main.cpp and a.cpp, the guide beside it, chat on
+    // the right": one plan, one change, and the panels that already showed
+    // things are the same panels afterwards (their editors aren't rebuilt).
+    void composesAWholeArrangementAtOnce()
+    {
+        Desk d = desk();
+        const int revision = d.model.revision();
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("columns");
+        spec.panels = {
+            panel(QStringLiteral("Code"), {QStringLiteral("code")}, 2, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}, fileItem(QStringLiteral("src/a.cpp"))}),
+            panel(QStringLiteral("Docs"), {QStringLiteral("docs")}, 1, {fileItem(QStringLiteral("docs/guide.md"))}),
+            panel(QStringLiteral("Chat"), {QStringLiteral("chat")}, 1, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+        };
+        const Compose::Plan plan = Compose::plan(spec, d.model);
+        QVERIFY2(plan.ok, qPrintable(plan.message));
+
+        const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+        QVERIFY2(outcome.ok, qPrintable(outcome.message));
+        QVERIFY(d.model.validate().isEmpty());
+        QCOMPARE(d.model.revision() > revision, true);
+        QCOMPARE(d.model.anchorIds().size(), 3);
+        // Reused, not rebuilt.
+        QVERIFY(d.model.anchor(d.editors));
+        QVERIFY(d.model.anchor(d.chat));
+        QCOMPARE(d.model.anchorOfView(d.mainView), d.editors);
+        QCOMPARE(d.model.anchorOfView(d.chatViewId), d.chat);
+        QCOMPARE(d.model.anchor(d.editors)->views.size(), 2);
+        QCOMPARE(d.model.anchorDisplayName(d.editors), QStringLiteral("Code"));
+        QCOMPARE(outcome.opened.size(), 2);
+        // Code gets about twice the width of the others (capped at 1.8x).
+        QVERIFY(std::abs(share(d.model, d.editors) - 1.8 / 3.8) < 0.03);
+        QVERIFY(std::abs(share(d.model, d.chat) - 1 / 3.8) < 0.03);
+        // Keyboard focus stays where the person had it.
+        QCOMPARE(d.model.focusedAnchorId(), d.editors);
+    }
+
+    void composesFromATemplate()
+    {
+        Desk d = desk();
+        const ViewRecord terminal = terminalView(QStringLiteral("t-1"));
+        const QString terminalId = d.model.openView(terminal, d.chat).createdId;
+        Compose::Spec spec;
+        spec.templateId = QStringLiteral("research_desk");
+        spec.panels = {panel(QStringLiteral("sources"), {}, 0, {fileItem(QStringLiteral("docs/paper.pdf"))})};
+        spec.focus = QStringLiteral("Sources");
+        const Compose::Plan plan = Compose::plan(spec, d.model);
+        QVERIFY2(plan.ok, qPrintable(plan.message));
+        QCOMPARE(plan.slotNames, (QStringList{QStringLiteral("Sources"), QStringLiteral("Notes"), QStringLiteral("Reference")}));
+
+        const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment(true));
+        QVERIFY2(outcome.ok, qPrintable(outcome.message));
+        QCOMPARE(d.model.anchorIds().size(), 3);
+        // Nothing closes: what no panel names stays open.
+        QVERIFY(d.model.view(terminalId));
+        QVERIFY(d.model.view(d.chatViewId));
+        QVERIFY(d.model.view(d.mainView));
+        // Focus moves only because it was asked for.
+        QCOMPARE(d.model.anchorDisplayName(d.model.focusedAnchorId()), QStringLiteral("Sources"));
+    }
+
+    void composeChecksTheSpecFirst()
+    {
+        Desk d = desk();
+        const QByteArray before = bytes(d.model);
+        Compose::Spec tooMany;
+        for (int index = 0; index < Compose::kMaximumSlots + 1; ++index) {
+            tooMany.panels.append(panel(QStringLiteral("P%1").arg(index), {}, 0));
+        }
+        QCOMPARE(Compose::plan(tooMany, d.model).code, QStringLiteral("INVALID_ARGUMENT"));
+
+        Compose::Spec unknown;
+        unknown.templateId = QStringLiteral("spaceship");
+        QVERIFY(Compose::plan(unknown, d.model).message.contains(QStringLiteral("focus_references")));
+
+        Compose::Spec twice;
+        twice.panels = {panel(QStringLiteral("Code"), {}, 0), panel(QStringLiteral("code"), {}, 0)};
+        QVERIFY(!Compose::plan(twice, d.model).ok);
+
+        Compose::Spec badFocus;
+        badFocus.panels = {panel(QStringLiteral("Code"), {}, 0)};
+        badFocus.focus = QStringLiteral("Elsewhere");
+        QVERIFY(!Compose::plan(badFocus, d.model).ok);
+
+        Compose::Spec crowded;
+        QVariantList items;
+        for (int index = 0; index < Compose::kMaximumItemsPerSlot + 1; ++index) {
+            items.append(fileItem(QStringLiteral("f%1.cpp").arg(index)));
+        }
+        crowded.panels = {panel(QStringLiteral("Code"), {}, 0, items)};
+        QVERIFY(!Compose::plan(crowded, d.model).ok);
+        QCOMPARE(bytes(d.model), before);
+    }
+
+    void composeRespectsLocks()
+    {
+        Desk d = desk();
+        Compose::Spec spec;
+        spec.templateId = QStringLiteral("code_diff");
+
+        d.model.setAnchorLayoutLocked(d.chat, true);
+        QByteArray before = bytes(d.model);
+        Intents::Outcome outcome = Intents::perform(d.model, Compose::plan(spec, d.model).request, environment());
+        QVERIFY(!outcome.ok);
+        QCOMPARE(outcome.code, QStringLiteral("LAYOUT_LOCKED"));
+        QCOMPARE(bytes(d.model), before);
+
+        d.model.setAnchorLayoutLocked(d.chat, false);
+        d.model.setAnchorContentLocked(d.chat, true);
+        before = bytes(d.model);
+        outcome = Intents::perform(d.model, Compose::plan(spec, d.model).request, environment());
+        QVERIFY(!outcome.ok);
+        QCOMPARE(outcome.code, QStringLiteral("CONTENT_LOCKED"));
+        QCOMPARE(bytes(d.model), before);
+    }
+
+    void chatDominantWithThreeImagesStacked()
+    {
+        // The model asked for an extreme weight (10); the result stays usable.
+        for (const double chatWeight : {0.0, 3.0, 10.0}) {
+            Desk d = desk();
+            const QSizeF viewport(1440, 900);
+            const Compose::Plan plan = Compose::plan(chatAndThreeImages(d, chatWeight, 0, viewport), d.model);
+            QVERIFY2(plan.ok, qPrintable(plan.message));
+            QVERIFY(plan.adjustments.isEmpty());
+            const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(outcome.message));
+            QCOMPARE(d.model.anchorIds().size(), 4);
+            QCOMPARE(d.model.anchorOfView(d.chatViewId), d.chat); // the chat panel is reused
+
+            const QRectF chat = rectOf(d.model, d.chat, viewport);
+            const double chatShare = chat.width() / viewport.width();
+            QVERIFY2(chatShare >= 0.60 && chatShare <= 0.66, qPrintable(QString::number(chatShare)));
+            QList<QRectF> images;
+            for (const QString &anchorId : d.model.anchorIds()) {
+                if (anchorId != d.chat) {
+                    images.append(rectOf(d.model, anchorId, viewport));
+                }
+            }
+            QCOMPARE(images.size(), 3);
+            std::sort(images.begin(), images.end(), [](const QRectF &a, const QRectF &b) { return a.y() < b.y(); });
+            for (qsizetype i = 0; i < images.size(); ++i) {
+                QVERIFY(images.at(i).x() > chat.right() - 1); // on the right
+                QCOMPARE(qRound(images.at(i).width()), qRound(images.first().width())); // one column
+                QVERIFY(images.at(i).height() >= Compose::kMinimumPanelHeight);
+                QVERIFY(i == 0 || images.at(i).y() >= images.at(i - 1).bottom() - 1); // stacked
+            }
+            const double columnShare = images.first().width() / viewport.width();
+            QVERIFY2(columnShare >= 0.34 && columnShare <= 0.40, qPrintable(QString::number(columnShare)));
+        }
+    }
+
+    // Smaller windows (or a tall bottom panel): panels keep a usable size,
+    // the least important become tabs, and nothing asked for is dropped.
+    void smallViewportsFallBackToTabs()
+    {
+        const QList<QSizeF> viewports{{1440, 900}, {1440, 640}, {1280, 480}, {900, 400}, {560, 700}};
+        for (const QSizeF &viewport : viewports) {
+            Desk d = desk();
+            const Compose::Plan plan = Compose::plan(chatAndThreeImages(d, 3, 0, viewport), d.model);
+            QVERIFY2(plan.ok, qPrintable(plan.message));
+            const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(outcome.message));
+            const qsizetype panels = d.model.anchorIds().size();
+            QCOMPARE(plan.adjustments.size(), 4 - panels); // every merge is reported
+            for (const QString &anchorId : d.model.anchorIds()) {
+                const QRectF rect = rectOf(d.model, anchorId, viewport);
+                QVERIFY2(rect.width() + 1 >= Compose::kMinimumPanelWidth && rect.height() + 1 >= Compose::kMinimumPanelHeight,
+                         qPrintable(QStringLiteral("%1x%2 in %3x%4").arg(rect.width()).arg(rect.height()).arg(viewport.width()).arg(viewport.height())));
+            }
+            QCOMPARE(d.model.viewIds().size(), 5); // main.cpp, chat and three images
+        }
+        // 1440 x 900 fits all four; 1280 x 480 can't stack three.
+        Desk roomy = desk();
+        QCOMPARE(Compose::plan(chatAndThreeImages(roomy, 3, 0, {1440, 900}), roomy.model).adjustments.size(), 0);
+        Desk low = desk();
+        QVERIFY(!Compose::plan(chatAndThreeImages(low, 3, 0, {1280, 480}), low.model).adjustments.isEmpty());
+    }
+
+    // Weights are relative: 2:1:1 and 8:4:4 are the same arrangement.
+    void weightsAreNormalized()
+    {
+        QList<double> shares;
+        for (const double scale : {1.0, 4.0}) {
+            Desk d = desk();
+            Compose::Spec spec;
+            spec.strategy = QStringLiteral("columns");
+            spec.panels = {
+                panel(QStringLiteral("Code"), {}, 2 * scale, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}}),
+                panel(QStringLiteral("Docs"), {}, 1 * scale),
+                panel(QStringLiteral("Chat"), {}, 1 * scale, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+            };
+            QVERIFY(Intents::perform(d.model, Compose::plan(spec, d.model).request, environment()).ok);
+            shares.append(share(d.model, d.editors));
+        }
+        QVERIFY(std::abs(shares.first() - shares.last()) < 0.01);
+    }
+
+    // "Give the images a little more room": composed again with the same
+    // names, the same panels move instead of being rebuilt.
+    void followUpsKeepThePanels()
+    {
+        Desk d = desk();
+        const QSizeF viewport(1440, 900);
+        QVERIFY(Intents::perform(d.model, Compose::plan(chatAndThreeImages(d, 10, 0, viewport), d.model).request, environment()).ok);
+        const QStringList anchors = d.model.anchorIds();
+        QHash<QString, QString> homes;
+        for (const QString &viewId : d.model.viewIds()) {
+            homes.insert(viewId, d.model.anchorOfView(viewId));
+        }
+        const double before = rectOf(d.model, d.chat, viewport).width();
+
+        QVERIFY(Intents::perform(d.model, Compose::plan(chatAndThreeImages(d, 1.3, 1, viewport), d.model).request, environment()).ok);
+        QCOMPARE(d.model.anchorIds(), anchors);
+        for (auto it = homes.cbegin(); it != homes.cend(); ++it) {
+            QCOMPARE(d.model.anchorOfView(it.key()), it.value());
+        }
+        const double after = rectOf(d.model, d.chat, viewport).width();
+        QVERIFY2(after < before - 50 && after / viewport.width() > 0.5, qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(after)));
+    }
+
+    // "Four panes, chat bottom-left": exactly two columns and two rows, the
+    // chat in the bottom-left cell, at every reasonable window size.
+    void gridTwoByTwoPutsChatBottomLeft()
+    {
+        for (const QSizeF &viewport : {QSizeF(1440, 900), QSizeF(1100, 640), QSizeF(800, 420)}) {
+            Desk d = desk();
+            Compose::Spec spec;
+            spec.strategy = QStringLiteral("grid");
+            spec.rows = 2;
+            spec.columns = 2;
+            spec.viewport = viewport;
+            spec.panels = {panel(QStringLiteral("Chat"), {QStringLiteral("chat")}, 0, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}})};
+            spec.panels.first().position = QStringLiteral("bottom-left");
+            const Compose::Plan plan = Compose::plan(spec, d.model);
+            QVERIFY2(plan.ok, qPrintable(plan.message));
+            QVERIFY(plan.adjustments.isEmpty());
+            QCOMPARE(plan.slotNames.size(), 4);
+            const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(outcome.message));
+            QVERIFY(d.model.validate().isEmpty());
+            QCOMPARE(d.model.anchorIds().size(), 4);
+
+            QSet<int> lefts;
+            QSet<int> tops;
+            for (const QString &anchorId : d.model.anchorIds()) {
+                const QRectF rect = rectOf(d.model, anchorId, viewport);
+                lefts.insert(qRound(rect.x()));
+                tops.insert(qRound(rect.y()));
+                QVERIFY(std::abs(rect.width() - viewport.width() / 2) < 8);
+                QVERIFY(std::abs(rect.height() - viewport.height() / 2) < 8);
+            }
+            QCOMPARE(lefts.size(), 2); // two columns
+            QCOMPARE(tops.size(), 2);  // two rows
+            const QRectF chat = rectOf(d.model, d.model.anchorOfView(d.chatViewId), viewport);
+            QCOMPARE(qRound(chat.x()), 0);
+            QVERIFY(chat.y() > viewport.height() / 3);
+            // What was open stays in view: the editor's panel became a cell.
+            QVERIFY(d.model.anchor(d.editors));
+            QCOMPARE(d.model.anchorOfView(d.mainView), d.editors);
+            QCOMPARE(d.model.anchorOfView(d.chatViewId), d.chat); // the chat panel moved, not rebuilt
+        }
+    }
+
+    // Too small for 2 x 2: cells share panels as tabs and every panel stays
+    // usable; nothing is lost.
+    void gridFallsBackInSmallWindows()
+    {
+        Desk d = desk();
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("grid");
+        spec.rows = 2;
+        spec.columns = 2;
+        spec.viewport = QSizeF(560, 330);
+        spec.panels = {panel(QStringLiteral("Chat"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}})};
+        spec.panels.first().position = QStringLiteral("bottom-left");
+        const Compose::Plan plan = Compose::plan(spec, d.model);
+        QVERIFY2(plan.ok, qPrintable(plan.message));
+        QVERIFY(!plan.adjustments.isEmpty());
+        QVERIFY(Intents::perform(d.model, plan.request, environment()).ok);
+        for (const QString &anchorId : d.model.anchorIds()) {
+            const QRectF rect = rectOf(d.model, anchorId, spec.viewport);
+            QVERIFY(rect.width() + 1 >= Compose::kMinimumPanelWidth && rect.height() + 1 >= Compose::kMinimumPanelHeight);
+        }
+        QVERIFY(d.model.view(d.chatViewId));
+        QVERIFY(d.model.view(d.mainView));
+    }
+
+    void threeColumnsFollowTheirPositions()
+    {
+        Desk d = desk();
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("columns");
+        spec.panels = {
+            panel(QStringLiteral("Chat"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+            panel(QStringLiteral("Code"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}}),
+            panel(QStringLiteral("Docs"), {}, 0, {fileItem(QStringLiteral("docs/guide.md"))}),
+        };
+        spec.panels[0].position = QStringLiteral("right");
+        spec.panels[1].position = QStringLiteral("left");
+        spec.panels[2].position = QStringLiteral("center");
+        QVERIFY(Intents::perform(d.model, Compose::plan(spec, d.model).request, environment()).ok);
+        const QSizeF viewport(1440, 900);
+        const QRectF code = rectOf(d.model, d.model.anchorOfView(d.mainView), viewport);
+        const QRectF chat = rectOf(d.model, d.model.anchorOfView(d.chatViewId), viewport);
+        QCOMPARE(qRound(code.x()), 0);
+        QVERIFY(chat.x() > viewport.width() * 0.6);
+        QCOMPARE(qRound(code.height()), qRound(viewport.height()));
+        QVERIFY(std::abs(code.width() - viewport.width() / 3) < 8);
+    }
+
+    // split: a primary panel with the rest stacked on one side; with the
+    // side at the bottom, the rest sit side by side under it (nested).
+    void splitsAPrimaryAndTheRest()
+    {
+        const QSizeF viewport(1440, 900);
+        {
+            Desk d = desk();
+            Compose::Spec spec;
+            spec.strategy = QStringLiteral("split");
+            spec.panels = {
+                panel(QStringLiteral("Code"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}}),
+                panel(QStringLiteral("Chat"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+            };
+            spec.panels[0].position = QStringLiteral("primary");
+            spec.panels[1].position = QStringLiteral("left");
+            QVERIFY(Intents::perform(d.model, Compose::plan(spec, d.model).request, environment()).ok);
+            const QRectF code = rectOf(d.model, d.model.anchorOfView(d.mainView), viewport);
+            const QRectF chat = rectOf(d.model, d.model.anchorOfView(d.chatViewId), viewport);
+            QCOMPARE(qRound(chat.x()), 0); // the sidebar on the left
+            const double share = code.width() / viewport.width();
+            QVERIFY2(share > 0.58 && share < 0.66, qPrintable(QString::number(share)));
+        }
+        {
+            Desk d = desk();
+            Compose::Spec spec;
+            spec.strategy = QStringLiteral("split");
+            spec.panels = {
+                panel(QStringLiteral("Code"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}}),
+                panel(QStringLiteral("Chat"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+                panel(QStringLiteral("Docs"), {}, 0, {fileItem(QStringLiteral("docs/guide.md"))}),
+            };
+            spec.panels[1].position = QStringLiteral("bottom");
+            QVERIFY(Intents::perform(d.model, Compose::plan(spec, d.model).request, environment()).ok);
+            const QRectF code = rectOf(d.model, d.model.anchorOfView(d.mainView), viewport);
+            const QRectF chat = rectOf(d.model, d.model.anchorOfView(d.chatViewId), viewport);
+            QCOMPARE(qRound(code.y()), 0);
+            QCOMPARE(qRound(code.width()), qRound(viewport.width()));
+            QVERIFY(chat.y() > code.bottom() - 1);
+            QVERIFY(chat.width() < viewport.width() * 0.6); // side by side with Docs
+        }
+    }
+
+    void stackPutsEverythingInOnePanel()
+    {
+        Desk d = desk();
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("stack");
+        spec.panels = {
+            panel(QStringLiteral("Code"), {}, 0, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}}),
+            panel(QStringLiteral("Docs"), {}, 0, {fileItem(QStringLiteral("docs/guide.md"))}),
+        };
+        const Compose::Plan plan = Compose::plan(spec, d.model);
+        QVERIFY2(plan.ok, qPrintable(plan.message));
+        QCOMPARE(plan.slotNames, QStringList{QStringLiteral("Code")});
+        QVERIFY(Intents::perform(d.model, plan.request, environment()).ok);
+        QCOMPARE(d.model.anchor(d.model.anchorOfView(d.mainView))->views.size() >= 2, true);
+    }
+
+    void positionsAreChecked()
+    {
+        Desk d = desk();
+        const QByteArray before = bytes(d.model);
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("grid");
+        spec.rows = 2;
+        spec.columns = 2;
+        spec.panels = {panel(QStringLiteral("A"), {}, 0), panel(QStringLiteral("B"), {}, 0)};
+        spec.panels[0].position = QStringLiteral("bottom-left");
+        spec.panels[1].position = QStringLiteral("bottom-left");
+        QVERIFY(Compose::plan(spec, d.model).message.contains(QStringLiteral("both asked for")));
+        spec.panels[1].position = QStringLiteral("somewhere nice");
+        QVERIFY(!Compose::plan(spec, d.model).ok);
+        spec.panels[1].position = QStringLiteral("r2c2");
+        QVERIFY(Compose::plan(spec, d.model).ok);
+        spec.rows = 1;
+        spec.columns = 1;
+        QVERIFY(Compose::plan(spec, d.model).message.contains(QStringLiteral("places")));
+        // Four panels and no arrangement named: a 2 x 2 grid, not strips.
+        Compose::Spec four;
+        four.panels = {panel(QStringLiteral("A"), {}, 0), panel(QStringLiteral("B"), {}, 0), panel(QStringLiteral("C"), {}, 0), panel(QStringLiteral("D"), {}, 0)};
+        WorkspaceModel copy = d.model;
+        QVERIFY(Intents::perform(copy, Compose::plan(four, copy).request, environment()).ok);
+        QSet<int> lefts;
+        for (const QString &anchorId : copy.anchorIds()) {
+            lefts.insert(qRound(rectOf(copy, anchorId, {1440, 900}).x()));
+        }
+        QCOMPARE(lefts.size(), 2);
+        QCOMPARE(bytes(d.model), before);
+    }
+
+    void templatesAreVersionedRecipes()
+    {
+        QCOMPARE(Compose::templates().size(), 5);
+        WorkspaceModel model(counter());
+        for (const Compose::Template &recipe : Compose::templates()) {
+            QVERIFY(recipe.version >= 1);
+            QVERIFY(!recipe.name.isEmpty());
+            Compose::Spec spec;
+            spec.templateId = recipe.id;
+            WorkspaceModel copy = model;
+            const Compose::Plan plan = Compose::plan(spec, copy);
+            QVERIFY2(plan.ok, qPrintable(recipe.id + QStringLiteral(": ") + plan.message));
+            const Intents::Outcome outcome = Intents::perform(copy, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(recipe.id + QStringLiteral(": ") + outcome.message));
+            QCOMPARE(copy.anchorIds().size(), plan.slotNames.size());
+        }
+    }
+
     // 1. "Open these three files beside our conversation."
     void opensThreeFilesBesideTheChat()
     {

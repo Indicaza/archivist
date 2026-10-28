@@ -23,8 +23,10 @@
 //   - keyboard focus, unless the focused panel is gone.
 //
 // Only views the caller lists in `closable` go away: the caller decides that
-// they were opened for the arrangement and hold nothing unsaved. Resources
-// (buffers, chats, terminal sessions) are never touched here.
+// they were opened for the arrangement and hold nothing unsaved. Views listed
+// in `reopen` that the arrangement shows but are closed now come back as
+// they were (same id and resource): redo uses this for views an undo closed.
+// Resources (buffers, chats, terminal sessions) are never touched here.
 //
 // A panel whose layout is locked now must end up exactly where it is now;
 // otherwise the restore is refused and nothing changes.
@@ -35,7 +37,8 @@ struct Result
     bool ok = false;
     QString code;
     QString message;
-    QStringList closedViews; // views removed (from `closable`)
+    QStringList closedViews;   // views removed (from `closable`)
+    QStringList reopenedViews; // views brought back (from `reopen`)
 };
 
 Result restore(
@@ -43,6 +46,7 @@ Result restore(
     const WorkspaceModel::Data &arrangement,
     const QSet<QString> &closable,
     const QHash<QString, QSizeF> &surfaceSizes = {},
-    const LayoutMetrics &metrics = {}
+    const LayoutMetrics &metrics = {},
+    const QSet<QString> &reopen = {}
 );
 } // namespace Workspace::Arrangements

@@ -55,8 +55,13 @@ struct Context
     std::function<bool()> cancelled;
     // Appends a run event (tool.*, edit.proposed).
     std::function<void(const QString &eventType, const QVariantMap &payload)> emitEvent;
-    // The person's message asked for a workspace change in this turn.
+    // The person sent this turn's message (as opposed to an automated run),
+    // so a workspace change may apply right away in the conversation in
+    // front. Background conversations are still staged by the workspace.
     bool workspaceExplicit = false;
+    // The message (with the conversation before it) reads as a workspace
+    // request. Only "don't rearrange unless I ask" looks at this.
+    bool workspaceAsked = false;
     // The message states a lasting preference ("always", "from now on",
     // "I like my ..."), so a workspace preference may be stored.
     bool workspaceLastingPreference = false;

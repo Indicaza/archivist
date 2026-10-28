@@ -4,6 +4,7 @@
 #include "Core/Domains/Libraries/library_file_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
+#include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"
@@ -16,6 +17,8 @@
 #include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <algorithm>
 #include <cmath>
@@ -823,14 +826,21 @@ const QStringList &arrangeActions()
 {
     static const QStringList actions{
         QStringLiteral("focus"), QStringLiteral("resize"), QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"),
+        QStringLiteral("add"), QStringLiteral("remove"),
     };
     return actions;
 }
 
 const QStringList &restoreScopes()
 {
-    static const QStringList scopes{QStringLiteral("last_change"), QStringLiteral("before_task"), QStringLiteral("saved_layout")};
+    static const QStringList scopes{QStringLiteral("last_change"), QStringLiteral("redo"), QStringLiteral("before_task"), QStringLiteral("saved_layout")};
     return scopes;
+}
+
+const QStringList &layoutOps()
+{
+    static const QStringList ops{QStringLiteral("list"), QStringLiteral("apply"), QStringLiteral("save"), QStringLiteral("rename"), QStringLiteral("delete")};
+    return ops;
 }
 
 const QStringList &preferenceOps()
@@ -902,6 +912,7 @@ QVariantMap callWorkspace(Context &context, QVariantMap request)
     request.insert(QStringLiteral("runId"), context.runId);
     request.insert(QStringLiteral("chatId"), context.chatId);
     request.insert(QStringLiteral("explicit"), context.workspaceExplicit);
+    request.insert(QStringLiteral("asked"), context.workspaceAsked);
     const QVariantMap result = context.workspace ? context.workspace(request) : Workspace::Gateway::call(request);
 
     if (!result.value(QStringLiteral("ok")).toBool()) {
@@ -926,39 +937,74 @@ QVariantMap workspaceViewTool(const QVariantMap &, Context &context)
     return callWorkspace(context, {{QStringLiteral("action"), QStringLiteral("describe")}});
 }
 
+// A tool item (file by path, chat, terminal, open view) in workspace terms.
+// Files are looked up here, where the Library is.
+QVariantMap resolveShowItem(const QVariantMap &item, Context &context)
+{
+    const QString kind = item.value(QStringLiteral("kind")).toString();
+    const QString reference = item.value(QStringLiteral("reference")).toString();
+
+    if (kind == QStringLiteral("file")) {
+        if (JsCompat::isBlank(reference)) {
+            throw ToolError(QStringLiteral("invalid_input"), QStringLiteral("A file needs its Library path, file name or file id."));
+        }
+        // Looked up in the catalog here; the workspace then prefers a view
+        // that already shows it (it may be open from elsewhere), so the
+        // lookup's verdict travels along instead of failing the call.
+        const QVariantMap library = resolveLibrary(*context.database, context, item.value(QStringLiteral("library")).toString());
+        const QString libraryId = library.value(QStringLiteral("id")).toString();
+        QVariantMap resolved{
+            {QStringLiteral("kind"), kind},
+            {QStringLiteral("reference"), reference},
+            {QStringLiteral("libraryId"), libraryId},
+        };
+        const QString wanted = QString(reference).replace(QLatin1Char('\\'), QLatin1Char('/')).trimmed();
+        const QString lowered = wanted.toLower();
+        QVariantList exact;
+        QVariantList byName;
+        for (const QVariant &value : LibraryFileRepository::files(*context.database, libraryId)) {
+            const QVariantMap file = value.toMap();
+            const QString path = file.value(QStringLiteral("relativePath")).toString();
+            if (file.value(QStringLiteral("id")).toString() == wanted || path == wanted) {
+                exact.append(file);
+            } else if (path.toLower() == lowered || path.toLower().endsWith(QLatin1Char('/') + lowered)
+                       || file.value(QStringLiteral("name")).toString().toLower() == lowered) {
+                byName.append(file);
+            }
+        }
+        const QVariantList &matches = exact.isEmpty() ? byName : exact;
+        if (matches.size() == 1) {
+            const QString fileId = matches.first().toMap().value(QStringLiteral("id")).toString();
+            const auto file = LibraryFileRepository::fileById(*context.database, libraryId, fileId);
+            resolved.insert(QStringLiteral("lookup"), file ? QStringLiteral("found") : QStringLiteral("not_found"));
+            if (file) {
+                resolved.insert(QStringLiteral("file"), *file);
+            }
+        } else if (matches.size() > 1) {
+            QStringList candidates;
+            for (const QVariant &match : matches.mid(0, 5)) {
+                candidates.append(match.toMap().value(QStringLiteral("relativePath")).toString());
+            }
+            resolved.insert(QStringLiteral("lookup"), QStringLiteral("ambiguous"));
+            resolved.insert(QStringLiteral("candidates"), candidates);
+        } else {
+            resolved.insert(QStringLiteral("lookup"), QStringLiteral("not_found"));
+        }
+        return resolved;
+    }
+
+    QVariantMap resolved{{QStringLiteral("kind"), kind}, {QStringLiteral("reference"), reference}};
+    if (kind == QStringLiteral("terminal") && !JsCompat::isBlank(item.value(QStringLiteral("library")).toString())) {
+        resolved.insert(QStringLiteral("libraryId"), resolveLibrary(*context.database, context, item.value(QStringLiteral("library")).toString()).value(QStringLiteral("id")));
+    }
+    return resolved;
+}
+
 QVariantMap workspaceShowTool(const QVariantMap &input, Context &context)
 {
     QVariantList items;
-
     for (const QVariant &value : input.value(QStringLiteral("items")).toList()) {
-        const QVariantMap item = value.toMap();
-        const QString kind = item.value(QStringLiteral("kind")).toString();
-        const QString reference = item.value(QStringLiteral("reference")).toString();
-
-        if (kind == QStringLiteral("file")) {
-            if (JsCompat::isBlank(reference)) {
-                throw ToolError(QStringLiteral("invalid_input"), QStringLiteral("A file needs its Library path or file id."));
-            }
-            const QVariantMap library = resolveLibrary(*context.database, context, item.value(QStringLiteral("library")).toString());
-            const QString libraryId = library.value(QStringLiteral("id")).toString();
-            const QString fileId = resolveLibraryFileId(*context.database, libraryId, reference);
-            const auto file = LibraryFileRepository::fileById(*context.database, libraryId, fileId);
-            if (!file) {
-                throw ToolError(QStringLiteral("invalid_input"), QStringLiteral("Library file \"%1\" was not found.").arg(reference));
-            }
-            items.append(QVariantMap{
-                {QStringLiteral("kind"), kind},
-                {QStringLiteral("libraryId"), libraryId},
-                {QStringLiteral("file"), *file},
-            });
-            continue;
-        }
-
-        QVariantMap resolved{{QStringLiteral("kind"), kind}, {QStringLiteral("reference"), reference}};
-        if (kind == QStringLiteral("terminal") && !JsCompat::isBlank(item.value(QStringLiteral("library")).toString())) {
-            resolved.insert(QStringLiteral("libraryId"), resolveLibrary(*context.database, context, item.value(QStringLiteral("library")).toString()).value(QStringLiteral("id")));
-        }
-        items.append(resolved);
+        items.append(resolveShowItem(value.toMap(), context));
     }
 
     return callWorkspace(context, {
@@ -972,12 +1018,58 @@ QVariantMap workspaceShowTool(const QVariantMap &input, Context &context)
 
 QVariantMap workspaceArrangeTool(const QVariantMap &input, Context &context)
 {
+    QVariantList steps;
+    for (const QVariant &value : input.value(QStringLiteral("steps")).toList()) {
+        const QVariantMap step = value.toMap();
+        steps.append(QVariantMap{
+            {QStringLiteral("action"), step.value(QStringLiteral("action"))},
+            {QStringLiteral("target"), step.value(QStringLiteral("area"))},
+            {QStringLiteral("change"), step.value(QStringLiteral("change"))},
+            {QStringLiteral("to"), step.value(QStringLiteral("to"))},
+            {QStringLiteral("name"), step.value(QStringLiteral("name"))},
+        });
+    }
+
+    // One step goes as itself; several go as one change that undoes together.
+    QVariantMap request = steps.size() == 1
+        ? steps.first().toMap()
+        : QVariantMap{{QStringLiteral("action"), QStringLiteral("steps")}, {QStringLiteral("steps"), steps}};
+    request.insert(QStringLiteral("saveAs"), input.value(QStringLiteral("save_as")));
+    return callWorkspace(context, request);
+}
+
+QVariantMap workspaceComposeTool(const QVariantMap &input, Context &context)
+{
+    // Everything that can be found goes in; the rest is reported back.
+    QStringList unresolved;
+    QVariantList panelSlots;
+    for (const QVariant &value : input.value(QStringLiteral("slots")).toList()) {
+        QVariantMap slot = value.toMap();
+        QVariantList items;
+        for (const QVariant &item : slot.value(QStringLiteral("items")).toList()) {
+            try {
+                items.append(resolveShowItem(item.toMap(), context));
+            } catch (const ToolError &error) {
+                unresolved.append(error.message());
+            }
+        }
+        slot.insert(QStringLiteral("items"), items);
+        panelSlots.append(slot);
+    }
+
+    const QString templateId = input.value(QStringLiteral("template")).toString();
+    const QString strategy = input.value(QStringLiteral("arrangement")).toString();
     return callWorkspace(context, {
-        {QStringLiteral("action"), input.value(QStringLiteral("action"))},
-        {QStringLiteral("target"), input.value(QStringLiteral("area"))},
-        {QStringLiteral("change"), input.value(QStringLiteral("change"))},
-        {QStringLiteral("to"), input.value(QStringLiteral("to"))},
-        {QStringLiteral("name"), input.value(QStringLiteral("name"))},
+        {QStringLiteral("action"), QStringLiteral("compose")},
+        {QStringLiteral("mode"), input.value(QStringLiteral("mode"))},
+        {QStringLiteral("template"), templateId == QStringLiteral("none") ? QString() : templateId},
+        {QStringLiteral("strategy"), strategy == QStringLiteral("auto") ? QString() : strategy},
+        {QStringLiteral("rows"), input.value(QStringLiteral("rows"))},
+        {QStringLiteral("columns"), input.value(QStringLiteral("columns"))},
+        {QStringLiteral("slots"), panelSlots},
+        {QStringLiteral("focus"), input.value(QStringLiteral("focus"))},
+        {QStringLiteral("saveAs"), input.value(QStringLiteral("save_as"))},
+        {QStringLiteral("unresolved"), unresolved},
     });
 }
 
@@ -987,6 +1079,17 @@ QVariantMap workspaceRestoreTool(const QVariantMap &input, Context &context)
         {QStringLiteral("action"), QStringLiteral("restore")},
         {QStringLiteral("scope"), input.value(QStringLiteral("scope"))},
         {QStringLiteral("layout"), input.value(QStringLiteral("layout"))},
+    });
+}
+
+QVariantMap workspaceLayoutTool(const QVariantMap &input, Context &context)
+{
+    return callWorkspace(context, {
+        {QStringLiteral("action"), QStringLiteral("layout")},
+        {QStringLiteral("op"), input.value(QStringLiteral("action"))},
+        {QStringLiteral("name"), input.value(QStringLiteral("name"))},
+        {QStringLiteral("newName"), input.value(QStringLiteral("new_name"))},
+        {QStringLiteral("replace"), input.value(QStringLiteral("replace"))},
     });
 }
 
@@ -1364,7 +1467,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_view"),
             QStringLiteral("View Workspace"),
-            QStringLiteral("Describe the person's workspace: each area (panel) with its name, position, size, what it shows and its locks, where the conversation is, whether a temporary arrangement can be undone, and the person's workspace preferences. Read it before arranging anything."),
+            QStringLiteral("Describe the person's workspace: each area (panel) with its name, position, size, what it shows and its locks, where the conversation is, whether a temporary arrangement can be undone, and the person's workspace preferences. Usually not needed: a summary is in your instructions when the person asks for a change."),
             readOnly, workspaceMode,
             objectSchema({}, {}),
             [](const QVariant &input) { return strictObject(input, {}); },
@@ -1387,7 +1490,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_show"),
             QStringLiteral("Show in Workspace"),
-            QStringLiteral("Open or bring forward files, chats or terminals in the workspace. Things already open are reused, not duplicated; several files share one area as tabs. Leave where empty to let Archivist choose. Only call this when the person asked to see, open or bring something up."),
+            QStringLiteral("Open or bring forward files, chats or terminals in the workspace. Things already open are reused, not duplicated; several files share one area as tabs. Put every item in one call and leave where empty unless the person said where. Only call this when the person asked to see, open or bring something up; to find which files matter, use Library evidence first and show two to five."),
             mutation, workspaceMode,
             objectSchema(
                 {
@@ -1435,42 +1538,194 @@ const QList<Definition> &definitions()
             workspaceOutputSummary,
         });
 
+        const QStringList stepFields{QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")};
+        const QVariantMap arrangeStep = objectSchema(
+            {
+                {QStringLiteral("action"), enumSchema(arrangeActions())},
+                {QStringLiteral("area"), stringSchema(0, 200, areaDescription)},
+                {QStringLiteral("change"), stringSchema(0, 32, QStringLiteral("resize only, else \"\"."))},
+                {QStringLiteral("to"), stringSchema(0, 200, QStringLiteral("move, add and remove only, else \"\"."))},
+                {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("label and add only, else \"\"."))},
+            },
+            stepFields
+        );
+
         tools.append({
             QStringLiteral("workspace_arrange"),
             QStringLiteral("Arrange Workspace"),
-            QStringLiteral("Change one area of the workspace: focus (bring it forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it). Locked areas refuse changes; never try to unlock one."),
+            QStringLiteral("Small edits to the panels that exist: steps run in order as one change, and nothing applies unless every step works. For any arrangement of several panels (grids, columns, \"4 panes\", a new layout) use workspace_compose instead; at most one add per call. Step actions: focus (bring an area forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). save_as: after the steps, save the result as a new named layout (\"\" to not save). Locked areas refuse changes; never try to unlock one."),
             mutation, workspaceMode,
             objectSchema(
                 {
-                    {QStringLiteral("action"), enumSchema(arrangeActions())},
-                    {QStringLiteral("area"), stringSchema(1, 200, areaDescription)},
-                    {QStringLiteral("change"), stringSchema(0, 32, QStringLiteral("resize only, else \"\"."))},
-                    {QStringLiteral("to"), stringSchema(0, 200, QStringLiteral("move only, else \"\"."))},
-                    {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("label only, else \"\"."))},
+                    {QStringLiteral("steps"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), arrangeStep}, {QStringLiteral("minItems"), 1}, {QStringLiteral("maxItems"), 12}}},
+                    {QStringLiteral("save_as"), stringSchema(0, 80, QStringLiteral("A new layout name to save the result as, else \"\"."))},
                 },
-                {QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")}
+                {QStringLiteral("steps"), QStringLiteral("save_as")}
             ),
-            [](const QVariant &input) {
-                const QVariantMap map = strictObject(input, {QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")});
+            [stepFields](const QVariant &input) {
+                const QVariantMap map = strictObject(input, {QStringLiteral("steps"), QStringLiteral("save_as")});
+                const QVariant stepsValue = map.value(QStringLiteral("steps"));
+                if (stepsValue.typeId() != QMetaType::QVariantList) {
+                    invalid(QStringLiteral("steps"), QStringLiteral("Expected array."));
+                }
+                const QVariantList list = stepsValue.toList();
+                if (list.isEmpty() || list.size() > 12) {
+                    invalid(QStringLiteral("steps"), QStringLiteral("Give between one and twelve steps."));
+                }
+                QVariantList steps;
+                for (const QVariant &value : list) {
+                    const QVariantMap step = strictObject(value, stepFields);
+                    steps.append(QVariantMap{
+                        {QStringLiteral("action"), enumField(step, QStringLiteral("action"), arrangeActions())},
+                        {QStringLiteral("area"), stringField(step, QStringLiteral("area"), 0, 200, true, QString())},
+                        {QStringLiteral("change"), stringField(step, QStringLiteral("change"), 0, 32, true, QString())},
+                        {QStringLiteral("to"), stringField(step, QStringLiteral("to"), 0, 200, true, QString())},
+                        {QStringLiteral("name"), stringField(step, QStringLiteral("name"), 0, 80, true, QString())},
+                    });
+                }
+                // Building an arrangement from adds and moves is what
+                // produced stacks of strips; that's workspace_compose's job.
+                qsizetype adds = 0;
+                for (const QVariant &step : std::as_const(steps)) {
+                    adds += step.toMap().value(QStringLiteral("action")).toString() == QStringLiteral("add") ? 1 : 0;
+                }
+                if (adds > 1) {
+                    invalid(QStringLiteral("steps"), QStringLiteral("Use workspace_compose (for example arrangement grid) to set up several panels; arrange adds at most one."));
+                }
                 return QVariantMap{
-                    {QStringLiteral("action"), enumField(map, QStringLiteral("action"), arrangeActions())},
-                    {QStringLiteral("area"), stringField(map, QStringLiteral("area"), 1, 200, true)},
-                    {QStringLiteral("change"), stringField(map, QStringLiteral("change"), 0, 32, true, QString())},
-                    {QStringLiteral("to"), stringField(map, QStringLiteral("to"), 0, 200, true, QString())},
-                    {QStringLiteral("name"), stringField(map, QStringLiteral("name"), 0, 80, true, QString())},
+                    {QStringLiteral("steps"), steps},
+                    {QStringLiteral("save_as"), stringField(map, QStringLiteral("save_as"), 0, 80, true, QString())},
                 };
             },
             workspaceArrangeTool,
             [](const QVariantMap &input) {
-                return QVariantMap{{QStringLiteral("action"), input.value(QStringLiteral("action"))}, {QStringLiteral("area"), input.value(QStringLiteral("area"))}};
+                QStringList actions;
+                for (const QVariant &step : input.value(QStringLiteral("steps")).toList()) {
+                    actions.append(step.toMap().value(QStringLiteral("action")).toString());
+                }
+                return QVariantMap{{QStringLiteral("steps"), actions}, {QStringLiteral("saveAs"), input.value(QStringLiteral("save_as"))}};
             },
             workspaceOutputSummary,
+        });
+
+        const QStringList slotFields{QStringLiteral("name"), QStringLiteral("holds"), QStringLiteral("weight"), QStringLiteral("position"), QStringLiteral("items")};
+        const QVariantMap composeSlot = objectSchema(
+            {
+                {QStringLiteral("name"), stringSchema(1, 40, QStringLiteral("What the panel is called: \"Code\", \"Docs\", \"Chat\"."))},
+                {QStringLiteral("holds"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), enumSchema(Workspace::Compose::holdWords())}, {QStringLiteral("maxItems"), 4}, {QStringLiteral("description"), QStringLiteral("What kind of content belongs there; can be empty when items say it.")}}},
+                {QStringLiteral("weight"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 10}, {QStringLiteral("description"), QStringLiteral("Relative room: 1 normal, 2 about twice; 0 keeps the default.")}}},
+                {QStringLiteral("position"), stringSchema(0, 24, QStringLiteral("Where it goes. grid: top-left, top-right, bottom-left, bottom-right, top, bottom-center, r2c1. columns: left, center, right. rows: top, middle, bottom. split: primary for the large one; the first other panel's right/left/top/bottom says the side. "": the next free place."))},
+                {QStringLiteral("items"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), showItem}, {QStringLiteral("maxItems"), Workspace::Compose::kMaximumItemsPerSlot}}},
+            },
+            slotFields
+        );
+        QStringList templateChoices{QStringLiteral("none")};
+        QStringList templateLines;
+        for (const Workspace::Compose::Template &recipe : Workspace::Compose::templates()) {
+            templateChoices.append(recipe.id);
+            QStringList slotNames;
+            for (const QJsonValue &slot : recipe.recipe.value(QStringLiteral("slots")).toArray()) {
+                slotNames.append(slot.toObject().value(QStringLiteral("name")).toString());
+            }
+            templateLines.append(QStringLiteral("%1 (%2: %3)").arg(recipe.id, recipe.description.chopped(1), slotNames.join(QStringLiteral(", "))));
+        }
+
+        tools.append({
+            QStringLiteral("workspace_compose"),
+            QStringLiteral("Compose Workspace"),
+            QStringLiteral("Set the workspace to the state the person asked for, in one call. You only choose; Archivist finds the files, builds and sizes the panels, reuses what is open and applies it as one change the person can undo or redo. Never build layouts from moves or splits. mode patch (the usual case): the current panels stay where they are; a slot named like an existing panel gets its items there, a new name adds one panel at its position (left, right, top or bottom), and panels you don't name are left alone. Use it for \"put the PDF beside the chat\" or \"add my notes on the right\": arrangement auto, rows and columns 0. mode replace: a whole new arrangement from a recipe, only when the person asks for one (\"4 panes\", \"three columns\", \"chat dominant\", a template). Recipes: grid (rows x columns; \"4 panes, chat bottom-left\" is grid, rows 2, columns 2, chat at bottom-left; empty places become panels showing what was open), columns (left, center, right), rows (top, middle, bottom), split (one large panel at position primary, the rest stacked on one side: \"chat dominant, three images stacked on the right\"), stack (everything as tabs in one panel). Weights are relative (1 normal, 2 about twice); panels that don't fit become tabs. Files can be named by file name, path or an open tab's title; nothing closes. Templates fill their panels by name: %1. save_as also saves it as a named layout (\"\" keeps it temporary). focus: a panel name to bring forward, only when asked.").arg(templateLines.join(QStringLiteral("; "))),
+            mutation, workspaceMode,
+            objectSchema(
+                {
+                    {QStringLiteral("mode"), enumSchema(QStringList{QStringLiteral("patch"), QStringLiteral("replace")})},
+                    {QStringLiteral("template"), enumSchema(templateChoices)},
+                    {QStringLiteral("arrangement"), enumSchema(QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
+                    {QStringLiteral("rows"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 3}, {QStringLiteral("description"), QStringLiteral("grid only, else 0.")}}},
+                    {QStringLiteral("columns"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 3}, {QStringLiteral("description"), QStringLiteral("grid only, else 0.")}}},
+                    {QStringLiteral("slots"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), composeSlot}, {QStringLiteral("maxItems"), Workspace::Compose::kMaximumSlots}}},
+                    {QStringLiteral("focus"), stringSchema(0, 40, QStringLiteral("A panel name, or \"\"."))},
+                    {QStringLiteral("save_as"), stringSchema(0, 80, QStringLiteral("A new layout name, or \"\"."))},
+                },
+                {QStringLiteral("mode"), QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")}
+            ),
+            [slotFields, templateChoices](const QVariant &input) {
+                const QVariantMap map = strictObject(input, {QStringLiteral("mode"), QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")});
+                const QVariant slotsValue = map.value(QStringLiteral("slots"));
+                if (slotsValue.typeId() != QMetaType::QVariantList) {
+                    invalid(QStringLiteral("slots"), QStringLiteral("Expected array."));
+                }
+                const QVariantList list = slotsValue.toList();
+                if (list.size() > Workspace::Compose::kMaximumSlots) {
+                    invalid(QStringLiteral("slots"), QStringLiteral("At most %1 panels.").arg(Workspace::Compose::kMaximumSlots));
+                }
+                QVariantList panelSlots;
+                for (const QVariant &value : list) {
+                    const QVariantMap slot = strictObject(value, slotFields);
+                    QStringList holds;
+                    const QVariantList holdList = slot.value(QStringLiteral("holds")).toList();
+                    if (holdList.size() > 4) {
+                        invalid(QStringLiteral("holds"), QStringLiteral("At most four kinds."));
+                    }
+                    for (const QVariant &hold : holdList) {
+                        const QString word = hold.toString();
+                        if (!Workspace::Compose::holdWords().contains(word)) {
+                            invalid(QStringLiteral("holds"), QStringLiteral("Use: %1.").arg(Workspace::Compose::holdWords().join(QStringLiteral(", "))));
+                        }
+                        holds.append(word);
+                    }
+                    const QVariantList itemList = slot.value(QStringLiteral("items")).toList();
+                    if (itemList.size() > Workspace::Compose::kMaximumItemsPerSlot) {
+                        invalid(QStringLiteral("items"), QStringLiteral("At most %1 items per panel.").arg(Workspace::Compose::kMaximumItemsPerSlot));
+                    }
+                    QVariantList items;
+                    for (const QVariant &itemValue : itemList) {
+                        const QVariantMap item = strictObject(itemValue, {QStringLiteral("kind"), QStringLiteral("reference"), QStringLiteral("library")});
+                        items.append(QVariantMap{
+                            {QStringLiteral("kind"), enumField(item, QStringLiteral("kind"), showKinds())},
+                            {QStringLiteral("reference"), stringField(item, QStringLiteral("reference"), 0, 1024, true, QString())},
+                            {QStringLiteral("library"), stringField(item, QStringLiteral("library"), 0, 256, true, QString())},
+                        });
+                    }
+                    panelSlots.append(QVariantMap{
+                        {QStringLiteral("name"), stringField(slot, QStringLiteral("name"), 1, 40, true)},
+                        {QStringLiteral("holds"), holds},
+                        {QStringLiteral("weight"), intField(slot, QStringLiteral("weight"), 0, 10, 0)},
+                        {QStringLiteral("position"), slot.contains(QStringLiteral("position")) ? stringField(slot, QStringLiteral("position"), 0, 24, true, QString()) : QString()},
+                        {QStringLiteral("items"), items},
+                    });
+                }
+                return QVariantMap{
+                    {QStringLiteral("mode"), map.contains(QStringLiteral("mode")) ? enumField(map, QStringLiteral("mode"), QStringList{QStringLiteral("patch"), QStringLiteral("replace")}) : QString()},
+                    {QStringLiteral("template"), enumField(map, QStringLiteral("template"), templateChoices)},
+                    {QStringLiteral("arrangement"), enumField(map, QStringLiteral("arrangement"), QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
+                    {QStringLiteral("rows"), map.contains(QStringLiteral("rows")) ? intField(map, QStringLiteral("rows"), 0, 3, 0) : 0},
+                    {QStringLiteral("columns"), map.contains(QStringLiteral("columns")) ? intField(map, QStringLiteral("columns"), 0, 3, 0) : 0},
+                    {QStringLiteral("slots"), panelSlots},
+                    {QStringLiteral("focus"), stringField(map, QStringLiteral("focus"), 0, 40, true, QString())},
+                    {QStringLiteral("save_as"), stringField(map, QStringLiteral("save_as"), 0, 80, true, QString())},
+                };
+            },
+            workspaceComposeTool,
+            [](const QVariantMap &input) {
+                QStringList names;
+                for (const QVariant &slot : input.value(QStringLiteral("slots")).toList()) {
+                    names.append(slot.toMap().value(QStringLiteral("name")).toString());
+                }
+                return QVariantMap{{QStringLiteral("template"), input.value(QStringLiteral("template"))}, {QStringLiteral("panels"), names}};
+            },
+            [](const QVariantMap &output) {
+                QVariantMap summary = workspaceOutputSummary(output);
+                if (output.contains(QStringLiteral("unresolved"))) {
+                    summary.insert(QStringLiteral("unresolved"), output.value(QStringLiteral("unresolved")));
+                }
+                return summary;
+            },
         });
 
         tools.append({
             QStringLiteral("workspace_restore"),
             QStringLiteral("Restore Workspace"),
-            QStringLiteral("Put the workspace back. before_task: how it was before you started rearranging for this task (\"put everything back\", \"restore my workspace\"). last_change: undo only your most recent change. saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed."),
+            QStringLiteral("Put the workspace back. before_task: how it was before you started rearranging (\"put everything back\", \"restore my workspace\", \"put it back\"). last_change: undo the most recent workspace change (\"undo that\", \"switch back\" after a change). redo: redo the change just undone (\"redo\", \"actually, put it back how you had it\"). saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed."),
             mutation, workspaceMode,
             objectSchema(
                 {
@@ -1488,6 +1743,36 @@ const QList<Definition> &definitions()
             },
             workspaceRestoreTool,
             [](const QVariantMap &input) { return QVariantMap{{QStringLiteral("scope"), input.value(QStringLiteral("scope"))}}; },
+            workspaceOutputSummary,
+        });
+
+        tools.append({
+            QStringLiteral("workspace_layout"),
+            QStringLiteral("Workspace Layouts"),
+            QStringLiteral("Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable); \"try another\" means apply a different one than the current layout. save stores the current arrangement under name (workspace_arrange save_as does this in the same call as the arranging). Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask."),
+            mutation, workspaceMode,
+            objectSchema(
+                {
+                    {QStringLiteral("action"), enumSchema(layoutOps())},
+                    {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("The layout's name; \"\" for list."))},
+                    {QStringLiteral("new_name"), stringSchema(0, 80, QStringLiteral("rename only, else \"\"."))},
+                    {QStringLiteral("replace"), QVariantMap{{QStringLiteral("type"), QStringLiteral("boolean")}, {QStringLiteral("description"), QStringLiteral("save only: replace a saved layout with the same name.")}}},
+                },
+                {QStringLiteral("action"), QStringLiteral("name"), QStringLiteral("new_name"), QStringLiteral("replace")}
+            ),
+            [](const QVariant &input) {
+                const QVariantMap map = strictObject(input, {QStringLiteral("action"), QStringLiteral("name"), QStringLiteral("new_name"), QStringLiteral("replace")});
+                return QVariantMap{
+                    {QStringLiteral("action"), enumField(map, QStringLiteral("action"), layoutOps())},
+                    {QStringLiteral("name"), stringField(map, QStringLiteral("name"), 0, 80, true, QString())},
+                    {QStringLiteral("new_name"), stringField(map, QStringLiteral("new_name"), 0, 80, true, QString())},
+                    {QStringLiteral("replace"), boolField(map, QStringLiteral("replace"))},
+                };
+            },
+            workspaceLayoutTool,
+            [](const QVariantMap &input) {
+                return QVariantMap{{QStringLiteral("action"), input.value(QStringLiteral("action"))}, {QStringLiteral("name"), input.value(QStringLiteral("name"))}};
+            },
             workspaceOutputSummary,
         });
 

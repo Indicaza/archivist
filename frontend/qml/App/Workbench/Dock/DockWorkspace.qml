@@ -23,6 +23,18 @@ Item {
     // per window, not on every layout revision.
     property string surfaceId: ""
     readonly property bool animateLayout: area.animateLayout
+    // Panels that appear after startup (a new layout, an agent's
+    // arrangement) fade in, a few tens of milliseconds apart.
+    property bool startupSettled: false
+    property int arrivalCount: 0
+    function nextArrivalDelay() {
+        var delay = Math.min(arrivalCount, 4) * 45
+        arrivalCount += 1
+        arrivalReset.restart()
+        return delay
+    }
+    Timer { interval: 1200; running: true; onTriggered: root.startupSettled = true }
+    Timer { id: arrivalReset; interval: 400; onTriggered: root.arrivalCount = 0 }
     readonly property bool showFocus: area.showFocus
     readonly property int anchorCount: area.anchorCount
 

@@ -99,15 +99,39 @@ Item {
     width: Math.max(0, rectWidth)
     height: Math.max(0, rectHeight)
     visible: !isHidden && width > 1 && height > 1
-    opacity: isVacating ? 0 : isDragSource ? 0.45 : 1
+    opacity: (isVacating ? 0 : isDragSource ? 0.45 : 1) * arrival
+
+    // A panel that appears in a running workspace eases in (fade and a
+    // slight settle) instead of popping; with reduced motion it just appears.
+    property real arrival: 1
+    property bool arriving: false
+    property int arrivalDelay: 0
+    transform: Scale {
+        origin.x: root.width / 2
+        origin.y: root.height / 2
+        xScale: 0.985 + 0.015 * root.arrival
+        yScale: 0.985 + 0.015 * root.arrival
+    }
+    SequentialAnimation {
+        id: arrivalAnimation
+        PauseAnimation { duration: root.arrivalDelay }
+        NumberAnimation { target: root; property: "arrival"; to: 1; duration: 220; easing.type: Easing.OutCubic }
+        ScriptAction { script: root.arriving = false }
+    }
 
     Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
     Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
     Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
     Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on opacity { NumberAnimation { duration: root.theme.motionFast } }
+    Behavior on opacity { enabled: !root.arriving; NumberAnimation { duration: root.theme.motionFast } }
 
     Component.onCompleted: {
+        if (root.workspace.animateArrivals === true) {
+            root.arriving = true
+            root.arrival = 0
+            root.arrivalDelay = root.workspace.nextArrivalDelay()
+            arrivalAnimation.start()
+        }
         root.workspace.registerAnchor(root.anchorId, root)
         editorHostWanted = hasEditors
     }

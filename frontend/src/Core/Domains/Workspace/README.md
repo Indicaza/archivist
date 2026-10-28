@@ -154,16 +154,140 @@ defaults.
 ## Agents and the workspace
 
 People ask for arrangements in plain words ("open these files beside our
-conversation", "make the code bigger", "put everything back"). Five AI tools
+conversation", "make the code bigger", "put everything back"). Seven AI tools
 carry those requests; none of them mention anchors or ids.
+
+### Composing a workspace
+
+`workspace_compose` (`workspace_compose.h`) lets the model say what the
+workspace should look like instead of how to get there:
+
+- **Spec.** A template (`focus_references`, `chat_code`, `code_diff`,
+  `research_desk`, `agent_overview`) or a spatial primitive, up to 6 named
+  panels with what they hold (`code`, `docs`, `chat`, `terminal`, `diff`,
+  ...), a position for each, relative weights and up to 8 items each (16 in
+  all), a panel to focus, and `save_as`.
+- **Primitives, not trees.** The model never builds a split tree. It picks
+  one primitive and names positions; the tree comes from native code:
+  - `grid` (rows x columns, up to 3 x 3 and 6 cells): positions such as
+    `top-left`, `bottom-right`, `r2c1`. Cells nobody names become empty
+    panels, which take over existing panels (or one tab each from the
+    busiest one) so what was open stays in view. Columns line up from row
+    to row. "4 panes, chat bottom-left" is `grid 2 x 2` with the chat at
+    `bottom-left`.
+  - `columns` (`left`, `center`, `right`) and `rows` (`top`, `middle`,
+    `bottom`) are one-row and one-column grids.
+  - `split`: the `primary` panel large (about 62%), the rest stacked on one
+    side of it (the first other panel's `right`/`left`/`top`/`bottom`).
+  - `stack`: everything as tabs in one panel.
+  - No primitive: a grid for rows/columns or four or more panels, a split
+    when one panel asks for more room, otherwise columns.
+- **Patch or replace.** The model only states the desired result: a recipe
+  (or nothing) and which items go in which named panel. `mode: patch` (the
+  default) keeps the current panels where they are: a slot named like an
+  existing panel gets its items there, a new name adds one panel at its
+  position (left, right, top, bottom), and panels nobody named are left
+  alone. It runs as ordinary `show`/`add` steps in one transaction.
+  `mode: replace` builds a new arrangement from the recipe as described
+  below. Naming a recipe, template or grid size always means replace.
+- **Built-in grid commands.** "4 panes, chat on bottom left", "2x2 grid",
+  "three columns" and "6 panels" are parsed natively and composed without
+  a model call.
+- **The bottom chat.** When a composition gives this conversation a panel,
+  the bottom chat (the same conversation) folds away; undo brings it back.
+- **Templates** are versioned JSON recipes inside `workspace_compose.cpp`.
+  They're starting points: the model fills their panels by name, may change
+  weights, and extra panels go in a column at the side.
+- **Planning** checks the whole spec first and refuses it with a plain
+  message if it's too big or inconsistent. It turns the spec into an
+  ordinary layout document. Panels that already show a slot's content keep
+  their ids, so their editors and terminals aren't rebuilt and the change
+  animates (springs on the panels, a short staggered fade for new ones,
+  nothing with reduced motion).
+- **Applying** is the Intents `compose` action: the layout and every slot's
+  content go into one working copy, which is checked and committed once.
+  That's one publish to QML, one undo step, and one temporary arrangement
+  (Put back), unless `save_as` keeps it as a named layout. Layout and
+  content locks refuse the whole change. Views nobody placed stay open in a
+  panel of their type. Floating windows join the main window.
+- **Geometry is solved natively** for the real panel area (after the
+  sidebar and the bottom panel), not by the model. Weights are relative and
+  capped at 1.8x a sibling, so "chat dominant with three images stacked on
+  the right" gives chat about 64% and a 36% column. Every panel keeps at
+  least 300 x 180 pixels; when that can't fit, the lightest neighbouring
+  panels share one panel as tabs, and each merge is reported (`adjusted`).
+- **Resources are resolved in order:** views already open (by name, path or
+  title, in the chat's worktree first), then the Library catalog. Each item
+  is reported as `reused`, `opened`, `not_found`, `ambiguous` (with the
+  candidates) or `unsupported`. A missing or unclear file is never replaced
+  by another one.
+- **Verified before it's shown.** The composition is tried on a copy of the
+  model first; the store checks every panel exists, is a usable size, holds
+  its items, focus is where it was asked, and no view was lost. Only then
+  is it applied (one publish, one undo step, one notice). A failed check
+  changes and announces nothing (`VERIFY_FAILED`), so the workspace and the
+  reply can't disagree.
+- **Panels keep what they show.** A reused panel keeps its views; only views
+  of removed panels move (to a panel of their type, never a chat's).
+- **Follow-ups** ("give the images a little more room") compose again from
+  the last arrangement, which describe reports as `lastArrangement` while
+  its panels still exist. Same names keep the same panels, so views stay
+  put and the change animates.
+- **Result.** It's compact: the panels with their sizes and what they show,
+  `resources` and `adjusted`.
+- **Background chats** get a staged suggestion, as with every other tool.
+
+### How a turn is routed
+
+- **Routing comes before retrieval.** The runtime reads the message with
+  the turn before it and the layout names (`classifyWorkspaceIntent`):
+  - a workspace request ("switch to Research", "Research please")
+  - a follow-up to one ("try another", "switch back", "do that again")
+  - a mixed request that also needs files found ("open the files that
+    explain X beside the chat")
+- **Pure layout requests skip Library search** and the Library tools. They
+  keep only the recent conversation, and the model gets a short text
+  summary of the panels and layouts. The target is one tool call.
+- **Routing never authorises anything.** The tools are offered on every
+  turn, and the workspace decides what applies:
+  - the person's message in the conversation in front applies right away
+  - background conversations are staged
+  - drags in progress and locks refuse
+  - "Don't rearrange unless I ask" stages what didn't read as a request
+- **Replies are checked against results.** If a reply claims a change
+  ("done", "switched", "created") but no workspace tool reported `applied`,
+  the runtime adds a line saying the workspace didn't change and why.
+- **Results are checked against the committed model.** Compose results are
+  verified before they're reported, and so is the current layout after a
+  switch.
+- **Built-in commands skip the model.** "Switch to Research", "put
+  everything back" and "undo that" run natively (`workspaceCommand`); the
+  model is only asked if the workspace refuses.
+- **No round just to confirm.** When a layout-only turn's tool calls all
+  applied (or were staged), the reply is built from their results
+  (`workspaceAcknowledgement`) instead of another model round.
+- **Timings.** `model.started` carries `workspaceIntent`, `retrievalSkipped`
+  and `prepareMs`; `model.completed` carries the tool and round counts plus
+  `workspaceApplied`, `workspaceStaged`, `workspaceFailed`,
+  `workspaceAcknowledged` and `workspaceNative`.
+
+Each model round trip takes seconds, so a request should take as few as
+possible. The runtime puts a description of the workspace (panels and
+layouts) in the instructions, so the model doesn't have to ask first, and
+`workspace_arrange` takes a whole layout in one call. If a turn uses up its
+tool rounds (8 for workspace requests), the model gets one last round
+without tools to say what's done and what's left, instead of the turn
+failing.
 
 | Tool | Does |
 |---|---|
 | `workspace_view` | Describes the workspace in words: areas, what each shows, where it sits, its size and locks. |
 | `workspace_show` | Shows files, a chat, a terminal or an open view, reusing what is already open. |
-| `workspace_arrange` | Focuses, resizes, moves, keeps (locks in place) or labels an area. |
+| `workspace_compose` | Describes the whole workspace at once: named panels with what they hold, their relative weights and their files, arranged by a template or a strategy. Native code builds it and applies it as one change (see below). |
+| `workspace_arrange` | Runs a list of steps as one change (all or nothing, one undo): focus, resize, move, keep (lock in place), label, add (an empty named panel) or remove (tabs move elsewhere). `save_as` saves the result as a named layout in the same call. |
 | `workspace_restore` | Puts back the arrangement before the last change, before the whole task, or a saved layout by name. |
 | `workspace_preference` | Remembers, forgets or lists how the person likes the workspace. |
+| `workspace_layout` | Lists, switches to, saves, renames or deletes named layouts. Saving over a name needs `replace`; built-in layouts can't be changed. |
 
 The layers, from the model up:
 
@@ -209,9 +333,7 @@ with more panels are in the layout picker.
     apply or dismiss. Background agents never restore on their own.
   - Focus only moves when asked for, and never within 1.5 s of the person
     typing or clicking.
-  - Each applied request is one undo step (`undoAgentChange`), separate from
-    layout undo and never touching document edits. Up to 20 steps are kept;
-    `before_task` restores all of them at once.
+  - Each applied request is one step in the workspace history (below).
   - Everything is logged in `agentActivity`.
 - Temporary arrangements. The first agent change in a task remembers the
   arrangement before it (`temporaryArrangement`).
@@ -224,6 +346,31 @@ with more panels are in the layout picker.
     it in one step, closing only clean, non-terminal tabs that agents opened.
   - Keep (`keepArrangement`) makes the current arrangement the normal one.
     Undoing the task's first change also ends it.
+
+Workspace history (`WorkspaceStore::undo` / `redo`, `canUndo`, `canRedo`,
+`undoSummary`, `redoSummary`). There is one list of steps, grown from the
+agent undo stack; the old one-step layout undo is folded into it.
+
+- A step is recorded for every layout switch (picker, shortcut or agent),
+  every applied agent change (compose, show, arrange) and every put back.
+  Dragging panels by hand is not recorded. Up to 20 steps are kept, and a
+  new step clears redo.
+- Each step stores the model data before it, the views it opened, the views
+  it closed, the bottom panel, the current layout and the temporary
+  arrangement record. Undo and redo both go through
+  `Arrangements::restore`, which only moves panels and tabs:
+  - views that still exist keep their state;
+  - undo closes the clean, non-terminal views the step opened, and never
+    one with unsaved work;
+  - redo brings back the views the undo closed, with the same ids and
+    resources (`reopen`), so buffers and sessions attach again;
+  - locked panels refuse a step that would move them.
+- Resources, buffers and document edits are never touched. Document edits
+  have their own undo (AI edit proposals).
+- Agents use `workspace_restore` with `last_change` (undo), `redo` or
+  `before_task`. "undo" and "redo" typed on their own run natively.
+- `undoLayout` and `undoAgentChange` remain as names for `undo` (the
+  notices call them).
 
 Preferences (`workspace_preferences`) are a few plain settings:
 

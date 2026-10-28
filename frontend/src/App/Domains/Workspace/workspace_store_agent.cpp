@@ -10,6 +10,7 @@
 #include "App/Domains/Documents/document_store.h"
 #include "Core/Domains/Workspace/workspace_arrangements.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
+#include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_presets.h"
 #include "Core/Domains/Workspace/workspace_resources.h"
 
@@ -25,7 +26,7 @@ using namespace Workspace;
 
 namespace
 {
-constexpr qsizetype kMaximumAgentSteps = 20;
+constexpr qsizetype kMaximumHistorySteps = 20;
 constexpr qsizetype kMaximumAgentLog = 50;
 // After a key press or click, agents leave focus alone for this long.
 constexpr qint64 kUserBusyMs = 1500;
@@ -161,7 +162,129 @@ QVariantMap WorkspaceStore::describeForAgent() const
     if (!layouts.isEmpty()) {
         description.insert(QStringLiteral("savedLayouts"), layouts);
     }
+    // Every layout that can be switched to, the person's and the built-in ones.
+    description.insert(QStringLiteral("layouts"), layoutsForAgent());
+    // The arrangement last composed, while its panels are still there, so
+    // a follow-up can change just what was asked.
+    if (!m_lastComposition.isEmpty()) {
+        bool present = false;
+        for (const QVariant &panel : m_lastComposition.value(QStringLiteral("panels")).toList()) {
+            for (const QString &anchorId : m_model.anchorIds()) {
+                present = present || m_model.anchor(anchorId)->name == panel.toMap().value(QStringLiteral("name")).toString();
+            }
+        }
+        if (present) {
+            description.insert(QStringLiteral("lastArrangement"), m_lastComposition);
+        }
+    }
+    if (!currentLayoutName().isEmpty()) {
+        description.insert(QStringLiteral("currentLayout"), currentLayoutName());
+    }
     return description;
+}
+
+// Open views of files whose name, path or title is `reference`. Views in
+// `libraryId` win over same-named files in other worktrees.
+QStringList WorkspaceStore::openViewsNamed(const QString &reference, const QString &libraryId) const
+{
+    const QString wanted = QString(reference).replace(QLatin1Char('\\'), QLatin1Char('/')).trimmed().toLower();
+    QStringList here;
+    QStringList elsewhere;
+    for (const QString &viewId : m_model.viewIds()) {
+        const ViewRecord *view = m_model.view(viewId);
+        if (!view || (view->resource.kind != QStringLiteral("document") && view->resource.kind != QStringLiteral("file"))) {
+            continue;
+        }
+        const QVariantMap &details = view->resource.details;
+        const QString path = details.value(QStringLiteral("relativePath"), details.value(QStringLiteral("path"))).toString().toLower();
+        const bool matches = view->id.toLower() == wanted || path == wanted || path.endsWith(QLatin1Char('/') + wanted)
+            || details.value(QStringLiteral("name")).toString().toLower() == wanted || view->title.toLower() == wanted;
+        if (!matches) {
+            continue;
+        }
+        (libraryId.isEmpty() || view->resource.libraryId.isEmpty() || view->resource.libraryId == libraryId ? here : elsewhere).append(viewId);
+    }
+    return here.isEmpty() ? elsewhere : here;
+}
+
+// After a compose: the panels exist, hold what was put in them, are big
+// enough to use, focus went where it was asked (or stayed), and nothing
+// that was open is gone. Empty when all is well.
+QString WorkspaceStore::verifyComposition(const WorkspaceModel &model, const QVariantMap &intent, qsizetype viewsBefore, bool focusMoved) const
+{
+    const QString surfaceId = primarySurfaceId();
+    const LayoutGeometry geometry = model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
+    for (const QVariant &value : intent.value(QStringLiteral("slots")).toList()) {
+        const QVariantMap slot = value.toMap();
+        const QString anchorId = slot.value(QStringLiteral("anchorId")).toString();
+        const AnchorRecord *anchor = model.anchor(anchorId);
+        if (!anchor) {
+            return QStringLiteral("A panel of the new arrangement went missing.");
+        }
+        const QRectF rect = geometry.anchors.value(anchorId);
+        // A little slack for splitters and rounding.
+        if (rect.width() + 12 < Compose::kMinimumPanelWidth || rect.height() + 12 < Compose::kMinimumPanelHeight) {
+            return QStringLiteral("“%1” would only get %2 x %3 pixels.").arg(model.anchorDisplayName(anchorId)).arg(qRound(rect.width())).arg(qRound(rect.height()));
+        }
+        for (const QVariant &itemValue : slot.value(QStringLiteral("items")).toList()) {
+            const QVariantMap item = itemValue.toMap();
+            QString viewId = item.value(QStringLiteral("viewId")).toString();
+            if (viewId.isEmpty() && item.contains(QStringLiteral("resource"))) {
+                const QVariantMap resource = item.value(QStringLiteral("resource")).toMap();
+                const QStringList views = model.viewsForResource(resource.value(QStringLiteral("kind")).toString(), resource.value(QStringLiteral("id")).toString());
+                for (const QString &candidate : views) {
+                    if (anchor->views.contains(candidate)) {
+                        viewId = candidate;
+                    }
+                }
+                if (viewId.isEmpty() && !views.isEmpty()) {
+                    viewId = views.first();
+                }
+                if (viewId.isEmpty()) {
+                    return QStringLiteral("%1 didn't open.").arg(item.value(QStringLiteral("title")).toString());
+                }
+            }
+            // A view a locked panel kept is reported, not an error.
+            if (!viewId.isEmpty() && !model.view(viewId)) {
+                return QStringLiteral("A view disappeared while arranging.");
+            }
+        }
+    }
+    const QString focus = intent.value(QStringLiteral("focusAnchor")).toString();
+    if (!focus.isEmpty() && focusMoved && model.focusedAnchorId() != focus) {
+        return QStringLiteral("Focus didn't move to the panel that was asked for.");
+    }
+    if (model.viewIds().size() < viewsBefore) {
+        return QStringLiteral("Something that was open would have closed.");
+    }
+    return {};
+}
+
+QVariantList WorkspaceStore::panelsForAgent() const
+{
+    QVariantList panels;
+    for (const QVariant &value : Intents::describe(m_model, agentEnvironment(false)).value(QStringLiteral("areas")).toList()) {
+        const QVariantMap area = value.toMap();
+        QStringList shows;
+        for (const QVariant &entry : area.value(QStringLiteral("shows")).toList()) {
+            shows.append(entry.toMap().value(QStringLiteral("title")).toString());
+        }
+        QVariantMap panel{
+            {QStringLiteral("name"), area.value(QStringLiteral("area"))},
+            {QStringLiteral("position"), area.value(QStringLiteral("position"))},
+            {QStringLiteral("shows"), shows},
+        };
+        const QString anchorId = area.value(QStringLiteral("id")).toString();
+        const QString surfaceId = m_model.surfaceOfAnchor(anchorId);
+        const QSizeF size = surfaceSize(surfaceId);
+        const QRectF rect = m_model.computeGeometry(surfaceId, size, m_metrics).anchors.value(anchorId);
+        if (size.width() > 0 && size.height() > 0) {
+            panel.insert(QStringLiteral("widthPercent"), qRound(rect.width() / size.width() * 100));
+            panel.insert(QStringLiteral("heightPercent"), qRound(rect.height() / size.height() * 100));
+        }
+        panels.append(panel);
+    }
+    return panels;
 }
 
 // Tool vocabulary (files, chats, terminals, open views) -> intent items
@@ -173,6 +296,12 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
     intent.remove(QStringLiteral("runId"));
     intent.remove(QStringLiteral("chatId"));
     intent.remove(QStringLiteral("explicit"));
+    intent.remove(QStringLiteral("saveAs"));
+    intent.remove(QStringLiteral("asked"));
+
+    if (action == QStringLiteral("compose")) {
+        return composeIntent(request, failed);
+    }
 
     if (action != QStringLiteral("show")) {
         return intent;
@@ -190,6 +319,26 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
         if (kind.isEmpty()) {
             items.append(item);
             continue;
+        }
+
+        // Not (or not clearly) in the catalog: maybe it's open already.
+        const QString lookup = item.value(QStringLiteral("lookup")).toString();
+        if (kind == QStringLiteral("file") && !lookup.isEmpty() && lookup != QStringLiteral("found")) {
+            const QStringList open = openViewsNamed(reference, item.value(QStringLiteral("libraryId")).toString());
+            if (open.size() == 1) {
+                items.append(QVariantMap{{QStringLiteral("viewId"), open.first()}});
+                continue;
+            }
+            if (lookup == QStringLiteral("ambiguous") || open.size() > 1) {
+                QStringList candidates = item.value(QStringLiteral("candidates")).toStringList();
+                for (const QString &viewId : open) {
+                    candidates.append(m_model.view(viewId)->resource.details.value(QStringLiteral("relativePath"), m_model.view(viewId)->title).toString());
+                }
+                *failed = failure(QStringLiteral("AMBIGUOUS"), QStringLiteral("“%1” could be %2.").arg(reference, candidates.join(QStringLiteral(" or "))));
+                return {};
+            }
+            *failed = failure(QStringLiteral("NOT_FOUND"), QStringLiteral("“%1” isn't open or in the Library.").arg(reference));
+            return {};
         }
 
         if (kind == QStringLiteral("file")) {
@@ -229,8 +378,9 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
             const bool keepAtBottom = wanted == chatId && preferenceEffects().chatAtBottom;
             if (!docked.isEmpty() && !keepAtBottom) {
                 items.append(QVariantMap{{QStringLiteral("viewId"), docked}});
-            } else if (wanted == chatId) {
-                // This conversation lives in the bottom workbench.
+            } else if (wanted == chatId && (keepAtBottom || !request.value(QStringLiteral("composing")).toBool())) {
+                // This conversation lives in the bottom workbench (a
+                // composed arrangement that names it gives it a panel).
                 items.append(QVariantMap{{QStringLiteral("surface"), QStringLiteral("chat")}});
             } else {
                 items.append(QVariantMap{
@@ -326,6 +476,204 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
     return intent;
 }
 
+// workspace_compose: the description of a whole workspace becomes one
+// Intents compose request. Items that can't be found are reported, not fatal.
+QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMap *failed) const
+{
+    const QString chatId = request.value(QStringLiteral("chatId")).toString();
+    Compose::Spec spec;
+    spec.templateId = request.value(QStringLiteral("template")).toString();
+    spec.strategy = request.value(QStringLiteral("strategy")).toString();
+    spec.focus = request.value(QStringLiteral("focus")).toString();
+    spec.viewport = surfaceSize(primarySurfaceId());
+    spec.rows = request.value(QStringLiteral("rows")).toInt();
+    spec.columns = request.value(QStringLiteral("columns")).toInt();
+
+    // What happened to each thing asked for: reused (already open), opened,
+    // not_found, ambiguous or unsupported.
+    QVariantList resources;
+    for (const QString &problem : request.value(QStringLiteral("unresolved")).toStringList()) {
+        resources.append(QVariantMap{{QStringLiteral("status"), QStringLiteral("not_found")}, {QStringLiteral("detail"), problem}});
+    }
+
+    QVariantList composition;
+    for (const QVariant &value : request.value(QStringLiteral("slots")).toList()) {
+        const QVariantMap given = value.toMap();
+        Compose::Slot slot;
+        slot.name = given.value(QStringLiteral("name")).toString();
+        slot.holds = given.value(QStringLiteral("holds")).toStringList();
+        slot.weight = given.value(QStringLiteral("weight")).toDouble();
+        slot.position = given.value(QStringLiteral("position")).toString();
+        QStringList references;
+        for (const QVariant &value : given.value(QStringLiteral("items")).toList()) {
+            const QVariantMap item = value.toMap();
+            const QString kind = item.value(QStringLiteral("kind")).toString();
+            QString reference = item.value(QStringLiteral("reference")).toString();
+            if (reference.isEmpty()) {
+                reference = item.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath")).toString();
+            }
+            if (reference.isEmpty()) {
+                reference = kind;
+            }
+            references.append(kind == QStringLiteral("file") ? reference : kind + QLatin1Char(':') + reference);
+            QVariantMap entry{{QStringLiteral("reference"), reference}, {QStringLiteral("panel"), slot.name}};
+
+            QVariantMap problem;
+            const QVariantMap shaped = agentIntent({
+                {QStringLiteral("action"), QStringLiteral("show")},
+                {QStringLiteral("composing"), true},
+                {QStringLiteral("chatId"), chatId},
+                {QStringLiteral("items"), QVariantList{item}},
+            }, &problem);
+            if (!problem.isEmpty()) {
+                const QString code = problem.value(QStringLiteral("code")).toString();
+                entry.insert(QStringLiteral("status"), code == QStringLiteral("AMBIGUOUS") ? QStringLiteral("ambiguous")
+                                                    : code == QStringLiteral("UNSUPPORTED") ? QStringLiteral("unsupported")
+                                                                                            : QStringLiteral("not_found"));
+                entry.insert(QStringLiteral("detail"), problem.value(QStringLiteral("error")));
+                resources.append(entry);
+                continue;
+            }
+            for (const QVariant &shapedItem : shaped.value(QStringLiteral("items")).toList()) {
+                const QVariantMap map = shapedItem.toMap();
+                QString status = QStringLiteral("opened");
+                if (!map.value(QStringLiteral("viewId")).toString().isEmpty()) {
+                    status = QStringLiteral("reused");
+                } else if (!map.value(QStringLiteral("surface")).toString().isEmpty()) {
+                    status = QStringLiteral("bottom_panel");
+                } else {
+                    const QVariantMap resource = map.value(QStringLiteral("resource")).toMap();
+                    if (!m_model.viewsForResource(resource.value(QStringLiteral("kind")).toString(), resource.value(QStringLiteral("id")).toString()).isEmpty()) {
+                        status = QStringLiteral("reused");
+                    }
+                }
+                entry.insert(QStringLiteral("status"), status);
+                slot.items.append(map);
+            }
+            resources.append(entry);
+        }
+        spec.panels.append(slot);
+        composition.append(QVariantMap{
+            {QStringLiteral("name"), slot.name},
+            {QStringLiteral("holds"), slot.holds},
+            {QStringLiteral("weight"), slot.weight},
+            {QStringLiteral("position"), slot.position},
+            {QStringLiteral("items"), references},
+        });
+    }
+
+    // Replace builds a new arrangement from a recipe; patch keeps the panels
+    // that exist and only changes the ones named. A recipe, template or grid
+    // size always means replace.
+    const bool recipeNamed = !spec.templateId.isEmpty() || !spec.strategy.isEmpty() || spec.rows > 0 || spec.columns > 0;
+    const QString mode = recipeNamed || request.value(QStringLiteral("mode")).toString() == QStringLiteral("replace")
+        ? QStringLiteral("replace")
+        : QStringLiteral("patch");
+    if (mode == QStringLiteral("patch")) {
+        QVariantMap intent = patchIntent(spec, failed);
+        if (!failed->isEmpty()) {
+            return {};
+        }
+        intent.insert(QStringLiteral("resources"), resources);
+        intent.insert(QStringLiteral("composition"), QVariantMap{
+            {QStringLiteral("mode"), mode},
+            {QStringLiteral("panels"), composition},
+        });
+        return intent;
+    }
+
+    const Compose::Plan plan = Compose::plan(spec, m_model);
+    if (!plan.ok) {
+        *failed = failure(plan.code, plan.message);
+        return {};
+    }
+    QVariantMap intent = plan.request;
+    intent.insert(QStringLiteral("resources"), resources);
+    intent.insert(QStringLiteral("adjustments"), plan.adjustments);
+    intent.insert(QStringLiteral("composition"), QVariantMap{
+        {QStringLiteral("mode"), mode},
+        {QStringLiteral("template"), spec.templateId},
+        {QStringLiteral("strategy"), spec.strategy},
+        {QStringLiteral("rows"), spec.rows},
+        {QStringLiteral("columns"), spec.columns},
+        {QStringLiteral("panels"), composition},
+    });
+    return intent;
+}
+
+// A patch as ordinary arrange steps, run as one change: items go to the
+// panel of the same name, a new name adds one panel at its side, and
+// panels nobody named stay exactly as they are.
+QVariantMap WorkspaceStore::patchIntent(const Compose::Spec &spec, QVariantMap *failed) const
+{
+    const auto existingPanel = [this](const QString &name) -> QString {
+        if (name.trimmed().isEmpty()) {
+            return {};
+        }
+        for (const QString &anchorId : m_model.anchorIds()) {
+            if (m_model.surfaceOfAnchor(anchorId) == primarySurfaceId()
+                && m_model.anchorDisplayName(anchorId).compare(name.trimmed(), Qt::CaseInsensitive) == 0) {
+                return anchorId;
+            }
+        }
+        return {};
+    };
+    const auto sideOf = [](const QString &position) {
+        const QString text = position.toLower();
+        for (const QString side : {QStringLiteral("left"), QStringLiteral("right"), QStringLiteral("top"), QStringLiteral("bottom")}) {
+            if (text.contains(side)) {
+                return side;
+            }
+        }
+        return QStringLiteral("right");
+    };
+
+    QVariantList steps;
+    QString focusTarget;
+    for (const Compose::Slot &slot : spec.panels) {
+        QString target = existingPanel(slot.name);
+        if (target.isEmpty()) {
+            const bool anyClosed = std::any_of(slot.items.cbegin(), slot.items.cend(), [](const QVariant &item) {
+                return item.toMap().value(QStringLiteral("viewId")).toString().isEmpty();
+            });
+            // Something already open with no new place asked for stays put.
+            if (slot.position.isEmpty() && !anyClosed && !slot.items.isEmpty()) {
+                steps.append(QVariantMap{{QStringLiteral("action"), QStringLiteral("show")}, {QStringLiteral("items"), slot.items}});
+                continue;
+            }
+            steps.append(QVariantMap{
+                {QStringLiteral("action"), QStringLiteral("add")},
+                {QStringLiteral("target"), QString()},
+                {QStringLiteral("to"), sideOf(slot.position)},
+                {QStringLiteral("name"), slot.name},
+            });
+            target = slot.name;
+        }
+        if (!slot.items.isEmpty()) {
+            steps.append(QVariantMap{
+                {QStringLiteral("action"), QStringLiteral("show")},
+                {QStringLiteral("items"), slot.items},
+                {QStringLiteral("where"), target},
+            });
+        }
+        if (!spec.focus.isEmpty() && slot.name.compare(spec.focus, Qt::CaseInsensitive) == 0) {
+            focusTarget = target;
+        }
+    }
+    if (steps.isEmpty()) {
+        *failed = failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Nothing to change: name a panel and what goes in it."));
+        return {};
+    }
+    if (!focusTarget.isEmpty()) {
+        steps.append(QVariantMap{{QStringLiteral("action"), QStringLiteral("focus")}, {QStringLiteral("target"), focusTarget}});
+    }
+    QVariantMap intent{{QStringLiteral("action"), QStringLiteral("steps")}, {QStringLiteral("steps"), steps}};
+    if (!focusTarget.isEmpty()) {
+        intent.insert(QStringLiteral("focusAnchor"), focusTarget);
+    }
+    return intent;
+}
+
 void WorkspaceStore::logAgent(const QString &summary, const QString &status, const QString &chatId)
 {
     m_agentLog.prepend(QVariantMap{
@@ -345,9 +693,7 @@ QVariantMap WorkspaceStore::applyAgentIntent(const QVariantMap &intent, const QS
         cancelDrag();
     }
 
-    const WorkspaceModel::Data before = m_model.data();
-    const bool surfaceCollapsedBefore = m_commandSurfaceCollapsed;
-    const QString surfaceViewBefore = m_commandSurfaceView;
+    HistoryStep step = historyStep(QString());
     const Intents::Outcome outcome = Intents::perform(m_model, intent, agentEnvironment(mayMoveFocus));
 
     if (!outcome.ok) {
@@ -361,19 +707,11 @@ QVariantMap WorkspaceStore::applyAgentIntent(const QVariantMap &intent, const QS
     const QString summary = summaryOf(outcome.notes);
 
     if (outcome.changed || surfaceChanges) {
-        AgentStep step;
-        step.before = before;
-        step.opened = outcome.opened;
+        step.close = outcome.opened;
         step.summary = summary;
         step.surfaceTouched = surfaceChanges;
-        step.surfaceCollapsedBefore = surfaceCollapsedBefore;
-        step.surfaceViewBefore = surfaceViewBefore;
-        step.startedTask = m_baseline.isEmpty();
-        m_agentUndo.append(step);
-        rememberArrangement(before, outcome.opened, summary);
-        while (m_agentUndo.size() > kMaximumAgentSteps) {
-            m_agentUndo.removeFirst();
-        }
+        rememberArrangement(step.state, outcome.opened, summary);
+        recordStep(step);
     }
 
     if (outcome.changed) {
@@ -464,6 +802,23 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
         holdBack = QStringLiteral("the person is moving a panel");
     }
 
+    if (action == QStringLiteral("layout")) {
+        const QString op = request.value(QStringLiteral("op")).toString();
+        if (op == QStringLiteral("apply")) {
+            if (!holdBack.isEmpty()) {
+                return failure(QStringLiteral("NOT_ALLOWED"), QStringLiteral("Not switching layouts now: %1.").arg(holdBack));
+            }
+            QVariantMap restore = request;
+            restore.insert(QStringLiteral("scope"), QStringLiteral("saved_layout"));
+            restore.insert(QStringLiteral("layout"), request.value(QStringLiteral("name")));
+            return restoreForAgent(restore);
+        }
+        if (op != QStringLiteral("list") && !holdBack.isEmpty()) {
+            return failure(QStringLiteral("NOT_ALLOWED"), QStringLiteral("Not changing saved layouts now: %1.").arg(holdBack));
+        }
+        return layoutForAgent(request);
+    }
+
     if (action == QStringLiteral("preference")) {
         if (request.value(QStringLiteral("op")).toString() != QStringLiteral("list") && !holdBack.isEmpty()) {
             return failure(QStringLiteral("NOT_ALLOWED"), QStringLiteral("Not changing preferences now: %1.").arg(holdBack));
@@ -472,7 +827,8 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
     }
 
     // "Don't rearrange my windows unless I ask": only explicit requests.
-    if (holdBack.isEmpty() && preferenceEffects().onlyWhenAsked && !request.value(QStringLiteral("explicit")).toBool()) {
+    const bool asked = request.contains(QStringLiteral("asked")) ? request.value(QStringLiteral("asked")).toBool() : request.value(QStringLiteral("explicit")).toBool();
+    if (holdBack.isEmpty() && preferenceEffects().onlyWhenAsked && !asked) {
         holdBack = QStringLiteral("the person asked not to rearrange unless they ask");
     }
 
@@ -490,12 +846,85 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
         return failed;
     }
 
+    const QString saveAs = request.value(QStringLiteral("saveAs")).toString().trimmed();
+
     if (!holdBack.isEmpty()) {
-        return suggestAgentIntent(intent, chatId, holdBack);
+        QVariantMap suggested = suggestAgentIntent(intent, chatId, holdBack);
+        if (action == QStringLiteral("compose")) {
+            suggested.insert(QStringLiteral("resources"), intent.value(QStringLiteral("resources")));
+        }
+        if (!saveAs.isEmpty() && suggested.value(QStringLiteral("ok")).toBool()) {
+            suggested.insert(QStringLiteral("layout"), QStringLiteral("Not saved as “%1”: the change wasn't applied.").arg(saveAs));
+        }
+        return suggested;
     }
 
-    const bool focusWanted = request.value(QStringLiteral("focus")).toBool() || action == QStringLiteral("focus");
-    return applyAgentIntent(intent, chatId, focusWanted && !userBusy());
+    const bool focusWanted = request.value(QStringLiteral("focus")).toBool() || action == QStringLiteral("focus")
+        || (action == QStringLiteral("compose") && !intent.value(QStringLiteral("focusAnchor")).toString().isEmpty());
+    const qsizetype viewsBefore = m_model.viewIds().size();
+    const bool mayMoveFocus = focusWanted && !userBusy();
+    if (action == QStringLiteral("compose")) {
+        // Tried on a copy and checked first, so nothing is shown or
+        // reported as applied unless it holds.
+        WorkspaceModel trial = m_model;
+        const Intents::Outcome outcome = Intents::perform(trial, intent, agentEnvironment(mayMoveFocus));
+        if (!outcome.ok) {
+            logAgent(outcome.message, QStringLiteral("refused"), chatId);
+            return failure(outcome.code, outcome.message);
+        }
+        const QString problem = verifyComposition(trial, intent, viewsBefore, mayMoveFocus);
+        if (!problem.isEmpty()) {
+            logAgent(problem, QStringLiteral("refused"), chatId);
+            return failure(QStringLiteral("VERIFY_FAILED"), QStringLiteral("%1 Nothing was changed.").arg(problem));
+        }
+    }
+    QVariantMap result = applyAgentIntent(intent, chatId, mayMoveFocus);
+    if (action == QStringLiteral("compose") && result.value(QStringLiteral("ok")).toBool()) {
+        m_lastComposition = intent.value(QStringLiteral("composition")).toMap();
+        // This chat now has a panel of its own: the same chat in the bottom
+        // panel would only be a duplicate, so it folds away (undo brings
+        // it back).
+        bool chatInPanel = false;
+        for (const QString &viewId : m_model.viewsForResource(QStringLiteral("chat"), chatId)) {
+            const ViewRecord *view = m_model.view(viewId);
+            chatInPanel = chatInPanel || (view && view->typeId == ViewTypes::Chat && m_model.surfaceOfAnchor(m_model.anchorOfView(viewId)) == primarySurfaceId());
+        }
+        if (chatInPanel && !chatId.isEmpty() && !m_commandSurfaceCollapsed && m_commandSurfaceView == QStringLiteral("chat")
+            && result.value(QStringLiteral("status")).toString() == QStringLiteral("applied") && !m_history.isEmpty()) {
+            // The step already holds the bottom panel as it was (open, chat).
+            m_history.last().surfaceTouched = true;
+            m_commandSurfaceCollapsed = true;
+            emit commandSurfaceRequested(QStringLiteral("chat"), false);
+            emit commandSurfaceChanged();
+            result.insert(QStringLiteral("bottomPanel"), QStringLiteral("The bottom chat is hidden while the chat has a panel."));
+        }
+        result.remove(QStringLiteral("notes"));
+        result.insert(QStringLiteral("panels"), panelsForAgent());
+        result.insert(QStringLiteral("resources"), intent.value(QStringLiteral("resources")));
+        if (!intent.value(QStringLiteral("adjustments")).toStringList().isEmpty()) {
+            result.insert(QStringLiteral("adjusted"), intent.value(QStringLiteral("adjustments")));
+        }
+    }
+
+    // "…and save it as Review": arranging and saving in one request.
+    if (!saveAs.isEmpty() && result.value(QStringLiteral("ok")).toBool()) {
+        const QVariantMap saved = layoutForAgent({
+            {QStringLiteral("op"), QStringLiteral("save")},
+            {QStringLiteral("name"), saveAs},
+            {QStringLiteral("replace"), false},
+            {QStringLiteral("chatId"), chatId},
+        });
+        result.insert(
+            QStringLiteral("layout"),
+            saved.value(QStringLiteral("ok")).toBool()
+                ? QVariant(QStringLiteral("Saved as the layout “%1”.").arg(saveAs))
+                : QVariant(QStringLiteral("The arrangement is applied but wasn't saved: %1").arg(saved.value(QStringLiteral("error")).toString()))
+        );
+        if (saved.value(QStringLiteral("ok")).toBool()) {
+            result.insert(QStringLiteral("currentLayout"), saveAs);
+        }
+    }
+    return result;
 }
 
 bool WorkspaceStore::applyAgentSuggestion()
@@ -540,7 +969,8 @@ QSet<QString> WorkspaceStore::closableAgentViews(const QStringList &opened) cons
     return closable;
 }
 
-bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error)
+bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error,
+                               const QStringList &reopen, QStringList *closed, QStringList *reopened)
 {
     QHash<QString, QSizeF> sizes;
     for (const QString &surfaceId : m_model.surfaceIds()) {
@@ -553,7 +983,8 @@ bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QS
         closing.append(*m_model.view(viewId));
     }
 
-    const Arrangements::Result result = Arrangements::restore(m_model, arrangement, closable, sizes, m_metrics);
+    const Arrangements::Result result = Arrangements::restore(
+        m_model, arrangement, closable, sizes, m_metrics, QSet<QString>(reopen.cbegin(), reopen.cend()));
     if (!result.ok) {
         *code = result.code;
         *error = result.message;
@@ -561,52 +992,147 @@ bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QS
     }
 
     publish();
-    for (const ViewRecord &closed : std::as_const(closing)) {
-        emit viewClosed(closed.id, closed.typeId, resourceToMap(closed.resource));
+    for (const ViewRecord &view : std::as_const(closing)) {
+        emit viewClosed(view.id, view.typeId, resourceToMap(view.resource));
+    }
+    for (const QString &viewId : result.reopenedViews) {
+        emit viewOpened(viewId);
+    }
+    if (closed) {
+        *closed = result.closedViews;
+    }
+    if (reopened) {
+        *reopened = result.reopenedViews;
     }
     return true;
 }
 
-// The bottom panel goes back to how the earliest undone step found it.
-void WorkspaceStore::restoreCommandSurface(qsizetype firstStep)
+// ---- history ---------------------------------------------------------------
+
+WorkspaceStore::HistoryStep WorkspaceStore::historyStep(const QString &summary) const
 {
-    for (qsizetype index = firstStep; index < m_agentUndo.size(); ++index) {
-        const AgentStep &step = m_agentUndo.at(index);
-        if (step.surfaceTouched) {
-            emit commandSurfaceRequested(step.surfaceViewBefore, !step.surfaceCollapsedBefore);
-            return;
-        }
-    }
+    HistoryStep step;
+    step.state = m_model.data();
+    step.summary = summary;
+    step.surfaceCollapsed = m_commandSurfaceCollapsed;
+    step.surfaceView = m_commandSurfaceView;
+    step.layoutId = m_currentLayoutId;
+    step.arrangement = arrangementRecord();
+    return step;
 }
 
-bool WorkspaceStore::restoreAgentSteps(qsizetype count, QString *code, QString *error)
+void WorkspaceStore::recordStep(HistoryStep step)
 {
-    if (m_agentUndo.isEmpty() || count <= 0) {
+    m_history.append(std::move(step));
+    while (m_history.size() > kMaximumHistorySteps) {
+        m_history.removeFirst();
+    }
+    m_redo.clear();
+    emit historyChanged();
+}
+
+bool WorkspaceStore::restoreStep(const HistoryStep &step, HistoryStep *inverse, QString *code, QString *error)
+{
+    HistoryStep back = historyStep(step.summary);
+    back.surfaceTouched = step.surfaceTouched;
+    QStringList closed;
+    QStringList reopened;
+    if (!restoreTo(step.state, step.close, code, error, step.reopen, &closed, &reopened)) {
+        return false;
+    }
+    back.close = reopened;
+    back.reopen = closed;
+
+    // The shell may not have reported the bottom panel's state since, so
+    // ask for it either way.
+    if (step.surfaceTouched) {
+        setCommandSurfaceState(step.surfaceCollapsed, step.surfaceView);
+        emit commandSurfaceRequested(step.surfaceView, !step.surfaceCollapsed);
+    }
+    if (step.layoutId != m_currentLayoutId) {
+        setCurrentLayoutId(step.layoutId);
+    }
+    setArrangementRecord(step.arrangement);
+    *inverse = back;
+    return true;
+}
+
+bool WorkspaceStore::undoSteps(qsizetype count, QString *code, QString *error)
+{
+    if (m_history.isEmpty() || count <= 0) {
         *code = QStringLiteral("NOTHING_TO_RESTORE");
-        *error = QStringLiteral("There's no agent change to undo.");
+        *error = QStringLiteral("There's no workspace change to undo.");
         return false;
     }
 
-    count = std::min(count, m_agentUndo.size());
-    const qsizetype first = m_agentUndo.size() - count;
-    QStringList opened;
-    bool endsTask = false;
-    for (qsizetype index = first; index < m_agentUndo.size(); ++index) {
-        opened.append(m_agentUndo.at(index).opened);
-        endsTask = endsTask || m_agentUndo.at(index).startedTask;
+    count = std::min(count, m_history.size());
+    const qsizetype first = m_history.size() - count;
+    HistoryStep target = m_history.at(first);
+    for (qsizetype index = first + 1; index < m_history.size(); ++index) {
+        const HistoryStep &later = m_history.at(index);
+        target.close.append(later.close);
+        target.reopen.append(later.reopen);
+        target.surfaceTouched = target.surfaceTouched || later.surfaceTouched;
+    }
+    if (count > 1) {
+        target.summary = QStringLiteral("%1 workspace changes").arg(count);
     }
 
-    if (!restoreTo(m_agentUndo.at(first).before, opened, code, error)) {
+    HistoryStep inverse;
+    if (!restoreStep(target, &inverse, code, error)) {
         return false;
     }
-
-    restoreCommandSurface(first);
-    m_agentUndo.remove(first, count);
-    if (endsTask) {
-        // Back to where the task started: nothing temporary is left.
-        forgetArrangement();
-    }
+    m_history.remove(first, count);
+    m_redo.append(inverse);
+    emit historyChanged();
     emit agentChanged();
+    return true;
+}
+
+bool WorkspaceStore::undo()
+{
+    const QString summary = undoSummary();
+    QString code;
+    QString error;
+    if (!undoSteps(1, &code, &error)) {
+        emit operationFailed(error);
+        return false;
+    }
+    logAgent(QStringLiteral("Undid: %1").arg(summary), QStringLiteral("restored"), {});
+    return true;
+}
+
+bool WorkspaceStore::redoStep(QString *code, QString *error)
+{
+    if (m_redo.isEmpty()) {
+        *code = QStringLiteral("NOTHING_TO_RESTORE");
+        *error = QStringLiteral("There's nothing to redo.");
+        return false;
+    }
+    HistoryStep inverse;
+    if (!restoreStep(m_redo.last(), &inverse, code, error)) {
+        return false;
+    }
+    m_redo.removeLast();
+    m_history.append(inverse);
+    while (m_history.size() > kMaximumHistorySteps) {
+        m_history.removeFirst();
+    }
+    emit historyChanged();
+    emit agentChanged();
+    return true;
+}
+
+bool WorkspaceStore::redo()
+{
+    const QString summary = redoSummary();
+    QString code;
+    QString error;
+    if (!redoStep(&code, &error)) {
+        emit operationFailed(error);
+        return false;
+    }
+    logAgent(QStringLiteral("Redid: %1").arg(summary), QStringLiteral("applied"), {});
     return true;
 }
 
@@ -656,18 +1182,49 @@ void WorkspaceStore::rememberArrangement(const WorkspaceModel::Data &before, con
     }
     if (!summary.isEmpty()) {
         m_baselineChanges.append(summary);
-        while (m_baselineChanges.size() > kMaximumAgentSteps) {
+        while (m_baselineChanges.size() > kMaximumHistorySteps) {
             m_baselineChanges.removeFirst();
         }
     }
 
-    const QJsonObject record{
+    const QJsonObject record = arrangementRecord();
+    m_settings.setValue(arrangementKey(m_collectionId), QString::fromUtf8(QJsonDocument(record).toJson(QJsonDocument::Compact)));
+}
+
+QJsonObject WorkspaceStore::arrangementRecord() const
+{
+    if (m_baseline.isEmpty()) {
+        return {};
+    }
+    return {
         {QStringLiteral("baseline"), m_baseline},
         {QStringLiteral("opened"), QJsonArray::fromStringList(m_baselineOpened)},
         {QStringLiteral("changes"), QJsonArray::fromStringList(m_baselineChanges)},
         {QStringLiteral("since"), m_baselineSince},
     };
-    m_settings.setValue(arrangementKey(m_collectionId), QString::fromUtf8(QJsonDocument(record).toJson(QJsonDocument::Compact)));
+}
+
+void WorkspaceStore::setArrangementRecord(const QJsonObject &record)
+{
+    if (record.value(QStringLiteral("baseline")).toObject().isEmpty()) {
+        if (!m_baseline.isEmpty()) {
+            forgetArrangement();
+        }
+        return;
+    }
+    m_baseline = record.value(QStringLiteral("baseline")).toObject();
+    m_baselineOpened.clear();
+    m_baselineChanges.clear();
+    for (const QJsonValue &value : record.value(QStringLiteral("opened")).toArray()) {
+        m_baselineOpened.append(value.toString());
+    }
+    for (const QJsonValue &value : record.value(QStringLiteral("changes")).toArray()) {
+        m_baselineChanges.append(value.toString());
+    }
+    m_baselineSince = record.value(QStringLiteral("since")).toString();
+    if (!m_collectionId.isEmpty()) {
+        m_settings.setValue(arrangementKey(m_collectionId), QString::fromUtf8(QJsonDocument(record).toJson(QJsonDocument::Compact)));
+    }
 }
 
 void WorkspaceStore::loadArrangement()
@@ -708,7 +1265,13 @@ void WorkspaceStore::forgetArrangement()
 bool WorkspaceStore::restoreArrangement(QString *code, QString *error)
 {
     if (m_baseline.isEmpty()) {
-        return restoreAgentSteps(m_agentUndo.size(), code, error);
+        // Without a collection nothing is remembered: undo everything instead.
+        if (m_collectionId.isEmpty() && !m_history.isEmpty()) {
+            return undoSteps(m_history.size(), code, error);
+        }
+        *code = QStringLiteral("NOTHING_TO_RESTORE");
+        *error = QStringLiteral("There's no temporary arrangement to put back.");
+        return false;
     }
 
     WorkspaceModel then;
@@ -721,17 +1284,42 @@ bool WorkspaceStore::restoreArrangement(QString *code, QString *error)
         return false;
     }
 
-    QStringList opened = m_baselineOpened;
-    for (const AgentStep &step : std::as_const(m_agentUndo)) {
-        opened.append(step.opened);
+    // Putting back is a step too: undo returns to the arrangement it replaced.
+    HistoryStep step = historyStep(QStringLiteral("Put the workspace back the way it was"));
+    // Only this task's steps: the last one that found no temporary
+    // arrangement started it.
+    qsizetype taskStart = 0;
+    for (qsizetype index = m_history.size() - 1; index >= 0; --index) {
+        if (m_history.at(index).arrangement.isEmpty()) {
+            taskStart = index;
+            break;
+        }
     }
-    if (!restoreTo(then.data(), opened, code, error)) {
+    QStringList opened = m_baselineOpened;
+    const HistoryStep *surfaceBefore = nullptr; // the bottom panel as the task found it
+    for (qsizetype index = taskStart; index < m_history.size(); ++index) {
+        const HistoryStep &earlier = m_history.at(index);
+        opened.append(earlier.close);
+        if (!surfaceBefore && earlier.surfaceTouched) {
+            surfaceBefore = &earlier;
+        }
+    }
+    const bool surfaceTouched = surfaceBefore != nullptr;
+    const bool collapse = surfaceTouched && surfaceBefore->surfaceCollapsed;
+    const QString view = surfaceTouched ? surfaceBefore->surfaceView : QString();
+
+    QStringList closed;
+    if (!restoreTo(then.data(), opened, code, error, {}, &closed)) {
         return false;
     }
-
-    restoreCommandSurface(0);
-    m_agentUndo.clear();
+    step.reopen = closed;
+    if (surfaceTouched) {
+        step.surfaceTouched = true;
+        setCommandSurfaceState(collapse, view);
+        emit commandSurfaceRequested(view, !collapse);
+    }
     forgetArrangement();
+    recordStep(step);
     emit agentChanged();
     return true;
 }
@@ -751,10 +1339,10 @@ bool WorkspaceStore::putBackArrangement()
 
 void WorkspaceStore::keepArrangement()
 {
-    if (m_baseline.isEmpty() && m_agentUndo.isEmpty()) {
+    if (m_baseline.isEmpty()) {
         return;
     }
-    m_agentUndo.clear();
+    // The arrangement becomes the normal one; the history stays.
     forgetArrangement();
     logAgent(QStringLiteral("Kept the current arrangement"), QStringLiteral("kept"), {});
     emit agentChanged();
@@ -762,14 +1350,7 @@ void WorkspaceStore::keepArrangement()
 
 bool WorkspaceStore::undoAgentChange()
 {
-    QString code;
-    QString error;
-    if (!restoreAgentSteps(1, &code, &error)) {
-        emit operationFailed(error);
-        return false;
-    }
-    logAgent(QStringLiteral("Undid the last agent change"), QStringLiteral("restored"), {});
-    return true;
+    return undo();
 }
 
 QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
@@ -779,17 +1360,7 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
 
     if (scope == QStringLiteral("saved_layout")) {
         const QString name = request.value(QStringLiteral("layout")).toString().trimmed();
-        QString layoutId;
-        for (const QVariant &value : savedLayouts()) {
-            if (value.toMap().value(QStringLiteral("name")).toString().compare(name, Qt::CaseInsensitive) == 0) {
-                layoutId = value.toMap().value(QStringLiteral("id")).toString();
-            }
-        }
-        for (const Presets::Preset &preset : Presets::all()) {
-            if (layoutId.isEmpty() && preset.name.compare(name, Qt::CaseInsensitive) == 0) {
-                layoutId = preset.id;
-            }
-        }
+        const QString layoutId = layoutIdNamed(name);
         if (layoutId.isEmpty()) {
             return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("There's no saved layout called “%1”.").arg(name));
         }
@@ -800,29 +1371,41 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
         if (!report.ok) {
             return failure(QStringLiteral("LAYOUT_LOCKED"), report.error);
         }
-        if (!applyLayout(layoutId)) {
+        if (!applyLayout(layoutId) || currentLayoutId() != layoutId) {
             return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be applied."));
         }
-        AgentStep step;
-        step.before = before;
-        step.summary = QStringLiteral("Switched to the “%1” layout").arg(currentLayoutName());
-        step.startedTask = m_baseline.isEmpty();
-        m_agentUndo.append(step);
-        rememberArrangement(before, {}, step.summary);
-        logAgent(step.summary, QStringLiteral("applied"), chatId);
+        // applyLayout recorded the history step.
+        const QString summary = QStringLiteral("Switched to the “%1” layout").arg(currentLayoutName());
+        rememberArrangement(before, {}, summary);
+        logAgent(summary, QStringLiteral("applied"), chatId);
         emit agentChanged();
         return {
             {QStringLiteral("ok"), true},
             {QStringLiteral("status"), QStringLiteral("applied")},
-            {QStringLiteral("notes"), QStringList{step.summary}},
+            {QStringLiteral("notes"), QStringList{summary}},
+            {QStringLiteral("currentLayout"), currentLayoutName()},
+            {QStringLiteral("panels"), panelsForAgent()},
         };
     }
 
     QString code;
     QString error;
-    const bool restored = scope == QStringLiteral("before_task") || m_agentUndo.isEmpty()
+    if (scope == QStringLiteral("redo")) {
+        const QString summary = QStringLiteral("Redid: %1").arg(redoSummary());
+        if (!redoStep(&code, &error)) {
+            return failure(code, error);
+        }
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        emit agentRestored(summary);
+        return {
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("status"), QStringLiteral("applied")},
+            {QStringLiteral("notes"), QStringList{summary}},
+        };
+    }
+    const bool restored = scope == QStringLiteral("before_task") || m_history.isEmpty()
         ? restoreArrangement(&code, &error)
-        : restoreAgentSteps(1, &code, &error);
+        : undoSteps(1, &code, &error);
     if (!restored) {
         return failure(code, error);
     }
@@ -1025,4 +1608,106 @@ QVariantMap WorkspaceStore::preferenceForAgent(const QVariantMap &request)
     result.insert(QStringLiteral("status"), QStringLiteral("applied"));
     result.insert(QStringLiteral("notes"), notes);
     return result;
+}
+
+// ---- named layouts ----------------------------------------------------------
+
+QString WorkspaceStore::layoutIdNamed(const QString &name) const
+{
+    const QString wanted = name.trimmed();
+    for (const QVariant &value : savedLayouts()) {
+        if (value.toMap().value(QStringLiteral("name")).toString().compare(wanted, Qt::CaseInsensitive) == 0) {
+            return value.toMap().value(QStringLiteral("id")).toString();
+        }
+    }
+    for (const Presets::Preset &preset : Presets::all()) {
+        if (preset.name.compare(wanted, Qt::CaseInsensitive) == 0 || preset.id.compare(wanted, Qt::CaseInsensitive) == 0) {
+            return preset.id;
+        }
+    }
+    return {};
+}
+
+QVariantList WorkspaceStore::layoutsForAgent() const
+{
+    QVariantList layouts;
+    for (const QVariant &value : savedLayouts()) {
+        const QVariantMap layout = value.toMap();
+        layouts.append(QVariantMap{
+            {QStringLiteral("name"), layout.value(QStringLiteral("name"))},
+            {QStringLiteral("kind"), QStringLiteral("saved by the person")},
+            {QStringLiteral("current"), layout.value(QStringLiteral("id")).toString() == m_currentLayoutId},
+        });
+    }
+    for (const Presets::Preset &preset : Presets::all()) {
+        layouts.append(QVariantMap{
+            {QStringLiteral("name"), preset.name},
+            {QStringLiteral("kind"), QStringLiteral("built in")},
+            {QStringLiteral("description"), preset.description},
+            {QStringLiteral("current"), preset.id == m_currentLayoutId},
+        });
+    }
+    return layouts;
+}
+
+QVariantMap WorkspaceStore::layoutForAgent(const QVariantMap &request)
+{
+    const QString op = request.value(QStringLiteral("op")).toString();
+    const QString name = request.value(QStringLiteral("name")).toString().trimmed();
+    const QString chatId = request.value(QStringLiteral("chatId")).toString();
+
+    if (op == QStringLiteral("list")) {
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("layouts"), layoutsForAgent()}};
+    }
+
+    if (op == QStringLiteral("save")) {
+        if (name.isEmpty()) {
+            return failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("A layout needs a name."));
+        }
+        for (const Presets::Preset &preset : Presets::all()) {
+            if (preset.name.compare(name, Qt::CaseInsensitive) == 0) {
+                return failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("“%1” is a built-in layout; pick another name.").arg(preset.name));
+            }
+        }
+        // A saved layout is only replaced when the person said so.
+        if (!layoutIdNamed(name).isEmpty() && !request.value(QStringLiteral("replace")).toBool()) {
+            return failure(QStringLiteral("EXISTS"), QStringLiteral("There's already a layout called “%1”. Ask whether to replace it.").arg(name));
+        }
+        const QString saved = saveLayout(name);
+        if (saved.isEmpty()) {
+            return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be saved."));
+        }
+        // Saved on purpose: this arrangement is no longer temporary.
+        keepArrangement();
+        const QString summary = QStringLiteral("Saved the current arrangement as the “%1” layout").arg(name);
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+    }
+
+    if (op == QStringLiteral("rename") || op == QStringLiteral("delete")) {
+        const QString layoutId = layoutIdNamed(name);
+        if (layoutId.isEmpty() || !layoutId.startsWith(QStringLiteral("user."))) {
+            return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("There's no saved layout called “%1” (built-in layouts can't be changed).").arg(name));
+        }
+        if (op == QStringLiteral("rename")) {
+            const QString newName = request.value(QStringLiteral("newName")).toString().trimmed();
+            if (newName.isEmpty() || !layoutIdNamed(newName).isEmpty()) {
+                return failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Give a new name that isn't taken."));
+            }
+            if (!renameLayout(layoutId, newName)) {
+                return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be renamed."));
+            }
+            const QString summary = QStringLiteral("Renamed the “%1” layout to “%2”").arg(name, newName);
+            logAgent(summary, QStringLiteral("applied"), chatId);
+            return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+        }
+        if (!deleteLayout(layoutId)) {
+            return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be deleted."));
+        }
+        const QString summary = QStringLiteral("Deleted the “%1” layout").arg(name);
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+    }
+
+    return failure(QStringLiteral("UNSUPPORTED"), QStringLiteral("Layouts can be listed, applied, saved, renamed or deleted."));
 }

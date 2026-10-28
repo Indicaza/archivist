@@ -125,6 +125,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_gateway.h
     src/Core/Domains/Workspace/workspace_preferences.cpp
     src/Core/Domains/Workspace/workspace_preferences.h
+    src/Core/Domains/Workspace/workspace_compose.cpp
+    src/Core/Domains/Workspace/workspace_compose.h
     src/Core/Domains/Documents/document_buffers.cpp
     src/Core/Domains/Documents/document_buffers.h
     src/Core/Support/core_values.h

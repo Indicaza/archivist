@@ -584,14 +584,14 @@ void WorkspaceStore::setCollection(const QString &collectionId)
 
     m_model = fresh;
     m_publishedModelRevision = m_model.revision();
-    m_agentUndo.clear();
+    m_history.clear();
+    m_redo.clear();
     loadArrangement();
     m_suggestion.clear();
     m_suggestionIntent.clear();
     m_recentAnchors.clear();
     emit agentChanged();
-    m_layoutUndo = {};
-    m_layoutUndoId.clear();
+    emit historyChanged();
     m_currentLayoutId = collectionId.isEmpty()
         ? QString()
         : m_settings.value(QStringLiteral("workspace/collections/%1/docking/layoutId").arg(collectionId)).toString();
@@ -683,7 +683,8 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
         && !options.value(QStringLiteral("duplicate")).toBool();
     const bool focus = options.value(QStringLiteral("focus"), true).toBool();
     Origin origin = Origin::User;
-    parseOrigin(options.value(QStringLiteral("origin")).toString(), &origin);
+    // An unknown origin counts as the person.
+    static_cast<void>(parseOrigin(options.value(QStringLiteral("origin")).toString(), &origin));
     QString anchorId = options.value(QStringLiteral("anchorId")).toString();
     if (anchorId.isEmpty() || !m_model.anchor(anchorId)) {
         anchorId = preferredAnchorFor(typeId);
@@ -990,7 +991,7 @@ bool WorkspaceStore::setViewType(const QString &viewId, const QString &typeId)
 bool WorkspaceStore::setViewResource(const QString &viewId, const QVariantMap &resource, const QString &originName)
 {
     Origin origin = Origin::User;
-    parseOrigin(originName, &origin);
+    static_cast<void>(parseOrigin(originName, &origin)); // unknown: the person
     const OpResult result = m_model.setViewResource(viewId, resourceFromMap(resource), origin);
 
     // Automatic rebinding that a lock refuses is expected, not an error.
@@ -1818,8 +1819,7 @@ bool WorkspaceStore::applyLayoutDocument(const QJsonObject &layout, const QStrin
         cancelDrag();
     }
 
-    const QJsonObject before = Codec::captureLayout(m_model, QString());
-    const QString beforeId = m_currentLayoutId;
+    HistoryStep step = historyStep(QStringLiteral("Switched layouts"));
     const Codec::LoadReport report = Codec::applyLayout(layout, m_model);
 
     if (!report.ok) {
@@ -1827,9 +1827,9 @@ bool WorkspaceStore::applyLayoutDocument(const QJsonObject &layout, const QStrin
         return false;
     }
 
-    m_layoutUndo = before;
-    m_layoutUndoId = beforeId;
     setCurrentLayoutId(layoutId);
+    step.summary = QStringLiteral("Switched to the “%1” layout").arg(currentLayoutName());
+    recordStep(step);
     publish();
     return true;
 }
@@ -1849,26 +1849,6 @@ bool WorkspaceStore::applyLayout(const QString &layoutId)
 
     emit layoutApplied(layoutId, currentLayoutName());
     return true;
-}
-
-bool WorkspaceStore::undoLayout()
-{
-    if (m_layoutUndo.isEmpty()) {
-        return false;
-    }
-
-    const QJsonObject layout = m_layoutUndo;
-    const QString layoutId = m_layoutUndoId;
-    const bool ok = applyLayoutDocument(layout, layoutId);
-
-    if (ok) {
-        // Undoing an undo is just applying the layout again from the picker.
-        m_layoutUndo = {};
-        m_layoutUndoId.clear();
-        emit layoutsChanged();
-    }
-
-    return ok;
 }
 
 QString WorkspaceStore::saveLayout(const QString &name)

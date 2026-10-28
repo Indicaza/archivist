@@ -1,7 +1,9 @@
 #include "Core/Domains/Workspace/workspace_intents.h"
 
+#include "Core/Domains/Workspace/workspace_codec.h"
 #include "Core/Domains/Workspace/workspace_placement.h"
 
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 
@@ -499,6 +501,10 @@ public:
     bool move(const QVariantMap &request);
     bool keep(const QVariantMap &request);
     bool label(const QVariantMap &request);
+    bool addPanel(const QVariantMap &request);
+    bool removePanel(const QVariantMap &request);
+    // compose: put items into one panel of the new arrangement.
+    bool place(const QVariantList &items, const QString &anchorId);
 
     QString focusTarget;
 
@@ -526,6 +532,7 @@ private:
     }
 
     QString destinationFor(const QString &typeId, const ResourceRef &resource, const QString &where, const QString &purpose);
+    bool recordFor(const QVariantMap &item, const QString &near, ViewRecord *record, QString *existing);
     QString newAnchorBeside(const QString &anchorId, Edge edge, double share);
     QString newAnchorAtEdge(const QString &surfaceId, Edge edge, double share);
     void giveShare(const QString &anchorId, double share);
@@ -758,6 +765,107 @@ QString Run::destinationFor(const QString &typeId, const ResourceRef &resource, 
     return named.anchorId;
 }
 
+// What an item of show or compose stands for: an open view (existing) or a
+// new one to open (record).
+bool Run::recordFor(const QVariantMap &item, const QString &near, ViewRecord *recordOut, QString *existingOut)
+{
+    QString &existing = *existingOut;
+    ViewRecord &record = *recordOut;
+    existing = item.value(QStringLiteral("viewId")).toString();
+
+    if (!existing.isEmpty()) {
+        if (!m_work.view(existing)) {
+            return fail(QStringLiteral("NOT_FOUND"), QStringLiteral("That view is no longer open."));
+        }
+        record = *m_work.view(existing);
+    } else {
+        record.typeId = item.value(QStringLiteral("typeId")).toString();
+        record.resource.kind = item.value(QStringLiteral("resource")).toMap().value(QStringLiteral("kind")).toString();
+        const QVariantMap resource = item.value(QStringLiteral("resource")).toMap();
+        record.resource.id = resource.value(QStringLiteral("id")).toString();
+        record.resource.collectionId = resource.value(QStringLiteral("collectionId")).toString();
+        record.resource.libraryId = resource.value(QStringLiteral("libraryId")).toString();
+        record.resource.details = resource.value(QStringLiteral("details")).toMap();
+        record.title = item.value(QStringLiteral("title")).toString();
+        record.state = item.value(QStringLiteral("state")).toMap();
+
+        const ViewTypeDescriptor *type = m_env.registry ? m_env.registry->find(record.typeId) : nullptr;
+        if (m_env.registry && !type) {
+            return fail(QStringLiteral("UNSUPPORTED"), QStringLiteral("Archivist can't show “%1” views.").arg(record.typeId));
+        }
+        if (record.typeId.isEmpty()) {
+            return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("A view type is needed."));
+        }
+        // Files and documents are one family: the app opens library
+        // documents in both editors and previews.
+        const auto family = [](const QString &kind) {
+            return kind == QLatin1String("file") ? QStringLiteral("document") : kind;
+        };
+        if (type && !type->resourceKind.isEmpty() && family(type->resourceKind) != family(record.resource.kind)) {
+            return fail(
+                QStringLiteral("INVALID_ARGUMENT"),
+                QStringLiteral("A %1 view shows a %2, not a %3.").arg(type->displayName, type->resourceKind, record.resource.kind.isEmpty() ? QStringLiteral("nothing") : record.resource.kind)
+            );
+        }
+        if (type) {
+            record.stateVersion = type->stateVersion;
+        }
+        existing = Placement::existingView(m_work, record.typeId, record.resource, near);
+    }
+
+    return true;
+}
+
+bool Run::place(const QVariantList &items, const QString &anchorId)
+{
+    QString first;
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        const QString surface = item.value(QStringLiteral("surface")).toString();
+        if (!surface.isEmpty()) {
+            // The conversation stays in the bottom panel when the person likes it there.
+            if (!m_env.commandSurfaceName.isEmpty()) {
+                m_out.commandSurface = surface;
+            }
+            continue;
+        }
+
+        QString existing;
+        ViewRecord record;
+        if (!recordFor(item, anchorId, &record, &existing)) {
+            return false;
+        }
+
+        if (!existing.isEmpty()) {
+            if (m_work.anchorOfView(existing) != anchorId) {
+                const OpResult moved = m_work.moveView(existing, anchorId, -1, m_env.origin);
+                if (!moved.ok) {
+                    m_out.notes.append(QStringLiteral("Left %1 where it is (%2)").arg(viewLabel(record), moved.message));
+                    continue;
+                }
+            }
+            m_out.revealed.append(existing);
+            if (first.isEmpty()) {
+                first = existing;
+            }
+            continue;
+        }
+
+        const OpResult opened = m_work.openView(record, anchorId, -1, true, m_env.origin);
+        if (!opened.ok) {
+            return failWith(opened);
+        }
+        m_out.opened.append(opened.createdId);
+        if (first.isEmpty()) {
+            first = opened.createdId;
+        }
+    }
+    if (!first.isEmpty()) {
+        m_work.activateView(first);
+    }
+    return true;
+}
+
 bool Run::show(const QVariantMap &request)
 {
     const QVariantList items = request.value(QStringLiteral("items")).toList();
@@ -768,6 +876,7 @@ bool Run::show(const QVariantMap &request)
     if (items.isEmpty()) {
         return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Nothing to show."));
     }
+    m_destination.clear(); // a new show (a patch runs several)
 
     QStringList openedTitles;
     QStringList revealedTitles;
@@ -789,47 +898,10 @@ bool Run::show(const QVariantMap &request)
             continue;
         }
 
-        QString existing = item.value(QStringLiteral("viewId")).toString();
+        QString existing;
         ViewRecord record;
-
-        if (!existing.isEmpty()) {
-            if (!m_work.view(existing)) {
-                return fail(QStringLiteral("NOT_FOUND"), QStringLiteral("That view is no longer open."));
-            }
-            record = *m_work.view(existing);
-        } else {
-            record.typeId = item.value(QStringLiteral("typeId")).toString();
-            record.resource.kind = item.value(QStringLiteral("resource")).toMap().value(QStringLiteral("kind")).toString();
-            const QVariantMap resource = item.value(QStringLiteral("resource")).toMap();
-            record.resource.id = resource.value(QStringLiteral("id")).toString();
-            record.resource.collectionId = resource.value(QStringLiteral("collectionId")).toString();
-            record.resource.libraryId = resource.value(QStringLiteral("libraryId")).toString();
-            record.resource.details = resource.value(QStringLiteral("details")).toMap();
-            record.title = item.value(QStringLiteral("title")).toString();
-            record.state = item.value(QStringLiteral("state")).toMap();
-
-            const ViewTypeDescriptor *type = m_env.registry ? m_env.registry->find(record.typeId) : nullptr;
-            if (m_env.registry && !type) {
-                return fail(QStringLiteral("UNSUPPORTED"), QStringLiteral("Archivist can't show “%1” views.").arg(record.typeId));
-            }
-            if (record.typeId.isEmpty()) {
-                return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("A view type is needed."));
-            }
-            // Files and documents are one family: the app opens library
-            // documents in both editors and previews.
-            const auto family = [](const QString &kind) {
-                return kind == QLatin1String("file") ? QStringLiteral("document") : kind;
-            };
-            if (type && !type->resourceKind.isEmpty() && family(type->resourceKind) != family(record.resource.kind)) {
-                return fail(
-                    QStringLiteral("INVALID_ARGUMENT"),
-                    QStringLiteral("A %1 view shows a %2, not a %3.").arg(type->displayName, type->resourceKind, record.resource.kind.isEmpty() ? QStringLiteral("nothing") : record.resource.kind)
-                );
-            }
-            if (type) {
-                record.stateVersion = type->stateVersion;
-            }
-            existing = Placement::existingView(m_work, record.typeId, record.resource, m_destination);
+        if (!recordFor(item, m_destination, &record, &existing)) {
+            return false;
         }
 
         if (!existing.isEmpty()) {
@@ -1194,13 +1266,104 @@ bool Run::label(const QVariantMap &request)
     m_out.notes.append(QStringLiteral("Named “%1” “%2”").arg(before, m_work.anchorDisplayName(match.anchorId)));
     return true;
 }
+
+// A new, empty panel for building a layout: beside an area, or along a
+// window edge when no area is named. It stays when empty.
+bool Run::addPanel(const QVariantMap &request)
+{
+    const QString to = request.value(QStringLiteral("to")).toString().trimmed().toLower();
+    Edge side = Edge::Right;
+    if (!to.isEmpty() && !parseSide(to, &side)) {
+        return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Say which side: left, right, top or bottom."));
+    }
+    const QString target = request.value(QStringLiteral("target")).toString().trimmed();
+    QString created;
+    if (target.isEmpty()) {
+        const QString surfaceId = m_work.surfaceOfAnchor(m_work.focusedAnchorId()).isEmpty() ? m_work.primarySurfaceId()
+                                                                                            : m_work.surfaceOfAnchor(m_work.focusedAnchorId());
+        created = newAnchorAtEdge(surfaceId, side, m_env.sidePanelShare);
+    } else {
+        AreaMatch near;
+        if (!resolve(target, &near)) {
+            return false;
+        }
+        created = newAnchorBeside(near.anchorId, side, 0.5);
+    }
+    if (created.isEmpty()) {
+        return false;
+    }
+    m_work.setAnchorPinned(created, true);
+    const QString name = request.value(QStringLiteral("name")).toString().trimmed();
+    if (!name.isEmpty()) {
+        const OpResult named = m_work.renameAnchor(created, name, m_env.origin);
+        if (!named.ok) {
+            return failWith(named);
+        }
+    }
+    focusTarget = created;
+    m_out.notes.append(QStringLiteral("Added a panel “%1”").arg(m_work.anchorDisplayName(created)));
+    return true;
+}
+
+// Takes a panel away. Its tabs move to another area (`to`, else the main
+// editor); nothing closes.
+bool Run::removePanel(const QVariantMap &request)
+{
+    AreaMatch match;
+    if (!resolve(request.value(QStringLiteral("target")).toString(), &match)) {
+        return false;
+    }
+    if (m_work.anchorIds().size() < 2) {
+        return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("That's the only panel; there has to be one."));
+    }
+    const QString name = m_work.anchorDisplayName(match.anchorId);
+    const AnchorRecord *anchor = m_work.anchor(match.anchorId);
+    if (anchor && !anchor->views.isEmpty()) {
+        QString into;
+        const QString to = request.value(QStringLiteral("to")).toString().trimmed();
+        if (!to.isEmpty()) {
+            AreaMatch other;
+            if (!resolve(to, &other)) {
+                return false;
+            }
+            into = other.anchorId;
+        } else {
+            into = mainEditorAnchor(m_work, m_env);
+            if (into == match.anchorId) {
+                for (const QString &anchorId : m_work.anchorIds(m_work.surfaceOfAnchor(match.anchorId))) {
+                    if (anchorId != match.anchorId) {
+                        into = anchorId;
+                        break;
+                    }
+                }
+            }
+        }
+        if (into == match.anchorId) {
+            return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Its tabs need somewhere else to go."));
+        }
+        const OpResult merged = m_work.mergeAnchor(match.anchorId, into, m_env.origin);
+        if (!merged.ok) {
+            return failWith(merged);
+        }
+        m_out.notes.append(QStringLiteral("Moved the tabs from “%1” into “%2”").arg(name, m_work.anchorDisplayName(into)));
+    }
+    if (m_work.anchor(match.anchorId)) {
+        const OpResult closed = m_work.closeAnchor(match.anchorId, m_env.origin);
+        if (!closed.ok) {
+            return failWith(closed);
+        }
+    }
+    m_out.notes.append(QStringLiteral("Removed the panel “%1”").arg(name));
+    return true;
+}
 } // namespace
 
 QStringList actions()
 {
     return {
         QStringLiteral("describe"), QStringLiteral("show"), QStringLiteral("focus"), QStringLiteral("resize"),
-        QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"),
+        QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"), QStringLiteral("add"), QStringLiteral("remove"),
+        QStringLiteral("steps"), QStringLiteral("compose"),
     };
 }
 
@@ -1328,19 +1491,107 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
     Outcome outcome;
     Run run(work, environment, outcome);
 
+    const auto runOne = [&run](const QString &name, const QVariantMap &step) {
+        if (name == QStringLiteral("show")) {
+            return run.show(step);
+        }
+        if (name == QStringLiteral("focus")) {
+            return run.focus(step);
+        }
+        if (name == QStringLiteral("resize")) {
+            return run.resize(step);
+        }
+        if (name == QStringLiteral("move")) {
+            return run.move(step);
+        }
+        if (name == QStringLiteral("keep")) {
+            return run.keep(step);
+        }
+        if (name == QStringLiteral("label")) {
+            return run.label(step);
+        }
+        if (name == QStringLiteral("add")) {
+            return run.addPanel(step);
+        }
+        if (name == QStringLiteral("remove")) {
+            return run.removePanel(step);
+        }
+        return false;
+    };
+
     bool ok = false;
-    if (action == QStringLiteral("show")) {
-        ok = run.show(request);
-    } else if (action == QStringLiteral("focus")) {
-        ok = run.focus(request);
-    } else if (action == QStringLiteral("resize")) {
-        ok = run.resize(request);
-    } else if (action == QStringLiteral("move")) {
-        ok = run.move(request);
-    } else if (action == QStringLiteral("keep")) {
-        ok = run.keep(request);
-    } else if (action == QStringLiteral("label")) {
-        ok = run.label(request);
+    bool focusStep = false;
+    if (action == QStringLiteral("compose")) {
+        // A whole arrangement at once (see workspace_compose.h): rebuild the
+        // panels, then put each slot's content in its panel. Open views that
+        // no slot names stay open and find a panel by type.
+        for (const QString &anchorId : work.anchorIds()) {
+            const AnchorRecord *anchor = work.anchor(anchorId);
+            if (anchor->contentLocked && !anchor->views.isEmpty()) {
+                return Outcome::failure(
+                    QStringLiteral("CONTENT_LOCKED"),
+                    QStringLiteral("“%1” has locked content, so the workspace can't be rearranged around it. Change the panels one at a time instead.").arg(work.anchorDisplayName(anchorId))
+                );
+            }
+        }
+        // Panels that survive keep what they showed (identity, not type,
+        // decides where a view lives); only views of removed panels move.
+        QHash<QString, QString> homes;
+        for (const QString &viewId : work.viewIds()) {
+            homes.insert(viewId, work.anchorOfView(viewId));
+        }
+        const Codec::LoadReport report = Codec::applyLayout(QJsonObject::fromVariantMap(request.value(QStringLiteral("layout")).toMap()), work);
+        if (!report.ok) {
+            return Outcome::failure(QStringLiteral("LAYOUT_LOCKED"), report.error);
+        }
+        for (auto it = homes.cbegin(); it != homes.cend(); ++it) {
+            if (!it.value().isEmpty() && work.anchor(it.value()) && work.view(it.key()) && work.anchorOfView(it.key()) != it.value()) {
+                work.moveView(it.key(), it.value(), -1, Origin::Agent);
+            }
+        }
+        ok = true;
+        QStringList names;
+        for (const QVariant &value : request.value(QStringLiteral("slots")).toList()) {
+            const QVariantMap slot = value.toMap();
+            const QString anchorId = slot.value(QStringLiteral("anchorId")).toString();
+            if (!work.anchor(anchorId)) {
+                return Outcome::failure(QStringLiteral("INVARIANT"), QStringLiteral("The arrangement lost a panel."));
+            }
+            names.append(work.anchorDisplayName(anchorId));
+            if (!run.place(slot.value(QStringLiteral("items")).toList(), anchorId)) {
+                return Outcome::failure(outcome.code, outcome.message);
+            }
+        }
+        outcome.notes.prepend(QStringLiteral("Arranged the workspace: %1").arg(names.join(QStringLiteral(", "))));
+        const QString focus = request.value(QStringLiteral("focusAnchor")).toString();
+        if (!focus.isEmpty() && work.anchor(focus)) {
+            run.focusTarget = focus;
+            focusStep = true;
+        }
+    } else if (action == QStringLiteral("steps")) {
+        // Several arrange steps as one change: later steps see earlier ones
+        // ("add Docs", then "resize Docs"), and nothing applies unless all do.
+        const QVariantList steps = request.value(QStringLiteral("steps")).toList();
+        if (steps.isEmpty()) {
+            return Outcome::failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("There are no steps to do."));
+        }
+        ok = true;
+        for (qsizetype index = 0; ok && index < steps.size(); ++index) {
+            const QVariantMap step = steps.at(index).toMap();
+            const QString name = step.value(QStringLiteral("action")).toString();
+            // show is a step only for compose patches (the store builds those;
+            // the arrange tool can't name it).
+            if (name == QStringLiteral("steps") || name == QStringLiteral("compose") || !actions().contains(name) || name == QStringLiteral("describe")) {
+                return Outcome::failure(QStringLiteral("UNSUPPORTED"), QStringLiteral("Step %1: Archivist can't do “%2” as an arrange step.").arg(index + 1).arg(name));
+            }
+            ok = runOne(name, step);
+            if (!ok && !outcome.message.isEmpty() && steps.size() > 1) {
+                outcome.message = QStringLiteral("Step %1 (%2): %3 Nothing was changed.").arg(index + 1).arg(name, outcome.message);
+            }
+            focusStep = focusStep || name == QStringLiteral("focus");
+        }
+    } else {
+        ok = runOne(action, request);
     }
 
     if (!ok) {
@@ -1349,7 +1600,7 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
     }
 
     // Keyboard focus stays with the person unless they asked to go there.
-    const bool focusRequested = action == QStringLiteral("focus") || request.value(QStringLiteral("focus")).toBool();
+    const bool focusRequested = action == QStringLiteral("focus") || focusStep || request.value(QStringLiteral("focus")).toBool();
     if (focusRequested && environment.mayMoveFocus && work.anchor(run.focusTarget)) {
         work.focusAnchor(run.focusTarget);
         outcome.focusAnchorId = run.focusTarget;

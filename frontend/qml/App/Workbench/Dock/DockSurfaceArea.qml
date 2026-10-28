@@ -19,6 +19,11 @@ Item {
     property bool resizingSplit: false
     property bool resizingSurface: false
     readonly property bool animateLayout: !theme.reducedMotion && !resizingSplit && !resizingSurface
+    // New panels ease in once the workspace is up (see DockAnchor).
+    readonly property bool animateArrivals: animateLayout && root.workspace.startupSettled === true
+    function nextArrivalDelay() {
+        return root.workspace.nextArrivalDelay()
+    }
     readonly property bool showFocus: Docking.surfaceIds.length > 1 || anchorCount > 1
     readonly property int anchorCount: anchorRepeater.count
     // The pointer of a drag is over this window.

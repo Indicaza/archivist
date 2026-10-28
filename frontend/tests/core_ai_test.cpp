@@ -3,6 +3,7 @@
 #include "Core/Domains/AI/context_compilers.h"
 #include "Core/Domains/AI/edit_proposals.h"
 #include "Core/Domains/AI/edit_transactions.h"
+#include "Core/Domains/AI/library_retrieval.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Agents/agent_defaults.h"
 #include "Core/Domains/Chats/chat_repository.h"
@@ -363,11 +364,11 @@ private slots:
 
     void workspaceToolsTalkInPlainTerms()
     {
-        // Offered only when the person asked for a workspace change.
+        // Offered with the workspace; library-only runs don't see them.
         AITools::Availability plain;
         AITools::Availability workspace;
         workspace.workspace = true;
-        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 5);
+        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 7);
         for (const QVariant &definition : AITools::providerTools(plain)) {
             QVERIFY(!AITools::isWorkspaceTool(definition.toMap().value(QStringLiteral("name")).toString()));
         }
@@ -406,24 +407,29 @@ private slots:
         QCOMPARE(item.value(QStringLiteral("libraryId")).toString(), m_libraryId);
         QCOMPARE(item.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath")).toString(), QStringLiteral("notes.md"));
 
-        // An unknown file never reaches the workspace.
-        QCOMPARE(
-            [&]() {
-                try {
-                    AITools::execute(context, QStringLiteral("workspace_show"),
-                        QVariantMap{
-                            {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("missing.md")}, {QStringLiteral("library"), QString()}}}},
-                            {QStringLiteral("where"), QString()},
-                            {QStringLiteral("purpose"), QString()},
-                            {QStringLiteral("focus"), false},
-                        });
-                } catch (const AITools::ToolError &error) {
-                    return error.code();
-                }
-                return QString();
-            }(),
-            QStringLiteral("invalid_input")
-        );
+        // An unknown file travels with its verdict: the workspace may have
+        // it open from elsewhere, and reports it missing otherwise.
+        AITools::execute(context, QStringLiteral("workspace_show"),
+            QVariantMap{
+                {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("missing.md")}, {QStringLiteral("library"), QString()}}}},
+                {QStringLiteral("where"), QString()},
+                {QStringLiteral("purpose"), QString()},
+                {QStringLiteral("focus"), false},
+            });
+        QCOMPARE(requests.size(), 2);
+        QCOMPARE(requests.last().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("lookup")).toString(), QStringLiteral("not_found"));
+        requests.removeLast();
+
+        // A file named by its name alone is found by path.
+        AITools::execute(context, QStringLiteral("workspace_show"),
+            QVariantMap{
+                {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("NOTES.MD")}, {QStringLiteral("library"), QString()}}}},
+                {QStringLiteral("where"), QString()},
+                {QStringLiteral("purpose"), QString()},
+                {QStringLiteral("focus"), false},
+            });
+        QCOMPARE(requests.last().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("lookup")).toString(), QStringLiteral("found"));
+        requests.removeLast();
         QCOMPARE(requests.size(), 1);
 
         // A locked panel is a refusal the model must respect.
@@ -432,17 +438,64 @@ private slots:
         try {
             AITools::execute(context, QStringLiteral("workspace_arrange"),
                 QVariantMap{
-                    {QStringLiteral("action"), QStringLiteral("resize")},
-                    {QStringLiteral("area"), QStringLiteral("the code")},
-                    {QStringLiteral("change"), QStringLiteral("larger")},
-                    {QStringLiteral("to"), QString()},
-                    {QStringLiteral("name"), QString()},
+                    {QStringLiteral("steps"), QVariantList{QVariantMap{
+                        {QStringLiteral("action"), QStringLiteral("resize")},
+                        {QStringLiteral("area"), QStringLiteral("the code")},
+                        {QStringLiteral("change"), QStringLiteral("larger")},
+                        {QStringLiteral("to"), QString()},
+                        {QStringLiteral("name"), QString()},
+                    }}},
+                    {QStringLiteral("save_as"), QString()},
                 });
         } catch (const AITools::ToolError &error) {
             code = error.code();
         }
         QCOMPARE(code, QStringLiteral("permission_denied"));
         QCOMPARE(requests.last().value(QStringLiteral("target")).toString(), QStringLiteral("the code"));
+
+        // Several steps and a save go to the workspace as one request.
+        answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
+        const auto step = [](const QString &action, const QString &area, const QString &change, const QString &to, const QString &name) {
+            return QVariantMap{{QStringLiteral("action"), action}, {QStringLiteral("area"), area}, {QStringLiteral("change"), change}, {QStringLiteral("to"), to}, {QStringLiteral("name"), name}};
+        };
+        AITools::execute(context, QStringLiteral("workspace_arrange"),
+            QVariantMap{
+                {QStringLiteral("steps"), QVariantList{
+                    step(QStringLiteral("add"), QString(), QString(), QStringLiteral("right"), QStringLiteral("Docs")),
+                    step(QStringLiteral("resize"), QStringLiteral("Docs"), QStringLiteral("0.3"), QString(), QString()),
+                }},
+                {QStringLiteral("save_as"), QStringLiteral("Review")},
+            });
+        QCOMPARE(requests.last().value(QStringLiteral("action")).toString(), QStringLiteral("steps"));
+        QCOMPARE(requests.last().value(QStringLiteral("steps")).toList().size(), 2);
+        QCOMPARE(requests.last().value(QStringLiteral("steps")).toList().last().toMap().value(QStringLiteral("target")).toString(), QStringLiteral("Docs"));
+        QCOMPARE(requests.last().value(QStringLiteral("saveAs")).toString(), QStringLiteral("Review"));
+
+        // A whole arrangement in one call: found files go in, missing ones are reported.
+        const auto composeItem = [](const QString &kind, const QString &reference) {
+            return QVariantMap{{QStringLiteral("kind"), kind}, {QStringLiteral("reference"), reference}, {QStringLiteral("library"), QString()}};
+        };
+        AITools::execute(context, QStringLiteral("workspace_compose"),
+            QVariantMap{
+                {QStringLiteral("template"), QStringLiteral("focus_references")},
+                {QStringLiteral("arrangement"), QStringLiteral("auto")},
+                {QStringLiteral("slots"), QVariantList{
+                    QVariantMap{{QStringLiteral("name"), QStringLiteral("Focus")}, {QStringLiteral("holds"), QVariantList{}}, {QStringLiteral("weight"), 0},
+                                {QStringLiteral("items"), QVariantList{composeItem(QStringLiteral("file"), QStringLiteral("notes.md"))}}},
+                    QVariantMap{{QStringLiteral("name"), QStringLiteral("References")}, {QStringLiteral("holds"), QVariantList{QStringLiteral("docs")}}, {QStringLiteral("weight"), 1},
+                                {QStringLiteral("items"), QVariantList{composeItem(QStringLiteral("file"), QStringLiteral("missing.md"))}}},
+                }},
+                {QStringLiteral("focus"), QString()},
+                {QStringLiteral("save_as"), QString()},
+            });
+        QCOMPARE(requests.last().value(QStringLiteral("action")).toString(), QStringLiteral("compose"));
+        QCOMPARE(requests.last().value(QStringLiteral("template")).toString(), QStringLiteral("focus_references"));
+        QVERIFY(requests.last().value(QStringLiteral("strategy")).toString().isEmpty());
+        const QVariantList composedSlots = requests.last().value(QStringLiteral("slots")).toList();
+        QCOMPARE(composedSlots.size(), 2);
+        QCOMPARE(composedSlots.first().toMap().value(QStringLiteral("items")).toList().size(), 1);
+        // The missing file goes along with its verdict; the workspace reports it.
+        QCOMPARE(composedSlots.last().toMap().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("lookup")).toString(), QStringLiteral("not_found"));
 
         // A preference lasts only when the message stated one.
         answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
@@ -470,6 +523,39 @@ private slots:
             code = error.code();
         }
         QVERIFY(!code.isEmpty());
+    }
+
+    // A damaged full-text index never fails a chat: search rebuilds it once.
+    void damagedSearchIndexIsRebuilt()
+    {
+        writeFile(QStringLiteral("lighthouse.md"), "The lighthouse keeper logs every ship.\n");
+        writeFile(QStringLiteral("harbor.md"), "Ships wait in the harbor for the lighthouse signal.\n");
+        LibraryFiles::scan(m_database, m_libraryId);
+
+        QVariantMap result = LibraryRetrieval::search(m_database, QStringLiteral("lighthouse"), m_libraryId, 5);
+        QCOMPARE(result.value(QStringLiteral("candidates")).toList().size(), 2);
+
+        // Scribble over the index's structure record, as a crash or a bad copy might.
+        m_database.exec(QStringLiteral("UPDATE library_chunk_search_data SET block = x'ffffffffffffffffffffffffffffffff'"));
+        QString damaged;
+        try {
+            static_cast<void>(m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar());
+        } catch (const CoreError &error) {
+            damaged = error.message();
+        }
+        QVERIFY2(damaged.contains(QStringLiteral("malformed")) || damaged.contains(QStringLiteral("corrupt")), qPrintable(damaged));
+
+        result = LibraryRetrieval::search(m_database, QStringLiteral("lighthouse"), m_libraryId, 5);
+        QCOMPARE(result.value(QStringLiteral("candidates")).toList().size(), 2);
+        QVERIFY(result.value(QStringLiteral("warnings")).toList().first().toString().contains(QStringLiteral("rebuilt")));
+
+        // New chunks keep reaching the rebuilt index through the triggers.
+        writeFile(QStringLiteral("keeper.md"), "A new lighthouse keeper arrives.\n");
+        LibraryFiles::scan(m_database, m_libraryId);
+        QCOMPARE(m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar().toInt(), 3);
+        result = LibraryRetrieval::search(m_database, QStringLiteral("lighthouse"), m_libraryId, 5);
+        QVERIFY(!result.value(QStringLiteral("candidates")).toList().isEmpty());
+        QVERIFY(result.value(QStringLiteral("warnings")).toList().isEmpty());
     }
 
     void approvesAndUndoesProposedEdits()

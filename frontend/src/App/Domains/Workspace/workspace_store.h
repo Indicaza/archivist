@@ -2,6 +2,7 @@
 
 #include "App/Domains/Workspace/keyed_list_model.h"
 #include "Core/Domains/Workspace/view_type_registry.h"
+#include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 #include "Core/Domains/Workspace/workspace_preferences.h"
@@ -58,14 +59,20 @@ class WorkspaceStore final : public QObject
     Q_PROPERTY(QVariantList savedLayouts READ savedLayouts NOTIFY layoutsChanged)
     Q_PROPERTY(QString currentLayoutId READ currentLayoutId NOTIFY layoutsChanged)
     Q_PROPERTY(QString currentLayoutName READ currentLayoutName NOTIFY layoutsChanged)
-    Q_PROPERTY(bool canUndoLayout READ canUndoLayout NOTIFY layoutsChanged)
+    Q_PROPERTY(bool canUndoLayout READ canUndoLayout NOTIFY historyChanged)
+    // One workspace history for layout switches, agent changes and put
+    // back (see "History" below).
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
+    Q_PROPERTY(QString undoSummary READ undoSummary NOTIFY historyChanged)
+    Q_PROPERTY(QString redoSummary READ redoSummary NOTIFY historyChanged)
     Q_PROPERTY(double minimumAnchorWidth READ minimumAnchorWidth WRITE setMinimumAnchorWidth NOTIFY metricsChanged)
     Q_PROPERTY(double minimumAnchorHeight READ minimumAnchorHeight WRITE setMinimumAnchorHeight NOTIFY metricsChanged)
     Q_PROPERTY(double splitterThickness READ splitterThickness WRITE setSplitterThickness NOTIFY metricsChanged)
     // An arrangement an agent prepared but didn't apply: {id, summary,
     // notes, createdAt} or {}.
     Q_PROPERTY(QVariantMap agentSuggestion READ agentSuggestion NOTIFY agentChanged)
-    Q_PROPERTY(bool canUndoAgentChange READ canUndoAgentChange NOTIFY agentChanged)
+    Q_PROPERTY(bool canUndoAgentChange READ canUndoAgentChange NOTIFY historyChanged)
     // While an agent's arrangement is in place: {since, changes, summary}.
     // Empty once the person keeps it or it is put back.
     Q_PROPERTY(QVariantMap temporaryArrangement READ temporaryArrangement NOTIFY agentChanged)
@@ -251,14 +258,14 @@ public:
     // ---- layouts ----------------------------------------------------------
     // Layouts arrange panels; they never open or close views. Presets are
     // built in; saved layouts are the user's own and shared by every
-    // Collection. Applying one can be undone (the arrangement before it is
-    // kept until the next layout change).
+    // Collection. Applying one is a step in the workspace history.
     Q_INVOKABLE bool applyPreset(const QString &presetId);
     Q_INVOKABLE bool applyLayout(const QString &layoutId);
     Q_INVOKABLE QString saveLayout(const QString &name);
     Q_INVOKABLE bool renameLayout(const QString &layoutId, const QString &name);
     Q_INVOKABLE bool deleteLayout(const QString &layoutId);
-    Q_INVOKABLE bool undoLayout();
+    // Same as undo() (kept for the layout notice).
+    Q_INVOKABLE bool undoLayout() { return undo(); }
     // Normalised panel rectangles for a thumbnail: [{x, y, width, height,
     // kind}] in 0..1, kind one of editor, terminal, chat, preview, diff, any.
     // "" previews the current arrangement.
@@ -266,7 +273,24 @@ public:
     [[nodiscard]] QVariantList savedLayouts() const;
     [[nodiscard]] QString currentLayoutId() const { return m_currentLayoutId; }
     [[nodiscard]] QString currentLayoutName() const;
-    [[nodiscard]] bool canUndoLayout() const { return !m_layoutUndo.isEmpty(); }
+    [[nodiscard]] bool canUndoLayout() const { return canUndo(); }
+
+    // ---- history ----------------------------------------------------------
+    // Every arrangement change made for the person (switching layouts, an
+    // agent's change, putting things back) is one step. Undo and redo walk
+    // the steps through Arrangements::restore, so they only move panels and
+    // tabs: views that still exist keep their state, unsaved documents and
+    // terminals are never closed, and resources are never touched. Undo
+    // closes the clean views a step opened; redo brings them back. Locked
+    // panels refuse a step that would move them. A new step clears redo.
+    // Dragging panels by hand is not recorded. Document edits have their
+    // own undo.
+    Q_INVOKABLE bool undo();
+    Q_INVOKABLE bool redo();
+    [[nodiscard]] bool canUndo() const { return !m_history.isEmpty(); }
+    [[nodiscard]] bool canRedo() const { return !m_redo.isEmpty(); }
+    [[nodiscard]] QString undoSummary() const { return m_history.isEmpty() ? QString() : m_history.last().summary; }
+    [[nodiscard]] QString redoSummary() const { return m_redo.isEmpty() ? QString() : m_redo.last().summary; }
 
     // ---- agents -----------------------------------------------------------
     // A workspace request from an agent tool (see workspace_intents.h and
@@ -287,10 +311,10 @@ public:
     Q_INVOKABLE QVariantMap runAgentRequest(const QVariantMap &request, bool foreground = true);
     Q_INVOKABLE bool applyAgentSuggestion();
     Q_INVOKABLE void dismissAgentSuggestion();
-    // Undoes the most recent agent change (layout only: never an edit).
+    // Same as undo() (kept for the agent notice).
     Q_INVOKABLE bool undoAgentChange();
     [[nodiscard]] QVariantMap agentSuggestion() const { return m_suggestion; }
-    [[nodiscard]] bool canUndoAgentChange() const { return !m_agentUndo.isEmpty(); }
+    [[nodiscard]] bool canUndoAgentChange() const { return canUndo(); }
 
     // Temporary arrangements. The first agent change remembers how the
     // workspace looked before it (per collection, across restarts, apart
@@ -341,6 +365,7 @@ signals:
     // take its stored geometry.
     void surfaceRecovered(const QString &surfaceId);
     void agentChanged();
+    void historyChanged();
     // An agent changed the layout; `summary` says what, in plain words.
     void agentArranged(const QString &summary);
     // An agent put an earlier arrangement back (nothing to undo).
@@ -376,6 +401,9 @@ private:
     Workspace::ViewTypeRegistry m_registry;
     Workspace::WorkspaceModel m_model;
     Workspace::LayoutMetrics m_metrics;
+    // The last arrangement an agent composed, for follow-ups ("give the
+    // images more room") that adjust it instead of starting over.
+    QVariantMap m_lastComposition;
     QString m_collectionId;
     int m_revision = 0;
     int m_publishedModelRevision = -1;
@@ -409,24 +437,42 @@ private:
     void setCurrentLayoutId(const QString &layoutId);
 
     // ---- agents (workspace_store_agent.cpp) ------------------------------
-    struct AgentStep
+    // One history step: the state to go back to (on the undo list) or
+    // forward to (on the redo list).
+    struct HistoryStep
     {
-        Workspace::WorkspaceModel::Data before;
-        QStringList opened; // views the agent opened in this step
+        Workspace::WorkspaceModel::Data state;
+        QStringList close;  // views this step opened: closed when going back (if clean)
+        QStringList reopen; // views this step closed: brought back when going back
         QString summary;
-        bool surfaceCollapsedBefore = false;
-        QString surfaceViewBefore;
-        bool surfaceTouched = false;
-        bool startedTask = false; // this step remembered the baseline
+        bool surfaceTouched = false; // the bottom panel changed too
+        bool surfaceCollapsed = false;
+        QString surfaceView;
+        QString layoutId;        // current layout at `state`
+        QJsonObject arrangement; // the temporary arrangement record at `state`
     };
+    // A step whose state is now (before a change).
+    [[nodiscard]] HistoryStep historyStep(const QString &summary) const;
+    void recordStep(HistoryStep step);
+    // Goes to `step`'s state; returns the step that comes back here.
+    bool restoreStep(const HistoryStep &step, HistoryStep *inverse, QString *code, QString *error);
+    bool undoSteps(qsizetype count, QString *code, QString *error);
+    bool redoStep(QString *code, QString *error);
+    [[nodiscard]] QJsonObject arrangementRecord() const;
+    void setArrangementRecord(const QJsonObject &record);
     [[nodiscard]] Workspace::Intents::Environment agentEnvironment(bool mayMoveFocus) const;
     [[nodiscard]] QVariantMap agentIntent(const QVariantMap &request, QVariantMap *failure) const;
+    [[nodiscard]] QVariantMap composeIntent(const QVariantMap &request, QVariantMap *failure) const;
+    [[nodiscard]] QVariantMap patchIntent(const Workspace::Compose::Spec &spec, QVariantMap *failure) const;
+    // Compact: each panel's name, position and what it shows.
+    [[nodiscard]] QVariantList panelsForAgent() const;
+    [[nodiscard]] QStringList openViewsNamed(const QString &reference, const QString &libraryId) const;
+    [[nodiscard]] QString verifyComposition(const Workspace::WorkspaceModel &model, const QVariantMap &intent, qsizetype viewsBefore, bool focusMoved) const;
     QVariantMap applyAgentIntent(const QVariantMap &intent, const QString &chatId, bool mayMoveFocus);
     QVariantMap suggestAgentIntent(const QVariantMap &intent, const QString &chatId, const QString &reason);
     QVariantMap restoreForAgent(const QVariantMap &request);
-    bool restoreAgentSteps(qsizetype count, QString *code, QString *error);
-    bool restoreTo(const Workspace::WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error);
-    void restoreCommandSurface(qsizetype firstStep);
+    bool restoreTo(const Workspace::WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error,
+                   const QStringList &reopen = {}, QStringList *closed = nullptr, QStringList *reopened = nullptr);
     [[nodiscard]] QSet<QString> closableAgentViews(const QStringList &opened) const;
     void logAgent(const QString &summary, const QString &status, const QString &chatId);
     void noteFocusHistory();
@@ -437,12 +483,16 @@ private:
     void forgetArrangement();
     bool restoreArrangement(QString *code, QString *error);
     QVariantMap preferenceForAgent(const QVariantMap &request);
+    QVariantMap layoutForAgent(const QVariantMap &request);
+    [[nodiscard]] QString layoutIdNamed(const QString &name) const;
+    [[nodiscard]] QVariantList layoutsForAgent() const;
     QVariantMap addPreference(Workspace::Preferences::Preference preference);
     void loadPreferences();
     void savePreferences();
     [[nodiscard]] Workspace::Preferences::Effects preferenceEffects() const;
 
-    QList<AgentStep> m_agentUndo;
+    QList<HistoryStep> m_history;
+    QList<HistoryStep> m_redo;
     QVariantMap m_suggestion;
     QVariantMap m_suggestionIntent;
     QVariantList m_agentLog;
@@ -460,8 +510,6 @@ private:
     QList<Workspace::Preferences::Preference> m_preferences;
 
     QString m_currentLayoutId;
-    QJsonObject m_layoutUndo;
-    QString m_layoutUndoId;
     QHash<QString, QRectF> m_lastViewRects;
     QHash<QString, QRectF> m_lastAnchorRects;
 };
