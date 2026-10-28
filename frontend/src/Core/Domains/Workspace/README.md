@@ -170,7 +170,22 @@ The layers, from the model up:
   and which view type shows a file. They match what the QML builds, so an
   agent and the person open the same view.
 - `workspace_placement`: where a new view goes (`chooseAnchor`) and whether a
-  view of that resource is already open (`existingView`).
+  view of that resource is already open (`existingView`). The same rules
+  serve the Explorer, commands and agents.
+  - Files go to a panel that can hold files: empty, already showing files,
+    or meant for them by its roles. Never into a chat or terminal panel
+    while another fits, and never into a panel bound to a different
+    worktree.
+  - Among those, the person's target panel wins, then the focused one, then
+    the panels they worked in most recently, then panels meant for the type
+    or bound to the file's worktree.
+  - Chats and terminals go to a panel meant for them, else one already
+    showing that type (in the same worktree when there's a choice).
+  - Content-locked panels are skipped unless nothing else exists.
+
+A new collection starts with one editor area. Chat and Terminal live in the
+bottom panel, so the default never shows a second copy of either; layouts
+with more panels are in the layout picker.
 - `workspace_intents`: `describe` and `perform`. Vague destinations ("the
   right", "beside the chat", "the docs panel", "this panel") resolve against
   names, contents and positions (`resolveArea`). `perform` works on a copy

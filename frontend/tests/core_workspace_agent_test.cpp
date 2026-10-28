@@ -6,6 +6,8 @@
 #include "Core/Domains/Workspace/workspace_codec.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
+#include "Core/Domains/Workspace/workspace_placement.h"
+#include "Core/Domains/Workspace/workspace_presets.h"
 #include "Core/Domains/Workspace/workspace_resources.h"
 
 #include <QJsonDocument>
@@ -51,6 +53,11 @@ QVariantMap fileItem(const QString &path, const QString &libraryId = QStringLite
         {QStringLiteral("resource"), resourceMap(resource)},
         {QStringLiteral("title"), path.section(QLatin1Char('/'), -1)},
     };
+}
+
+ResourceRef doc(const QString &path, const QString &libraryId = QStringLiteral("lib-main"))
+{
+    return Resources::document(QStringLiteral("col"), libraryId, fileRow(path));
 }
 
 ViewRecord viewOf(const QVariantMap &item)
@@ -329,7 +336,7 @@ private slots:
 
         outcome = Intents::perform(d.model, show({fileItem(QStringLiteral("z.cpp"))}, {}, {}, true), environment(true));
         QVERIFY(outcome.ok);
-        QCOMPARE(d.model.focusedAnchorId(), d.model.anchorOfView(outcome.opened.first()));
+        QCOMPARE(d.model.focusedAnchorId(), d.editors);
     }
 
     // 7. Files from different worktrees stay in their own worktree.
@@ -542,6 +549,78 @@ private slots:
         QCOMPARE(document.id, QStringLiteral("col:lib:f-src-a.cpp"));
         QCOMPARE(document.details.value(QStringLiteral("path")).toString(), QStringLiteral("src/a.cpp"));
     }
+    // ---- placement (phase B) ----------------------------------------------
+
+    void filesNeverLandInAChatPanel()
+    {
+        Desk d = desk();
+        d.model.focusAnchor(d.chat);
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Editor, doc("a.cpp")), d.editors);
+
+        // A target the person picked wins over focus.
+        const QString side = d.model.createAnchor(d.editors, Edge::Bottom).createdId;
+        d.model.setTargetAnchor(side);
+        d.model.focusAnchor(d.chat);
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Editor, doc("a.cpp")), side);
+    }
+
+    void filesFollowWhereThePersonWorked()
+    {
+        Desk d = desk();
+        const QString second = d.model.createAnchor(d.editors, Edge::Bottom).createdId;
+        d.model.openView(viewOf(fileItem(QStringLiteral("b.cpp"))), second);
+        d.model.focusAnchor(d.chat);
+
+        Placement::Hints hints;
+        hints.recentAnchors = {d.chat, second, d.editors};
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Editor, doc("c.cpp"), hints), second);
+        hints.recentAnchors = {d.chat, d.editors, second};
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Editor, doc("c.cpp"), hints), d.editors);
+    }
+
+    void filesRespectWorktreeBindings()
+    {
+        Desk d = desk();
+        d.model.setAnchorLibrary(d.editors, QStringLiteral("lib-main"));
+        const QString other = d.model.createAnchor(d.editors, Edge::Bottom).createdId;
+        d.model.setAnchorLibrary(other, QStringLiteral("lib-feature"));
+        d.model.focusAnchor(d.editors);
+
+        // A file from the feature worktree goes to that worktree's panel,
+        // even though the main panel has focus.
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Editor, doc("a.cpp", QStringLiteral("lib-feature"))), other);
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Editor, doc("a.cpp", QStringLiteral("lib-main"))), d.editors);
+        // Neither binding changed.
+        QCOMPARE(d.model.anchor(d.editors)->libraryId, QStringLiteral("lib-main"));
+        QCOMPARE(d.model.anchor(other)->libraryId, QStringLiteral("lib-feature"));
+    }
+
+    void filesUsePanelsMeantForThem()
+    {
+        WorkspaceModel model(counter());
+        QVERIFY(Codec::applyLayout(Presets::layout(QStringLiteral("research")), model).ok);
+        model.focusAnchor(QStringLiteral("research.chat"));
+        model.setTargetAnchor({});
+
+        QCOMPARE(Placement::chooseAnchor(model, ViewTypes::Preview, doc("paper.pdf")), QStringLiteral("research.sources"));
+        QCOMPARE(Placement::chooseAnchor(model, ViewTypes::Editor, doc("notes.cpp")), QStringLiteral("research.notes"));
+        QCOMPARE(Placement::chooseAnchor(model, ViewTypes::Terminal, Resources::terminal(QStringLiteral("col"), QStringLiteral("lib-main"), QStringLiteral("t"))), QStringLiteral("research.notes"));
+    }
+
+    void terminalsJoinTheirWorktreesTerminals()
+    {
+        Desk d = desk();
+        const QString mainTerms = d.model.createAnchor(d.editors, Edge::Bottom).createdId;
+        d.model.openView(terminalView(QStringLiteral("t1")), mainTerms);
+        const QString featureTerms = d.model.createAnchor(mainTerms, Edge::Right).createdId;
+        ViewRecord featureTerminal = terminalView(QStringLiteral("t2"));
+        featureTerminal.resource = Resources::terminal(QStringLiteral("col"), QStringLiteral("lib-feature"), QStringLiteral("t2"));
+        d.model.openView(featureTerminal, featureTerms);
+
+        const ResourceRef next = Resources::terminal(QStringLiteral("col"), QStringLiteral("lib-feature"), QStringLiteral("t3"));
+        QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Terminal, next), featureTerms);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(CoreWorkspaceAgentTest)
