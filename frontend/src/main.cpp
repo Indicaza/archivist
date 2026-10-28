@@ -11,6 +11,7 @@
 #include <qqml.h>
 
 #include "App/Domains/Agent/agent_store.h"
+#include "App/Domains/Chat/chat_draft_store.h"
 #include "App/Domains/Chat/chat_store.h"
 #include "App/Domains/Chat/chat_text_item.h"
 #include "App/Domains/Chat/chat_ui.h"
@@ -89,6 +90,8 @@ int main(int argc, char *argv[])
     LibraryStore libraryStore;
     MarkdownDocumentBridge markdownDocumentBridge;
     ChatStore chatStore;
+    // Unsent composer text, one draft per conversation.
+    ChatDraftStore chatDrafts;
     MessageBlockParser messageBlocks;
     ChatUi chatUi;
     RuntimeTraceStore runtimeTraceStore;
@@ -124,6 +127,9 @@ int main(int argc, char *argv[])
         qInfo().noquote() << "[Documents] Recovered unsaved edits in" << recoveredDocuments << "file(s)";
     }
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &unsavedRecovery, &UnsavedRecovery::flush);
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &chatDrafts, &ChatDraftStore::flush);
+    // A deleted conversation takes its unsent draft with it.
+    QObject::connect(&chatStore, &ChatStore::chatDeleted, &chatDrafts, &ChatDraftStore::clearDraft);
     InterfaceScale interfaceScale;
 
     QObject::connect(
@@ -202,6 +208,7 @@ int main(int argc, char *argv[])
         &markdownDocumentBridge
     );
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatStore", &chatStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatDrafts", &chatDrafts);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "MessageBlocks", &messageBlocks);
     qmlRegisterType<ChatTextItem>("Archivist.Services", 1, 0, "ChatText");
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "ChatUi", &chatUi);

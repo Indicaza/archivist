@@ -39,6 +39,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Agents/agent_schemas.h
     src/Core/Domains/Agents/context_compiler_catalog.cpp
     src/Core/Domains/Agents/context_compiler_catalog.h
+    src/Core/Domains/Chats/chat_drafts.cpp
+    src/Core/Domains/Chats/chat_drafts.h
     src/Core/Domains/Chats/chat_repository.cpp
     src/Core/Domains/Chats/chat_repository.h
     src/Core/Domains/AI/ai_run_repository.cpp
@@ -202,6 +204,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Chat/chat_text_item.h
     src/App/Domains/Chat/chat_text_layout.cpp
     src/App/Domains/Chat/chat_text_layout.h
+    src/App/Domains/Chat/chat_draft_store.cpp
+    src/App/Domains/Chat/chat_draft_store.h
     src/App/Domains/Chat/chat_store.cpp
     src/App/Domains/Chat/chat_store.h
     src/App/Domains/Chat/chat_syntax.cpp
@@ -440,6 +444,15 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-chats-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-chats-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-chats-test COMMAND core-chats-test)
+    qt_add_executable(core-chat-drafts-test
+        tests/core_chat_drafts_test.cpp
+        src/App/Domains/Chat/chat_draft_store.cpp
+        src/App/Domains/Chat/chat_draft_store.h
+    )
+    target_include_directories(core-chat-drafts-test PRIVATE src)
+    target_link_libraries(core-chat-drafts-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-chat-drafts-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-chat-drafts-test COMMAND core-chat-drafts-test)
 
     qt_add_executable(core-ai-test tests/core_ai_test.cpp)
     target_link_libraries(core-ai-test PRIVATE archivist-core Qt6::Test)
