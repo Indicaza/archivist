@@ -3,6 +3,7 @@
 #include "Core/Domains/AI/context_compilers.h"
 #include "Core/Domains/AI/edit_proposals.h"
 #include "Core/Domains/AI/edit_transactions.h"
+#include "Core/Domains/AI/library_retrieval.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Agents/agent_defaults.h"
 #include "Core/Domains/Chats/chat_repository.h"
@@ -470,6 +471,39 @@ private slots:
             code = error.code();
         }
         QVERIFY(!code.isEmpty());
+    }
+
+    // A damaged full-text index never fails a chat: search rebuilds it once.
+    void damagedSearchIndexIsRebuilt()
+    {
+        writeFile(QStringLiteral("lighthouse.md"), "The lighthouse keeper logs every ship.\n");
+        writeFile(QStringLiteral("harbor.md"), "Ships wait in the harbor for the lighthouse signal.\n");
+        LibraryFiles::scan(m_database, m_libraryId);
+
+        QVariantMap result = LibraryRetrieval::search(m_database, QStringLiteral("lighthouse"), m_libraryId, 5);
+        QCOMPARE(result.value(QStringLiteral("candidates")).toList().size(), 2);
+
+        // Scribble over the index's structure record, as a crash or a bad copy might.
+        m_database.exec(QStringLiteral("UPDATE library_chunk_search_data SET block = x'ffffffffffffffffffffffffffffffff'"));
+        QString damaged;
+        try {
+            m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar();
+        } catch (const CoreError &error) {
+            damaged = error.message();
+        }
+        QVERIFY2(damaged.contains(QStringLiteral("malformed")) || damaged.contains(QStringLiteral("corrupt")), qPrintable(damaged));
+
+        result = LibraryRetrieval::search(m_database, QStringLiteral("lighthouse"), m_libraryId, 5);
+        QCOMPARE(result.value(QStringLiteral("candidates")).toList().size(), 2);
+        QVERIFY(result.value(QStringLiteral("warnings")).toList().first().toString().contains(QStringLiteral("rebuilt")));
+
+        // New chunks keep reaching the rebuilt index through the triggers.
+        writeFile(QStringLiteral("keeper.md"), "A new lighthouse keeper arrives.\n");
+        LibraryFiles::scan(m_database, m_libraryId);
+        QCOMPARE(m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar().toInt(), 3);
+        result = LibraryRetrieval::search(m_database, QStringLiteral("lighthouse"), m_libraryId, 5);
+        QVERIFY(!result.value(QStringLiteral("candidates")).toList().isEmpty());
+        QVERIFY(result.value(QStringLiteral("warnings")).toList().isEmpty());
     }
 
     void approvesAndUndoesProposedEdits()

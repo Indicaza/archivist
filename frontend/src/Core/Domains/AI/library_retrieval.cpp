@@ -1,6 +1,7 @@
 #include "library_retrieval.h"
 
 #include "Core/Support/js_compat.h"
+#include "Core/core_error.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -427,7 +428,8 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
     }
 
     const int candidateLimit = std::min(maximumLimit, std::max(minimumCandidatePool, clampedLimit * candidateMultiplier));
-    const auto rows = database
+    const auto runQuery = [&]() {
+        return database
         .prepare(QStringLiteral(
             "SELECT library_chunk_search.chunk_id AS chunkId, library_chunk_search.library_id AS libraryId, "
             "library_chunk_search.library_file_id AS fileId, library_files.relative_path AS relativePath, "
@@ -449,6 +451,29 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
         .bind(2, libraryId)
         .bind(3, candidateLimit)
         .all();
+    };
+
+    // Search is an aid, never a reason for a chat to fail. A damaged index
+    // is rebuilt once from the chunks it was made from.
+    QList<QVariantMap> rows;
+    QVariantList repairWarnings;
+    try {
+        rows = runQuery();
+    } catch (const CoreError &error) {
+        const QString message = error.message();
+        const bool damaged = message.contains(QStringLiteral("malformed"), Qt::CaseInsensitive)
+            || message.contains(QStringLiteral("corrupt"), Qt::CaseInsensitive);
+        if (!damaged || database.inTransaction()) {
+            return finish({QStringLiteral("Library text search failed, so this answer has no search results: ") + message});
+        }
+        try {
+            repairSearchIndex(database);
+            rows = runQuery();
+            repairWarnings.append(QStringLiteral("The Library search index was damaged and has been rebuilt."));
+        } catch (const CoreError &again) {
+            return finish({QStringLiteral("The Library search index is damaged and couldn't be rebuilt: ") + again.message()});
+        }
+    }
 
     QList<Row> parsed;
 
@@ -471,6 +496,27 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
     }
 
     result.insert(QStringLiteral("candidates"), candidates);
-    return finish(rows.isEmpty() ? QVariantList{QStringLiteral("No indexed Library text matched the search query.")} : QVariantList());
+    if (rows.isEmpty()) {
+        repairWarnings.append(QStringLiteral("No indexed Library text matched the search query."));
+    }
+    return finish(repairWarnings);
+}
+
+void repairSearchIndex(CoreDatabase &database)
+{
+    database.transaction([&database]() {
+        database.exec(QStringLiteral("DROP TABLE IF EXISTS library_chunk_search"));
+        database.exec(QStringLiteral(
+            "CREATE VIRTUAL TABLE library_chunk_search USING fts5("
+            "chunk_id UNINDEXED, library_id UNINDEXED, library_file_id UNINDEXED, "
+            "relative_path, file_name, content, tokenize = 'unicode61')"
+        ));
+        database.exec(QStringLiteral(
+            "INSERT INTO library_chunk_search (chunk_id, library_id, library_file_id, relative_path, file_name, content) "
+            "SELECT library_chunks.id, library_chunks.library_id, library_chunks.library_file_id, "
+            "library_files.relative_path, library_files.name, library_chunks.content "
+            "FROM library_chunks INNER JOIN library_files ON library_files.id = library_chunks.library_file_id"
+        ));
+    });
 }
 }
