@@ -19,5 +19,5 @@ cmake \
   -DARCHIVIST_BUILD_TESTS=ON \
   ${QT_PREFIX:+-DCMAKE_PREFIX_PATH="$QT_PREFIX"}
 
-cmake --build "$BUILD_DIR" --target chat-message-model-test message-block-parser-test core-database-test core-collections-test core-agents-test core-libraries-test core-library-files-test core-library-file-operations-test core-chats-test core-chat-drafts-test core-ai-test core-ai-runtime-test core-code-themes-test core-worktrees-test core-ide-test core-workspace-test core-document-buffers-test workspace-store-test core-shell-test
+cmake --build "$BUILD_DIR" --target chat-message-model-test message-block-parser-test core-database-test core-collections-test core-agents-test core-libraries-test core-library-files-test core-library-file-operations-test core-chats-test core-chat-drafts-test core-ai-test core-ai-runtime-test core-code-themes-test core-worktrees-test core-ide-test core-workspace-test core-document-buffers-test workspace-store-test core-shell-test core-home-test
 ctest --test-dir "$BUILD_DIR" --output-on-failure

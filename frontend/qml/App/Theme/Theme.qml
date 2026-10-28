@@ -373,6 +373,32 @@ QtObject {
     readonly property real chatSpringMassTool: 1.7
     readonly property int chatToolStagger: 40
 
+    // Home: the personal layer above every project. Warm paper-dark tones
+    // stepped up from the workspace so Home reads as its own place without
+    // a different palette.
+    readonly property color homeCanvasTop: "#1c1a16"
+    readonly property color homeCanvasBottom: "#141310"
+    readonly property color homeGlow: "#0fd9c9a8"
+    readonly property color homeCardBg: "#1e1c18"
+    readonly property color homeCardHoverBg: "#23211c"
+    readonly property color homeCardBorder: "#2c2924"
+    readonly property color homeCardBorderHover: "#3e3a32"
+    readonly property color homeHairline: "#26231f"
+    readonly property color homeEyebrow: "#8d8679"
+    readonly property color homeComposerBg: "#211f1b"
+    readonly property color homeComposerFocusBorder: "#5a5068"
+    readonly property color homeSendBg: "#ebe5d9"
+    readonly property color homeSendHoverBg: "#f8f3ea"
+    readonly property color homeSendPressedBg: "#d2cbbd"
+    readonly property color homeShadow: "#66000000"
+    readonly property int homeComposerRadius: 20
+    readonly property int homeCardRadius: 14
+    readonly property int homeContentWidth: px(1040)
+    readonly property int homeComposerWidth: px(720)
+    readonly property int typeEyebrow: px(11)
+    readonly property real textTrackingEyebrow: 1.1
+    readonly property int motionDive: 280
+
     readonly property int radiusSmall: 6
     readonly property int radiusMedium: 10
     readonly property int radiusLarge: 14

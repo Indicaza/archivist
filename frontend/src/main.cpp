@@ -20,6 +20,7 @@
 #include "App/Domains/Files/markdown_document_bridge.h"
 #include "App/Domains/Files/document_preview_service.h"
 #include "App/Domains/Library/library_store.h"
+#include "App/Domains/Home/home_store.h"
 #include "App/Domains/Shell/shell_store.h"
 #include "App/Domains/Worktree/worktree_store.h"
 #include "App/Domains/Documents/document_store.h"
@@ -107,6 +108,7 @@ int main(int argc, char *argv[])
     WorkspaceStore dockingStore;
     // Home or the workspace, the rail, recent items and the Home draft.
     ShellStore shellStore;
+    HomeStore homeStore;
     documentStore.setSaver([&libraryStore](const QString &libraryId, const QString &fileId, const QString &text, const QString &expectedModifiedAt) {
         libraryStore.saveDocumentContent(libraryId, fileId, text, expectedModifiedAt);
     });
@@ -236,6 +238,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "InterfaceScale", &interfaceScale);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Docking", &dockingStore);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Shell", &shellStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "HomeStore", &homeStore);
 
     QQmlApplicationEngine engine;
 

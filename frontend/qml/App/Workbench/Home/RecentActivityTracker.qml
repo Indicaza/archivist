@@ -2,12 +2,49 @@ import QtQml
 import Archivist.Services 1.0
 
 // Notes what the person opens (conversations, files, projects) in
-// Shell's recent items. References only: titles and where things live,
-// never their content.
+// Shell's recent items, and what finishes (replies) in Home's activity.
+// References only: titles and where things live, never their content.
 QtObject {
     id: root
 
     property string lastFocusedViewId: ""
+    // The reply being watched: which conversation, and whether the person
+    // stopped it (a stopped reply isn't news).
+    property var runChat: null
+    property string runCollectionId: ""
+    property bool runCancelled: false
+
+    function noteRunStarted() {
+        var chat = ChatStore.selectedChat || ({})
+        root.runChat = String(chat.id || "").length > 0 ? chat : null
+        root.runCollectionId = String(CollectionStore.selectedCollectionId || "")
+        root.runCancelled = false
+    }
+
+    function noteRunFinished() {
+        var chat = root.runChat
+        root.runChat = null
+        if (!chat || root.runCancelled) {
+            return
+        }
+        var failed = String(ChatStore.errorMessage || "").length > 0
+        // Seen as it happened (the conversation in front, not Home):
+        // keep it in the list, already read.
+        var watching = !Shell.homeActive && String(ChatStore.selectedChatId) === String(chat.id)
+        HomeStore.noteActivity({
+            kind: failed ? "reply.failed" : "reply.finished",
+            key: "reply:" + String(chat.id),
+            title: failed ? "Reply didn't finish" : "Reply ready",
+            detail: String(chat.title || "Untitled conversation"),
+            unread: !watching,
+            target: {
+                kind: "chat",
+                id: String(chat.id),
+                collectionId: root.runCollectionId,
+                libraryId: String(chat.libraryId || "")
+            }
+        })
+    }
 
     function projectLabel(collection) {
         return collection ? String(collection.name || collection.path || "") : ""
@@ -82,6 +119,20 @@ QtObject {
 
         function onSelectedChatChanged() {
             root.noteChat()
+        }
+
+        function onRespondingChanged() {
+            if (ChatStore.responding) {
+                root.noteRunStarted()
+            } else {
+                root.noteRunFinished()
+            }
+        }
+
+        function onActiveRunChanged() {
+            if (ChatStore.cancellingRun) {
+                root.runCancelled = true
+            }
         }
     }
 

@@ -2,6 +2,7 @@ import QtQuick
 import Archivist.Services 1.0
 import "ActivityRail"
 import "ExplorerDock"
+import "SidePanelResizeHandle"
 import "StatusBar"
 import "../Workspace"
 import "../Dock"
@@ -26,7 +27,7 @@ Rectangle {
     property string pendingChatId: ""
     property var pendingDocument: null
     property bool dockAttached: true
-    property bool resizingExplorer: false
+    readonly property bool resizingExplorer: explorerResizeHandle.resizing
     property bool resizingDock: false
     property real explorerWidth: theme.explorerDefaultWidth
     property real dockHeight: theme.chatDockDefaultHeight
@@ -48,6 +49,22 @@ Rectangle {
         Math.max(theme.explorerMinWidth, explorerWidth)
     )
     property real explorerExtent: explorerOpen ? clampedExplorerWidth : 0
+    // Home's sidebar is a side panel like the Explorer: same slot, same
+    // edge to drag. Its width and whether it's open are one setting for
+    // every project. While the Explorer is open it keeps its width, so
+    // going Home swaps one panel for the other in place; otherwise it
+    // slides out of the rail like any panel.
+    property bool homeSidebarOpen: String(WorkspaceState.value("shell/homeSidebarOpen", "true")) !== "false"
+    property real homeSidebarWidth: Number(WorkspaceState.value("shell/homeSidebarWidth", theme.explorerDefaultWidth))
+        || theme.explorerDefaultWidth
+    readonly property bool resizingHomeSidebar: homeSidebarResizeHandle.resizing
+    readonly property real clampedHomeSidebarWidth: Math.min(
+        maximumExplorerWidth,
+        Math.max(theme.explorerMinWidth, homeSidebarWidth)
+    )
+    property real homeSidebarExtent: homeSidebarOpen && (Shell.homeActive || explorerOpen)
+        ? clampedHomeSidebarWidth
+        : 0
     readonly property real maximumDockHeight: Math.max(
         theme.chatDockMinHeight,
         height - theme.statusBarHeight - theme.workspaceMinHeight
@@ -100,6 +117,20 @@ Rectangle {
         NumberAnimation {
             duration: root.theme.motionPanel
             easing.type: Easing.OutCubic
+        }
+    }
+
+    Behavior on homeSidebarExtent {
+        enabled: !root.resizingHomeSidebar
+        NumberAnimation {
+            duration: root.theme.motionPanel
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    onResizingHomeSidebarChanged: {
+        if (!resizingHomeSidebar) {
+            WorkspaceState.setValue("shell/homeSidebarWidth", String(Math.round(homeSidebarWidth)))
         }
     }
 
@@ -289,6 +320,26 @@ Rectangle {
         dockHeight = theme.chatDockDefaultHeight
     }
 
+    function setHomeSidebarOpen(open) {
+        homeSidebarOpen = open
+        WorkspaceState.setValue("shell/homeSidebarOpen", open ? "true" : "false")
+    }
+
+    function resetHomeSidebarWidth() {
+        homeSidebarWidth = theme.explorerDefaultWidth
+        WorkspaceState.setValue("shell/homeSidebarWidth", String(homeSidebarWidth))
+    }
+
+    function resizeHomeSidebarTo(pointerX) {
+        homeSidebarWidth = Math.min(
+            maximumExplorerWidth,
+            Math.max(
+                theme.explorerMinWidth,
+                pointerX - theme.activityRailWidth
+            )
+        )
+    }
+
     function resizeExplorerTo(pointerX) {
         explorerWidth = Math.min(
             maximumExplorerWidth,
@@ -400,7 +451,7 @@ Rectangle {
         })
     }
 
-    function startConversationFromHome(text, libraryId) {
+    function startConversationFromHome(text, libraryId, agentId) {
         if (root.homeSending || String(libraryId || "").length === 0) {
             return
         }
@@ -410,7 +461,7 @@ Rectangle {
         root.homeSending = true
         ChatStore.startChat(
             libraryId,
-            String(CollectionStore.scope.defaultAgentId || ""),
+            String(agentId || CollectionStore.scope.defaultAgentId || ""),
             text
         )
         // Refused before it started (another write in flight): keep the draft.
@@ -516,6 +567,15 @@ Rectangle {
             root.pendingDocument = null
             root.openDocument(item)
         }
+    }
+
+    // A layout chosen on Home: back to the project, presented that way.
+    function applyLayoutFromHome(layoutId) {
+        if (!CollectionStore.selectedCollectionId) {
+            return
+        }
+        Shell.returnToWorkspace()
+        Docking.applyLayout(String(layoutId))
     }
 
     function addFolderFromHome() {
@@ -647,12 +707,17 @@ Rectangle {
         theme: root.theme
         sending: root.homeSending
         visible: root.homeReveal > 0
-        opacity: root.homeReveal
+        reveal: root.homeReveal
+        leftInset: root.homeSidebarExtent
+        sidebarShown: root.homeSidebarOpen
         enabled: Shell.homeActive
         z: 40
 
-        onStartConversationRequested: function(text, libraryId) {
-            root.startConversationFromHome(text, libraryId)
+        onStartConversationRequested: function(text, libraryId, agentId) {
+            root.startConversationFromHome(text, libraryId, agentId)
+        }
+        onLayoutRequested: function(layoutId) {
+            root.applyLayoutFromHome(layoutId)
         }
         onChatRequested: function(chat, collectionId) {
             root.openChatFromHome(chat, collectionId)
@@ -666,6 +731,61 @@ Rectangle {
         onAddFolderRequested: root.addFolderFromHome()
         onSetupProjectRequested: root.setupProjectFromHome()
         onBackRequested: Shell.returnToWorkspace()
+        onSidebarRequested: function(allProjects) {
+            root.setHomeSidebarOpen(true)
+            if (allProjects) {
+                homeSidebar.allProjects = true
+            }
+        }
+    }
+
+    HomeSidebar {
+        id: homeSidebar
+
+        x: root.theme.activityRailWidth
+        y: 0
+        width: root.homeSidebarExtent
+        height: parent.height - statusBar.height
+        visible: width > 0.5 && root.homeReveal > 0
+        opacity: root.homeReveal
+        enabled: Shell.homeActive
+        clip: true
+        theme: root.theme
+        home: homeView
+        z: 45
+
+        onNewChatRequested: {
+            Shell.homeDraft = ""
+            homeView.focusComposer()
+        }
+        onChatRequested: function(chat, collectionId) {
+            root.openChatFromHome(chat, collectionId)
+        }
+        onProjectRequested: function(collectionId) {
+            homeView.diveCollectionId = collectionId
+            root.openProjectFromHome(collectionId)
+        }
+        onPinOpenRequested: function(pin) {
+            homeView.openLink(pin)
+        }
+        onSetupProjectRequested: root.setupProjectFromHome()
+        onCloseRequested: root.setHomeSidebarOpen(false)
+    }
+
+    SidePanelResizeHandle {
+        id: homeSidebarResizeHandle
+
+        x: root.theme.activityRailWidth + root.homeSidebarExtent - width / 2
+        y: 0
+        height: parent.height - statusBar.height
+        visible: Shell.homeActive && root.homeSidebarOpen
+        theme: root.theme
+        coordinateItem: root
+        z: 46
+        onResizeRequested: function(pointerX) {
+            root.resizeHomeSidebarTo(pointerX)
+        }
+        onResetRequested: root.resetHomeSidebarWidth()
     }
 
     ExplorerDock {
@@ -687,51 +807,20 @@ Rectangle {
         }
     }
 
-    Item {
+    SidePanelResizeHandle {
         id: explorerResizeHandle
 
         x: root.explorerRight - width / 2
         y: 0
-        width: root.theme.resizeHandleThickness
         height: parent.height - statusBar.height
         visible: root.explorerOpen && !root.workspaceHidden
+        theme: root.theme
+        coordinateItem: root
         z: 25
-
-        Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: explorerResizeArea.containsMouse || explorerResizeArea.pressed ? 2 : 1
-            height: parent.height
-            color: explorerResizeArea.containsMouse || explorerResizeArea.pressed
-                ? root.theme.accent
-                : root.theme.panelBorder
-            opacity: explorerResizeArea.containsMouse || explorerResizeArea.pressed
-                ? 0.9
-                : 0.52
-
-            Behavior on color {
-                ColorAnimation { duration: root.theme.motionFast }
-            }
+        onResizeRequested: function(pointerX) {
+            root.resizeExplorerTo(pointerX)
         }
-
-        MouseArea {
-            id: explorerResizeArea
-
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.SplitHCursor
-            onPressed: root.resizingExplorer = true
-            onReleased: root.resizingExplorer = false
-            onCanceled: root.resizingExplorer = false
-            onPositionChanged: function(mouse) {
-                if (!pressed) {
-                    return
-                }
-
-                const point = mapToItem(root, mouse.x, mouse.y)
-                root.resizeExplorerTo(point.x)
-            }
-            onDoubleClicked: root.resetExplorerWidth()
-        }
+        onResetRequested: root.resetExplorerWidth()
     }
 
     WorkbenchDock {
@@ -853,6 +942,9 @@ Rectangle {
         x: parent.width - width - 9
         y: Math.max(18, (parent.height - statusBar.height - height) / 2)
         theme: root.theme
+        // Part of the workspace: it steps aside with it for Home.
+        visible: root.homeReveal < 1
+        opacity: 1 - root.homeReveal
         z: 60
     }
 
