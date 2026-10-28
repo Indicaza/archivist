@@ -13,6 +13,13 @@
 // Native port of backend/src/core/tools: the tool registry, the executor that
 // records ai_tool_executions and emits tool.* events, the six read-only
 // Library tools and the five proposal-only edit tools.
+//
+// The workspace_* tools let an agent show and arrange things in the
+// workspace through a few semantic actions (Core/Domains/Workspace/
+// workspace_intents.h). They run on the AI thread and reach the workspace
+// through Workspace::Gateway, which applies them on the UI thread under the
+// same locks a person meets, or stages them as a suggestion when the agent
+// is working in the background.
 namespace AITools
 {
 // AIToolError: code is one of tool_not_found, invalid_input,
@@ -48,6 +55,11 @@ struct Context
     std::function<bool()> cancelled;
     // Appends a run event (tool.*, edit.proposed).
     std::function<void(const QString &eventType, const QVariantMap &payload)> emitEvent;
+    // The person's message asked for a workspace change in this turn.
+    bool workspaceExplicit = false;
+    // Reaches the workspace (see Workspace::Gateway). Empty: the installed
+    // gateway handler.
+    std::function<QVariantMap(const QVariantMap &request)> workspace;
 };
 
 struct Availability
@@ -56,11 +68,14 @@ struct Availability
     bool fullFileRead = true;
     bool verification = true;
     bool mutationProposals = false;
+    // workspace_* tools: see, open, arrange and restore the workspace.
+    bool workspace = false;
 };
 
 // listModelAvailableAITools: [{name, description, parameters}], sorted by id.
 [[nodiscard]] QVariantList providerTools(const Availability &availability);
 [[nodiscard]] bool isMutationProposalTool(const QString &toolId);
+[[nodiscard]] bool isWorkspaceTool(const QString &toolId);
 [[nodiscard]] QStringList toolIds();
 
 // AIToolExecutor.execute. Returns the stored execution {id, runId, toolId,
