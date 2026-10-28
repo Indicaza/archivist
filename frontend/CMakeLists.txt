@@ -39,6 +39,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Agents/agent_schemas.h
     src/Core/Domains/Agents/context_compiler_catalog.cpp
     src/Core/Domains/Agents/context_compiler_catalog.h
+    src/Core/Domains/Composer/composer_state.cpp
+    src/Core/Domains/Composer/composer_state.h
     src/Core/Domains/Chats/chat_drafts.cpp
     src/Core/Domains/Chats/chat_drafts.h
     src/Core/Domains/Chats/chat_repository.cpp
@@ -243,6 +245,7 @@ qt_add_executable(archivist-qt
     src/App/Domains/Workspace/workspace_store.cpp
     src/App/Domains/Workspace/workspace_store.h
     src/App/Domains/Workspace/workspace_store_agent.cpp
+    src/App/Domains/Workspace/workspace_store_composer.cpp
     src/App/Domains/Workspace/workspace_agent_bridge.cpp
     src/App/Domains/Workspace/workspace_agent_bridge.h
     src/App/Services/runtime_trace_store.cpp
@@ -486,6 +489,10 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-chat-drafts-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-chat-drafts-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-chat-drafts-test COMMAND core-chat-drafts-test)
+    qt_add_executable(core-composer-test tests/core_composer_test.cpp)
+    target_link_libraries(core-composer-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-composer-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-composer-test COMMAND core-composer-test)
 
     qt_add_executable(core-ai-test tests/core_ai_test.cpp)
     target_link_libraries(core-ai-test PRIVATE archivist-core Qt6::Test)
@@ -561,6 +568,7 @@ if(ARCHIVIST_BUILD_TESTS)
         src/App/Domains/Workspace/workspace_store.cpp
         src/App/Domains/Workspace/workspace_store.h
         src/App/Domains/Workspace/workspace_store_agent.cpp
+        src/App/Domains/Workspace/workspace_store_composer.cpp
         src/App/Domains/Workspace/workspace_agent_bridge.cpp
         src/App/Domains/Workspace/workspace_agent_bridge.h
     )

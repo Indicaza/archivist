@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/Domains/Workspace/keyed_list_model.h"
+#include "Core/Domains/Composer/composer_state.h"
 #include "Core/Domains/Workspace/view_type_registry.h"
 #include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
@@ -82,6 +83,12 @@ class WorkspaceStore final : public QObject
     // The bottom Chat/Terminal workbench as the shell reports it:
     // {collapsed, view}.
     Q_PROPERTY(QVariantMap commandSurface READ commandSurface NOTIFY commandSurfaceChanged)
+    // The composer's presentation for this project (workspace_store_composer):
+    // {mode, placement, beforeFloating, conversationModes, spaceDefault}.
+    // Mode and placement are separate; drafts and messages live elsewhere.
+    Q_PROPERTY(QVariantMap composer READ composer NOTIFY composerChanged)
+    Q_PROPERTY(QVariantList composerModes READ composerModes NOTIFY composerModesChanged)
+    Q_PROPERTY(QVariantList composerCommands READ composerCommands CONSTANT)
 
 public:
     explicit WorkspaceStore(QObject *parent = nullptr);
@@ -346,6 +353,31 @@ public:
     [[nodiscard]] bool userBusy() const;
     void setClockForTesting(std::function<qint64()> clock) { m_clock = std::move(clock); }
     Q_INVOKABLE void setCommandSurfaceState(bool collapsed, const QString &view);
+
+    // ---- composer (workspace_store_composer.cpp) ---------------------------
+    [[nodiscard]] QVariantMap composer() const;
+    [[nodiscard]] QVariantList composerModes() const { return m_composerModes.toVariant(); }
+    [[nodiscard]] QVariantList composerCommands() const { return Composer::commandsVariant(); }
+    // The mode in effect for `chatId`: its pin, else this project's choice,
+    // else the space default.
+    [[nodiscard]] Q_INVOKABLE QString composerMode(const QString &chatId) const;
+    // Where the composer shows in `mode`: {kind, anchorId?, x/y/width/height?}.
+    [[nodiscard]] Q_INVOKABLE QVariantMap composerPlacement(const QString &mode) const;
+    [[nodiscard]] Q_INVOKABLE bool composerModeAllows(const QString &mode, const QString &placement) const;
+    Q_INVOKABLE bool setComposerMode(const QString &mode);
+    Q_INVOKABLE bool setConversationComposerMode(const QString &chatId, const QString &mode);
+    Q_INVOKABLE void forgetComposerConversation(const QString &chatId);
+    Q_INVOKABLE bool setComposerSpaceDefault(const QString &mode);
+    // Placement changes are workspace history steps (undo puts it back).
+    Q_INVOKABLE bool dockComposer(const QString &anchorId);
+    Q_INVOKABLE bool moveComposerToBottom();
+    Q_INVOKABLE bool floatComposer(double x, double y, double width, double height);
+    Q_INVOKABLE bool returnComposerFromFloating();
+    Q_INVOKABLE bool restoreComposer();
+    // Whether `anchorId` holds a chat view the composer can dock under.
+    [[nodiscard]] Q_INVOKABLE bool anchorShowsChat(const QString &anchorId) const;
+    // Plugins: another way for the composer to present itself.
+    bool registerComposerMode(const Composer::Mode &mode, QString *error = nullptr);
     [[nodiscard]] QVariantMap commandSurface() const;
     // What agents see of the workspace (workspace_view).
     [[nodiscard]] Q_INVOKABLE QVariantMap describeForAgent() const;
@@ -380,6 +412,8 @@ signals:
     // ("chat" or "terminal").
     void commandSurfaceRequested(const QString &view, bool open);
     void commandSurfaceChanged();
+    void composerChanged();
+    void composerModesChanged();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -456,6 +490,8 @@ private:
         QString surfaceView;
         QString layoutId;        // current layout at `state`
         QJsonObject arrangement; // the temporary arrangement record at `state`
+        bool composerTouched = false; // the composer moved too
+        QVariantMap composer;         // its state at `state`
     };
     // A step whose state is now (before a change).
     [[nodiscard]] HistoryStep historyStep(const QString &summary) const;
@@ -496,6 +532,20 @@ private:
     void loadPreferences();
     void savePreferences();
     [[nodiscard]] Workspace::Preferences::Effects preferenceEffects() const;
+
+    // ---- composer (workspace_store_composer.cpp) ---------------------------
+    [[nodiscard]] QString composerKey(const QString &collectionId) const;
+    [[nodiscard]] Composer::Environment composerEnvironment() const;
+    void loadComposer();
+    void saveComposer();
+    void setComposerState(const Composer::State &state);
+    // Records an undo step, then applies `change`; false when nothing changed.
+    bool changeComposerPlacement(const QString &summary, const std::function<bool(Composer::State &)> &change);
+    void normalizeComposer();
+
+    Composer::ModeRegistry m_composerModes;
+    Composer::State m_composer;
+    QString m_composerSpaceDefault = Composer::Modes::Compact;
 
     QList<HistoryStep> m_history;
     QList<HistoryStep> m_redo;

@@ -410,6 +410,8 @@ void WorkspaceStore::publish()
 
     if (modelChanged) {
         scheduleSave();
+        // An anchor the composer was docked in may be gone.
+        normalizeComposer();
     }
 }
 
@@ -633,6 +635,7 @@ void WorkspaceStore::setCollection(const QString &collectionId)
     m_history.clear();
     m_redo.clear();
     loadArrangement();
+    loadComposer();
     m_suggestion.clear();
     m_suggestionIntent.clear();
     m_recentAnchors.clear();

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../../Files/FileIdentity.js" as FileIdentity
+import "../../../Icons"
 
 // The message composer: a raised card with a focus ring in the agent's hue,
 // the agent chip, attached sources, and the Send button that turns into Stop
@@ -688,12 +689,13 @@ Item {
                                     }
                                 }
 
-                                Text {
+                                // The same Send icon as Home and the compact
+                                // composer.
+                                AppIcon {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: "↑"
-                                    color: sendButton.ready ? root.hueBright : root.theme.mutedText
-                                    font.pixelSize: root.theme.typeSize(12)
-                                    font.weight: Font.Bold
+                                    name: "send"
+                                    tone: sendButton.ready ? "accent" : "muted"
+                                    iconSize: 12
                                 }
 
                                 Text {

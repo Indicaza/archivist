@@ -1654,6 +1654,123 @@ private slots:
         QCOMPARE(agentViews(store), QStringList({mine}));
     }
 
+    // The composer can dock into an anchor that shows a chat, the move is
+    // an undo step, and it falls back to the bottom when that anchor goes.
+    void composerDocksUndoesAndFallsBack()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("composer-dock"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString editor = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString chat = store.openView(QStringLiteral("archivist.chat"), {{"kind", "chat"}, {"id", "c1"}}, "Chat");
+        const QString chatAnchor = store.view(chat).value("anchorId").toString();
+        const QString editorAnchor = store.view(editor).value("anchorId").toString();
+        QVERIFY(!chatAnchor.isEmpty());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("kind").toString(), QStringLiteral("bottom"));
+
+        QSignalSpy changed(&store, &WorkspaceStore::composerChanged);
+        if (editorAnchor != chatAnchor) {
+            // An anchor with no chat in it isn't a place for the composer.
+            QVERIFY(!store.dockComposer(editorAnchor));
+        }
+        QVERIFY(!store.dockComposer(QStringLiteral("no-such-anchor")));
+        // A locked anchor is respected.
+        QVERIFY(store.setAnchorContentLocked(chatAnchor, true));
+        QVERIFY(!store.dockComposer(chatAnchor));
+        QVERIFY(store.setAnchorContentLocked(chatAnchor, false));
+        QCOMPARE(changed.count(), 0);
+
+        const bool couldUndo = store.canUndo();
+        QVERIFY(store.dockComposer(chatAnchor));
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(store.canUndo());
+        QVERIFY(couldUndo || !store.undoSummary().isEmpty());
+        QVariantMap placement = store.composerPlacement(QStringLiteral("compact"));
+        QCOMPARE(placement.value("kind").toString(), QStringLiteral("anchor"));
+        QCOMPARE(placement.value("anchorId").toString(), chatAnchor);
+        // The workbench lives at the bottom; the docked spot is kept for
+        // when the chat collapses again.
+        QCOMPARE(store.composerPlacement(QStringLiteral("workbench")).value("kind").toString(), QStringLiteral("bottom"));
+        QVERIFY(!store.composerModeAllows(QStringLiteral("workbench"), QStringLiteral("anchor")));
+        QVERIFY(store.composerModeAllows(QStringLiteral("compact"), QStringLiteral("anchor")));
+
+        // Undo puts it back at the bottom; redo docks it again.
+        QVERIFY(store.undo());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("kind").toString(), QStringLiteral("bottom"));
+        QVERIFY(store.redo());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("anchorId").toString(), chatAnchor);
+
+        // Closing the chat leaves no chat anchor: the composer goes back to
+        // the bottom rather than pointing at nothing.
+        QVERIFY(store.closeView(chat, true).value("ok").toBool());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("kind").toString(), QStringLiteral("bottom"));
+    }
+
+    void composerModesPersistPerProject()
+    {
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("composer-saved"));
+            QCOMPARE(store.composerMode(QString()), QStringLiteral("compact"));
+            QVERIFY(store.setComposerMode(QStringLiteral("workbench")));
+            QVERIFY(!store.setComposerMode(QStringLiteral("no-such-mode")));
+            QVERIFY(store.setConversationComposerMode(QStringLiteral("c2"), QStringLiteral("compact")));
+            QCOMPARE(store.composerMode(QStringLiteral("c1")), QStringLiteral("workbench"));
+            QCOMPARE(store.composerMode(QStringLiteral("c2")), QStringLiteral("compact"));
+            // Mode switches aren't undo steps: only placement is.
+            QVERIFY(!store.canUndo());
+
+            // Another project has its own state.
+            store.setCollection(QStringLiteral("composer-other"));
+            QCOMPARE(store.composerMode(QStringLiteral("c1")), QStringLiteral("compact"));
+            store.setCollection(QStringLiteral("composer-saved"));
+            QCOMPARE(store.composerMode(QStringLiteral("c1")), QStringLiteral("workbench"));
+        }
+
+        WorkspaceStore reopened;
+        reopened.setCollection(QStringLiteral("composer-saved"));
+        QCOMPARE(reopened.composerMode(QStringLiteral("c1")), QStringLiteral("workbench"));
+        QCOMPARE(reopened.composerMode(QStringLiteral("c2")), QStringLiteral("compact"));
+
+        // A deleted chat drops its override.
+        reopened.forgetComposerConversation(QStringLiteral("c2"));
+        QCOMPARE(reopened.composerMode(QStringLiteral("c2")), QStringLiteral("workbench"));
+
+        // A space can default to the workbench; an explicit choice still wins.
+        QVERIFY(reopened.restoreComposer());
+        QVERIFY(reopened.setComposerSpaceDefault(QStringLiteral("workbench")));
+        QCOMPARE(reopened.composerMode(QStringLiteral("c1")), QStringLiteral("workbench"));
+        QVERIFY(reopened.setComposerMode(QStringLiteral("compact")));
+        QCOMPARE(reopened.composerMode(QStringLiteral("c1")), QStringLiteral("compact"));
+    }
+
+    void composerFloatsAndReturns()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("composer-float"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString chat = store.openView(QStringLiteral("archivist.chat"), {{"kind", "chat"}, {"id", "c1"}}, "Chat");
+        const QString anchor = store.view(chat).value("anchorId").toString();
+        QVERIFY(store.dockComposer(anchor));
+
+        QVERIFY(store.floatComposer(100, 120, 520, 140));
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("kind").toString(), QStringLiteral("floating"));
+        // Moving while floating doesn't pile up undo steps.
+        const QString summary = store.undoSummary();
+        QVERIFY(store.floatComposer(140, 160, 520, 140));
+        QCOMPARE(store.undoSummary(), summary);
+        // Too small to use is refused.
+        QVERIFY(!store.floatComposer(0, 0, 10, 10));
+
+        QVERIFY(store.returnComposerFromFloating());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("anchorId").toString(), anchor);
+
+        QVERIFY(store.restoreComposer());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("kind").toString(), QStringLiteral("bottom"));
+        QVERIFY(store.undo());
+        QCOMPARE(store.composerPlacement(QStringLiteral("compact")).value("anchorId").toString(), anchor);
+    }
+
     // Undo and redo walk one history: views an undo closed come back as
     // they were on redo, edits are never touched, and a new change clears
     // redo.

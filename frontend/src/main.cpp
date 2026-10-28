@@ -135,6 +135,7 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &chatDrafts, &ChatDraftStore::flush);
     // A deleted conversation takes its unsent draft with it.
     QObject::connect(&chatStore, &ChatStore::chatDeleted, &chatDrafts, &ChatDraftStore::clearDraft);
+    QObject::connect(&chatStore, &ChatStore::chatDeleted, &dockingStore, &WorkspaceStore::forgetComposerConversation);
     InterfaceScale interfaceScale;
 
     QObject::connect(
