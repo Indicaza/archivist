@@ -300,7 +300,10 @@ Item {
         var active = anchor.activeViewId ? Docking.view(anchor.activeViewId) : null
         var count = (anchor.views || []).length
         var title = active ? viewTitle(active) : "Empty panel"
-        return count > 1 ? title + "  +" + (count - 1) : title
+        title = count > 1 ? title + "  +" + (count - 1) : title
+        // A panel the person named is carried by its name.
+        var name = String(anchor.name || "")
+        return name.length > 0 ? name + " · " + title : title
     }
 
     function fileRecordFor(details) {
@@ -1087,6 +1090,17 @@ Item {
     // Next/previous tab, or next/previous item on a shelf.
     Shortcut { sequences: ["Ctrl+PgDown", "Ctrl+Alt+Shift+]"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(1) }
     Shortcut { sequences: ["Ctrl+PgUp", "Ctrl+Alt+Shift+["]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(-1) }
+    // Rename the focused panel.
+    Shortcut {
+        sequences: ["F2"]
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            var item = root.anchorItems[Docking.focusedAnchorId]
+            if (item) {
+                item.startRename()
+            }
+        }
+    }
     // Open the focused shelf's picker.
     Shortcut {
         sequences: ["Ctrl+Alt+P"]

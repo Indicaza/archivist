@@ -12,16 +12,15 @@ MenuItem {
     leftPadding: 10
     rightPadding: 10
 
-    // A checked item shows a small check at the right edge, so labels line up.
+    // Checkable items get a check column; submenus get an arrow.
     indicator: Item {}
+    arrow: Item {}
 
     contentItem: Item {
         implicitHeight: 30
 
         AppIcon {
-            id: check
-
-            anchors.right: parent.right
+            anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             visible: root.checkable && root.checked
             name: "check"
@@ -31,22 +30,46 @@ MenuItem {
 
         Text {
             anchors.left: parent.left
+            anchors.leftMargin: root.checkable ? 20 : 0
+            anchors.right: trailing.left
+            anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
             text: root.text
+            elide: Text.ElideRight
             color: root.enabled ? root.theme.appText : root.theme.mutedText
             opacity: root.enabled ? 1 : 0.55
             font.family: root.theme.bodyFontFamily
             font.pixelSize: root.theme.textCaptionSize
         }
 
-        Text {
+        Item {
+            id: trailing
+
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            visible: !check.visible
-            text: root.shortcutText
-            color: root.theme.mutedText
-            font.family: root.theme.bodyFontFamily
-            font.pixelSize: root.theme.textMetadataSize
+            width: root.subMenu ? 12 : shortcut.implicitWidth
+            height: parent.height
+
+            Text {
+                id: shortcut
+
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !root.subMenu
+                text: root.shortcutText
+                color: root.theme.mutedText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textMetadataSize
+            }
+
+            AppIcon {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: !!root.subMenu
+                name: "chevron-right"
+                tone: root.highlighted ? "normal" : "muted"
+                iconSize: 10
+            }
         }
     }
 

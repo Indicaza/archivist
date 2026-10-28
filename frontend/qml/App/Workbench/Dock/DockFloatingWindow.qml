@@ -22,7 +22,9 @@ Window {
         var anchorId = focused && focused.surfaceId === root.surfaceId ? Docking.focusedAnchorId : root.lastAnchorId
         var anchor = anchorId.length > 0 ? Docking.anchor(anchorId) : ({})
         var view = anchor.activeViewId ? Docking.view(anchor.activeViewId) : ({})
-        return view.viewId ? root.workspace.viewTitle(view) : ""
+        var title = view.viewId ? root.workspace.viewTitle(view) : ""
+        var name = String(anchor.name || "")
+        return name.length > 0 ? (title.length > 0 ? name + " · " + title : name) : title
     }
     // The panel last focused here, focused again when the window is.
     property string lastAnchorId: ""

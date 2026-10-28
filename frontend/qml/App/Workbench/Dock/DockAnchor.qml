@@ -4,7 +4,7 @@ import Archivist.Services 1.0
 import "../../Icons"
 
 // One Anchor: a dockable tab group. The tab strip moves single views; the
-// grip at its left moves the whole Anchor. The content area below the strip
+// panel label at its left (name, grip, menu) moves the whole Anchor. The content area below the strip
 // is left to the workspace's view layer, except for editors, which share one
 // Monaco page per Anchor (DockEditorHost).
 //
@@ -40,9 +40,6 @@ Item {
     required property bool switchable
     required property string contextLibraryId
 
-    // The header shows a title only when it adds something: a name the
-    // person chose, or a shelf (where it labels the picker).
-    readonly property bool showTitle: switchable || name.length > 0
     readonly property bool locked: layoutLocked || contentLocked
     readonly property string lockSummary: layoutLocked && contentLocked
         ? "Layout and content locked"
@@ -179,65 +176,143 @@ Item {
             color: root.theme.quietBorder
         }
 
-        // The Anchor handle: drag to move the whole group.
+        // The panel label: every panel's name, its handle and its menu, in
+        // one place at the left of the header. Drag it to move the panel,
+        // double-click (or F2) to rename, click the chevron for the menu.
         Item {
-            id: grip
+            id: label
 
-            x: 0
-            width: 22
+            readonly property bool active: labelArea.containsMouse || labelArea.pressed || panelMenu.visible
+            readonly property real nameRoom: Math.max(36, root.width * (root.compactHeader ? 0.38 : 0.3))
+
+            x: 3
+            width: labelRow.implicitWidth + 8
             height: parent.height
+            Accessible.role: Accessible.Button
+            Accessible.name: "Panel " + root.displayName
+            Accessible.description: "Drag to move. Double-click to rename. " + root.lockSummary
 
-            Grid {
-                anchors.centerIn: parent
-                columns: 2
-                rowSpacing: 2
-                columnSpacing: 2
+            Rectangle {
+                anchors.fill: parent
+                anchors.topMargin: 4
+                anchors.bottomMargin: 4
+                radius: root.theme.radiusSmall
+                color: labelArea.pressed || panelMenu.visible ? root.theme.activeBg
+                    : labelArea.containsMouse ? root.theme.hoverBg : "transparent"
 
-                Repeater {
-                    model: 6
-                    Rectangle {
-                        width: 2.5
-                        height: 2.5
-                        radius: 1.25
-                        color: !root.layoutLocked && (gripArea.containsMouse || gripArea.pressed)
-                            ? root.theme.accentBright
-                            : root.theme.mutedText
-                        opacity: root.layoutLocked ? 0.25
-                            : gripArea.containsMouse || gripArea.pressed ? 1
-                            : root.isFocused ? 0.8 : 0.5
+                Behavior on color { ColorAnimation { duration: root.theme.reducedMotion ? 0 : 90 } }
+            }
+
+            Row {
+                id: labelRow
+
+                x: 4
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+                opacity: root.renaming ? 0 : 1
+
+                // Grip dots: the panel's handle.
+                Grid {
+                    anchors.verticalCenter: parent.verticalCenter
+                    columns: 2
+                    rowSpacing: 2
+                    columnSpacing: 2
+                    opacity: root.layoutLocked ? 0.25 : label.active ? 0.9 : root.isFocused ? 0.55 : 0.35
+
+                    Repeater {
+                        model: 6
+                        Rectangle {
+                            width: 2.5
+                            height: 2.5
+                            radius: 1.25
+                            color: label.active && !root.layoutLocked ? root.theme.accentBright : root.theme.mutedText
+                        }
                     }
+                }
+
+                Text {
+                    id: nameText
+
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(implicitWidth, label.nameRoom)
+                    text: root.displayName
+                    elide: Text.ElideRight
+                    // A chosen name reads as a title; an automatic one stays
+                    // quiet until the person names the panel.
+                    color: root.name.length > 0 || root.isFocused ? root.theme.appText : root.theme.mutedText
+                    opacity: root.name.length > 0 ? (root.isFocused ? 1 : 0.86) : (root.isFocused ? 0.82 : 0.7)
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textCaptionSize
+                    font.weight: root.name.length > 0 ? root.theme.textWeightEmphasis : Font.Normal
+                }
+
+                // The panel's own worktree for new items.
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.contextLabel.length > 0 && !root.compactHeader
+                    width: Math.min(implicitWidth, 110)
+                    text: root.contextLabel
+                    elide: Text.ElideRight
+                    color: root.theme.accentBright
+                    opacity: 0.75
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textMetadataSize
+                }
+
+                AppIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.locked
+                    name: "lock"
+                    tone: "muted"
+                    iconSize: 11
+                    opacity: 0.8
+                }
+
+                AppIcon {
+                    id: chevron
+
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: "chevron-down"
+                    tone: label.active ? "normal" : "muted"
+                    iconSize: 10
+                    opacity: label.active || root.isFocused ? 0.9 : 0.45
                 }
             }
 
             MouseArea {
-                id: gripArea
+                id: labelArea
 
                 property point pressPoint
                 property bool dragging: false
+                property bool onChevron: false
 
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: root.layoutLocked ? Qt.ArrowCursor : dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
-                ToolTip.visible: containsMouse && !pressed
-                ToolTip.delay: 600
-                ToolTip.text: root.layoutLocked
-                    ? "This panel's layout is locked"
-                    : "Drag to move this panel, or out of the window to float it"
+                cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                ToolTip.visible: containsMouse && !pressed && !panelMenu.visible && !root.renaming
+                ToolTip.delay: 700
+                ToolTip.text: (root.lockSummary.length > 0 ? root.lockSummary + "\n" : "")
+                    + (root.contextLabel.length > 0 ? "New items open in " + root.contextLabel + "\n" : "")
+                    + "Double-click to rename" + (root.layoutLocked ? "" : ", drag to move")
+
+                function openMenu() {
+                    panelMenu.popup(label, 0, label.height - 2)
+                }
 
                 onPressed: function(mouse) {
                     root.workspace.notePointerFocus()
+                    Docking.focusAnchor(root.anchorId)
                     if (mouse.button === Qt.RightButton) {
-                        Docking.focusAnchor(root.anchorId)
-                        panelMenu.popup()
+                        openMenu()
                         return
                     }
                     pressPoint = Qt.point(mouse.x, mouse.y)
                     dragging = false
-                    Docking.focusAnchor(root.anchorId)
+                    onChevron = mouse.x >= labelRow.x + chevron.x - 4
                 }
                 onPositionChanged: function(mouse) {
-                    if (!pressed || root.layoutLocked) {
+                    if (!pressed || !(pressedButtons & Qt.LeftButton) || root.layoutLocked) {
                         return
                     }
                     if (!dragging && Math.abs(mouse.x - pressPoint.x) + Math.abs(mouse.y - pressPoint.y) > 6) {
@@ -259,101 +334,35 @@ Item {
                     }
                     dragging = false
                 }
-                onDoubleClicked: Docking.toggleMaximize(root.anchorId)
+                onClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton && onChevron) {
+                        openMenu()
+                    }
+                }
+                onDoubleClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton && !onChevron) {
+                        root.startRename()
+                    }
+                }
             }
         }
 
-        // Name, worktree binding and lock state. Shown only when set, so a
-        // plain panel's header is just its tabs.
-        Row {
-            id: titleRow
+        Rectangle {
+            id: labelDivider
 
-            anchors.left: grip.right
+            x: label.x + label.width + 3
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 5
-            width: visible ? implicitWidth + 6 : 0
-            visible: root.showTitle || root.locked || root.contextLabel.length > 0
-            opacity: root.renaming ? 0 : 1
-
-            Text {
-                id: titleText
-
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.showTitle
-                width: Math.min(implicitWidth, Math.max(48, root.width * 0.28))
-                text: root.displayName
-                elide: Text.ElideRight
-                color: root.isFocused ? root.theme.appText : root.theme.mutedText
-                opacity: root.isFocused ? 0.92 : 0.78
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textMetadataSize
-                font.weight: root.theme.textWeightEmphasis
-                font.letterSpacing: 0.2
-
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    onPressed: function(mouse) {
-                        root.workspace.notePointerFocus()
-                        Docking.focusAnchor(root.anchorId)
-                        if (mouse.button === Qt.RightButton) {
-                            panelMenu.popup()
-                        }
-                    }
-                    onDoubleClicked: function(mouse) {
-                        if (mouse.button === Qt.LeftButton) {
-                            root.startRename()
-                        }
-                    }
-                }
-            }
-
-            // The panel's own worktree for new items.
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.contextLabel.length > 0 && !root.compactHeader
-                width: Math.min(implicitWidth, 120)
-                text: root.contextLabel
-                elide: Text.ElideRight
-                color: root.theme.accentBright
-                opacity: 0.8
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textMetadataSize
-
-                HoverHandler { id: contextHover }
-                ToolTip.visible: contextHover.hovered
-                ToolTip.delay: 600
-                ToolTip.text: "New terminals and files from this panel open in " + root.contextLabel
-            }
-
-            Item {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.locked
-                width: 16
-                height: 16
-
-                AppIcon {
-                    anchors.centerIn: parent
-                    name: "lock"
-                    tone: lockHover.hovered ? "normal" : "muted"
-                    iconSize: 11
-                    opacity: lockHover.hovered ? 1 : 0.75
-                }
-
-                HoverHandler { id: lockHover }
-                TapHandler { onTapped: lockMenu.popup() }
-                ToolTip.visible: lockHover.hovered
-                ToolTip.delay: 500
-                ToolTip.text: root.lockSummary
-            }
+            width: 1
+            height: parent.height - 14
+            color: root.theme.quietBorder
         }
 
         TextField {
             id: renameField
 
-            x: titleRow.x
+            x: label.x + 2
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(Math.max(160, titleRow.width), parent.width - x - 40)
+            width: Math.min(Math.max(170, renameMetrics.width + 28), parent.width - x - 8)
             height: Math.min(parent.height - 6, 24)
             visible: root.renaming
             z: 3
@@ -362,7 +371,9 @@ Item {
             rightPadding: 6
             selectByMouse: true
             maximumLength: 80
-            placeholderText: "Panel name (empty for automatic)"
+            placeholderText: String(Docking.anchor(root.anchorId).automaticName || "Panel")
+            ToolTip.visible: root.renaming
+            ToolTip.text: "Enter to save, Esc to cancel. Leave empty for the automatic name."
             color: root.theme.appText
             placeholderTextColor: root.theme.mutedText
             font.family: root.theme.bodyFontFamily
@@ -373,6 +384,12 @@ Item {
                 border.width: 1
                 border.color: root.theme.accent
             }
+            TextMetrics {
+                id: renameMetrics
+                font: renameField.font
+                text: renameField.text.length > 0 ? renameField.text : renameField.placeholderText
+            }
+
             Keys.onReturnPressed: root.finishRename(true)
             Keys.onEnterPressed: root.finishRename(true)
             Keys.onEscapePressed: root.finishRename(false)
@@ -386,7 +403,8 @@ Item {
         Flickable {
             id: tabFlick
 
-            anchors.left: titleRow.right
+            anchors.left: labelDivider.right
+            anchors.leftMargin: 2
             anchors.right: actions.left
             height: parent.height
             contentWidth: root.switchable ? shelfButton.width + 8 : tabRow.width
@@ -521,7 +539,7 @@ Item {
                         // Sized from the space the header has, never from the
                         // button, so the two don't chase each other.
                         anchors.verticalCenter: parent.verticalCenter
-                        width: Math.min(implicitWidth, Math.max(40, tabFlick.width - 8 - (root.viewIds.length > 1 ? 84 : 56)))
+                        width: Math.min(implicitWidth, Math.max(40, tabFlick.width - 8 - (root.viewIds.length > 1 && !root.compactHeader ? 84 : 56)))
                         text: root.activeViewId.length > 0 ? root.workspace.viewTitle(root.activeInfo) : "Empty shelf"
                         elide: Text.ElideMiddle
                         color: root.activeViewId.length > 0 ? root.theme.appText : root.theme.mutedText
@@ -532,7 +550,7 @@ Item {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: root.viewIds.length > 1
+                        visible: root.viewIds.length > 1 && !root.compactHeader
                         text: (root.viewIds.indexOf(root.activeViewId) + 1) + "/" + root.viewIds.length
                         color: root.theme.mutedText
                         font.family: root.theme.bodyFontFamily
@@ -598,20 +616,6 @@ Item {
             opacity: headerHover.hovered || root.isFocused || root.viewIds.length === 0 ? 1 : 0.35
 
             Behavior on opacity { NumberAnimation { duration: root.theme.motionFast } }
-
-            // Narrow panels fold their actions into one menu so tabs keep room.
-            IconButton {
-                id: moreButton
-
-                visible: root.compactHeader
-                theme: root.theme
-                width: 24
-                height: 24
-                iconSize: 13
-                iconName: "more"
-                toolTipText: "Panel actions"
-                onClicked: panelMenu.popup(moreButton, 0, moreButton.height + 2)
-            }
 
             IconButton {
                 visible: !root.compactHeader
@@ -689,6 +693,7 @@ Item {
         DockMenuItem {
             theme: root.theme
             text: "Rename Panel…"
+            shortcutText: "F2"
             onTriggered: root.startRename()
         }
         DockMenuItem {
@@ -697,24 +702,72 @@ Item {
             visible: root.name.length > 0
             onTriggered: Docking.renameAnchor(root.anchorId, "")
         }
-        DockMenuItem {
+        DockMenuSeparator { theme: root.theme }
+
+        // The two locks are independent.
+        DockMenu {
+            id: lockMenu
+
             theme: root.theme
-            text: "Lock…"
-            shortcutText: root.locked ? "On" : ""
-            onTriggered: lockMenu.popup()
+            title: root.locked ? "Locked" : "Lock"
+            width: 268
+
+            DockMenuItem {
+                theme: root.theme
+                text: "Lock Layout"
+                shortcutText: "position and size"
+                checkable: true
+                checked: root.layoutLocked
+                onTriggered: Docking.setAnchorLayoutLocked(root.anchorId, !root.layoutLocked)
+            }
+            DockMenuItem {
+                theme: root.theme
+                text: "Lock Content"
+                shortcutText: "keeps its items"
+                checkable: true
+                checked: root.contentLocked
+                onTriggered: Docking.setAnchorContentLocked(root.anchorId, !root.contentLocked)
+            }
         }
+
+        // Where new terminals (and other new items) opened from this panel go.
+        DockMenu {
+            id: worktreeMenu
+
+            theme: root.theme
+            title: "New Items Open In"
+            width: 280
+
+            DockMenuItem {
+                theme: root.theme
+                text: "Follow Context"
+                shortcutText: "default"
+                checkable: true
+                checked: root.contextLibraryId.length === 0
+                onTriggered: Docking.setAnchorLibrary(root.anchorId, "")
+            }
+            DockMenuSeparator { theme: root.theme }
+
+            Instantiator {
+                model: LibraryStore.libraries || []
+                delegate: DockMenuItem {
+                    required property var modelData
+
+                    theme: root.theme
+                    text: root.workspace.libraryLabel(String(modelData.id || ""))
+                    checkable: true
+                    checked: root.contextLibraryId === String(modelData.id || "")
+                    onTriggered: Docking.setAnchorLibrary(root.anchorId, String(modelData.id || ""))
+                }
+                onObjectAdded: function(index, object) { worktreeMenu.insertItem(index + 2, object) }
+                onObjectRemoved: function(index, object) { worktreeMenu.removeItem(object) }
+            }
+        }
+
         DockMenuItem {
             theme: root.theme
-            text: "Show as Shelf"
-            checkable: true
-            checked: root.switchable
+            text: root.switchable ? "Show as Tabs" : "Show as Shelf"
             onTriggered: Docking.setAnchorSwitchable(root.anchorId, !root.switchable)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "New Items Open In…"
-            shortcutText: root.contextLibraryId.length > 0 ? "Set" : ""
-            onTriggered: worktreeMenu.popup()
         }
         DockMenuSeparator { theme: root.theme }
         DockMenuItem {
@@ -755,64 +808,6 @@ Item {
         }
     }
 
-    // The two locks are independent.
-    DockMenu {
-        id: lockMenu
-
-        theme: root.theme
-        width: 270
-
-        DockMenuItem {
-            theme: root.theme
-            text: "Lock Layout"
-            shortcutText: "position, size"
-            checkable: true
-            checked: root.layoutLocked
-            onTriggered: Docking.setAnchorLayoutLocked(root.anchorId, !root.layoutLocked)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Lock Content"
-            shortcutText: "keeps its items"
-            checkable: true
-            checked: root.contentLocked
-            onTriggered: Docking.setAnchorContentLocked(root.anchorId, !root.contentLocked)
-        }
-    }
-
-    // Where new terminals (and other new items) opened from this panel go.
-    DockMenu {
-        id: worktreeMenu
-
-        theme: root.theme
-        width: 280
-
-        DockMenuItem {
-            theme: root.theme
-            text: "Follow Context"
-            shortcutText: "default"
-            checkable: true
-            checked: root.contextLibraryId.length === 0
-            onTriggered: Docking.setAnchorLibrary(root.anchorId, "")
-        }
-        DockMenuSeparator { theme: root.theme }
-
-        Instantiator {
-            model: worktreeMenu.visible ? (LibraryStore.libraries || []) : []
-            delegate: DockMenuItem {
-                required property var modelData
-
-                theme: root.theme
-                text: root.workspace.libraryLabel(String(modelData.id || ""))
-                checkable: true
-                checked: root.contextLibraryId === String(modelData.id || "")
-                onTriggered: Docking.setAnchorLibrary(root.anchorId, String(modelData.id || ""))
-            }
-            onObjectAdded: function(index, object) { worktreeMenu.insertItem(index + 2, object) }
-            onObjectRemoved: function(index, object) { worktreeMenu.removeItem(object) }
-        }
-    }
-
     DockShelfPicker {
         id: shelfPicker
 
@@ -835,7 +830,8 @@ Item {
 
         Text {
             width: parent.width
-            text: root.switchable ? "Empty shelf" : root.isTarget ? "New files will open here" : "Empty panel"
+            text: root.name.length > 0 ? root.name
+                : root.switchable ? "Empty shelf" : root.isTarget ? "New files will open here" : "Empty panel"
             color: root.theme.appText
             font.family: root.theme.bodyFontFamily
             font.pixelSize: root.theme.textControlSize
@@ -847,7 +843,9 @@ Item {
             width: parent.width
             text: root.switchable
                 ? "Drag tabs here to keep them one click away."
-                : "Drag a tab here, or open a file, chat or terminal."
+                : root.name.length > 0 && root.isTarget
+                    ? "New files will open here. Drag a tab in, or open a chat or terminal."
+                    : "Drag a tab here, or open a file, chat or terminal."
             color: root.theme.mutedText
             font.family: root.theme.bodyFontFamily
             font.pixelSize: root.theme.textCaptionSize
