@@ -97,6 +97,14 @@ public:
         const QString &libraryId,
         const QString &agentId
     );
+    // Creates a chat and sends its first message once it exists (Home's
+    // composer). The message goes out exactly once, after chatCreated; if
+    // the chat can't be created nothing is sent and errorMessage says why.
+    Q_INVOKABLE void startChat(
+        const QString &libraryId,
+        const QString &agentId,
+        const QString &firstMessage
+    );
     Q_INVOKABLE void selectChat(const QString &chatId);
     Q_INVOKABLE void refreshSelectedMessages();
     Q_INVOKABLE void refreshSelectedAttachments();
@@ -162,6 +170,11 @@ signals:
     void chatDeleted(const QString &chatId);
 
 private:
+    void createChatWithMessage(
+        const QString &libraryId,
+        const QString &agentId,
+        const QString &firstMessage
+    );
     void fetchAppState();
     void resumeActiveRunForSelectedChat();
     void refreshEditProposalsForSelectedChat();

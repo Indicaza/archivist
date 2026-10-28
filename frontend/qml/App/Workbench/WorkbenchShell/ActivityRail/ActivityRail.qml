@@ -1,22 +1,27 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Archivist.Services 1.0
 import "RailButton"
 
+// The left-edge rail. Its items and what a click does come from Shell
+// (Core/Domains/Shell): Home first, then the side panels.
 Rectangle {
     id: root
 
     required property var theme
-    required property int activeViewIndex
-    required property bool panelOpen
-
-    signal viewRequested(int index)
 
     property int hoveredButtonIndex: -1
 
     width: theme.activityRailWidth
     color: theme.railBg
     border.width: 0
+
+    function itemActive(item) {
+        return item.isPanel
+            ? Shell.panelShown && Shell.panelId === item.id
+            : Shell.homeActive
+    }
 
     Rectangle {
         anchors.right: parent.right
@@ -33,33 +38,46 @@ Rectangle {
         spacing: 4
 
         Repeater {
-            model: ListModel {
-                ListElement { iconNameValue: "workspace"; labelValue: "Workspace Navigator" }
-                ListElement { iconNameValue: "archive"; labelValue: "Archived Libraries" }
-                ListElement { iconNameValue: "search"; labelValue: "Library Search" }
-                ListElement { iconNameValue: "plugin"; labelValue: "Plugins" }
-                ListElement { iconNameValue: "tools"; labelValue: "Tools" }
-            }
+            model: Shell.railItems
 
-            delegate: RailButton {
+            delegate: ColumnLayout {
+                id: railEntry
+
                 required property int index
-                required property string iconNameValue
-                required property string labelValue
+                required property var modelData
 
-                theme: root.theme
-                iconName: iconNameValue
-                label: labelValue
-                active: root.panelOpen && root.activeViewIndex === index
-                neighborHovered: root.hoveredButtonIndex >= 0
-                    && Math.abs(root.hoveredButtonIndex - index) === 1
-                onHoveredChanged: {
-                    if (hovered) {
-                        root.hoveredButtonIndex = index
-                    } else if (root.hoveredButtonIndex === index) {
-                        root.hoveredButtonIndex = -1
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 4
+
+                RailButton {
+                    Layout.alignment: Qt.AlignHCenter
+                    theme: root.theme
+                    iconName: String(railEntry.modelData.icon)
+                    label: String(railEntry.modelData.label)
+                    active: root.itemActive(railEntry.modelData)
+                    neighborHovered: root.hoveredButtonIndex >= 0
+                        && Math.abs(root.hoveredButtonIndex - railEntry.index) === 1
+                    Accessible.description: String(railEntry.modelData.description || "")
+                    onHoveredChanged: {
+                        if (hovered) {
+                            root.hoveredButtonIndex = railEntry.index
+                        } else if (root.hoveredButtonIndex === railEntry.index) {
+                            root.hoveredButtonIndex = -1
+                        }
                     }
+                    onClicked: Shell.activate(String(railEntry.modelData.id))
                 }
-                onClicked: root.viewRequested(index)
+
+                // Home stands apart from the panels.
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 18
+                    Layout.preferredHeight: 1
+                    Layout.topMargin: 2
+                    Layout.bottomMargin: 2
+                    visible: !railEntry.modelData.isPanel
+                    color: root.theme.quietBorder
+                }
             }
         }
     }
