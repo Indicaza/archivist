@@ -1012,6 +1012,16 @@ Item {
             toast.show(message)
         }
 
+        // An agent rearranged things for the person: say what, and offer
+        // the way back.
+        function onAgentArranged(summary) {
+            toast.show(summary.length > 0 ? summary : "Rearranged the workspace", "Undo", function() {
+                if (Docking.undoAgentChange()) {
+                    toast.show("Put back")
+                }
+            })
+        }
+
         function onLayoutApplied(layoutId, name) {
             if (root.quietLayout) {
                 return
@@ -1125,13 +1135,34 @@ Item {
 
     // ---- drawing ---------------------------------------------------------
 
-    DockSurfaceArea {
-        id: area
+    // An arrangement an agent prepared without applying it (the person
+    // was busy, or the conversation was in the background).
+    DockNoticeBar {
+        id: agentSuggestionBar
+
+        readonly property var suggestion: Docking.agentSuggestion
 
         x: root.leftInset
         y: 0
         width: Math.max(0, root.width - root.leftInset)
-        height: root.height
+        z: 5
+        theme: root.theme
+        open: suggestion.summary !== undefined
+        text: "Suggested layout: " + String(suggestion.summary || "")
+        shortText: "Suggested layout"
+        primaryText: "Apply"
+        secondaryText: "Dismiss"
+        onPrimaryClicked: Docking.applyAgentSuggestion()
+        onSecondaryClicked: Docking.dismissAgentSuggestion()
+    }
+
+    DockSurfaceArea {
+        id: area
+
+        x: root.leftInset
+        y: agentSuggestionBar.height
+        width: Math.max(0, root.width - root.leftInset)
+        height: Math.max(0, root.height - agentSuggestionBar.height)
         theme: root.theme
         workspace: root
         surfaceId: root.surfaceId

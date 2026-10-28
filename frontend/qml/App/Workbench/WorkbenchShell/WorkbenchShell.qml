@@ -20,6 +20,9 @@ Rectangle {
     property bool resizingDock: false
     property real explorerWidth: theme.explorerDefaultWidth
     property real dockHeight: theme.chatDockDefaultHeight
+    // The bottom panel folded down to its tabs. It stays the place for chat
+    // and terminals; folding only gives the workspace the room.
+    property bool dockCollapsed: false
     property bool workspaceStateRestored: false
     property string workspaceScopeId: ""
 
@@ -39,10 +42,12 @@ Rectangle {
         theme.chatDockMinHeight,
         height - theme.statusBarHeight - theme.workspaceMinHeight
     )
-    readonly property real clampedDockHeight: Math.min(
-        maximumDockHeight,
-        Math.max(theme.chatDockMinHeight, dockHeight)
-    )
+    readonly property real clampedDockHeight: dockCollapsed
+        ? theme.workbenchTabHeight
+        : Math.min(
+            maximumDockHeight,
+            Math.max(theme.chatDockMinHeight, dockHeight)
+        )
     readonly property real centeredContentLeft: Math.max(
         theme.messageHorizontalInset,
         (width - theme.transcriptContentWidth) / 2
@@ -130,6 +135,10 @@ Rectangle {
             workspaceStateKey(workspaceScopeId, "dockHeight"),
             dockHeight
         )
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "dockCollapsed"),
+            dockCollapsed
+        )
     }
 
     function restoreWorkspaceState(scopeId) {
@@ -214,6 +223,13 @@ Rectangle {
             )
         )
 
+        dockCollapsed = Boolean(
+            WorkspaceState.value(
+                workspaceStateKey(targetScopeId, "dockCollapsed"),
+                false
+            )
+        )
+
         workspaceStateRestored = true
 
         if (migrateLegacyState) {
@@ -295,6 +311,28 @@ Rectangle {
     onExplorerWidthChanged: scheduleWorkspaceStateSave()
     onDockAttachedChanged: scheduleWorkspaceStateSave()
     onDockHeightChanged: scheduleWorkspaceStateSave()
+    onDockCollapsedChanged: {
+        scheduleWorkspaceStateSave()
+        reportCommandSurface()
+    }
+
+    // Agents need to know whether the conversation is on screen.
+    function reportCommandSurface() {
+        Docking.setCommandSurfaceState(dockCollapsed, chatDock.activeView)
+    }
+
+    Connections {
+        target: Docking
+
+        // An agent asked for the chat or terminal ("beside our
+        // conversation", "bring up the terminal").
+        function onCommandSurfaceRequested(view, open) {
+            if (view === "chat" || view === "terminal" || view === "problems") {
+                chatDock.activeView = view
+            }
+            root.dockCollapsed = !open
+        }
+    }
 
     Connections {
         target: CollectionStore
@@ -477,9 +515,14 @@ Rectangle {
         collectionId:
             CollectionStore.selectedCollectionId
         attached: root.effectiveDockAttached
+        collapsed: root.dockCollapsed
         z: 30
 
         onDockModeToggleRequested: root.dockAttached = !root.dockAttached
+        onCollapseToggleRequested: root.dockCollapsed = !root.dockCollapsed
+        onExpandRequested: root.dockCollapsed = false
+        onActiveViewChanged: root.reportCommandSurface()
+        Component.onCompleted: root.reportCommandSurface()
         onMessageSubmitted: function(message) {
             ChatStore.sendMessage(message)
         }
@@ -519,6 +562,7 @@ Rectangle {
         y: chatDock.y - height / 2
         width: chatDock.width
         height: root.theme.resizeHandleThickness
+        visible: !root.dockCollapsed
         z: 35
 
         Rectangle {

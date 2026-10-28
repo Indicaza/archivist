@@ -113,6 +113,16 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_commands.h
     src/Core/Domains/Workspace/workspace_presets.cpp
     src/Core/Domains/Workspace/workspace_presets.h
+    src/Core/Domains/Workspace/workspace_resources.cpp
+    src/Core/Domains/Workspace/workspace_resources.h
+    src/Core/Domains/Workspace/workspace_placement.cpp
+    src/Core/Domains/Workspace/workspace_placement.h
+    src/Core/Domains/Workspace/workspace_intents.cpp
+    src/Core/Domains/Workspace/workspace_intents.h
+    src/Core/Domains/Workspace/workspace_arrangements.cpp
+    src/Core/Domains/Workspace/workspace_arrangements.h
+    src/Core/Domains/Workspace/workspace_gateway.cpp
+    src/Core/Domains/Workspace/workspace_gateway.h
     src/Core/Domains/Documents/document_buffers.cpp
     src/Core/Domains/Documents/document_buffers.h
     src/Core/Support/core_values.h
@@ -212,6 +222,9 @@ qt_add_executable(archivist-qt
     src/App/Domains/Workspace/keyed_list_model.h
     src/App/Domains/Workspace/workspace_store.cpp
     src/App/Domains/Workspace/workspace_store.h
+    src/App/Domains/Workspace/workspace_store_agent.cpp
+    src/App/Domains/Workspace/workspace_agent_bridge.cpp
+    src/App/Domains/Workspace/workspace_agent_bridge.h
     src/App/Services/runtime_trace_store.cpp
     src/App/Services/runtime_trace_store.h
     src/App/Services/workspace_state_store.cpp
@@ -457,6 +470,11 @@ if(ARCHIVIST_BUILD_TESTS)
     set_target_properties(core-workspace-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-workspace-test COMMAND core-workspace-test)
 
+    qt_add_executable(core-workspace-agent-test tests/core_workspace_agent_test.cpp)
+    target_link_libraries(core-workspace-agent-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-workspace-agent-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-workspace-agent-test COMMAND core-workspace-agent-test)
+
     qt_add_executable(core-document-buffers-test tests/core_document_buffers_test.cpp)
     target_link_libraries(core-document-buffers-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-document-buffers-test PROPERTIES MACOSX_BUNDLE FALSE)
@@ -472,6 +490,9 @@ if(ARCHIVIST_BUILD_TESTS)
         src/App/Domains/Workspace/keyed_list_model.h
         src/App/Domains/Workspace/workspace_store.cpp
         src/App/Domains/Workspace/workspace_store.h
+        src/App/Domains/Workspace/workspace_store_agent.cpp
+        src/App/Domains/Workspace/workspace_agent_bridge.cpp
+        src/App/Domains/Workspace/workspace_agent_bridge.h
     )
     target_include_directories(workspace-store-test PRIVATE src)
     target_link_libraries(workspace-store-test PRIVATE archivist-core Qt6::Gui Qt6::Test)

@@ -361,6 +361,100 @@ private slots:
         QCOMPARE(AITools::providerTools(withEdits).size(), 11);
     }
 
+    void workspaceToolsTalkInPlainTerms()
+    {
+        // Offered only when the person asked for a workspace change.
+        AITools::Availability plain;
+        AITools::Availability workspace;
+        workspace.workspace = true;
+        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 4);
+        for (const QVariant &definition : AITools::providerTools(plain)) {
+            QVERIFY(!AITools::isWorkspaceTool(definition.toMap().value(QStringLiteral("name")).toString()));
+        }
+
+        writeFile(QStringLiteral("notes.md"), "# Notes\n");
+        LibraryFiles::scan(m_database, m_libraryId);
+        const QString runId = newRun().value(QStringLiteral("id")).toString();
+
+        QList<QVariantMap> requests;
+        QVariantMap answer{{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
+        AITools::Context context = toolContext(runId);
+        context.workspaceExplicit = true;
+        context.workspace = [&requests, &answer](const QVariantMap &request) {
+            requests.append(request);
+            return answer;
+        };
+
+        // A path becomes the file itself, in the conversation's Library.
+        const QVariantMap shown = AITools::execute(
+            context,
+            QStringLiteral("workspace_show"),
+            QVariantMap{
+                {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("notes.md")}, {QStringLiteral("library"), QString()}}}},
+                {QStringLiteral("where"), QStringLiteral("beside our conversation")},
+                {QStringLiteral("purpose"), QString()},
+                {QStringLiteral("focus"), false},
+            }
+        );
+        QCOMPARE(shown.value(QStringLiteral("status")).toString(), QStringLiteral("completed"));
+        QCOMPARE(requests.size(), 1);
+        const QVariantMap request = requests.first();
+        QCOMPARE(request.value(QStringLiteral("action")).toString(), QStringLiteral("show"));
+        QCOMPARE(request.value(QStringLiteral("chatId")).toString(), m_chatId);
+        QVERIFY(request.value(QStringLiteral("explicit")).toBool());
+        const QVariantMap item = request.value(QStringLiteral("items")).toList().first().toMap();
+        QCOMPARE(item.value(QStringLiteral("libraryId")).toString(), m_libraryId);
+        QCOMPARE(item.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath")).toString(), QStringLiteral("notes.md"));
+
+        // An unknown file never reaches the workspace.
+        QCOMPARE(
+            [&]() {
+                try {
+                    AITools::execute(context, QStringLiteral("workspace_show"),
+                        QVariantMap{
+                            {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("missing.md")}, {QStringLiteral("library"), QString()}}}},
+                            {QStringLiteral("where"), QString()},
+                            {QStringLiteral("purpose"), QString()},
+                            {QStringLiteral("focus"), false},
+                        });
+                } catch (const AITools::ToolError &error) {
+                    return error.code();
+                }
+                return QString();
+            }(),
+            QStringLiteral("invalid_input")
+        );
+        QCOMPARE(requests.size(), 1);
+
+        // A locked panel is a refusal the model must respect.
+        answer = {{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("LAYOUT_LOCKED")}, {QStringLiteral("error"), QStringLiteral("“Editor” is locked in place.")}};
+        QString code;
+        try {
+            AITools::execute(context, QStringLiteral("workspace_arrange"),
+                QVariantMap{
+                    {QStringLiteral("action"), QStringLiteral("resize")},
+                    {QStringLiteral("area"), QStringLiteral("the code")},
+                    {QStringLiteral("change"), QStringLiteral("larger")},
+                    {QStringLiteral("to"), QString()},
+                    {QStringLiteral("name"), QString()},
+                });
+        } catch (const AITools::ToolError &error) {
+            code = error.code();
+        }
+        QCOMPARE(code, QStringLiteral("permission_denied"));
+        QCOMPARE(requests.last().value(QStringLiteral("target")).toString(), QStringLiteral("the code"));
+
+        // With no workspace attached, the tools say so instead of guessing.
+        AITools::Context detached = toolContext(runId);
+        code.clear();
+        try {
+            AITools::execute(detached, QStringLiteral("workspace_view"), QVariantMap{});
+        } catch (const AITools::ToolError &error) {
+            code = error.code();
+        }
+        QVERIFY(!code.isEmpty());
+    }
+
     void approvesAndUndoesProposedEdits()
     {
         writeFile(QStringLiteral("alpha.txt"), "original\n");

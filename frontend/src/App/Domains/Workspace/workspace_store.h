@@ -2,6 +2,7 @@
 
 #include "App/Domains/Workspace/keyed_list_model.h"
 #include "Core/Domains/Workspace/view_type_registry.h"
+#include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 
 #include <QHash>
@@ -9,6 +10,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 #include <QSettings>
 #include <QSizeF>
 #include <QString>
@@ -16,6 +18,8 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+
+#include <functional>
 
 class DocumentStore;
 
@@ -57,6 +61,13 @@ class WorkspaceStore final : public QObject
     Q_PROPERTY(double minimumAnchorWidth READ minimumAnchorWidth WRITE setMinimumAnchorWidth NOTIFY metricsChanged)
     Q_PROPERTY(double minimumAnchorHeight READ minimumAnchorHeight WRITE setMinimumAnchorHeight NOTIFY metricsChanged)
     Q_PROPERTY(double splitterThickness READ splitterThickness WRITE setSplitterThickness NOTIFY metricsChanged)
+    // An arrangement an agent prepared but didn't apply: {id, summary,
+    // notes, createdAt} or {}.
+    Q_PROPERTY(QVariantMap agentSuggestion READ agentSuggestion NOTIFY agentChanged)
+    Q_PROPERTY(bool canUndoAgentChange READ canUndoAgentChange NOTIFY agentChanged)
+    // The bottom Chat/Terminal workbench as the shell reports it:
+    // {collapsed, view}.
+    Q_PROPERTY(QVariantMap commandSurface READ commandSurface NOTIFY commandSurfaceChanged)
 
 public:
     explicit WorkspaceStore(QObject *parent = nullptr);
@@ -250,6 +261,42 @@ public:
     [[nodiscard]] QString currentLayoutName() const;
     [[nodiscard]] bool canUndoLayout() const { return !m_layoutUndo.isEmpty(); }
 
+    // ---- agents -----------------------------------------------------------
+    // A workspace request from an agent tool (see workspace_intents.h and
+    // AITools' workspace_* tools), run on the UI thread:
+    // {action, ..., chatId, runId, explicit}. `foreground`: the conversation
+    // the agent works for is the one in front.
+    //
+    // Applied directly only when the person asked for it in that
+    // conversation (`explicit`) and it is in front, and nobody is dragging a
+    // panel; otherwise checked and kept as a suggestion the person can apply
+    // (agentSuggestion). Keyboard focus only moves when the request asks for
+    // it and the person isn't typing. Every applied change can be undone as
+    // one step, and nothing is closed except views the agent opened that
+    // hold no unsaved work.
+    //
+    // Returns {ok, status: applied | suggested | unchanged, notes} or
+    // {ok: false, code, error}.
+    Q_INVOKABLE QVariantMap runAgentRequest(const QVariantMap &request, bool foreground = true);
+    Q_INVOKABLE bool applyAgentSuggestion();
+    Q_INVOKABLE void dismissAgentSuggestion();
+    // Undoes the most recent agent change (layout only: never an edit).
+    Q_INVOKABLE bool undoAgentChange();
+    [[nodiscard]] QVariantMap agentSuggestion() const { return m_suggestion; }
+    [[nodiscard]] bool canUndoAgentChange() const { return !m_agentUndo.isEmpty(); }
+    // What agents did to the workspace this session, newest first:
+    // [{at, summary, status, chatId}].
+    [[nodiscard]] Q_INVOKABLE QVariantList agentActivity() const { return m_agentLog; }
+    // The person typed or clicked. Also seen through an application event
+    // filter, so QML rarely needs to call it.
+    Q_INVOKABLE void noteUserInput();
+    [[nodiscard]] bool userBusy() const;
+    void setClockForTesting(std::function<qint64()> clock) { m_clock = std::move(clock); }
+    Q_INVOKABLE void setCommandSurfaceState(bool collapsed, const QString &view);
+    [[nodiscard]] QVariantMap commandSurface() const;
+    // What agents see of the workspace (workspace_view).
+    [[nodiscard]] Q_INVOKABLE QVariantMap describeForAgent() const;
+
 signals:
     void collectionIdChanged();
     void revisionChanged();
@@ -269,6 +316,16 @@ signals:
     // A floating window was moved by monitor recovery; the window should
     // take its stored geometry.
     void surfaceRecovered(const QString &surfaceId);
+    void agentChanged();
+    // An agent changed the layout; `summary` says what, in plain words.
+    void agentArranged(const QString &summary);
+    // Asks the shell to open (or close) the bottom workbench on `view`
+    // ("chat" or "terminal").
+    void commandSurfaceRequested(const QString &view, bool open);
+    void commandSurfaceChanged();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void publish();
@@ -323,6 +380,37 @@ private:
     [[nodiscard]] QJsonArray readSavedLayouts() const;
     void writeSavedLayouts(const QJsonArray &layouts);
     void setCurrentLayoutId(const QString &layoutId);
+
+    // ---- agents (workspace_store_agent.cpp) ------------------------------
+    struct AgentStep
+    {
+        Workspace::WorkspaceModel::Data before;
+        QStringList opened; // views the agent opened in this step
+        QString summary;
+        bool surfaceCollapsedBefore = false;
+        QString surfaceViewBefore;
+        bool surfaceTouched = false;
+    };
+    [[nodiscard]] Workspace::Intents::Environment agentEnvironment(bool mayMoveFocus) const;
+    [[nodiscard]] QVariantMap agentIntent(const QVariantMap &request, QVariantMap *failure) const;
+    QVariantMap applyAgentIntent(const QVariantMap &intent, const QString &chatId, bool mayMoveFocus);
+    QVariantMap suggestAgentIntent(const QVariantMap &intent, const QString &chatId, const QString &reason);
+    QVariantMap restoreForAgent(const QVariantMap &request);
+    bool restoreAgentSteps(qsizetype count, QString *code, QString *error);
+    [[nodiscard]] QSet<QString> closableAgentViews(const QStringList &opened) const;
+    void logAgent(const QString &summary, const QString &status, const QString &chatId);
+    void noteFocusHistory();
+    [[nodiscard]] qint64 now() const;
+
+    QList<AgentStep> m_agentUndo;
+    QVariantMap m_suggestion;
+    QVariantMap m_suggestionIntent;
+    QVariantList m_agentLog;
+    qint64 m_lastUserInput = 0;
+    std::function<qint64()> m_clock;
+    bool m_commandSurfaceCollapsed = false;
+    QString m_commandSurfaceView = QStringLiteral("chat");
+    QStringList m_recentAnchors;
 
     QString m_currentLayoutId;
     QJsonObject m_layoutUndo;

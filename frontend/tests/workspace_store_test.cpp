@@ -64,6 +64,59 @@ QStringList keys(QAbstractItemModel *model, const QByteArray &role)
     }
     return result;
 }
+
+QVariantMap agentFile(const QString &fileId, const QString &libraryId = QStringLiteral("lib-main"))
+{
+    return {
+        {QStringLiteral("kind"), QStringLiteral("file")},
+        {QStringLiteral("libraryId"), libraryId},
+        {QStringLiteral("file"), QVariantMap{{QStringLiteral("id"), fileId}, {QStringLiteral("relativePath"), fileId}, {QStringLiteral("name"), fileId}}},
+    };
+}
+
+QVariantMap agentShow(const QVariantList &items, const QString &where = {}, bool focus = false, bool asked = true)
+{
+    return {
+        {QStringLiteral("action"), QStringLiteral("show")},
+        {QStringLiteral("items"), items},
+        {QStringLiteral("where"), where},
+        {QStringLiteral("purpose"), QString()},
+        {QStringLiteral("focus"), focus},
+        {QStringLiteral("explicit"), asked},
+        {QStringLiteral("chatId"), QStringLiteral("chat-1")},
+    };
+}
+
+QVariantMap agentRestore(const QString &scope, const QString &layout = {})
+{
+    return {
+        {QStringLiteral("action"), QStringLiteral("restore")},
+        {QStringLiteral("scope"), scope},
+        {QStringLiteral("layout"), layout},
+        {QStringLiteral("explicit"), true},
+        {QStringLiteral("chatId"), QStringLiteral("chat-1")},
+    };
+}
+
+QStringList agentAreas(const WorkspaceStore &store)
+{
+    QStringList ids;
+    for (const QVariant &area : store.describeForAgent().value(QStringLiteral("areas")).toList()) {
+        ids.append(area.toMap().value(QStringLiteral("id")).toString());
+    }
+    return ids;
+}
+
+QStringList agentViews(const WorkspaceStore &store)
+{
+    QStringList ids;
+    for (const QVariant &area : store.describeForAgent().value(QStringLiteral("areas")).toList()) {
+        for (const QVariant &shown : area.toMap().value(QStringLiteral("shows")).toList()) {
+            ids.append(shown.toMap().value(QStringLiteral("viewId")).toString());
+        }
+    }
+    return ids;
+}
 } // namespace
 
 class WorkspaceStoreTest final : public QObject
@@ -838,6 +891,199 @@ private slots:
         QVERIFY(!result.value("capabilities").toMap().value("move").toBool());
         result = store.runCommand({{"command", "anchor.setLayoutLock"}, {"anchorId", first}, {"locked", false}, {"origin", "user"}});
         QVERIFY(result.value("ok").toBool());
+    }
+
+    // Requests from the conversation in front apply at once; anything else
+    // waits for the person.
+    void agentRequestsApplyOrWaitForThePerson()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("agent-apply"));
+        QSignalSpy arranged(&store, &WorkspaceStore::agentArranged);
+
+        QVariantMap result = store.runAgentRequest(agentShow({agentFile("a.cpp")}), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(result.value("status").toString(), QStringLiteral("applied"));
+        QCOMPARE(arranged.count(), 1);
+        QVERIFY(store.canUndoAgentChange());
+
+        // A background conversation only prepares the change.
+        const QString before = store.focusedViewId();
+        const qsizetype viewsBefore = agentViews(store).size();
+        result = store.runAgentRequest(agentShow({agentFile("b.cpp")}), false);
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(result.value("status").toString(), QStringLiteral("suggested"));
+        QCOMPARE(arranged.count(), 1);
+        QVERIFY(!store.agentSuggestion().isEmpty());
+        QCOMPARE(store.focusedViewId(), before);
+        QCOMPARE(agentViews(store).size(), viewsBefore);
+
+        // The person applies it.
+        QVERIFY(store.applyAgentSuggestion());
+        QVERIFY(store.agentSuggestion().isEmpty());
+        QCOMPARE(arranged.count(), 2);
+
+        // Or dismisses one; a request nobody asked for is also only a suggestion.
+        result = store.runAgentRequest(agentShow({agentFile("c.cpp")}, {}, false, false), true);
+        QCOMPARE(result.value("status").toString(), QStringLiteral("suggested"));
+        store.dismissAgentSuggestion();
+        QVERIFY(store.agentSuggestion().isEmpty());
+        QCOMPARE(arranged.count(), 2);
+
+        // Background agents can't put things back on their own.
+        QCOMPARE(store.runAgentRequest(agentRestore("last_change"), false).value("code").toString(), QStringLiteral("NOT_ALLOWED"));
+
+        // Everything is on the record.
+        QVERIFY(store.agentActivity().size() >= 4);
+    }
+
+    // 6. An agent finishing while the person types never takes focus.
+    void typingKeepsFocus()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("agent-typing"));
+        qint64 clock = 100000;
+        store.setClockForTesting([&clock]() { return clock; });
+
+        const QString typingIn = store.openView(QStringLiteral("archivist.editor"), documentResource("notes.md"), "notes.md");
+        const QString side = store.createAnchor(store.focusedAnchorId(), QStringLiteral("right"));
+        store.focusAnchor(store.view(typingIn).value("anchorId").toString());
+        QCOMPARE(store.focusedViewId(), typingIn);
+
+        store.noteUserInput();
+        clock += 300;
+        QVariantMap result = store.runAgentRequest(agentShow({agentFile("x.cpp")}, side, true), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(store.focusedViewId(), typingIn);
+
+        // Once the person pauses, an asked-for focus change happens.
+        clock += 5000;
+        result = store.runAgentRequest(agentShow({agentFile("y.cpp")}, side, true), true);
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(store.focusedAnchorId(), side);
+    }
+
+    // 4 and 8. "Put everything back": tabs the agent opened close, unsaved
+    // editors and terminals stay open, and no edit is undone.
+    void puttingThingsBackKeepsWork()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        disk.files.insert(QStringLiteral("lib-main:b.cpp"), QStringLiteral("beta"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("agent-restore"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1200, 800);
+
+        const QString mine = store.openView(QStringLiteral("archivist.editor"), documentResource("mine.cpp"), "mine.cpp");
+        const QStringList anchorsBefore = agentAreas(store);
+
+        QVariantMap result = store.runAgentRequest(agentShow({agentFile("a.cpp"), agentFile("b.cpp")}, QStringLiteral("right")), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QVariantMap terminal = agentShow({QVariantMap{{"kind", "terminal"}, {"reference", "new"}, {"libraryId", "lib-main"}}}, QStringLiteral("right"));
+        result = store.runAgentRequest(terminal, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        result = store.runAgentRequest({{"action", "resize"}, {"target", "right"}, {"change", "larger"}, {"explicit", true}}, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+
+        QString a;
+        QString b;
+        QString term;
+        for (const QString &viewId : agentViews(store)) {
+            const QVariantMap view = store.view(viewId);
+            const QString fileId = view.value("resource").toMap().value("details").toMap().value("fileId").toString();
+            if (fileId == QStringLiteral("a.cpp")) {
+                a = view.value("viewId").toString();
+            } else if (fileId == QStringLiteral("b.cpp")) {
+                b = view.value("viewId").toString();
+            } else if (view.value("typeId").toString() == QStringLiteral("archivist.terminal")) {
+                term = view.value("viewId").toString();
+            }
+        }
+        QVERIFY(!a.isEmpty() && !b.isEmpty() && !term.isEmpty());
+
+        // The person edits one of the files the agent opened.
+        const QString docA = store.view(a).value("resource").toMap().value("id").toString();
+        QVERIFY(documents.applyEdits(docA, QStringLiteral("p"), 1, insertAt(0, ">")).value("ok").toBool());
+
+        result = store.runAgentRequest(agentRestore("before_task"), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QVERIFY(!store.canUndoAgentChange());
+
+        QVERIFY(store.view(b).isEmpty());
+        QVERIFY(!store.view(a).isEmpty());
+        QVERIFY(!store.view(term).isEmpty());
+        QVERIFY(!store.view(mine).isEmpty());
+        QCOMPARE(documents.snapshot(docA).value("text").toString(), QStringLiteral(">alpha"));
+        QVERIFY(documents.isDirty(docA));
+
+        // The panels the person had are back as they were.
+        QCOMPARE(agentAreas(store), anchorsBefore);
+
+        QCOMPARE(store.runAgentRequest(agentRestore("last_change"), true).value("code").toString(), QStringLiteral("NOTHING_TO_RESTORE"));
+    }
+
+    // 10. Agent rearrangements never touch named layouts.
+    void agentChangesLeaveNamedLayoutsAlone()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("agent-layouts"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString saved = store.saveLayout(QStringLiteral("Focus"));
+        QVERIFY(!saved.isEmpty());
+        settings.sync();
+        const QVariant stored = settings.value(QStringLiteral("workspace/docking/layouts"));
+
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("b.md"), agentFile("c.md")}, QStringLiteral("right")), true).value("ok").toBool());
+        QVERIFY(store.runAgentRequest({{"action", "resize"}, {"target", "right"}, {"change", "larger"}, {"explicit", true}}, true).value("ok").toBool());
+        QVERIFY(store.runAgentRequest(agentRestore("before_task"), true).value("ok").toBool());
+
+        settings.sync();
+        QCOMPARE(settings.value(QStringLiteral("workspace/docking/layouts")), stored);
+        QCOMPARE(store.savedLayouts().size(), 1);
+
+        // Asked by name, the saved layout is applied, and that is undoable too.
+        QVariantMap result = store.runAgentRequest(agentRestore("saved_layout", "focus"), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(store.currentLayoutId(), saved);
+        QVERIFY(store.canUndoAgentChange());
+        QCOMPARE(store.runAgentRequest(agentRestore("saved_layout", "nowhere"), true).value("code").toString(), QStringLiteral("NOT_FOUND"));
+        settings.sync();
+        QCOMPARE(settings.value(QStringLiteral("workspace/docking/layouts")), stored);
+    }
+
+    void agentsSeeTheWorkspaceInWords()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("agent-describe"));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        store.setCommandSurfaceState(true, QStringLiteral("terminal"));
+
+        const QVariantMap description = store.runAgentRequest({{"action", "describe"}}, false);
+        QVERIFY(description.value("ok").toBool());
+        QVERIFY(!description.value("areas").toList().isEmpty());
+        QVERIFY(description.contains("bottomPanel"));
+        QVERIFY(!description.contains("savedLayouts"));
+        store.saveLayout(QStringLiteral("Quiet"));
+        QCOMPARE(store.describeForAgent().value("savedLayouts").toStringList(), QStringList({QStringLiteral("Quiet")}));
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        QCOMPARE(description.value("canUndoLastChange").toBool(), false);
+        QCOMPARE(store.commandSurface().value("collapsed").toBool(), true);
+
+        // "Beside our conversation" opens the bottom chat if it was folded.
+        QSignalSpy surface(&store, &WorkspaceStore::commandSurfaceRequested);
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("b.cpp")}, QStringLiteral("beside our conversation")), true).value("ok").toBool());
+        QCOMPARE(surface.count(), 1);
+        QCOMPARE(surface.first().at(0).toString(), QStringLiteral("chat"));
+        QCOMPARE(surface.first().at(1).toBool(), true);
     }
 
 private:

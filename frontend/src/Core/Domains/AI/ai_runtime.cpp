@@ -4,6 +4,7 @@
 #include "Core/Domains/Chats/chat_repository.h"
 #include "Core/Domains/Libraries/library_repository.h"
 #include "Core/Domains/Models/model_catalog_cache.h"
+#include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Domains/Worktrees/worktree_repository.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"
@@ -93,6 +94,41 @@ const QRegularExpression &explicitLibraryMutationPattern()
     return pattern;
 }
 
+// The person asks to see, open, arrange or restore things in the workspace.
+const QRegularExpression &workspaceRequestPattern()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral(
+            "(?:\\b(?:open|show|bring\\s+up|pull\\s+up|bring\\s+back|reveal|display|put|move|place|dock|arrange|rearrange|lay\\s*out|"
+            "maximi[sz]e|enlarge|shrink|resize|widen|focus|switch\\s+to)\\b[\\s\\S]{0,120}"
+            "\\b(?:files?|tabs?|panels?|panes?|areas?|editors?|code|terminals?|diffs?|chats?|conversation|docs?|documentation|references?|"
+            "previews?|side|left|right|top|bottom|beside|next\\s+to|window|workspace|layout|here|there)\\b"
+            "|\\b(?:bigger|larger|smaller|wider|narrower|taller|shorter)\\b"
+            "|\\b(?:restore|reset)\\s+(?:my\\s+|the\\s+)?(?:workspace|layout|windows?|panels?)\\b"
+            "|\\b(?:put|set)\\s+(?:everything|it\\s+all|things|it)\\s+back\\b"
+            "|\\bgo\\s+back\\s+to\\s+how\\b|\\bhow\\s+(?:it|things|everything)\\s+(?:was|were)\\b"
+            "|\\bkeep\\b[\\s\\S]{0,40}\\b(?:panel|pane|area|where\\s+it\\s+is|accessible|visible|open|on\\s+screen)\\b"
+            "|\\buse\\s+(?:this|that|the)\\s+(?:\\w+\\s+)?(?:panel|pane|area)\\s+for\\b"
+            "|\\b(?:my|the)\\s+(?:workspace|layout)\\b"
+            "|\\b(?:i\\s+(?:like|prefer|want)|always|never|don'?t|do\\s+not)\\b[\\s\\S]{0,80}\\b(?:chat|editor|panel|windows?|layout|rearrange|docs?|documentation|terminal)\\b"
+            ")"
+        ),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    return pattern;
+}
+
+// Words that only ever mean changing file contents, so a request that also
+// mentions panels ("move the docs to the right") stays a layout request.
+const QRegularExpression &strongLibraryMutationPattern()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("\\b(?:create|write|draft|save|edit|update|patch|rename|delete|refactor)\\b"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    return pattern;
+}
+
 QString mutationTurnResponse(bool proposalCreated)
 {
     return proposalCreated
@@ -107,6 +143,7 @@ struct InstructionFlags
     bool verificationToolsAvailable = false;
     bool mutationProposalRequested = false;
     bool toolTestingRequested = false;
+    bool workspaceToolsAvailable = false;
 };
 
 QString toolAwareInstructions(const QString &base, const InstructionFlags &input)
@@ -129,6 +166,16 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
         lines << QStringLiteral("This turn is an explicit tool-usage test.")
               << QStringLiteral("Relevant read-only Library tools are intentionally available even when automatic retrieval already supplied evidence.")
               << QStringLiteral("Exercise multiple distinct read-only tools when they gather complementary evidence, but do not repeat identical reads or call mutation tools merely to inflate the tool count.");
+    }
+
+    if (input.workspaceToolsAvailable) {
+        lines << QStringLiteral("You can show and arrange things in the person's workspace with the workspace_* tools. Use them only for what the person asked to see, open, arrange, resize or restore in this message.")
+              << QStringLiteral("Call workspace_view first unless you already know the areas. Refer to areas by the names it returns, or describe them plainly (\"the code\", \"the right panel\").")
+              << QStringLiteral("Prefer one workspace_show call with every item over several calls, reuse what is already open, and leave where empty unless the person said where.")
+              << QStringLiteral("To find the relevant files, use Library evidence or search first, then show only the files that matter (usually two to five).")
+              << QStringLiteral("\"Put everything back\" or \"restore my workspace\" means workspace_restore with before_task; \"undo that\" means last_change.")
+              << QStringLiteral("Talk about areas and panels in the person's words; never mention anchors, view ids or tool names.")
+              << QStringLiteral("When a workspace result says suggested, the change was prepared but not applied: say it is ready to apply from the notice. When it fails, say why in one sentence and do not retry the same change.");
     }
 
     if (input.initialRetrievalAvailable) {
@@ -426,6 +473,7 @@ private:
     QVariantList m_retrievalOutcomes;
     bool m_retrievalContextIncluded = false;
     bool m_mutationProposalRequested = false;
+    bool m_workspaceRequested = false;
     QString m_instructions;
     QJsonArray m_initialInput;
     QJsonArray m_tools;
@@ -676,7 +724,9 @@ void ChatRunJob::prepare()
     const bool toolTestingRequested = explicitToolTestingPattern().match(userContent).hasMatch();
     const bool verificationRequested = explicitToolRequestPattern().match(userContent).hasMatch() || toolTestingRequested;
     const bool verificationToolsAvailable = initialRetrievalAvailable && verificationRequested;
-    m_mutationProposalRequested = explicitLibraryMutationPattern().match(userContent).hasMatch();
+    m_workspaceRequested = Workspace::Gateway::installed() && workspaceRequestPattern().match(userContent).hasMatch();
+    m_mutationProposalRequested = explicitLibraryMutationPattern().match(userContent).hasMatch()
+        && (!m_workspaceRequested || strongLibraryMutationPattern().match(userContent).hasMatch());
     const bool discoveryToolsSuppressed = initialRetrievalAvailable && !toolTestingRequested;
     const bool fullFileReadSuppressed = initialRetrievalAvailable && !toolTestingRequested;
     m_maximumToolRounds = toolTestingRequested ? 6 : initialRetrievalAvailable ? 1 : 6;
@@ -691,6 +741,18 @@ void ChatRunJob::prepare()
         availability.verification = verificationToolsAvailable || toolTestingRequested;
         availability.mutationProposals = m_mutationProposalRequested;
         providerTools = AITools::providerTools(availability);
+    }
+
+    if (m_workspaceRequested) {
+        // Looking at the workspace, then showing or arranging, takes a few
+        // rounds even when retrieval already found the files.
+        AITools::Availability workspaceOnly;
+        workspaceOnly.discovery = false;
+        workspaceOnly.fullFileRead = false;
+        workspaceOnly.verification = false;
+        workspaceOnly.workspace = true;
+        providerTools.append(AITools::providerTools(workspaceOnly));
+        m_maximumToolRounds = std::max(m_maximumToolRounds, 4);
     }
 
     QVariantList toolIds;
@@ -714,6 +776,7 @@ void ChatRunJob::prepare()
     flags.verificationToolsAvailable = verificationToolsAvailable;
     flags.mutationProposalRequested = m_mutationProposalRequested;
     flags.toolTestingRequested = toolTestingRequested;
+    flags.workspaceToolsAvailable = m_workspaceRequested;
     m_instructions = toolAwareInstructions(AgentInstructions::build(m_agent), flags);
 
     m_initialInput = QJsonArray();
@@ -734,6 +797,7 @@ void ChatRunJob::prepare()
         {QStringLiteral("verificationToolsAvailable"), verificationToolsAvailable},
         {QStringLiteral("mutationProposalRequested"), m_mutationProposalRequested},
         {QStringLiteral("toolTestingRequested"), toolTestingRequested},
+        {QStringLiteral("workspaceRequested"), m_workspaceRequested},
         {QStringLiteral("discoveryToolsSuppressed"), discoveryToolsSuppressed},
         {QStringLiteral("fullFileReadSuppressed"), fullFileReadSuppressed},
         {QStringLiteral("focusedHistory"), focused},
@@ -981,6 +1045,7 @@ QVariantMap ChatRunJob::executeToolCall(const QVariantMap &call)
     context.libraryId = m_libraryId;
     context.cancelled = [this]() { return m_aborted; };
     context.emitEvent = [this](const QString &type, const QVariantMap &payload) { m_worker.appendEvent(m_runId, type, payload); };
+    context.workspaceExplicit = m_workspaceRequested;
 
     QString code;
     QString message;

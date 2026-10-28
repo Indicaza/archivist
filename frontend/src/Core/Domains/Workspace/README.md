@@ -151,6 +151,63 @@ answers what a caller may do, with a reason for each refusal.
 All of this is optional in saved snapshots; older snapshots read with
 defaults.
 
+## Agents and the workspace
+
+People ask for arrangements in plain words ("open these files beside our
+conversation", "make the code bigger", "put everything back"). Four AI tools
+carry those requests; none of them mention anchors or ids.
+
+| Tool | Does |
+|---|---|
+| `workspace_view` | Describes the workspace in words: areas, what each shows, where it sits, its size and locks. |
+| `workspace_show` | Shows files, a chat, a terminal or an open view, reusing what is already open. |
+| `workspace_arrange` | Focuses, resizes, moves, keeps (locks in place) or labels an area. |
+| `workspace_restore` | Puts back the arrangement before the last change, before the whole task, or a saved layout by name. |
+
+The layers, from the model up:
+
+- `workspace_resources`: resource identities for files, terminals and chats,
+  and which view type shows a file. They match what the QML builds, so an
+  agent and the person open the same view.
+- `workspace_placement`: where a new view goes (`chooseAnchor`) and whether a
+  view of that resource is already open (`existingView`).
+- `workspace_intents`: `describe` and `perform`. Vague destinations ("the
+  right", "beside the chat", "the docs panel", "this panel") resolve against
+  names, contents and positions (`resolveArea`). `perform` works on a copy
+  and commits only if every step worked, so a refused request changes
+  nothing. Focus stays where it was unless the request asks for it.
+- `workspace_arrangements`: `restore` puts an earlier arrangement back while
+  keeping everything that happened since: views that still exist, panel
+  names and locks, window positions. Only views the agent opened, are clean
+  and aren't terminals are closed. A layout-locked panel that would move
+  refuses the restore.
+- `workspace_gateway` (Core) and `WorkspaceAgentBridge` (App): the AI runtime
+  runs on its own thread; tools call the gateway, and the bridge runs the
+  request on the UI thread with a timeout. A request that times out is
+  dropped before it runs.
+- `WorkspaceStore` (`workspace_store_agent.cpp`): decides what a request may
+  do right now.
+  - Applied at once only when the person asked for a workspace change in the
+    conversation that's in front, and isn't dragging a panel.
+  - Otherwise prepared as a suggestion (`agentSuggestion`) the person can
+    apply or dismiss. Background agents never restore on their own.
+  - Focus only moves when asked for, and never within 1.5 s of the person
+    typing or clicking.
+  - Each applied request is one undo step (`undoAgentChange`), separate from
+    layout undo and never touching document edits. Up to 20 steps are kept;
+    `before_task` restores all of them at once.
+  - Everything is logged in `agentActivity`.
+
+The bottom panel (Chat, Terminal, Problems) stays the main place for the
+conversation. It can be folded to its tabs, and "beside our conversation"
+unfolds it rather than docking another chat. The shell reports its state
+with `setCommandSurfaceState`; agents ask for it through
+`commandSurfaceRequested`.
+
+The runtime offers the workspace tools only when the person's message asks
+for a workspace change. Locks and refusals come back to the model as
+`permission_denied` with the person-facing sentence.
+
 ## Document buffers (`Core/Domains/Documents`)
 
 Monaco pages hold copies of a document and sync through versioned edits.

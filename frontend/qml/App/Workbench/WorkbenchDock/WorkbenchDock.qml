@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../ChatDock"
 import "../TerminalDock"
+import "../../Icons"
 
 Rectangle {
     id: root
@@ -14,8 +15,12 @@ Rectangle {
     property string activeView: "chat"
     property string stateScopeId: ""
     property bool stateRestored: false
+    // Folded down to its tab strip.
+    property bool collapsed: false
 
     signal dockModeToggleRequested()
+    signal collapseToggleRequested()
+    signal expandRequested()
     signal messageSubmitted(string message)
 
     function stateKey(scopeId) {
@@ -146,8 +151,12 @@ Rectangle {
                         Layout.fillHeight: true
                         padding: 0
                         hoverEnabled: true
-                        onClicked:
+                        onClicked: {
                             root.activeView = modelData.key
+                            if (root.collapsed) {
+                                root.expandRequested()
+                            }
+                        }
 
                         contentItem: Text {
                             id: tabLabel
@@ -204,12 +213,24 @@ Rectangle {
                 Item {
                     Layout.fillWidth: true
                 }
+
+                IconButton {
+                    Layout.preferredWidth: 22
+                    Layout.preferredHeight: 22
+                    Layout.alignment: Qt.AlignVCenter
+                    theme: root.theme
+                    iconName: root.collapsed ? "chevron-up" : "chevron-down"
+                    iconSize: 11
+                    toolTipText: root.collapsed ? "Show panel" : "Hide panel"
+                    onClicked: root.collapseToggleRequested()
+                }
             }
         }
 
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: !root.collapsed
 
             ChatDock {
                 anchors.fill: parent

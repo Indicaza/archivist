@@ -3,6 +3,7 @@
 #include "App/Domains/Documents/document_store.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
 #include "Core/Domains/Workspace/workspace_commands.h"
+#include "Core/Domains/Workspace/workspace_placement.h"
 #include "Core/Domains/Workspace/workspace_presets.h"
 
 #include <QGuiApplication>
@@ -120,6 +121,11 @@ WorkspaceStore::WorkspaceStore(QObject *parent)
         connect(app, &QGuiApplication::screenAdded, this, recover);
         connect(app, &QGuiApplication::screenRemoved, this, recover);
         connect(app, &QGuiApplication::primaryScreenChanged, this, recover);
+    }
+
+    // Typing and clicking anywhere tell agents to keep their hands off focus.
+    if (QCoreApplication *app = QCoreApplication::instance()) {
+        app->installEventFilter(this);
     }
 
     publish();
@@ -388,6 +394,8 @@ void WorkspaceStore::publish()
         m_retained = wanted;
     }
 
+    noteFocusHistory();
+
     const bool modelChanged = m_publishedModelRevision != m_model.revision();
     m_publishedModelRevision = m_model.revision();
     ++m_revision;
@@ -575,6 +583,11 @@ void WorkspaceStore::setCollection(const QString &collectionId)
 
     m_model = fresh;
     m_publishedModelRevision = m_model.revision();
+    m_agentUndo.clear();
+    m_suggestion.clear();
+    m_suggestionIntent.clear();
+    m_recentAnchors.clear();
+    emit agentChanged();
     m_layoutUndo = {};
     m_layoutUndoId.clear();
     m_currentLayoutId = collectionId.isEmpty()
@@ -676,18 +689,7 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
 
     if (reveal && !resource.isEmpty()) {
         // Prefer a view in the requested (or target) anchor, then any.
-        const QString preferredAnchor = anchorId.isEmpty() ? m_model.targetAnchorId() : anchorId;
-        QString existing;
-
-        for (const QString &viewId : m_model.viewsForResource(resource.kind, resource.id)) {
-            const ViewRecord *view = m_model.view(viewId);
-            if (!view || view->typeId != typeId) {
-                continue;
-            }
-            if (existing.isEmpty() || m_model.anchorOfView(viewId) == preferredAnchor) {
-                existing = viewId;
-            }
-        }
+        const QString existing = Placement::existingView(m_model, typeId, resource, anchorId);
 
         if (!existing.isEmpty()) {
             m_model.activateView(existing);
@@ -1308,61 +1310,9 @@ QVariantMap WorkspaceStore::runCommand(const QVariantMap &command)
 
 QString WorkspaceStore::preferredAnchorFor(const QString &typeId) const
 {
-    const bool document = typeId == ViewTypes::Editor || typeId == ViewTypes::Preview || typeId == ViewTypes::Diff;
-
-    // Content-locked panels keep what they hold: new content goes elsewhere
-    // unless the person points it there (or nowhere else exists).
-    auto open = [this](const QString &anchorId) {
-        const AnchorRecord *anchor = m_model.anchor(anchorId);
-        return anchor && !anchor->contentLocked;
-    };
-    auto fallback = [this, &open]() {
-        const QString target = m_model.targetAnchorId();
-        if (open(target)) {
-            return target;
-        }
-        if (open(m_model.focusedAnchorId())) {
-            return m_model.focusedAnchorId();
-        }
-        for (const QString &anchorId : m_model.anchorIds(m_model.primarySurfaceId())) {
-            if (open(anchorId)) {
-                return anchorId;
-            }
-        }
-        for (const QString &anchorId : m_model.anchorIds()) {
-            if (open(anchorId)) {
-                return anchorId;
-            }
-        }
-        return target;
-    };
-
-    if (document || typeId.isEmpty()) {
-        return fallback();
-    }
-
-    QString holding;
-
-    for (const QString &anchorId : m_model.anchorIds()) {
-        const AnchorRecord *anchor = m_model.anchor(anchorId);
-        if (!open(anchorId)) {
-            continue;
-        }
-        if (anchor->roles.contains(typeId)) {
-            return anchorId;
-        }
-        if (holding.isEmpty()) {
-            for (const QString &viewId : anchor->views) {
-                const ViewRecord *view = m_model.view(viewId);
-                if (view && view->typeId == typeId) {
-                    holding = anchorId;
-                    break;
-                }
-            }
-        }
-    }
-
-    return holding.isEmpty() ? fallback() : holding;
+    Placement::Hints hints;
+    hints.recentAnchors = m_recentAnchors;
+    return Placement::chooseAnchor(m_model, typeId, {}, hints);
 }
 
 QVariantMap WorkspaceStore::tabStripAt(const QString &surfaceId, double x, double y, double stripHeight) const

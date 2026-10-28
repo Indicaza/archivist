@@ -22,6 +22,7 @@
 #include "App/Domains/Worktree/worktree_store.h"
 #include "App/Domains/Documents/document_store.h"
 #include "App/Domains/Documents/unsaved_recovery.h"
+#include "App/Domains/Workspace/workspace_agent_bridge.h"
 #include "App/Domains/Workspace/workspace_store.h"
 #include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
@@ -106,6 +107,12 @@ int main(int argc, char *argv[])
     QObject::connect(&libraryStore, &LibraryStore::fileSaved, &documentStore, &DocumentStore::noteFileSaved);
     QObject::connect(&libraryStore, &LibraryStore::fileSaveFailed, &documentStore, &DocumentStore::noteFileSaveFailed);
     dockingStore.setDocumentStore(&documentStore);
+    // Agent tools reach the workspace from the AI thread through this. An
+    // agent's conversation is "in front" when it is the selected chat.
+    WorkspaceAgentBridge workspaceAgents(&dockingStore);
+    workspaceAgents.setForegroundCheck([&chatStore](const QString &chatId) {
+        return !chatId.isEmpty() && chatStore.selectedChatId() == chatId;
+    });
     // Unsaved editor text survives crashes: it is kept beside the database
     // and comes back, marked unsaved, on the next start.
     UnsavedRecovery unsavedRecovery(
