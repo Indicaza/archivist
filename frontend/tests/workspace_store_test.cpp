@@ -3,6 +3,8 @@
 #include "App/Domains/Workspace/keyed_list_model.h"
 #include "App/Domains/Workspace/workspace_store.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -1084,6 +1086,87 @@ private slots:
         QCOMPARE(surface.count(), 1);
         QCOMPARE(surface.first().at(0).toString(), QStringLiteral("chat"));
         QCOMPARE(surface.first().at(1).toBool(), true);
+    }
+
+    // Phase C. The arrangement before an agent's task is kept apart from
+    // named layouts, survives a restart, and comes back in one step.
+    void temporaryArrangementsSurviveARestart()
+    {
+        QSettings settings;
+        const QString key = QStringLiteral("workspace/collections/agent-temporary/docking/temporaryArrangement");
+        settings.remove(key);
+        settings.remove(QStringLiteral("workspace/collections/agent-temporary/docking/snapshot"));
+        QStringList areasBefore;
+        QString mine;
+
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("agent-temporary"));
+            store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+            mine = store.openView(QStringLiteral("archivist.editor"), documentResource("mine.cpp"), "mine.cpp");
+            areasBefore = agentAreas(store);
+            QVERIFY(store.temporaryArrangement().isEmpty());
+
+            QVERIFY(store.runAgentRequest(agentShow({agentFile("doc.md")}, QStringLiteral("right")), true).value("ok").toBool());
+            QVERIFY(store.runAgentRequest({{"action", "resize"}, {"target", "right"}, {"change", "larger"}, {"explicit", true}}, true).value("ok").toBool());
+            QCOMPARE(store.temporaryArrangement().value("changes").toStringList().size(), 2);
+            QVERIFY(agentAreas(store).size() > areasBefore.size());
+
+            // Stored on its own, as an arrangement without focus.
+            settings.sync();
+            const QJsonObject record = QJsonDocument::fromJson(settings.value(key).toString().toUtf8()).object();
+            QVERIFY(!record.value("baseline").toObject().isEmpty());
+            QVERIFY(!record.value("baseline").toObject().value("session").toObject().contains("focusedAnchor"));
+            store.saveNow();
+        }
+
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("agent-temporary"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        QVERIFY(!store.temporaryArrangement().isEmpty());
+        QVERIFY(store.describeForAgent().contains("temporaryArrangementSince"));
+        QVERIFY(!store.canUndoAgentChange());
+
+        QSignalSpy restored(&store, &WorkspaceStore::agentRestored);
+        const QVariantMap result = store.runAgentRequest(agentRestore("before_task"), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(restored.count(), 1);
+        QCOMPARE(agentAreas(store), areasBefore);
+        QVERIFY(!store.view(mine).isEmpty());
+        QCOMPARE(agentViews(store), QStringList({mine}));
+        QVERIFY(store.temporaryArrangement().isEmpty());
+        settings.sync();
+        QVERIFY(!settings.contains(key));
+    }
+
+    void keepingAnArrangementMakesItTheNormalOne()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("agent-keep"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("mine.cpp"), "mine.cpp");
+
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("doc.md")}, QStringLiteral("right")), true).value("ok").toBool());
+        const QStringList arranged = agentAreas(store);
+        store.keepArrangement();
+        QVERIFY(store.temporaryArrangement().isEmpty());
+        QVERIFY(!store.canUndoAgentChange());
+        QCOMPARE(store.runAgentRequest(agentRestore("before_task"), true).value("code").toString(), QStringLiteral("NOTHING_TO_RESTORE"));
+        QCOMPARE(agentAreas(store), arranged);
+
+        // Undoing a task's only change also ends the temporary arrangement.
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("more.md")}, QStringLiteral("left")), true).value("ok").toBool());
+        QVERIFY(!store.temporaryArrangement().isEmpty());
+        QVERIFY(store.undoAgentChange());
+        QVERIFY(store.temporaryArrangement().isEmpty());
+        QCOMPARE(agentAreas(store), arranged);
+
+        // And the person can put things back without the agent.
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("more.md")}, QStringLiteral("left")), true).value("ok").toBool());
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("again.md")}, QStringLiteral("bottom")), true).value("ok").toBool());
+        QVERIFY(store.putBackArrangement());
+        QCOMPARE(agentAreas(store), arranged);
+        QVERIFY(!store.canUndoAgentChange());
     }
 
 private:

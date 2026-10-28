@@ -65,6 +65,9 @@ class WorkspaceStore final : public QObject
     // notes, createdAt} or {}.
     Q_PROPERTY(QVariantMap agentSuggestion READ agentSuggestion NOTIFY agentChanged)
     Q_PROPERTY(bool canUndoAgentChange READ canUndoAgentChange NOTIFY agentChanged)
+    // While an agent's arrangement is in place: {since, changes, summary}.
+    // Empty once the person keeps it or it is put back.
+    Q_PROPERTY(QVariantMap temporaryArrangement READ temporaryArrangement NOTIFY agentChanged)
     // The bottom Chat/Terminal workbench as the shell reports it:
     // {collapsed, view}.
     Q_PROPERTY(QVariantMap commandSurface READ commandSurface NOTIFY commandSurfaceChanged)
@@ -284,6 +287,14 @@ public:
     Q_INVOKABLE bool undoAgentChange();
     [[nodiscard]] QVariantMap agentSuggestion() const { return m_suggestion; }
     [[nodiscard]] bool canUndoAgentChange() const { return !m_agentUndo.isEmpty(); }
+
+    // Temporary arrangements. The first agent change remembers how the
+    // workspace looked before it (per collection, across restarts, apart
+    // from named layouts). Putting it back restores that arrangement in one
+    // step; keeping it makes the current arrangement the normal one.
+    [[nodiscard]] QVariantMap temporaryArrangement() const;
+    Q_INVOKABLE bool putBackArrangement();
+    Q_INVOKABLE void keepArrangement();
     // What agents did to the workspace this session, newest first:
     // [{at, summary, status, chatId}].
     [[nodiscard]] Q_INVOKABLE QVariantList agentActivity() const { return m_agentLog; }
@@ -319,6 +330,8 @@ signals:
     void agentChanged();
     // An agent changed the layout; `summary` says what, in plain words.
     void agentArranged(const QString &summary);
+    // An agent put an earlier arrangement back (nothing to undo).
+    void agentRestored(const QString &summary);
     // Asks the shell to open (or close) the bottom workbench on `view`
     // ("chat" or "terminal").
     void commandSurfaceRequested(const QString &view, bool open);
@@ -390,6 +403,7 @@ private:
         bool surfaceCollapsedBefore = false;
         QString surfaceViewBefore;
         bool surfaceTouched = false;
+        bool startedTask = false; // this step remembered the baseline
     };
     [[nodiscard]] Workspace::Intents::Environment agentEnvironment(bool mayMoveFocus) const;
     [[nodiscard]] QVariantMap agentIntent(const QVariantMap &request, QVariantMap *failure) const;
@@ -397,10 +411,17 @@ private:
     QVariantMap suggestAgentIntent(const QVariantMap &intent, const QString &chatId, const QString &reason);
     QVariantMap restoreForAgent(const QVariantMap &request);
     bool restoreAgentSteps(qsizetype count, QString *code, QString *error);
+    bool restoreTo(const Workspace::WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error);
+    void restoreCommandSurface(qsizetype firstStep);
     [[nodiscard]] QSet<QString> closableAgentViews(const QStringList &opened) const;
     void logAgent(const QString &summary, const QString &status, const QString &chatId);
     void noteFocusHistory();
     [[nodiscard]] qint64 now() const;
+    [[nodiscard]] QString arrangementKey(const QString &collectionId) const;
+    void rememberArrangement(const Workspace::WorkspaceModel::Data &before, const QStringList &opened, const QString &summary);
+    void loadArrangement();
+    void forgetArrangement();
+    bool restoreArrangement(QString *code, QString *error);
 
     QList<AgentStep> m_agentUndo;
     QVariantMap m_suggestion;
@@ -411,6 +432,12 @@ private:
     bool m_commandSurfaceCollapsed = false;
     QString m_commandSurfaceView = QStringLiteral("chat");
     QStringList m_recentAnchors;
+    // The arrangement before the agent's task, as a snapshot without focus,
+    // and every view agents opened since (candidates to close on put back).
+    QJsonObject m_baseline;
+    QStringList m_baselineOpened;
+    QStringList m_baselineChanges;
+    QString m_baselineSince;
 
     QString m_currentLayoutId;
     QJsonObject m_layoutUndo;
