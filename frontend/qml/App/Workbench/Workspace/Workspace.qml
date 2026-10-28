@@ -1835,8 +1835,6 @@ Rectangle {
         spacing: root.theme.messageVerticalGap
         topMargin: 42
         bottomMargin: 44 + root.bottomOverlay
-        onContentYChanged: root.followEndOnOverlay = nearEnd
-        onContentHeightChanged: root.followEndOnOverlay = nearEnd
         cacheBuffer: Math.max(1200, Math.ceil(height * 2))
         displayMarginBeginning: 0
         displayMarginEnd: 0
@@ -1895,6 +1893,7 @@ Rectangle {
         }
 
         onContentHeightChanged: {
+            root.followEndOnOverlay = nearEnd
             root.traceChatViewport("contentHeight.changed")
 
             if (root.scrollToEndPending) {
@@ -1911,6 +1910,7 @@ Rectangle {
         }
 
         onContentYChanged: {
+            root.followEndOnOverlay = nearEnd
             var previousContentY = root.chatTracePreviousContentY
             root.chatTracePreviousContentY = contentY
 
