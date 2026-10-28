@@ -15,7 +15,13 @@ Item {
     required property var store
     required property var dock
 
+    // Unsent text per conversation (ChatDrafts in the app). Each chat keeps
+    // its own draft: switching chats swaps the text, and nothing typed for
+    // one conversation is ever sent to another.
+    property var drafts: null
     property string attachmentPopId: ""
+    property string draftChatId: ""
+    property bool loadingDraft: false
 
     readonly property alias input: composer
     readonly property color hue: theme.agentHue(store.selectedChat.agentId)
@@ -30,6 +36,34 @@ Item {
 
     signal submitRequested()
     signal agentChipClicked()
+
+    function loadDraft() {
+        var chatId = String(store.selectedChatId || "")
+
+        loadingDraft = true
+        draftChatId = chatId
+        composer.text = drafts && chatId.length > 0 ? drafts.draft(chatId) : ""
+        composer.cursorPosition = composer.length
+        loadingDraft = false
+    }
+
+    function saveDraft() {
+        if (loadingDraft || !drafts || draftChatId.length === 0) {
+            return
+        }
+
+        drafts.setDraft(draftChatId, composer.text)
+    }
+
+    Connections {
+        target: root.store
+
+        function onSelectedChatIdChanged() {
+            root.loadDraft()
+        }
+    }
+
+    Component.onCompleted: loadDraft()
 
     // A small press on the card when a message leaves it.
     function playSubmit() {
@@ -388,6 +422,7 @@ Item {
                 rightPadding: 14
                 topPadding: root.attachments.length > 0 ? 8 : 13
                 bottomPadding: 8
+                onTextChanged: root.saveDraft()
 
                 Keys.onPressed: function(event) {
                     var returnPressed = event.key === Qt.Key_Return
