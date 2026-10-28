@@ -110,7 +110,7 @@ const QRegularExpression &workspaceRequestPattern()
             "|\\bkeep\\b[\\s\\S]{0,40}\\b(?:panel|pane|area|where\\s+it\\s+is|accessible|visible|open|on\\s+screen)\\b"
             "|\\buse\\s+(?:this|that|the)\\s+(?:\\w+\\s+)?(?:panel|pane|area)\\s+for\\b"
             "|\\b(?:my|the)\\s+(?:workspace|layout)\\b"
-            "|\\b(?:i\\s+(?:like|prefer|want)|always|never|don'?t|do\\s+not)\\b[\\s\\S]{0,80}\\b(?:chat|editor|panel|windows?|layout|rearrange|docs?|documentation|terminal)\\b"
+            "|\\b(?:i\\s+(?:like|prefer|want)|always|never|don'?t|do\\s+not|keep\\s+my)\\b[\\s\\S]{0,80}\\b(?:chat|editor|panel|windows?|layout|rearrange|docs?|documentation|terminal)\\b"
             ")"
         ),
         QRegularExpression::CaseInsensitiveOption

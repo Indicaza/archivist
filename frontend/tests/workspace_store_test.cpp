@@ -1279,6 +1279,74 @@ private slots:
         QCOMPARE(surface.first().at(0).toString(), QStringLiteral("chat"));
     }
 
+    // Definition of done, as the assistant's tool calls would arrive:
+    // 1. "Help me understand this subsystem. Open the important files, put
+    //    the relevant documentation on the side, keep our conversation
+    //    accessible."  2. "Make the code bigger."  3. "Put everything back."
+    void understandEnlargeAndPutBack()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("definition-of-done"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        const QString mine = store.openView(QStringLiteral("archivist.editor"), documentResource("notes.cpp"), "notes.cpp");
+        store.setCommandSurfaceState(true, QStringLiteral("terminal"));
+        const QStringList areasBefore = agentAreas(store);
+        QSignalSpy surface(&store, &WorkspaceStore::commandSurfaceRequested);
+
+        // 1.
+        QVERIFY(store.runAgentRequest({{"action", "describe"}}, true).value("ok").toBool());
+        QVariantMap code = agentShow({agentFile("src/engine.cpp"), agentFile("src/engine.h"), agentFile("src/scheduler.cpp")});
+        QVariantMap result = store.runAgentRequest(code, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QVariantMap docs = agentShow({agentFile("docs/engine.md"), agentFile("docs/scheduling.md")});
+        docs.insert("purpose", "documentation");
+        result = store.runAgentRequest(docs, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        result = store.runAgentRequest(agentShow({QVariantMap{{"kind", "chat"}, {"reference", ""}}}), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+
+        const QString codeArea = store.view(mine).value("anchorId").toString();
+        QString docsArea;
+        for (const QString &viewId : agentViews(store)) {
+            const QString path = store.view(viewId).value("resource").toMap().value("details").toMap().value("path").toString();
+            if (path.startsWith("src/")) {
+                QCOMPARE(store.view(viewId).value("anchorId").toString(), codeArea);
+            } else if (path.startsWith("docs/")) {
+                docsArea = store.view(viewId).value("anchorId").toString();
+            }
+        }
+        QVERIFY(!docsArea.isEmpty() && docsArea != codeArea);
+        QCOMPARE(agentAreas(store).size(), areasBefore.size() + 1);
+        QVERIFY(!surface.isEmpty());
+        QCOMPARE(surface.last().at(0).toString(), QStringLiteral("chat"));
+        QCOMPARE(surface.last().at(1).toBool(), true);
+
+        // 2.
+        auto sizeOf = [&store](const QString &anchorId) {
+            for (const QVariant &area : store.describeForAgent().value("areas").toList()) {
+                if (area.toMap().value("id").toString() == anchorId) {
+                    return area.toMap().value("sizePercent").toInt();
+                }
+            }
+            return -1;
+        };
+        const int codeBefore = sizeOf(codeArea);
+        result = store.runAgentRequest({{"action", "resize"}, {"target", "the code"}, {"change", "larger"}, {"explicit", true}, {"chatId", "chat-1"}}, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QVERIFY(sizeOf(codeArea) > codeBefore);
+
+        // 3.
+        result = store.runAgentRequest(agentRestore("before_task"), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store), areasBefore);
+        QCOMPARE(agentViews(store), QStringList({mine}));
+        QCOMPARE(surface.last().at(0).toString(), QStringLiteral("terminal"));
+        QCOMPARE(surface.last().at(1).toBool(), false);
+        QVERIFY(store.temporaryArrangement().isEmpty());
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };
