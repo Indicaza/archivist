@@ -322,6 +322,7 @@ Rectangle {
                 SidebarBandHeader {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
+                    iconSize: 10
                     visible: root.searching
                     theme: root.theme
                     title: "RESULTS"
@@ -365,6 +366,7 @@ Rectangle {
                 SidebarBandHeader {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
+                    iconSize: 10
                     visible: !root.searching && root.pins.length > 0
                     theme: root.theme
                     title: "PINNED"
@@ -400,6 +402,7 @@ Rectangle {
                 SidebarBandHeader {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
+                    iconSize: 10
                     visible: !root.searching
                     theme: root.theme
                     title: "PROJECTS"
@@ -522,6 +525,7 @@ Rectangle {
                 SidebarBandHeader {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
+                    iconSize: 10
                     visible: !root.searching && root.recentChats.length > 0
                     theme: root.theme
                     title: "RECENT"

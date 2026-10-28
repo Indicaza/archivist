@@ -436,8 +436,19 @@ Rectangle {
 
         anchors.top: parent.top
         anchors.bottom: parent.bottom
+        // Pushed by the sidebar with the same spring as the workspace is
+        // by the Explorer: it trails the edge a little when dragged.
         x: root.leftInset
         width: parent.width - x
+
+        Behavior on x {
+            enabled: !root.theme.reducedMotion
+            SpringAnimation {
+                spring: root.theme.motionSpring
+                damping: root.theme.motionDamping
+                epsilon: 0.2
+            }
+        }
 
         // Top bar: restrained. The sidebar toggle when it's hidden; on the
         // right, the way back to the work behind Home and Customize.
@@ -510,9 +521,11 @@ Rectangle {
             Item {
                 id: content
 
+                // With modules, the whole page sits at the optical centre
+                // (a touch above the middle); alone, the conversation does.
                 readonly property real heroTop: root.compact
-                    ? Math.max(topBar.height + 8, Math.min(150, page.height * 0.13))
-                    : Math.max(topBar.height + 8, page.height * 0.33 - hero.height * 0.35)
+                    ? Math.max(topBar.height + 8, (page.height - height) * 0.44)
+                    : Math.max(topBar.height + 8, page.height * 0.36 - hero.height * 0.35)
 
                 width: Math.min(root.theme.homeContentWidth, page.width - 64)
                 x: Math.round((page.width - width) / 2)

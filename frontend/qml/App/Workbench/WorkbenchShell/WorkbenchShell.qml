@@ -942,6 +942,9 @@ Rectangle {
         x: parent.width - width - 9
         y: Math.max(18, (parent.height - statusBar.height - height) / 2)
         theme: root.theme
+        // Part of the workspace: it steps aside with it for Home.
+        visible: root.homeReveal < 1
+        opacity: 1 - root.homeReveal
         z: 60
     }
 

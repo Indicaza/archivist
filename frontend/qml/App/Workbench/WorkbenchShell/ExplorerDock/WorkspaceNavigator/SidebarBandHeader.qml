@@ -11,6 +11,8 @@ Rectangle {
     required property int count
     required property bool expanded
 
+    property real iconSize: 15
+
     property bool primaryVisible: false
     property bool primaryEnabled: true
     property string primaryIconName: "add"
@@ -60,7 +62,7 @@ Rectangle {
                 }
 
                 AppIcon {
-                    iconSize: 15
+                    iconSize: root.iconSize
                     name: root.iconName
                     tone: root.expanded ? "accent" : "muted"
                     accessibleLabel: root.title
