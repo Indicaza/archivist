@@ -20,16 +20,19 @@ Item {
     property real bottomOverlay: 0
     // Where the live conversation sits, in this item's coordinates, or
     // null when no chat pane is showing. The compact composer centres on it.
+    // Built from the main area's own position (it springs with the side
+    // panel) plus the pane's place in it, so it follows both live. A chat
+    // in a floating window has no frame here.
     readonly property var chatFrame: {
-        var frameX = chatSurface.x
-        var frameY = chatSurface.y
-        var frameWidth = chatSurface.width
-        var frameHeight = chatSurface.height
-        if (!chatSurface.visible || !chatSurface.placed || chatSurface.surfaceArea === null) {
+        if (!chatSurface.visible || !chatSurface.placed || chatSurface.surfaceArea !== area) {
             return null
         }
-        var origin = chatSurface.surfaceArea.mapToItem(root, frameX, frameY)
-        return { x: origin.x, y: origin.y, width: frameWidth, height: frameHeight }
+        return {
+            x: area.x + chatSurface.x,
+            y: area.y + chatSurface.y,
+            width: chatSurface.width,
+            height: chatSurface.height
+        }
     }
 
     signal contextInspectionRequested(string messageId)
