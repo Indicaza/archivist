@@ -42,6 +42,10 @@ QtObject {
     }
 
     function noteFocusedView() {
+        // Restoring a project's tabs behind Home isn't the person opening them.
+        if (Shell.homeActive) {
+            return
+        }
         var viewId = String(Docking.focusedViewId || "")
         if (viewId.length === 0 || viewId === lastFocusedViewId) {
             return

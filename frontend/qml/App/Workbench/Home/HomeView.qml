@@ -3,10 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../Icons"
-import "../Dock"
 
-// Home: the chat-first start page. A conversation up front, then what to
-// reopen (conversations, projects, files) and how to start something new.
+// Home: the chat-first start page. A greeting and one composer in the
+// middle; conversations, projects and recent files in the sidebar.
 //
 // Home only presents and asks. Opening anything goes through the shell
 // (signals below), which uses the same stores as the rest of the app, so
@@ -32,13 +31,19 @@ Rectangle {
     readonly property string projectName: projectLabel(CollectionStore.selectedCollection)
     readonly property var scopedLibraries: computeScopedLibraries()
     readonly property var targetLibrary: computeTargetLibrary()
-    readonly property var recentChats: computeRecentChats()
+    readonly property var allChats: computeAllChats()
     readonly property var projects: computeProjects()
     readonly property var recentFiles: {
         Shell.recentItems
         return Shell.recent("document", 6)
     }
-    readonly property bool wide: width >= 900
+    readonly property bool roomForSidebar: width >= 820
+    property bool sidebarWanted: readSidebarWanted()
+    // Narrow windows show the sidebar over the page, only when asked.
+    property bool sidebarOverlayOpen: false
+    readonly property bool sidebarShown: roomForSidebar ? sidebarWanted : sidebarOverlayOpen
+    // Up to three conversations to pick up, from this project.
+    readonly property var pickUp: chatsForProject(String(CollectionStore.selectedCollectionId || ""), 3)
     readonly property string blockedReason: {
         if ((CollectionStore.collections || []).length === 0) {
             return "Set up a project to start a conversation"
@@ -114,26 +119,43 @@ Rectangle {
         return null
     }
 
-    function computeRecentChats() {
+    function readSidebarWanted() {
+        return String(WorkspaceState.value("shell/homeSidebarOpen", "true")) !== "false"
+    }
+
+    function setSidebarWanted(open) {
+        sidebarWanted = open
+        WorkspaceState.setValue("shell/homeSidebarOpen", open ? "true" : "false")
+    }
+
+    // Every conversation, newest first, with the project it belongs to.
+    function computeAllChats() {
         var revision = scopeRevision
         var chats = ChatStore.chats || []
         var result = []
-        for (var index = 0; index < chats.length && result.length < 7; index += 1) {
+        for (var index = 0; index < chats.length; index += 1) {
             var chat = chats[index]
             var collection = collectionForChat(chat)
-            var parts = []
-            if (collection && String(collection.id) !== String(CollectionStore.selectedCollectionId)) {
-                parts.push(projectLabel(collection))
-            }
-            if (String(chat.libraryName || "").length > 0) {
-                parts.push(String(chat.libraryName))
-            }
             result.push({
                 chat: chat,
                 collectionId: collection ? String(collection.id) : "",
-                subtitle: parts.join(" · "),
+                projectName: projectLabel(collection),
                 meta: relativeTime(chat.updatedAt || chat.createdAt)
             })
+        }
+        return result
+    }
+
+    function chatsForProject(collectionId, limit) {
+        var result = []
+        var chats = allChats
+        for (var index = 0; index < chats.length; index += 1) {
+            if (chats[index].collectionId === String(collectionId)) {
+                result.push(chats[index].chat)
+                if (limit > 0 && result.length >= limit) {
+                    break
+                }
+            }
         }
         return result
     }
@@ -157,7 +179,7 @@ Rectangle {
             if (leftRank !== rightRank) return leftRank - rightRank
             return String(left.path || left.name).localeCompare(String(right.path || right.name))
         })
-        return collections.slice(0, 6)
+        return collections
     }
 
     function relativeTime(value) {
@@ -204,219 +226,240 @@ Rectangle {
         }
     }
 
-    Flickable {
-        id: page
+    HomeSidebar {
+        id: sidebar
 
-        anchors.fill: parent
-        contentWidth: width
-        contentHeight: content.implicitHeight + 96
-        boundsBehavior: Flickable.StopAtBounds
-        clip: true
+        x: root.sidebarShown ? 0 : -width
+        width: 272
+        height: parent.height
+        visible: x > -width
+        z: 2
+        theme: root.theme
+        home: root
 
-        ScrollBar.vertical: ScrollBar {
-            policy: page.contentHeight > page.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        onNewChatRequested: {
+            root.sidebarOverlayOpen = false
+            root.focusComposer()
+        }
+        onChatRequested: function(chat, collectionId) { root.chatRequested(chat, collectionId) }
+        onProjectRequested: function(collectionId) { root.projectRequested(collectionId) }
+        onRecentRequested: function(item) { root.recentRequested(item) }
+        onSetupProjectRequested: root.setupProjectRequested()
+        onCollapseRequested: {
+            if (root.roomForSidebar) {
+                root.setSidebarWanted(false)
+            } else {
+                root.sidebarOverlayOpen = false
+            }
         }
 
-        ColumnLayout {
-            id: content
+        Behavior on x {
+            enabled: !root.theme.reducedMotion
+            NumberAnimation { duration: root.theme.motionPanel; easing.type: Easing.OutCubic }
+        }
+    }
 
-            width: Math.min(820, page.width - 64)
-            x: (page.width - width) / 2
-            y: Math.max(36, Math.min(page.height * 0.16, 140))
-            spacing: 28
+    Item {
+        id: stage
 
-            // ---- the conversation ---------------------------------------
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        x: root.roomForSidebar ? sidebar.x + sidebar.width : 0
+        width: parent.width - x
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 14
+        // ---- top bar: sidebar toggle, Home | workspace switch -------------
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: root.hasProject
-
-                    DockPillButton {
-                        theme: root.theme
-                        iconName: "chevron-left"
-                        text: "Back to " + (root.projectName.length > 0 ? root.projectName : "workspace")
-                        Accessible.name: text
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 600
-                        ToolTip.text: "Esc"
-                        onClicked: root.backRequested()
-                    }
-
-                    Item { Layout.fillWidth: true }
+        IconButton {
+            anchors.left: parent.left
+            anchors.leftMargin: 12
+            anchors.top: parent.top
+            anchors.topMargin: 12
+            width: 30
+            height: 30
+            visible: !root.sidebarShown
+            theme: root.theme
+            iconName: "chevron-right"
+            iconSize: 14
+            toolTipText: "Show sidebar"
+            onClicked: {
+                if (root.roomForSidebar) {
+                    root.setSidebarWanted(true)
+                } else {
+                    root.sidebarOverlayOpen = true
                 }
+            }
+        }
 
-                Text {
-                    Layout.fillWidth: true
-                    text: "What are we working on?"
-                    color: root.theme.chatHeadingText
-                    font.family: root.theme.titleFontFamily
-                    font.pixelSize: root.theme.textDisplaySize
-                    wrapMode: Text.Wrap
-                    Accessible.role: Accessible.Heading
-                }
+        Rectangle {
+            id: switcher
 
-                Text {
-                    Layout.fillWidth: true
-                    text: root.hasProject
-                        ? "Ask about " + root.projectName + ", or pick up where you left off."
-                        : "Ask a question, open a project, or pick up where you left off."
-                    color: root.theme.mutedText
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: root.theme.textControlSize
-                    wrapMode: Text.Wrap
-                }
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 12
+            visible: root.hasProject
+            width: switchRow.implicitWidth + 8
+            height: 34
+            radius: height / 2
+            color: root.theme.controlSurfaceBg
+            border.width: 1
+            border.color: root.theme.quietBorder
 
-                HomeComposer {
-                    id: composer
+            Row {
+                id: switchRow
 
-                    Layout.fillWidth: true
-                    Layout.topMargin: 6
-                    theme: root.theme
-                    libraries: root.scopedLibraries
-                    libraryId: root.targetLibrary ? String(root.targetLibrary.id) : ""
-                    libraryName: root.targetLibrary ? String(root.targetLibrary.name || "") : ""
-                    blockedReason: root.blockedReason
-                    sending: root.sending
-                    onLibraryChosen: function(libraryId) { root.chosenLibraryId = libraryId }
-                    onSubmitRequested: function(text) {
-                        root.startConversationRequested(text, composer.libraryId)
-                    }
-                }
+                anchors.centerIn: parent
+                spacing: 2
 
-                Text {
-                    Layout.fillWidth: true
-                    visible: String(ChatStore.errorMessage || "").length > 0
-                    text: String(ChatStore.errorMessage || "")
-                    color: root.theme.danger
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: root.theme.textCaptionSize
-                    wrapMode: Text.Wrap
-                }
+                Repeater {
+                    model: [
+                        { key: "home", label: "Home" },
+                        { key: "work", label: root.projectName.length > 0 ? root.projectName : "Workspace" }
+                    ]
 
-                // What to do when there's nowhere to start the conversation.
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: (CollectionStore.collections || []).length === 0
-                        || (root.hasProject && root.scopedLibraries.length === 0 && !LibraryStore.loadingLibraries)
-                    spacing: 10
+                    delegate: Button {
+                        id: switchButton
 
-                    Text {
-                        Layout.fillWidth: true
-                        text: (CollectionStore.collections || []).length === 0
-                            ? "A project is a set of folders Archivist reads and works in."
-                            : "Conversations start in one of the project's folders."
-                        color: root.theme.mutedText
-                        font.family: root.theme.bodyFontFamily
-                        font.pixelSize: root.theme.textCaptionSize
-                        wrapMode: Text.Wrap
-                    }
+                        required property var modelData
 
-                    DockPillButton {
-                        theme: root.theme
-                        iconName: "add"
-                        text: (CollectionStore.collections || []).length === 0 ? "Set up a project" : "Add a folder"
+                        readonly property bool selected: modelData.key === "home"
+
+                        height: 26
+                        leftPadding: 16
+                        rightPadding: 16
+                        hoverEnabled: true
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.name: modelData.key === "home" ? "Home" : "Back to " + modelData.label
+                        ToolTip.visible: hovered && modelData.key === "work"
+                        ToolTip.delay: 700
+                        ToolTip.text: "Back to the workspace (Esc)"
                         onClicked: {
-                            if ((CollectionStore.collections || []).length === 0) {
-                                root.setupProjectRequested()
-                            } else {
-                                root.addFolderRequested()
+                            if (modelData.key === "work") {
+                                root.backRequested()
                             }
+                        }
+
+                        contentItem: Text {
+                            text: switchButton.modelData.label
+                            color: switchButton.selected || switchButton.hovered ? root.theme.appText : root.theme.mutedText
+                            font.family: root.theme.bodyFontFamily
+                            font.pixelSize: root.theme.textControlSize
+                            font.weight: switchButton.selected ? root.theme.textWeightEmphasis : root.theme.textWeightRegular
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+
+                        background: Rectangle {
+                            radius: height / 2
+                            color: switchButton.selected
+                                ? root.theme.activeBg
+                                : switchButton.hovered ? root.theme.hoverBg : "transparent"
+                            border.width: switchButton.activeFocus ? 1 : 0
+                            border.color: root.theme.accent
                         }
                     }
                 }
             }
+        }
 
-            // ---- what to reopen -----------------------------------------
+        // ---- greeting and composer ---------------------------------------
 
-            GridLayout {
+        ColumnLayout {
+            id: center
+
+            width: Math.min(760, stage.width - 64)
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.max(switcher.y + switcher.height + 24, stage.height * 0.40 - greeting.height - 28)
+            spacing: 0
+
+            Text {
+                id: greeting
+
                 Layout.fillWidth: true
-                columns: root.wide ? 2 : 1
-                columnSpacing: 36
-                rowSpacing: 24
+                Layout.bottomMargin: 26
+                text: root.hasProject ? "What are we working on?" : "Ready when you are."
+                color: root.theme.chatHeadingText
+                font.family: root.theme.titleFontFamily
+                font.pixelSize: root.theme.textDisplaySize
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                Accessible.role: Accessible.Heading
+            }
 
-                HomeSection {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    Layout.rowSpan: root.wide ? 2 : 1
-                    theme: root.theme
-                    title: "Recent conversations"
-                    empty: root.recentChats.length === 0
-                    emptyText: "No conversations yet. Ask something above to start one."
+            HomeComposer {
+                id: composer
 
-                    Repeater {
-                        model: root.recentChats
+                Layout.fillWidth: true
+                theme: root.theme
+                libraries: root.scopedLibraries
+                libraryId: root.targetLibrary ? String(root.targetLibrary.id) : ""
+                libraryName: root.targetLibrary ? String(root.targetLibrary.name || "") : ""
+                projectName: root.projectName
+                blockedReason: root.blockedReason
+                sending: root.sending
+                onLibraryChosen: function(libraryId) { root.chosenLibraryId = libraryId }
+                onSubmitRequested: function(text) {
+                    root.startConversationRequested(text, composer.libraryId)
+                }
+                onAddFolderRequested: root.addFolderRequested()
+                onNewProjectRequested: root.setupProjectRequested()
+            }
 
-                        delegate: HomeRow {
-                            required property var modelData
+            Text {
+                Layout.fillWidth: true
+                Layout.topMargin: 10
+                Layout.leftMargin: 20
+                visible: String(ChatStore.errorMessage || "").length > 0
+                text: String(ChatStore.errorMessage || "")
+                color: root.theme.danger
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+                wrapMode: Text.Wrap
+            }
 
-                            Layout.fillWidth: true
-                            theme: root.theme
-                            iconName: "chat"
-                            title: String(modelData.chat.title || "Untitled conversation")
-                            subtitle: modelData.subtitle
-                            meta: modelData.meta
-                            current: String(modelData.chat.id) === String(ChatStore.selectedChatId)
-                            onClicked: root.chatRequested(modelData.chat, modelData.collectionId)
-                        }
+            // Nowhere to start a conversation yet: one clear next step.
+            HomeSidebarRow {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 18
+                visible: (CollectionStore.collections || []).length === 0
+                    || (root.hasProject && root.scopedLibraries.length === 0 && !LibraryStore.loadingLibraries)
+                theme: root.theme
+                iconName: "add"
+                strong: true
+                label: (CollectionStore.collections || []).length === 0
+                    ? "Set up a project: pick the folders Archivist should work in"
+                    : "Add a folder to " + root.projectName
+                onClicked: {
+                    if ((CollectionStore.collections || []).length === 0) {
+                        root.setupProjectRequested()
+                    } else {
+                        root.addFolderRequested()
                     }
                 }
+            }
 
-                HomeSection {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    theme: root.theme
-                    title: "Projects"
-                    actionText: "New project"
-                    empty: root.projects.length === 0
-                    emptyText: "No projects yet."
-                    onActionRequested: root.setupProjectRequested()
+            // Pick up where you left off.
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 22
+                Layout.leftMargin: 8
+                Layout.rightMargin: 8
+                visible: root.pickUp.length > 0 && root.blockedReason.length === 0
+                spacing: 2
 
-                    Repeater {
-                        model: root.projects
+                Repeater {
+                    model: root.pickUp
 
-                        delegate: HomeRow {
-                            required property var modelData
+                    delegate: HomeSidebarRow {
+                        required property var modelData
 
-                            readonly property int folderCount: (modelData.libraryIds || []).length
-
-                            Layout.fillWidth: true
-                            theme: root.theme
-                            iconName: "collection"
-                            title: String(modelData.path || modelData.name || "Project")
-                            subtitle: folderCount === 1 ? "1 folder" : folderCount + " folders"
-                            meta: String(modelData.id) === String(CollectionStore.selectedCollectionId) ? "Open" : ""
-                            current: String(modelData.id) === String(CollectionStore.selectedCollectionId)
-                            onClicked: root.projectRequested(String(modelData.id))
-                        }
-                    }
-                }
-
-                HomeSection {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    theme: root.theme
-                    title: "Recently opened"
-                    empty: root.recentFiles.length === 0
-                    emptyText: "Files you open show up here."
-
-                    Repeater {
-                        model: root.recentFiles
-
-                        delegate: HomeRow {
-                            required property var modelData
-
-                            Layout.fillWidth: true
-                            theme: root.theme
-                            iconName: root.fileIcon(modelData)
-                            title: String(modelData.title || "File")
-                            subtitle: String(modelData.subtitle || "")
-                            meta: root.relativeTime(Number(modelData.accessedAt || 0))
-                            onClicked: root.recentRequested(modelData)
-                        }
+                        Layout.fillWidth: true
+                        implicitHeight: 38
+                        theme: root.theme
+                        iconName: "chat"
+                        label: "Continue \u201c" + String(modelData.title || "Untitled conversation") + "\u201d"
+                        trailing: root.relativeTime(modelData.updatedAt || modelData.createdAt)
+                        onClicked: root.chatRequested(modelData, String(CollectionStore.selectedCollectionId || ""))
                     }
                 }
             }

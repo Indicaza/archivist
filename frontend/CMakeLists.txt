@@ -294,8 +294,8 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
         qml/App/Workbench/Home/HomeView.qml
         qml/App/Workbench/Home/HomeComposer.qml
-        qml/App/Workbench/Home/HomeSection.qml
-        qml/App/Workbench/Home/HomeRow.qml
+        qml/App/Workbench/Home/HomeSidebar.qml
+        qml/App/Workbench/Home/HomeSidebarRow.qml
         qml/App/Workbench/Home/RecentActivityTracker.qml
         qml/App/Workbench/Workspace/Workspace.qml
         qml/App/Workbench/Workspace/ChatViewportPolicy.js

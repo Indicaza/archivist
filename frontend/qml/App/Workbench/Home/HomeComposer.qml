@@ -4,7 +4,8 @@ import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../Icons"
 
-// Home's composer. Sending starts a new conversation in the chosen library.
+// Home's composer: one rounded field. Sending starts a new conversation in
+// the chosen folder.
 //
 // The draft belongs to Home (Shell.homeDraft), not to this field: leaving
 // Home, switching projects or restarting keeps it. It's cleared only once
@@ -17,6 +18,7 @@ Rectangle {
     property var libraries: []
     property string libraryId: ""
     property string libraryName: ""
+    property string projectName: ""
     // Why sending isn't possible right now; empty when it is.
     property string blockedReason: ""
     property bool sending: false
@@ -25,9 +27,12 @@ Rectangle {
     readonly property bool canSend: blockedReason.length === 0
         && !sending
         && field.text.trim().length > 0
+    readonly property bool multiline: field.lineCount > 1
 
     signal submitRequested(string text)
     signal libraryChosen(string libraryId)
+    signal addFolderRequested()
+    signal newProjectRequested()
 
     function submit() {
         if (!canSend) {
@@ -41,27 +46,82 @@ Rectangle {
         field.cursorPosition = field.length
     }
 
-    implicitHeight: column.implicitHeight
-    radius: root.theme.radiusLarge
-    color: field.activeFocus ? root.theme.composerCardFocusBg : root.theme.composerCardBg
+    implicitHeight: Math.max(56, Math.min(240, field.implicitHeight) + 16)
+    radius: multiline ? 22 : height / 2
+    color: root.theme.composerCardBg
     border.width: 1
-    border.color: field.activeFocus ? root.theme.accent : root.theme.panelBorder
+    border.color: field.activeFocus ? Qt.lighter(root.theme.panelBorder, 1.25) : root.theme.quietBorder
 
     Behavior on border.color {
         enabled: !root.theme.reducedMotion
         ColorAnimation { duration: root.theme.motionFast }
     }
 
-    ColumnLayout {
-        id: column
+    Behavior on radius {
+        enabled: !root.theme.reducedMotion
+        NumberAnimation { duration: root.theme.motionFast }
+    }
 
-        anchors.left: parent.left
-        anchors.right: parent.right
-        spacing: 0
+    RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin: 10
+        anchors.rightMargin: 10
+        anchors.topMargin: 8
+        anchors.bottomMargin: 8
+        spacing: 6
+
+        // Add a folder or start a project.
+        Button {
+            id: plusButton
+
+            Layout.preferredWidth: 36
+            Layout.preferredHeight: 36
+            Layout.alignment: Qt.AlignBottom
+            hoverEnabled: true
+            focusPolicy: Qt.StrongFocus
+            padding: 0
+            Accessible.name: "Add"
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: "Add a folder or project"
+            onClicked: plusMenu.popup(plusButton, 0, plusButton.height + 6)
+
+            contentItem: Item {
+                AppIcon {
+                    anchors.centerIn: parent
+                    name: "add"
+                    tone: plusButton.hovered || plusButton.activeFocus ? "normal" : "muted"
+                    iconSize: 16
+                }
+            }
+
+            background: Rectangle {
+                radius: height / 2
+                color: plusButton.down ? root.theme.activeBg : plusButton.hovered ? root.theme.hoverBg : "transparent"
+            }
+        }
+
+        Menu {
+            id: plusMenu
+
+            MenuItem {
+                text: root.projectName.length > 0 ? "Add a folder to " + root.projectName : "Add a folder"
+                enabled: root.projectName.length > 0
+                onTriggered: root.addFolderRequested()
+            }
+
+            MenuItem {
+                text: "New project…"
+                onTriggered: root.newProjectRequested()
+            }
+        }
 
         ScrollView {
+            id: fieldScroll
+
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(220, Math.max(76, field.implicitHeight))
+            Layout.preferredHeight: Math.min(240, field.implicitHeight)
+            Layout.alignment: Qt.AlignVCenter
             clip: true
 
             TextArea {
@@ -74,9 +134,7 @@ Rectangle {
                     }
                 }
                 enabled: !root.sending
-                placeholderText: root.blockedReason.length > 0
-                    ? root.blockedReason
-                    : "Ask anything, or describe what you're working on…"
+                placeholderText: root.blockedReason.length > 0 ? root.blockedReason : "Ask Archivist"
                 placeholderTextColor: root.theme.composerPlaceholder
                 color: root.theme.appText
                 selectionColor: root.theme.messageSelectionBg
@@ -84,10 +142,10 @@ Rectangle {
                 font.family: root.theme.chatFontFamily
                 font.pixelSize: root.theme.textBodySize
                 wrapMode: TextEdit.Wrap
-                leftPadding: 18
-                rightPadding: 18
-                topPadding: 16
-                bottomPadding: 10
+                leftPadding: 4
+                rightPadding: 4
+                topPadding: 9
+                bottomPadding: 9
                 Accessible.name: "Message"
 
                 Keys.onPressed: function(event) {
@@ -114,131 +172,105 @@ Rectangle {
             }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: 12
-            Layout.rightMargin: 10
-            Layout.bottomMargin: 10
-            Layout.preferredHeight: 34
-            spacing: 8
+        // Where the conversation starts, like a model picker.
+        Button {
+            id: libraryButton
 
-            Button {
-                id: libraryButton
+            Layout.alignment: Qt.AlignBottom
+            Layout.preferredHeight: 36
+            visible: root.libraries.length > 0
+            enabled: root.libraries.length > 1 && !root.sending
+            hoverEnabled: true
+            focusPolicy: Qt.StrongFocus
+            leftPadding: 10
+            rightPadding: 8
+            Accessible.name: "Start the conversation in " + root.libraryName
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: root.libraries.length > 1
+                ? "Choose which folder the conversation starts in"
+                : "The conversation starts in " + root.libraryName
+            onClicked: libraryMenu.popup(libraryButton, 0, libraryButton.height + 6)
 
-                visible: root.libraries.length > 0
-                enabled: root.libraries.length > 1 && !root.sending
-                hoverEnabled: true
-                focusPolicy: Qt.StrongFocus
-                leftPadding: 8
-                rightPadding: 10
-                implicitHeight: 26
-                Accessible.name: "Start the conversation in " + root.libraryName
-                ToolTip.visible: hovered && root.libraries.length > 1
-                ToolTip.delay: 600
-                ToolTip.text: "Choose where the conversation starts"
-                onClicked: libraryMenu.popup(libraryButton, 0, libraryButton.height + 4)
+            contentItem: Row {
+                spacing: 5
 
-                contentItem: Row {
-                    spacing: 6
-
-                    AppIcon {
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: "library"
-                        tone: libraryButton.hovered ? "accent" : "muted"
-                        iconSize: 12
-                    }
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.libraryName.length > 0 ? root.libraryName : "Library"
-                        color: libraryButton.hovered ? root.theme.appText : root.theme.mutedText
-                        font.family: root.theme.bodyFontFamily
-                        font.pixelSize: root.theme.textCaptionSize
-                        font.weight: root.theme.textWeightEmphasis
-                    }
-
-                    AppIcon {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: root.libraries.length > 1
-                        name: "chevron-down"
-                        tone: "muted"
-                        iconSize: 9
-                    }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.libraryName.length > 0 ? root.libraryName : "Folder"
+                    color: libraryButton.hovered ? root.theme.appText : root.theme.mutedText
+                    font.family: root.theme.bodyFontFamily
+                    font.pixelSize: root.theme.textControlSize
                 }
 
-                background: Rectangle {
-                    radius: height / 2
-                    color: libraryButton.hovered ? root.theme.hoverBg : "transparent"
-                    border.width: 1
-                    border.color: libraryButton.activeFocus ? root.theme.accent : root.theme.quietBorder
+                AppIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.libraries.length > 1
+                    name: "chevron-down"
+                    tone: libraryButton.hovered ? "normal" : "muted"
+                    iconSize: 10
                 }
             }
 
-            Menu {
-                id: libraryMenu
+            background: Rectangle {
+                radius: height / 2
+                color: libraryButton.hovered && libraryButton.enabled ? root.theme.hoverBg : "transparent"
+                border.width: libraryButton.activeFocus ? 1 : 0
+                border.color: root.theme.accent
+            }
+        }
 
-                Repeater {
-                    model: root.libraries
+        Menu {
+            id: libraryMenu
 
-                    delegate: MenuItem {
-                        required property var modelData
+            Repeater {
+                model: root.libraries
 
-                        text: String(modelData.name || "Library")
-                        checkable: true
-                        checked: String(modelData.id) === root.libraryId
-                        onTriggered: root.libraryChosen(String(modelData.id))
-                    }
+                delegate: MenuItem {
+                    required property var modelData
+
+                    text: String(modelData.name || "Folder")
+                    checkable: true
+                    checked: String(modelData.id) === root.libraryId
+                    onTriggered: root.libraryChosen(String(modelData.id))
+                }
+            }
+        }
+
+        Button {
+            id: sendButton
+
+            Layout.preferredWidth: 36
+            Layout.preferredHeight: 36
+            Layout.alignment: Qt.AlignBottom
+            enabled: root.canSend
+            hoverEnabled: true
+            focusPolicy: Qt.StrongFocus
+            padding: 0
+            Accessible.name: root.sending ? "Sending" : "Send"
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: "Send (Enter). Shift+Enter adds a line."
+            onClicked: root.submit()
+
+            contentItem: Item {
+                AppIcon {
+                    anchors.centerIn: parent
+                    name: "send"
+                    tone: sendButton.enabled ? "normal" : "muted"
+                    iconSize: 15
                 }
             }
 
-            Text {
-                Layout.fillWidth: true
-                text: root.sending ? "Starting the conversation…" : "Enter to send, Shift+Enter for a new line"
-                color: root.theme.mutedText
-                opacity: field.activeFocus || root.sending ? 0.9 : 0
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textCaptionSize
-                elide: Text.ElideRight
+            background: Rectangle {
+                radius: height / 2
+                color: sendButton.enabled
+                    ? (sendButton.down ? Qt.darker(root.theme.accent, 1.15) : sendButton.hovered ? root.theme.accentBright : root.theme.accent)
+                    : root.theme.hoverBg
 
-                Behavior on opacity {
+                Behavior on color {
                     enabled: !root.theme.reducedMotion
-                    NumberAnimation { duration: root.theme.motionFast }
-                }
-            }
-
-            Button {
-                id: sendButton
-
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-                enabled: root.canSend
-                hoverEnabled: true
-                focusPolicy: Qt.StrongFocus
-                padding: 0
-                Accessible.name: "Send"
-                ToolTip.visible: hovered
-                ToolTip.delay: 600
-                ToolTip.text: "Send"
-                onClicked: root.submit()
-
-                contentItem: Item {
-                    AppIcon {
-                        anchors.centerIn: parent
-                        name: "send"
-                        tone: sendButton.enabled ? "normal" : "muted"
-                        iconSize: 14
-                    }
-                }
-
-                background: Rectangle {
-                    radius: height / 2
-                    color: sendButton.enabled
-                        ? (sendButton.down ? root.theme.accent : root.theme.activeBg)
-                        : "transparent"
-                    border.width: 1
-                    border.color: sendButton.enabled
-                        ? (sendButton.hovered || sendButton.activeFocus ? root.theme.accentBright : root.theme.accent)
-                        : root.theme.quietBorder
+                    ColorAnimation { duration: root.theme.motionFast }
                 }
             }
         }
