@@ -20,6 +20,15 @@ QtObject {
     readonly property color workspaceBg: "#181713"
     readonly property color workspaceBgTop: "#1b1a17"
     readonly property color workspaceBgBottom: "#171613"
+    // The workspace's compact chat composer: a bubble floating over the
+    // conversation, a step lighter than the page, with a soft dark scrim
+    // under it so text scrolling behind fades out.
+    readonly property color compactComposerBg: "#25231f"
+    readonly property color compactComposerBorder: "#36322b"
+    readonly property color compactComposerBorderHover: "#454037"
+    readonly property color compactComposerHighlight: "#0dfff6e6"
+    readonly property color compactComposerShadow: "#000000"
+    readonly property int compactComposerRadius: 24
     readonly property color workspaceBgDeep: "#12110e"
     readonly property color sidebarBg: "#1c1a16"
     readonly property color railBg: "#12110f"

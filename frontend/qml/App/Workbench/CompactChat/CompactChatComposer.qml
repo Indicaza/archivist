@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Archivist.Services 1.0
 import "../Home"
 
@@ -21,6 +22,12 @@ FocusScope {
     readonly property bool hasChat: chatId.length > 0
     // Starting a conversation: waiting for ChatStore to create it.
     property bool starting: false
+    // Who answers a conversation started from here.
+    property string chosenAgentId: ""
+    readonly property string agentId: hasChat
+        ? String(ChatStore.selectedChat.agentId || "")
+        : chosenAgentId.length > 0 ? chosenAgentId : String(CollectionStore.scope.defaultAgentId || "")
+    readonly property color surfaceColor: theme.compactComposerBg
     property bool loadingDraft: false
 
     readonly property string blockedReason: {
@@ -65,7 +72,7 @@ FocusScope {
             return
         }
         starting = true
-        ChatStore.startChat(libraryId, String(CollectionStore.scope.defaultAgentId || ""), text)
+        ChatStore.startChat(libraryId, agentId, text)
         // Refused before it started (another write in flight): keep the text.
         if (!ChatStore.mutating) {
             starting = false
@@ -74,6 +81,39 @@ FocusScope {
 
     Component.onCompleted: loadDraft()
 
+    // A real soft shadow under the bubble: a blurred dark shape, offset
+    // down, so the bubble sits above the conversation.
+    Rectangle {
+        id: shadowShape
+
+        x: 10
+        y: 16
+        width: Math.max(0, composer.width - 20)
+        height: Math.max(0, composer.height - 10)
+        radius: root.theme.compactComposerRadius
+        color: root.theme.compactComposerShadow
+        visible: false
+        layer.enabled: true
+    }
+
+    MultiEffect {
+        x: shadowShape.x
+        y: shadowShape.y
+        width: shadowShape.width
+        height: shadowShape.height
+        source: shadowShape
+        blurEnabled: true
+        blur: 1
+        blurMax: 48
+        autoPaddingEnabled: true
+        opacity: composer.focused ? 0.78 : 0.66
+
+        Behavior on opacity {
+            enabled: !root.theme.reducedMotion
+            NumberAnimation { duration: root.theme.motionHover }
+        }
+    }
+
     HomeComposer {
         id: composer
 
@@ -81,8 +121,12 @@ FocusScope {
         focus: true
         theme: root.theme
         syncHomeDraft: false
+        floating: true
         showAdd: false
+        showLibrary: false
         showExpand: true
+        agents: AgentStore.agents || []
+        agentId: root.agentId
         expandToolTip: "Expand into the chat and terminal dock"
         placeholder: root.hasChat
             ? "Message " + String(ChatStore.selectedChat.title || "this chat")
@@ -93,6 +137,13 @@ FocusScope {
         onSubmitRequested: function(text) { root.send(text) }
         onStopRequested: ChatStore.cancelActiveRun()
         onExpandRequested: root.expandRequested()
+        onAgentChosen: function(agentId) {
+            if (root.hasChat) {
+                ChatStore.assignAgentToSelectedChat(agentId)
+            } else {
+                root.chosenAgentId = agentId
+            }
+        }
     }
 
     Connections {

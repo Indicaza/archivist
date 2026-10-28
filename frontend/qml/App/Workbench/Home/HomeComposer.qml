@@ -36,6 +36,12 @@ FocusScope {
     property bool showAdd: true
     // An expand button beside Send: grow into the docked workbench.
     property bool showExpand: false
+    // The folder chip; off where the folder is already decided.
+    property bool showLibrary: true
+    // Floating over content (the workspace's compact chat): a raised,
+    // slightly lighter bubble with a lit top edge. Its owner draws the
+    // shadow underneath.
+    property bool floating: false
     property string expandToolTip: "Expand"
 
     readonly property alias input: field
@@ -92,6 +98,7 @@ FocusScope {
 
     // Soft shadow: two offset layers, no blur pass.
     Rectangle {
+        visible: !root.floating
         x: 2
         y: 10
         width: card.width - 4
@@ -126,12 +133,28 @@ FocusScope {
 
         width: parent.width
         height: Math.round(root.fieldHeight + toolbar.height + 18)
-        radius: root.theme.homeComposerRadius
-        color: root.focused ? Qt.lighter(root.theme.homeComposerBg, 1.05) : root.theme.homeComposerBg
+        radius: root.floating ? root.theme.compactComposerRadius : root.theme.homeComposerRadius
+        color: {
+            var base = root.floating ? root.theme.compactComposerBg : root.theme.homeComposerBg
+            return root.focused ? Qt.lighter(base, 1.05) : base
+        }
         border.width: 1
         border.color: root.focused
             ? root.theme.homeComposerFocusBorder
-            : hover.hovered ? root.theme.homeCardBorderHover : root.theme.homeCardBorder
+            : root.floating
+                ? (hover.hovered ? root.theme.compactComposerBorderHover : root.theme.compactComposerBorder)
+                : hover.hovered ? root.theme.homeCardBorderHover : root.theme.homeCardBorder
+
+        // A lit top edge: the bubble catches light above the page.
+        Rectangle {
+            visible: root.floating
+            anchors.fill: parent
+            anchors.margins: 1
+            radius: parent.radius - 1
+            color: "transparent"
+            border.width: 1
+            border.color: root.theme.compactComposerHighlight
+        }
 
         Behavior on height {
             enabled: !root.theme.reducedMotion
@@ -250,7 +273,7 @@ FocusScope {
             HomeChip {
                 id: libraryButton
 
-                visible: root.libraries.length > 0
+                visible: root.showLibrary && root.libraries.length > 0
                 theme: root.theme
                 iconName: "folder"
                 label: root.libraryName.length > 0 ? root.libraryName : "Folder"
@@ -270,7 +293,7 @@ FocusScope {
             HomeChip {
                 id: agentButton
 
-                visible: root.agent !== null && root.libraries.length > 0
+                visible: root.agent !== null && (root.libraries.length > 0 || !root.showLibrary)
                 theme: root.theme
                 iconName: "agent"
                 label: root.agentLabel(root.agent)

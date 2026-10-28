@@ -91,27 +91,31 @@ Rectangle {
     readonly property bool explorerEncroachesWorkspace: explorerOpen
         && explorerRight + theme.panelCollisionGap >= centeredContentLeft
     readonly property real attachedDockX: explorerRight
-    // The compact composer: centred over the workspace, just above the
-    // status bar.
-    readonly property real compactGap: 16
+    // The compact composer floats over the conversation: centred on the
+    // chat pane when one is showing (else on the workspace), just above
+    // the status bar. The workspace runs underneath it.
+    readonly property var chatFrame: workspaceLoader.item && workspaceLoader.item.chatFrame
+        ? workspaceLoader.item.chatFrame
+        : null
+    readonly property bool compactOnChat: chatFrame !== null && chatFrame.width >= 360
+    readonly property real compactAreaX: compactOnChat ? chatFrame.x : attachedDockX
+    readonly property real compactAreaWidth: compactOnChat ? chatFrame.width : width - attachedDockX
+    readonly property real compactGap: 18
     readonly property real compactWidth: Math.max(
         280,
-        Math.min(760, width - attachedDockX - 2 * 24)
+        Math.min(theme.homeComposerWidth, compactAreaWidth - 2 * 28)
     )
-    readonly property real compactX: attachedDockX
-        + Math.max(24, (width - attachedDockX - compactWidth) / 2)
+    readonly property real compactX: compactAreaX + Math.max(16, (compactAreaWidth - compactWidth) / 2)
     readonly property real compactHeight: compactComposer.implicitHeight
+    // What the conversation keeps clear under its last message.
+    readonly property real compactOverlay: compactHeight + compactGap + 14
     readonly property real compactY: height - theme.statusBarHeight - compactGap - compactHeight
     readonly property real compactEase: Math.max(0, Math.min(1, compactProgress))
     readonly property real workspaceLeftObstruction: explorerEncroachesWorkspace
         ? explorerRight
         : theme.activityRailWidth
     readonly property real workspacePreviewLeftObstruction: explorerRight
-    readonly property real workspaceBottomObstruction: lerp(
-        clampedDockHeight,
-        compactHeight + compactGap + 8,
-        compactEase
-    )
+    readonly property real workspaceBottomObstruction: lerp(clampedDockHeight, 0, compactEase)
 
     function lerp(from, to, t) {
         return from + (to - from) * t
@@ -716,6 +720,7 @@ Rectangle {
         DockWorkspace {
             theme: root.theme
             leftInset: root.explorerOpen ? root.explorerRight : root.theme.activityRailWidth
+            bottomOverlay: root.compactChat ? root.compactOverlay : 0
             onContextInspectionRequested: function(messageId) {
                 artifactDrawer.openForMessage(messageId)
             }
@@ -976,15 +981,42 @@ Rectangle {
         height: root.lerp(chatDock.height, root.compactHeight, t)
         radius: root.lerp(0, root.theme.homeComposerRadius, t)
         color: Qt.rgba(
-            root.lerp(root.theme.surfaceBg.r, root.theme.homeComposerBg.r, t),
-            root.lerp(root.theme.surfaceBg.g, root.theme.homeComposerBg.g, t),
-            root.lerp(root.theme.surfaceBg.b, root.theme.homeComposerBg.b, t),
+            root.lerp(root.theme.surfaceBg.r, compactComposer.surfaceColor.r, t),
+            root.lerp(root.theme.surfaceBg.g, compactComposer.surfaceColor.g, t),
+            root.lerp(root.theme.surfaceBg.b, compactComposer.surfaceColor.b, t),
             1
         )
         border.width: 1
-        border.color: root.theme.homeCardBorder
+        border.color: root.theme.compactComposerBorder
         // Under the dock while it's still showing, under the card after.
         z: 29
+    }
+
+    // A dark scrim under the compact composer: the conversation scrolls on
+    // behind the bubble and fades out as it reaches it.
+    Item {
+        id: compactScrim
+
+        x: root.compactAreaX
+        width: root.compactAreaWidth
+        y: root.compactY - 64
+        height: root.height - root.theme.statusBarHeight - y
+        visible: !root.workspaceHidden && root.compactEase > 0
+        opacity: root.phase(root.compactEase, 0.3, 1)
+        z: 28
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: root.theme.withAlpha(root.theme.workspaceBgBottom, 0) }
+                GradientStop { position: 0.45; color: root.theme.withAlpha(root.theme.workspaceBgBottom, 0.82) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.051, 0.047, 0.039, 0.97) }
+            }
+        }
+
+        // Clicks on the faded strip still reach the conversation's empty
+        // space; only the bubble takes input.
+        enabled: false
     }
 
     CompactChatComposer {
