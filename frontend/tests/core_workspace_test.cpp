@@ -243,10 +243,11 @@ private slots:
         QCOMPARE(duplicate->resource, original->resource);
         QVERIFY(s.model.anchorOfView(copy) != s.model.anchorOfView(s.a));
         QCOMPARE(s.model.viewsForResource(QStringLiteral("document"), original->resource.id).size(), 2);
+        const QString resourceId = duplicate->resource.id; // the records move when views close
 
         // Closing one view leaves the other (and the resource) alone.
         QVERIFY(s.model.closeView(s.a).ok);
-        QCOMPARE(s.model.viewsForResource(QStringLiteral("document"), duplicate->resource.id), QStringList{copy});
+        QCOMPARE(s.model.viewsForResource(QStringLiteral("document"), resourceId), QStringList{copy});
         QVERIFY(s.model.validate().isEmpty());
     }
 
@@ -957,7 +958,8 @@ private slots:
         QVERIFY(s.model.renameAnchor(s.editors, QStringLiteral("Shelf")).ok);
 
         // Moving every tab out leaves the locked anchor in place.
-        for (const QString &viewId : s.model.anchor(s.editors)->views) {
+        const QStringList tabs = s.model.anchor(s.editors)->views; // a copy: moving changes the list
+        for (const QString &viewId : tabs) {
             QVERIFY(s.model.moveView(viewId, s.first).ok);
         }
         QVERIFY(s.model.anchor(s.editors));

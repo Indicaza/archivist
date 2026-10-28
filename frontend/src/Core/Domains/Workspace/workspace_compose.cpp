@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <optional>
 
 namespace Workspace::Compose
 {
@@ -531,7 +532,7 @@ Plan refuse(const QString &message)
 }
 } // namespace
 
-QList<Template> templates()
+const QList<Template> &templates()
 {
     static const QList<Template> list = []() {
         QList<Template> out;
@@ -575,13 +576,18 @@ QStringList holdWords()
 Plan plan(const Spec &spec, const WorkspaceModel &model)
 {
     // ---- check the specification ----
-    const Template *recipe = nullptr;
+    // templates() returns a copy, so keep the chosen one by value (a
+    // pointer into that temporary list dangled and crashed the app).
+    std::optional<Template> chosen;
     if (!spec.templateId.isEmpty()) {
         for (const Template &candidate : templates()) {
             if (candidate.id == spec.templateId) {
-                recipe = &candidate;
+                chosen = candidate;
             }
         }
+    }
+    const Template *recipe = chosen ? &*chosen : nullptr;
+    if (!spec.templateId.isEmpty()) {
         if (!recipe) {
             return refuse(QStringLiteral("There's no “%1” template. Templates: %2.").arg(spec.templateId, templateIds().join(QStringLiteral(", "))));
         }

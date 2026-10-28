@@ -58,7 +58,7 @@ struct Template
     QJsonObject recipe; // {tree, slots}; see workspace_compose.cpp
 };
 
-[[nodiscard]] QList<Template> templates();
+[[nodiscard]] const QList<Template> &templates();
 [[nodiscard]] QStringList templateIds();
 [[nodiscard]] QStringList strategies();
 // The words a slot's holds may use ("code", "docs", "chat", ...).

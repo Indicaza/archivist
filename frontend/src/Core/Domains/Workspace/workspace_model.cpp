@@ -562,7 +562,7 @@ OpResult WorkspaceModel::layoutLockFailure(const QString &anchorId, const QStrin
     );
 }
 
-OpResult WorkspaceModel::surfaceEdgeLockFailure(const QString &surfaceId, Edge edge) const
+OpResult WorkspaceModel::surfaceEdgeLockFailure(QString surfaceId, Edge edge) const
 {
     const QString rootId = m_surfaces.value(surfaceId).rootNodeId;
     const auto root = m_nodes.constFind(rootId);
@@ -590,7 +590,7 @@ OpResult WorkspaceModel::surfaceEdgeLockFailure(const QString &surfaceId, Edge e
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::contentLockFailure(const QString &anchorId, Origin origin) const
+OpResult WorkspaceModel::contentLockFailure(QString anchorId, Origin origin) const
 {
     const auto it = m_anchors.constFind(anchorId);
 
@@ -809,7 +809,7 @@ void WorkspaceModel::insertViewIntoAnchor(const QString &viewId, const QString &
 
 // ---- views -------------------------------------------------------------------
 
-OpResult WorkspaceModel::openView(ViewRecord record, const QString &anchorId, int index, bool activate, Origin origin)
+OpResult WorkspaceModel::openView(ViewRecord record, QString anchorId, int index, bool activate, Origin origin)
 {
     return transact([&]() {
         const QString destination = anchorId.isEmpty() ? targetAnchorId() : anchorId;
@@ -839,7 +839,7 @@ OpResult WorkspaceModel::openView(ViewRecord record, const QString &anchorId, in
     });
 }
 
-OpResult WorkspaceModel::closeView(const QString &viewId, Origin origin)
+OpResult WorkspaceModel::closeView(QString viewId, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -860,7 +860,7 @@ OpResult WorkspaceModel::closeView(const QString &viewId, Origin origin)
     });
 }
 
-OpResult WorkspaceModel::activateView(const QString &viewId)
+OpResult WorkspaceModel::activateView(QString viewId)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
@@ -873,7 +873,7 @@ OpResult WorkspaceModel::activateView(const QString &viewId)
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::updateViewState(const QString &viewId, const QVariantMap &state)
+OpResult WorkspaceModel::updateViewState(QString viewId, const QVariantMap &state)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
@@ -884,7 +884,7 @@ OpResult WorkspaceModel::updateViewState(const QString &viewId, const QVariantMa
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setViewTitle(const QString &viewId, const QString &title)
+OpResult WorkspaceModel::setViewTitle(QString viewId, QString title)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
@@ -895,7 +895,7 @@ OpResult WorkspaceModel::setViewTitle(const QString &viewId, const QString &titl
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setViewResource(const QString &viewId, const ResourceRef &resource, Origin origin)
+OpResult WorkspaceModel::setViewResource(QString viewId, const ResourceRef &resource, Origin origin)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
@@ -910,7 +910,7 @@ OpResult WorkspaceModel::setViewResource(const QString &viewId, const ResourceRe
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setViewType(const QString &viewId, const QString &typeId, int stateVersion)
+OpResult WorkspaceModel::setViewType(QString viewId, QString typeId, int stateVersion)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
@@ -927,7 +927,7 @@ OpResult WorkspaceModel::setViewType(const QString &viewId, const QString &typeI
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anchorId, Edge edge, Origin origin)
+OpResult WorkspaceModel::duplicateView(QString viewId, QString anchorId, Edge edge, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -971,7 +971,7 @@ OpResult WorkspaceModel::duplicateView(const QString &viewId, const QString &anc
     });
 }
 
-OpResult WorkspaceModel::moveView(const QString &viewId, const QString &targetAnchorId, int index, Origin origin)
+OpResult WorkspaceModel::moveView(QString viewId, QString targetAnchorId, int index, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -1015,7 +1015,7 @@ OpResult WorkspaceModel::moveView(const QString &viewId, const QString &targetAn
     });
 }
 
-OpResult WorkspaceModel::splitView(const QString &viewId, const QString &targetAnchorId, Edge edge, Origin origin)
+OpResult WorkspaceModel::splitView(QString viewId, QString targetAnchorId, Edge edge, Origin origin)
 {
     if (edge == Edge::Center) {
         return moveView(viewId, targetAnchorId, -1, origin);
@@ -1053,7 +1053,7 @@ OpResult WorkspaceModel::splitView(const QString &viewId, const QString &targetA
     });
 }
 
-OpResult WorkspaceModel::dockViewAtSurfaceEdge(const QString &viewId, const QString &surfaceId, Edge edge, Origin origin)
+OpResult WorkspaceModel::dockViewAtSurfaceEdge(QString viewId, QString surfaceId, Edge edge, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId) || !m_surfaces.contains(surfaceId)) {
@@ -1092,7 +1092,7 @@ OpResult WorkspaceModel::dockViewAtSurfaceEdge(const QString &viewId, const QStr
     });
 }
 
-OpResult WorkspaceModel::detachView(const QString &viewId, const QRectF &geometry, const QString &screenName, Origin origin)
+OpResult WorkspaceModel::detachView(QString viewId, const QRectF &geometry, QString screenName, Origin origin)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -1120,7 +1120,7 @@ OpResult WorkspaceModel::detachView(const QString &viewId, const QRectF &geometr
 
 // ---- anchors -----------------------------------------------------------------
 
-OpResult WorkspaceModel::createAnchor(const QString &targetAnchorId, Edge edge)
+OpResult WorkspaceModel::createAnchor(QString targetAnchorId, Edge edge)
 {
     return transact([&]() {
         const QString target = targetAnchorId.isEmpty() ? this->targetAnchorId() : targetAnchorId;
@@ -1144,7 +1144,7 @@ OpResult WorkspaceModel::createAnchor(const QString &targetAnchorId, Edge edge)
     });
 }
 
-OpResult WorkspaceModel::createAnchorAtSurfaceEdge(const QString &surfaceId, Edge edge)
+OpResult WorkspaceModel::createAnchorAtSurfaceEdge(QString surfaceId, Edge edge)
 {
     return transact([&]() {
         if (!m_surfaces.contains(surfaceId)) {
@@ -1170,7 +1170,7 @@ OpResult WorkspaceModel::createAnchorAtSurfaceEdge(const QString &surfaceId, Edg
     });
 }
 
-OpResult WorkspaceModel::closeAnchor(const QString &anchorId, Origin origin)
+OpResult WorkspaceModel::closeAnchor(QString anchorId, Origin origin)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId)) {
@@ -1203,7 +1203,7 @@ OpResult WorkspaceModel::closeAnchor(const QString &anchorId, Origin origin)
     });
 }
 
-OpResult WorkspaceModel::mergeAnchor(const QString &anchorId, const QString &targetAnchorId, Origin origin)
+OpResult WorkspaceModel::mergeAnchor(QString anchorId, QString targetAnchorId, Origin origin)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId) || !m_anchors.contains(targetAnchorId)) {
@@ -1243,7 +1243,7 @@ OpResult WorkspaceModel::mergeAnchor(const QString &anchorId, const QString &tar
     });
 }
 
-OpResult WorkspaceModel::moveAnchor(const QString &anchorId, const QString &targetAnchorId, Edge edge, Origin origin)
+OpResult WorkspaceModel::moveAnchor(QString anchorId, QString targetAnchorId, Edge edge, Origin origin)
 {
     if (edge == Edge::Center) {
         return mergeAnchor(anchorId, targetAnchorId, origin);
@@ -1278,7 +1278,7 @@ OpResult WorkspaceModel::moveAnchor(const QString &anchorId, const QString &targ
     });
 }
 
-OpResult WorkspaceModel::dockAnchorAtSurfaceEdge(const QString &anchorId, const QString &surfaceId, Edge edge)
+OpResult WorkspaceModel::dockAnchorAtSurfaceEdge(QString anchorId, QString surfaceId, Edge edge)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId) || !m_surfaces.contains(surfaceId)) {
@@ -1314,7 +1314,7 @@ OpResult WorkspaceModel::dockAnchorAtSurfaceEdge(const QString &anchorId, const 
     });
 }
 
-OpResult WorkspaceModel::detachAnchor(const QString &anchorId, const QRectF &geometry, const QString &screenName)
+OpResult WorkspaceModel::detachAnchor(QString anchorId, const QRectF &geometry, QString screenName)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId)) {
@@ -1349,7 +1349,7 @@ OpResult WorkspaceModel::detachAnchor(const QString &anchorId, const QRectF &geo
     });
 }
 
-OpResult WorkspaceModel::setAnchorPinned(const QString &anchorId, bool pinned)
+OpResult WorkspaceModel::setAnchorPinned(QString anchorId, bool pinned)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1360,7 +1360,7 @@ OpResult WorkspaceModel::setAnchorPinned(const QString &anchorId, bool pinned)
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setAnchorRoles(const QString &anchorId, const QStringList &roles)
+OpResult WorkspaceModel::setAnchorRoles(QString anchorId, const QStringList &roles)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1371,7 +1371,7 @@ OpResult WorkspaceModel::setAnchorRoles(const QString &anchorId, const QStringLi
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::focusAnchor(const QString &anchorId)
+OpResult WorkspaceModel::focusAnchor(QString anchorId)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1385,7 +1385,7 @@ OpResult WorkspaceModel::focusAnchor(const QString &anchorId)
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setTargetAnchor(const QString &anchorId)
+OpResult WorkspaceModel::setTargetAnchor(QString anchorId)
 {
     if (!anchorId.isEmpty() && !m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1396,7 +1396,7 @@ OpResult WorkspaceModel::setTargetAnchor(const QString &anchorId)
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::maximizeAnchor(const QString &anchorId)
+OpResult WorkspaceModel::maximizeAnchor(QString anchorId)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1408,7 +1408,7 @@ OpResult WorkspaceModel::maximizeAnchor(const QString &anchorId)
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::restoreAnchor(const QString &surfaceId)
+OpResult WorkspaceModel::restoreAnchor(QString surfaceId)
 {
     if (!m_surfaces.contains(surfaceId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such window: ") + surfaceId);
@@ -1453,7 +1453,7 @@ QString baseNameForType(const QString &typeId)
 }
 } // namespace
 
-OpResult WorkspaceModel::renameAnchor(const QString &anchorId, const QString &name, Origin origin)
+OpResult WorkspaceModel::renameAnchor(QString anchorId, QString name, Origin origin)
 {
     Q_UNUSED(origin)
 
@@ -1475,7 +1475,7 @@ OpResult WorkspaceModel::renameAnchor(const QString &anchorId, const QString &na
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setAnchorLayoutLocked(const QString &anchorId, bool locked, Origin origin)
+OpResult WorkspaceModel::setAnchorLayoutLocked(QString anchorId, bool locked, Origin origin)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1494,7 +1494,7 @@ OpResult WorkspaceModel::setAnchorLayoutLocked(const QString &anchorId, bool loc
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setAnchorContentLocked(const QString &anchorId, bool locked, Origin origin)
+OpResult WorkspaceModel::setAnchorContentLocked(QString anchorId, bool locked, Origin origin)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1513,7 +1513,7 @@ OpResult WorkspaceModel::setAnchorContentLocked(const QString &anchorId, bool lo
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setAnchorSwitchable(const QString &anchorId, bool switchable, Origin origin)
+OpResult WorkspaceModel::setAnchorSwitchable(QString anchorId, bool switchable, Origin origin)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1533,7 +1533,7 @@ OpResult WorkspaceModel::setAnchorSwitchable(const QString &anchorId, bool switc
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setAnchorLibrary(const QString &anchorId, const QString &libraryId, Origin origin)
+OpResult WorkspaceModel::setAnchorLibrary(QString anchorId, QString libraryId, Origin origin)
 {
     if (!m_anchors.contains(anchorId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
@@ -1712,7 +1712,7 @@ LibraryResolution WorkspaceModel::resolveLibrary(
 
 // ---- splits ------------------------------------------------------------------
 
-OpResult WorkspaceModel::setSplitSizes(const QString &nodeId, const QList<double> &sizes)
+OpResult WorkspaceModel::setSplitSizes(QString nodeId, const QList<double> &sizes)
 {
     if (!m_nodes.contains(nodeId) || m_nodes.value(nodeId).leaf) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such split: ") + nodeId);
@@ -1748,7 +1748,7 @@ OpResult WorkspaceModel::setSplitSizes(const QString &nodeId, const QList<double
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::equalizeSplit(const QString &nodeId)
+OpResult WorkspaceModel::equalizeSplit(QString nodeId)
 {
     if (!m_nodes.contains(nodeId) || m_nodes.value(nodeId).leaf) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such split: ") + nodeId);
@@ -1780,8 +1780,8 @@ OpResult WorkspaceModel::equalizeSplit(const QString &nodeId)
 }
 
 OpResult WorkspaceModel::resizeSplit(
-    const QString &surfaceId,
-    const QString &nodeId,
+    QString surfaceId,
+    QString nodeId,
     int index,
     double position,
     const QSizeF &surfaceSize,
@@ -1837,7 +1837,7 @@ OpResult WorkspaceModel::resizeSplit(
 
 // ---- surfaces ----------------------------------------------------------------
 
-OpResult WorkspaceModel::setSurfaceGeometry(const QString &surfaceId, const QRectF &geometry, const QString &screenName, bool userPlaced)
+OpResult WorkspaceModel::setSurfaceGeometry(QString surfaceId, const QRectF &geometry, QString screenName, bool userPlaced)
 {
     if (!m_surfaces.contains(surfaceId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such window: ") + surfaceId);
@@ -1856,7 +1856,7 @@ OpResult WorkspaceModel::setSurfaceGeometry(const QString &surfaceId, const QRec
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::setSurfaceWindowMaximized(const QString &surfaceId, bool maximized)
+OpResult WorkspaceModel::setSurfaceWindowMaximized(QString surfaceId, bool maximized)
 {
     if (!m_surfaces.contains(surfaceId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such window: ") + surfaceId);
@@ -1867,7 +1867,7 @@ OpResult WorkspaceModel::setSurfaceWindowMaximized(const QString &surfaceId, boo
     return OpResult::success();
 }
 
-OpResult WorkspaceModel::closeSurface(const QString &surfaceId)
+OpResult WorkspaceModel::closeSurface(QString surfaceId)
 {
     return transact([&]() {
         if (!m_surfaces.contains(surfaceId)) {
