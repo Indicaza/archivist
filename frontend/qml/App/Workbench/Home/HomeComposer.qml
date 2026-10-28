@@ -29,6 +29,14 @@ FocusScope {
     property bool sending: false
     // A reply is streaming somewhere: Send becomes Stop.
     property bool streaming: false
+    // Home's own draft (Shell.homeDraft). Off when another owner keeps the
+    // text, such as the workspace's compact chat composer (ChatDrafts).
+    property bool syncHomeDraft: true
+    // The "+" menu (add a folder, new project).
+    property bool showAdd: true
+    // An expand button beside Send: grow into the docked workbench.
+    property bool showExpand: false
+    property string expandToolTip: "Expand"
 
     readonly property alias input: field
     readonly property bool hasText: field.text.trim().length > 0
@@ -49,6 +57,7 @@ FocusScope {
     signal agentChosen(string agentId)
     signal addFolderRequested()
     signal newProjectRequested()
+    signal expandRequested()
 
     function submit() {
         if (!canSend) {
@@ -163,9 +172,13 @@ FocusScope {
             TextArea {
                 id: field
 
-                Component.onCompleted: text = Shell.homeDraft
+                Component.onCompleted: {
+                    if (root.syncHomeDraft) {
+                        text = Shell.homeDraft
+                    }
+                }
                 onTextChanged: {
-                    if (text !== Shell.homeDraft) {
+                    if (root.syncHomeDraft && text !== Shell.homeDraft) {
                         Shell.homeDraft = text
                     }
                 }
@@ -199,6 +212,7 @@ FocusScope {
                 // The draft changed elsewhere (sent, so cleared).
                 Connections {
                     target: Shell
+                    enabled: root.syncHomeDraft
 
                     function onHomeDraftChanged() {
                         if (field.text !== Shell.homeDraft) {
@@ -224,6 +238,7 @@ FocusScope {
             HomeChip {
                 id: plusButton
 
+                visible: root.showAdd
                 theme: root.theme
                 iconName: "add"
                 round: true
@@ -290,6 +305,18 @@ FocusScope {
                     enabled: !root.theme.reducedMotion
                     NumberAnimation { duration: root.theme.motionHover }
                 }
+            }
+
+            HomeChip {
+                id: expandButton
+
+                visible: root.showExpand
+                theme: root.theme
+                iconName: "expand"
+                round: true
+                toolTipText: root.expandToolTip
+                Accessible.name: root.expandToolTip
+                onClicked: root.expandRequested()
             }
 
             HomeSendButton {

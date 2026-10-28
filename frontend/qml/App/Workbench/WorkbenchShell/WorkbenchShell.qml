@@ -8,6 +8,7 @@ import "../Workspace"
 import "../Dock"
 import "../WorkbenchDock"
 import "../ArtifactDrawer"
+import "../CompactChat"
 import "../Home"
 
 Rectangle {
@@ -26,7 +27,14 @@ Rectangle {
     property bool homeSending: false
     property string pendingChatId: ""
     property var pendingDocument: null
-    property bool dockAttached: true
+    // How the conversation sits in the workspace: "workbench" is the docked
+    // chat and terminal panel, "compact" a ChatGPT-style composer floating
+    // over the workspace. Saved per project.
+    property string chatMode: "workbench"
+    readonly property bool compactChat: chatMode === "compact"
+    // 0 is the docked workbench, 1 the compact composer; in between, one
+    // morphs into the other.
+    property real compactProgress: compactChat ? 1 : 0
     readonly property bool resizingExplorer: explorerResizeHandle.resizing
     property bool resizingDock: false
     property real explorerWidth: theme.explorerDefaultWidth
@@ -82,27 +90,66 @@ Rectangle {
     readonly property real explorerRight: theme.activityRailWidth + explorerExtent
     readonly property bool explorerEncroachesWorkspace: explorerOpen
         && explorerRight + theme.panelCollisionGap >= centeredContentLeft
-    readonly property bool effectiveDockAttached: explorerOpen && dockAttached
     readonly property real attachedDockX: explorerRight
-    readonly property real centeredDockWidth: Math.min(width - 32, 1120)
-    readonly property real centeredDockX: Math.max(
-        16,
-        (width - centeredDockWidth) / 2
+    // The compact composer: centred over the workspace, just above the
+    // status bar.
+    readonly property real compactGap: 16
+    readonly property real compactWidth: Math.max(
+        280,
+        Math.min(760, width - attachedDockX - 2 * 24)
     )
-    readonly property real floatingDockX: explorerOpen
-        ? Math.max(centeredDockX, explorerRight + theme.panelCollisionGap)
-        : centeredDockX
-    readonly property real floatingDockWidth: Math.max(
-        360,
-        Math.min(centeredDockWidth, width - floatingDockX - 16)
-    )
+    readonly property real compactX: attachedDockX
+        + Math.max(24, (width - attachedDockX - compactWidth) / 2)
+    readonly property real compactHeight: compactComposer.implicitHeight
+    readonly property real compactY: height - theme.statusBarHeight - compactGap - compactHeight
+    readonly property real compactEase: Math.max(0, Math.min(1, compactProgress))
     readonly property real workspaceLeftObstruction: explorerEncroachesWorkspace
         ? explorerRight
         : theme.activityRailWidth
     readonly property real workspacePreviewLeftObstruction: explorerRight
-    readonly property real workspaceBottomObstruction: effectiveDockAttached
-        ? clampedDockHeight
-        : 0
+    readonly property real workspaceBottomObstruction: lerp(
+        clampedDockHeight,
+        compactHeight + compactGap + 8,
+        compactEase
+    )
+
+    function lerp(from, to, t) {
+        return from + (to - from) * t
+    }
+
+    // A stage of the morph: 0 until `start`, 1 from `end`.
+    function phase(t, start, end) {
+        return Math.max(0, Math.min(1, (t - start) / (end - start)))
+    }
+
+    function setChatMode(mode) {
+        var next = mode === "compact" ? "compact" : "workbench"
+        if (chatMode === next) {
+            return
+        }
+        chatMode = next
+        if (next === "compact") {
+            Qt.callLater(function() {
+                var workspace = workspaceLoader.item
+                if (workspace && workspace.followSelectedChat && ChatStore.selectedChatId.length > 0) {
+                    workspace.followSelectedChat()
+                }
+                compactComposer.focusInput()
+            })
+        } else {
+            chatDock.activeView = "chat"
+            dockCollapsed = false
+        }
+        reportCommandSurface()
+    }
+
+    Behavior on compactProgress {
+        enabled: !root.theme.reducedMotion
+        NumberAnimation {
+            duration: root.theme.motionPanel + 120
+            easing.type: Easing.InOutCubic
+        }
+    }
 
     Behavior on homeReveal {
         enabled: !root.theme.reducedMotion
@@ -177,8 +224,8 @@ Rectangle {
             explorerWidth
         )
         WorkspaceState.setValue(
-            workspaceStateKey(workspaceScopeId, "dockAttached"),
-            dockAttached
+            workspaceStateKey(workspaceScopeId, "chatMode"),
+            chatMode
         )
         WorkspaceState.setValue(
             workspaceStateKey(workspaceScopeId, "dockHeight"),
@@ -259,13 +306,12 @@ Rectangle {
                 theme.explorerDefaultWidth
             )
         )
-        dockAttached = Boolean(
-            readStateValue(
-                "dockAttached",
-                "workspace/shell/dockAttached",
-                true
+        chatMode = String(
+            WorkspaceState.value(
+                workspaceStateKey(targetScopeId, "chatMode"),
+                "workbench"
             )
-        )
+        ) === "compact" ? "compact" : "workbench"
         dockHeight = Number(
             readStateValue(
                 "dockHeight",
@@ -383,7 +429,7 @@ Rectangle {
     onActiveViewIndexChanged: scheduleWorkspaceStateSave()
     onExplorerOpenChanged: scheduleWorkspaceStateSave()
     onExplorerWidthChanged: scheduleWorkspaceStateSave()
-    onDockAttachedChanged: scheduleWorkspaceStateSave()
+    onChatModeChanged: scheduleWorkspaceStateSave()
     onDockHeightChanged: scheduleWorkspaceStateSave()
     onDockCollapsedChanged: {
         scheduleWorkspaceStateSave()
@@ -392,7 +438,11 @@ Rectangle {
 
     // Agents need to know whether the conversation is on screen.
     function reportCommandSurface() {
-        Docking.setCommandSurfaceState(dockCollapsed, chatDock.activeView)
+        // The compact composer is the conversation, open.
+        Docking.setCommandSurfaceState(
+            compactChat ? false : dockCollapsed,
+            compactChat ? "chat" : chatDock.activeView
+        )
     }
 
     Connections {
@@ -401,6 +451,10 @@ Rectangle {
         // An agent asked for the chat or terminal ("beside our
         // conversation", "bring up the terminal").
         function onCommandSurfaceRequested(view, open) {
+            // The terminal and problems live in the workbench.
+            if (open && view !== "chat" && root.compactChat) {
+                root.setChatMode("workbench")
+            }
             if (view === "chat" || view === "terminal" || view === "problems") {
                 chatDock.activeView = view
             }
@@ -826,47 +880,28 @@ Rectangle {
     WorkbenchDock {
         id: chatDock
 
-        x: root.effectiveDockAttached
-            ? root.attachedDockX
-            : root.floatingDockX
+        x: root.attachedDockX
         y: parent.height - statusBar.height - height
-        width: root.effectiveDockAttached
-            ? parent.width - root.attachedDockX
-            : root.floatingDockWidth
+        width: parent.width - root.attachedDockX
         height: root.clampedDockHeight
         theme: root.theme
         collectionId:
             CollectionStore.selectedCollectionId
-        attached: root.effectiveDockAttached
         collapsed: root.dockCollapsed
-        visible: !root.workspaceHidden
+        // Fades out first as it folds into the compact composer, and back
+        // in last as it unfolds.
+        opacity: 1 - root.phase(root.compactEase, 0, 0.4)
+        visible: !root.workspaceHidden && root.compactEase < 1
+        enabled: !root.compactChat
         z: 30
 
-        onDockModeToggleRequested: root.dockAttached = !root.dockAttached
+        onCompactRequested: root.setChatMode("compact")
         onCollapseToggleRequested: root.dockCollapsed = !root.dockCollapsed
         onExpandRequested: root.dockCollapsed = false
         onActiveViewChanged: root.reportCommandSurface()
         Component.onCompleted: root.reportCommandSurface()
         onMessageSubmitted: function(message) {
             ChatStore.sendMessage(message)
-        }
-
-        Behavior on x {
-            enabled: !root.effectiveDockAttached
-            SpringAnimation {
-                spring: root.theme.motionSpring
-                damping: root.theme.motionDamping
-                epsilon: 0.2
-            }
-        }
-
-        Behavior on width {
-            enabled: !root.effectiveDockAttached
-            SpringAnimation {
-                spring: root.theme.motionSpring
-                damping: root.theme.motionDamping
-                epsilon: 0.2
-            }
         }
 
         Behavior on height {
@@ -886,7 +921,7 @@ Rectangle {
         y: chatDock.y - height / 2
         width: chatDock.width
         height: root.theme.resizeHandleThickness
-        visible: !root.dockCollapsed && !root.workspaceHidden
+        visible: !root.dockCollapsed && !root.workspaceHidden && root.compactEase === 0
         z: 35
 
         Rectangle {
@@ -924,6 +959,50 @@ Rectangle {
             }
             onDoubleClicked: root.resetDockHeight()
         }
+    }
+
+    // The surface between the two chat modes: the dock's panel shrinking
+    // into the composer's card (or growing out of it). Only shown while
+    // the morph runs; each side fades its content over it.
+    Rectangle {
+        id: chatMorph
+
+        readonly property real t: root.compactEase
+
+        visible: !root.workspaceHidden && t > 0 && t < 1
+        x: root.lerp(chatDock.x, root.compactX, t)
+        y: root.lerp(chatDock.y, root.compactY, t)
+        width: root.lerp(chatDock.width, root.compactWidth, t)
+        height: root.lerp(chatDock.height, root.compactHeight, t)
+        radius: root.lerp(0, root.theme.homeComposerRadius, t)
+        color: Qt.rgba(
+            root.lerp(root.theme.surfaceBg.r, root.theme.homeComposerBg.r, t),
+            root.lerp(root.theme.surfaceBg.g, root.theme.homeComposerBg.g, t),
+            root.lerp(root.theme.surfaceBg.b, root.theme.homeComposerBg.b, t),
+            1
+        )
+        border.width: 1
+        border.color: root.theme.homeCardBorder
+        // Under the dock while it's still showing, under the card after.
+        z: 29
+    }
+
+    CompactChatComposer {
+        id: compactComposer
+
+        x: root.compactX
+        y: root.compactY
+        width: root.compactWidth
+        theme: root.theme
+        opacity: root.phase(root.compactEase, 0.55, 1)
+        // Settles into place as it appears.
+        scale: root.lerp(0.985, 1, root.phase(root.compactEase, 0.55, 1))
+        transformOrigin: Item.Bottom
+        visible: !root.workspaceHidden && root.compactEase > 0
+        enabled: root.compactChat
+        z: 31
+
+        onExpandRequested: root.setChatMode("workbench")
     }
 
     MouseArea {
