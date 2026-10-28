@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Archivist.Services 1.0
 
 // A divider between two neighbours of a split. Drag to resize (both sides
@@ -11,6 +12,8 @@ Item {
     required property string nodeId
     required property int splitIndex
     required property string orientation
+    // A layout-locked panel sits on one side: the divider stays put.
+    required property bool locked
     required property real rectX
     required property real rectY
     required property real rectWidth
@@ -31,8 +34,8 @@ Item {
         width: root.horizontal ? (area.containsMouse || area.pressed ? 2 : 0) : parent.width
         height: root.horizontal ? parent.height : (area.containsMouse || area.pressed ? 2 : 0)
         radius: 1
-        color: root.theme.accent
-        opacity: area.pressed ? 0.95 : 0.7
+        color: root.locked ? root.theme.mutedText : root.theme.accent
+        opacity: root.locked ? 0.35 : area.pressed ? 0.95 : 0.7
 
         Behavior on width { NumberAnimation { duration: root.theme.motionFast } }
         Behavior on height { NumberAnimation { duration: root.theme.motionFast } }
@@ -43,7 +46,7 @@ Item {
 
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: root.horizontal ? Qt.SplitHCursor : Qt.SplitVCursor
+        cursorShape: root.locked ? Qt.ArrowCursor : root.horizontal ? Qt.SplitHCursor : Qt.SplitVCursor
         preventStealing: true
 
         onPressed: {
@@ -59,19 +62,23 @@ Item {
             root.workspace.resizingSplit = false
         }
         onPositionChanged: function(mouse) {
-            if (!pressed) {
+            if (!pressed || root.locked) {
                 return
             }
             var point = mapToItem(root.workspace.area, mouse.x, mouse.y)
             // The model takes the leading edge of the divider.
             var thickness = Docking.splitterThickness
             Docking.resizeSplit(
-                Docking.primarySurfaceId,
+                root.workspace.surfaceId || Docking.primarySurfaceId,
                 root.nodeId,
                 root.splitIndex,
                 (root.horizontal ? point.x : point.y) - thickness / 2
             )
         }
         onDoubleClicked: Docking.equalizeSplit(root.nodeId)
+
+        ToolTip.visible: root.locked && containsMouse
+        ToolTip.delay: 700
+        ToolTip.text: "A panel here has a locked layout"
     }
 }

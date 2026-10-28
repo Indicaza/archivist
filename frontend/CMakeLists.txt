@@ -109,6 +109,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_model.h
     src/Core/Domains/Workspace/workspace_codec.cpp
     src/Core/Domains/Workspace/workspace_codec.h
+    src/Core/Domains/Workspace/workspace_commands.cpp
+    src/Core/Domains/Workspace/workspace_commands.h
     src/Core/Domains/Workspace/workspace_presets.cpp
     src/Core/Domains/Workspace/workspace_presets.h
     src/Core/Domains/Documents/document_buffers.cpp
@@ -304,6 +306,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockNoticeBar.qml
         qml/App/Workbench/Dock/DockLayoutCard.qml
         qml/App/Workbench/Dock/DockLayoutPicker.qml
+        qml/App/Workbench/Dock/DockShelfPicker.qml
         qml/App/Workbench/Dock/DockLayoutThumb.qml
         qml/App/Workbench/Dock/DockMenu.qml
         qml/App/Workbench/Dock/DockMenuItem.qml

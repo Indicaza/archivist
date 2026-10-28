@@ -89,6 +89,8 @@ Item {
 
     property var anchorItems: ({})
     property bool quietLayout: false
+    // Focus moved by keyboard: show a clear ring until the pointer is used.
+    property bool keyboardFocusVisible: false
     property var terminalItems: ({})
     property string preferredChatViewId: ""
     property string lastSelectionKey: ""
@@ -117,6 +119,18 @@ Item {
     function unregisterTerminal(viewId, item) {
         if (terminalItems[viewId] === item) {
             delete terminalItems[viewId]
+        }
+    }
+
+    // ---- focus -------------------------------------------------------------
+
+    function noteKeyboardFocus() {
+        root.keyboardFocusVisible = true
+    }
+
+    function notePointerFocus() {
+        if (root.keyboardFocusVisible) {
+            root.keyboardFocusVisible = false
         }
     }
 
@@ -174,12 +188,122 @@ Item {
         return String(details.name || details.path || "Untitled")
     }
 
+    function viewIconName(info) {
+        var typeId = String((info || {}).typeId || "")
+        if (typeId === "archivist.chat") {
+            return "chat"
+        }
+        if (typeId === "archivist.terminal") {
+            return "terminal"
+        }
+        if (typeId === "archivist.diff") {
+            return "git-branch"
+        }
+        if (typeId === "archivist.welcome") {
+            return "workspace"
+        }
+        var details = ((info || {}).resource || {}).details || ({})
+        var identity = FileIdentity.resolve({
+            fileName: String(details.name || details.path || info.title || ""),
+            extension: String(details.extension || "")
+        })
+        return identity.category === "image" ? "file-image"
+            : identity.preferredRendererId === "markdown" ? "file-markdown"
+            : identity.preferredRendererId === "pdf" ? "file-pdf"
+            : identity.category === "code" || identity.category === "data" ? "file-text"
+            : "file"
+    }
+
+    function libraryLabel(libraryId) {
+        var library = libraryFor(libraryId)
+        if (!library) {
+            return ""
+        }
+        var branch = String(library.branch || library.worktreeBranch || "")
+        var name = String(library.name || "Library")
+        return branch.length > 0 && branch !== name ? name + " · " + branch : name
+    }
+
+    // The Library a project falls back to: the main checkout of the selected
+    // repository, else the first Library of the Collection.
+    function defaultLibraryId() {
+        var main = String(WorktreeStore.anchorLibraryId || "")
+        if (main.length > 0 && libraryFor(main)) {
+            return main
+        }
+        var libraries = LibraryStore.libraries || []
+        return libraries.length > 0 ? String(libraries[0].id || "") : ""
+    }
+
+    function knownLibraryIds() {
+        var libraries = LibraryStore.libraries || []
+        var ids = []
+        for (var index = 0; index < libraries.length; index += 1) {
+            ids.push(String(libraries[index].id || ""))
+        }
+        return ids
+    }
+
+    // ---- shelves (switchable panels) -------------------------------------
+
+    // Views elsewhere that could join `anchorId`'s shelf, one per resource.
+    function shelfCandidates(anchorId) {
+        var own = Docking.anchor(anchorId).views || []
+        var held = ({})
+        for (var index = 0; index < own.length; index += 1) {
+            var mine = Docking.view(own[index])
+            held[String(mine.typeId) + "|" + String((mine.resource || {}).kind) + "|" + String((mine.resource || {}).id)] = true
+        }
+        var result = []
+        var anchors = Object.keys(anchorItems)
+        for (var a = 0; a < anchors.length; a += 1) {
+            if (anchors[a] === anchorId) {
+                continue
+            }
+            var views = Docking.anchor(anchors[a]).views || []
+            for (var v = 0; v < views.length; v += 1) {
+                var info = Docking.view(views[v])
+                var key = String(info.typeId) + "|" + String((info.resource || {}).kind) + "|" + String((info.resource || {}).id)
+                if (held[key]) {
+                    continue
+                }
+                held[key] = true
+                result.push(info)
+            }
+        }
+        return result
+    }
+
+    // Puts a view on a shelf. Documents and chats get a second view (the
+    // original stays where it is, sharing the same buffer or conversation);
+    // a terminal moves, since its session has one home.
+    function addToShelf(anchorId, viewId) {
+        var info = Docking.view(viewId)
+        if (!info.viewId) {
+            return ""
+        }
+        var type = Docking.viewType(info.typeId)
+        if (info.typeId === "archivist.terminal" || type.allowsDuplicates === false) {
+            Docking.moveView(viewId, anchorId, -1)
+            Docking.activateView(viewId)
+            return viewId
+        }
+        return Docking.openView(info.typeId, info.resource, String(info.title || ""), {
+            anchorId: anchorId,
+            duplicate: true,
+            state: info.state || ({})
+        })
+    }
+
     function anchorTitle(anchorId) {
         var anchor = Docking.anchor(anchorId)
         var active = anchor.activeViewId ? Docking.view(anchor.activeViewId) : null
         var count = (anchor.views || []).length
         var title = active ? viewTitle(active) : "Empty panel"
-        return count > 1 ? title + "  +" + (count - 1) : title
+        title = count > 1 ? title + "  +" + (count - 1) : title
+        // A panel the person named is carried by its name.
+        var name = String(anchor.name || "")
+        return name.length > 0 ? name + " · " + title : title
     }
 
     function fileRecordFor(details) {
@@ -320,17 +444,24 @@ Item {
                 return
             }
         }
-        var current = root.preferredChatViewId.length > 0 ? Docking.view(root.preferredChatViewId) : ({})
-        if (current.typeId !== "archivist.chat") {
-            var chats = Docking.viewIdsOfType("archivist.chat")
-            current = chats.length > 0 ? Docking.view(chats[0]) : ({})
+        // Point a chat view at the newly selected chat, as before docking.
+        // This is automatic: a panel whose content is locked keeps its chat,
+        // and the conversation opens somewhere else instead.
+        var candidates = Docking.viewIdsOfType("archivist.chat")
+        if (root.preferredChatViewId.length > 0) {
+            candidates.unshift(root.preferredChatViewId)
         }
-        if (current.typeId === "archivist.chat") {
-            Docking.setViewResource(current.viewId, { kind: "chat", id: chatId })
-            Docking.setViewTitle(current.viewId, chatTitle(chatId))
-            root.preferredChatViewId = current.viewId
-            Docking.activateView(current.viewId)
-            return
+        for (var candidate = 0; candidate < candidates.length; candidate += 1) {
+            var current = Docking.view(candidates[candidate])
+            if (current.typeId !== "archivist.chat") {
+                continue
+            }
+            if (Docking.setViewResource(current.viewId, { kind: "chat", id: chatId }, "automatic")) {
+                Docking.setViewTitle(current.viewId, chatTitle(chatId))
+                root.preferredChatViewId = current.viewId
+                Docking.activateView(current.viewId)
+                return
+            }
         }
         openChat("")
     }
@@ -451,12 +582,28 @@ Item {
 
     // ---- terminals -------------------------------------------------------
 
+    // A new terminal's worktree comes from where it opens (see
+    // WorkspaceModel::resolveLibrary): the panel's own default worktree, then
+    // the worktree of the panel's active document, then the Explorer's
+    // selection, then the project default. It is fixed from then on.
+    function terminalLibraryFor(anchorId) {
+        var destination = String(anchorId || "") || Docking.preferredAnchorFor("archivist.terminal")
+        return Docking.resolveLibrary(
+            destination,
+            String(LibraryStore.selectedLibraryId || ""),
+            defaultLibraryId(),
+            knownLibraryIds()
+        )
+    }
+
     function openTerminal(anchorId) {
-        var libraryId = String(LibraryStore.selectedLibraryId || "")
+        var destination = String(anchorId || "") || Docking.preferredAnchorFor("archivist.terminal")
+        var libraryId = String(terminalLibraryFor(destination).libraryId || "")
         var collectionId = String(CollectionStore.selectedCollectionId || "")
         if (libraryId.length === 0) {
             return
         }
+        anchorId = destination
         var sessionId = "terminal-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1296).toString(36)
         var library = libraryFor(libraryId)
         Docking.openView(
@@ -471,6 +618,10 @@ Item {
             library ? "Terminal · " + String(library.name || "") : "Terminal",
             { anchorId: anchorId || "", reveal: false }
         )
+        // Say where it opened when that isn't what the Explorer shows.
+        if (libraryId !== String(LibraryStore.selectedLibraryId || "")) {
+            toast.show("Terminal opened in " + libraryLabel(libraryId))
+        }
     }
 
     // A terminal's process ends with its last view.
@@ -930,14 +1081,37 @@ Item {
         context: Qt.ApplicationShortcut
         onActivated: Docking.toggleMaximize(Docking.focusedAnchorId)
     }
-    Shortcut { sequences: ["Ctrl+Alt+Left"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("left") }
-    Shortcut { sequences: ["Ctrl+Alt+Right"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("right") }
-    Shortcut { sequences: ["Ctrl+Alt+Up"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("top") }
-    Shortcut { sequences: ["Ctrl+Alt+Down"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("bottom") }
-    Shortcut { sequences: ["Ctrl+Alt+]"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleFocus(1) }
-    Shortcut { sequences: ["Ctrl+Alt+["]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleFocus(-1) }
-    Shortcut { sequences: ["Ctrl+PgDown"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(1) }
-    Shortcut { sequences: ["Ctrl+PgUp"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(-1) }
+    Shortcut { sequences: ["Ctrl+Alt+Left"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("left") } }
+    Shortcut { sequences: ["Ctrl+Alt+Right"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("right") } }
+    Shortcut { sequences: ["Ctrl+Alt+Up"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("top") } }
+    Shortcut { sequences: ["Ctrl+Alt+Down"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("bottom") } }
+    Shortcut { sequences: ["Ctrl+Alt+]"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(1) } }
+    Shortcut { sequences: ["Ctrl+Alt+["]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(-1) } }
+    // Next/previous tab, or next/previous item on a shelf.
+    Shortcut { sequences: ["Ctrl+PgDown", "Ctrl+Alt+Shift+]"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(1) }
+    Shortcut { sequences: ["Ctrl+PgUp", "Ctrl+Alt+Shift+["]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(-1) }
+    // Rename the focused panel.
+    Shortcut {
+        sequences: ["F2"]
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            var item = root.anchorItems[Docking.focusedAnchorId]
+            if (item) {
+                item.startRename()
+            }
+        }
+    }
+    // Open the focused shelf's picker.
+    Shortcut {
+        sequences: ["Ctrl+Alt+P"]
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            var item = root.anchorItems[Docking.focusedAnchorId]
+            if (item && item.switchable) {
+                item.openShelfPicker()
+            }
+        }
+    }
     Shortcut {
         sequences: ["Ctrl+S"]
         context: Qt.ApplicationShortcut

@@ -642,6 +642,204 @@ private slots:
         QVERIFY(!documents.isDirty(featureDoc));
     }
 
+
+    // ---- Anchor workstations ---------------------------------------------
+
+    void anchorConfigurationIsPublishedAndPersisted()
+    {
+        QString shelf;
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("anchor-config"));
+            shelf = store.focusedAnchorId();
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+
+            QVERIFY(store.renameAnchor(shelf, QStringLiteral("Reference Shelf")));
+            QVERIFY(store.setAnchorSwitchable(shelf, true));
+            QVERIFY(store.setAnchorLayoutLocked(shelf, true));
+            QVERIFY(store.setAnchorLibrary(shelf, QStringLiteral("wt-a")));
+
+            QAbstractItemModel *anchors = store.anchors(store.primarySurfaceId());
+            QCOMPARE(keys(anchors, "displayName"), QStringList({QStringLiteral("Reference Shelf")}));
+            QCOMPARE(keys(anchors, "layoutLocked"), QStringList({QStringLiteral("true")}));
+            QCOMPARE(keys(anchors, "switchable"), QStringList({QStringLiteral("true")}));
+            QCOMPARE(keys(anchors, "contextLibraryId"), QStringList({QStringLiteral("wt-a")}));
+
+            // The UI asks what is allowed, and why not.
+            const QVariantMap caps = store.anchorCapabilities(shelf);
+            QVERIFY(!caps.value("close").toBool());
+            QVERIFY(caps.value("restrictions").toMap().value("close").toString().contains(QStringLiteral("Reference Shelf")));
+
+            // Closing is refused with the reason, and nothing changes.
+            QSignalSpy failed(&store, &WorkspaceStore::operationFailed);
+            const QVariantMap closed = store.closeAnchor(shelf, true);
+            QVERIFY(!closed.value("ok").toBool());
+            QVERIFY(closed.value("error").toString().contains(QStringLiteral("locked")));
+            QCOMPARE(store.views()->rowCount(), 1);
+            QVERIFY(!store.applyPreset(QStringLiteral("development")));
+            QCOMPARE(failed.count(), 1);
+            store.saveNow();
+        }
+
+        WorkspaceStore restored;
+        restored.setCollection(QStringLiteral("anchor-config"));
+        const QVariantMap anchor = restored.anchor(shelf);
+        QCOMPARE(anchor.value("name").toString(), QStringLiteral("Reference Shelf"));
+        QVERIFY(anchor.value("switchable").toBool());
+        QVERIFY(anchor.value("layoutLocked").toBool());
+        QCOMPARE(anchor.value("libraryId").toString(), QStringLiteral("wt-a"));
+    }
+
+    void layoutUndoBringsBackAnchorProperties()
+    {
+        QSettings().remove(QStringLiteral("workspace/docking/layouts"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("anchor-undo"));
+        const QString chat = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("c1")}}, "Chat");
+        const QString anchorId = store.view(chat).value("anchorId").toString();
+        QVERIFY(store.renameAnchor(anchorId, QStringLiteral("Architecture Chat")));
+        QVERIFY(store.setAnchorContentLocked(anchorId, true));
+        QVERIFY(store.setAnchorSwitchable(anchorId, true));
+
+        QVERIFY(store.applyPreset(QStringLiteral("research")));
+        QVERIFY(store.anchor(store.view(chat).value("anchorId").toString()).value("name").toString().isEmpty());
+
+        QVERIFY(store.undoLayout());
+        const QVariantMap back = store.anchor(store.view(chat).value("anchorId").toString());
+        QCOMPARE(back.value("name").toString(), QStringLiteral("Architecture Chat"));
+        QVERIFY(back.value("contentLocked").toBool());
+        QVERIFY(back.value("switchable").toBool());
+    }
+
+    void lockedChatIsNotRepointedAutomatically()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("anchor-chat-lock"));
+        const QString architecture = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("architecture")}}, "Architecture");
+        const QString locked = store.view(architecture).value("anchorId").toString();
+        const QString other = store.createAnchor(locked, QStringLiteral("right"));
+        QVERIFY(store.setAnchorContentLocked(locked, true));
+        QVERIFY(store.focusAnchor(locked));
+
+        // Another agent changing the selected chat can't repoint the view...
+        QSignalSpy failed(&store, &WorkspaceStore::operationFailed);
+        QVERIFY(!store.setViewResource(architecture, {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("developer")}}, QStringLiteral("automatic")));
+        QCOMPARE(store.view(architecture).value("resource").toMap().value("id").toString(), QStringLiteral("architecture"));
+        QCOMPARE(failed.count(), 0); // expected, so not reported as an error
+
+        // ...and new content lands somewhere else even though it is focused.
+        QCOMPARE(store.preferredAnchorFor(QStringLiteral("archivist.chat")), other);
+        QCOMPARE(store.preferredAnchorFor(QStringLiteral("archivist.editor")), other);
+        const QString developer = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("developer")}}, "Developer");
+        QCOMPARE(store.view(developer).value("anchorId").toString(), other);
+
+        // The person can still put something there on purpose.
+        const QString explicitView = store.openView(QStringLiteral("archivist.editor"), documentResource("n.md"), "n.md", {{QStringLiteral("anchorId"), locked}});
+        QCOMPARE(store.view(explicitView).value("anchorId").toString(), locked);
+        QVERIFY(store.openView(QStringLiteral("archivist.editor"), documentResource("m.md"), "m.md", {{QStringLiteral("anchorId"), locked}, {QStringLiteral("origin"), QStringLiteral("agent")}}).isEmpty());
+    }
+
+    void switchingShelfResourcesKeepsUnsavedBuffers()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        disk.files.insert(QStringLiteral("wt-b:b.cpp"), QStringLiteral("beta"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("anchor-shelf"));
+        const QString shelf = store.focusedAnchorId();
+        QVERIFY(store.setAnchorSwitchable(shelf, true));
+
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp", QStringLiteral("wt-b")), "b.cpp");
+        const QString term = store.openView(QStringLiteral("archivist.terminal"), {{QStringLiteral("kind"), QStringLiteral("terminal")}, {QStringLiteral("id"), QStringLiteral("wt-b:s1")}, {QStringLiteral("libraryId"), QStringLiteral("wt-b")}}, "Terminal");
+        const QString docA = QStringLiteral("col:lib-main:a.cpp");
+        QVERIFY(documents.applyEdits(docA, QStringLiteral("page"), 1, insertAt(5, "!")).value("ok").toBool());
+        QVERIFY(store.mergeViewState(a, {{QStringLiteral("cursorLine"), 3}}));
+
+        // Rotate through the shelf a few times.
+        for (int step = 0; step < 7; ++step) {
+            QVERIFY(store.cycleView(step % 2 ? -1 : 1));
+        }
+        QVERIFY(store.activateView(b));
+        QVERIFY(store.activateView(term));
+
+        QVERIFY(documents.isDirty(docA));
+        QCOMPARE(documents.snapshot(docA).value("text").toString(), QStringLiteral("alpha!"));
+        QCOMPARE(documents.holders(docA).size(), 1); // still held by its hidden view
+        QCOMPARE(disk.loads, 2);                     // nothing reloaded
+        QCOMPARE(store.view(a).value("state").toMap().value("cursorLine").toInt(), 3);
+        QCOMPARE(store.view(b).value("resource").toMap().value("libraryId").toString(), QStringLiteral("wt-b"));
+        QCOMPARE(store.view(term).value("resource").toMap().value("id").toString(), QStringLiteral("wt-b:s1"));
+        QCOMPARE(store.views()->rowCount(), 3);
+    }
+
+    void newTerminalsResolveTheirWorktree()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("anchor-terminals"));
+        const QStringList known{QStringLiteral("lib-main"), QStringLiteral("wt-a"), QStringLiteral("wt-b")};
+        const QString editors = store.focusedAnchorId();
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp", QStringLiteral("wt-a")), "a.cpp");
+        const QString existing = store.openView(QStringLiteral("archivist.terminal"), {{QStringLiteral("kind"), QStringLiteral("terminal")}, {QStringLiteral("id"), QStringLiteral("lib-main:s1")}, {QStringLiteral("libraryId"), QStringLiteral("lib-main")}}, "Terminal", {{QStringLiteral("activate"), false}});
+
+        // The active document's worktree wins over the Explorer's selection.
+        QVariantMap resolved = store.resolveLibrary(editors, QStringLiteral("wt-b"), QStringLiteral("lib-main"), known);
+        QCOMPARE(resolved.value("libraryId").toString(), QStringLiteral("wt-a"));
+        QCOMPARE(resolved.value("source").toString(), QStringLiteral("activeView"));
+
+        // An empty panel follows the Explorer, then the default.
+        const QString empty = store.createAnchor(editors, QStringLiteral("bottom"));
+        QCOMPARE(store.resolveLibrary(empty, QStringLiteral("wt-b"), QStringLiteral("lib-main"), known).value("libraryId").toString(), QStringLiteral("wt-b"));
+        QCOMPARE(store.resolveLibrary(empty, QString(), QStringLiteral("lib-main"), known).value("source").toString(), QStringLiteral("default"));
+
+        // A panel bound to a worktree sends new terminals there.
+        QVERIFY(store.setAnchorLibrary(empty, QStringLiteral("wt-a")));
+        QCOMPARE(store.resolveLibrary(empty, QStringLiteral("wt-b"), QStringLiteral("lib-main"), known).value("source").toString(), QStringLiteral("anchor"));
+
+        // The terminal that already existed keeps its own worktree throughout.
+        QCOMPARE(store.view(existing).value("resource").toMap().value("libraryId").toString(), QStringLiteral("lib-main"));
+    }
+
+    void agentCommandsMeetTheSameLocks()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("anchor-agent"));
+        const QString first = store.focusedAnchorId();
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString second = store.createAnchor(first, QStringLiteral("right"));
+
+        QVariantMap result = store.runCommand({{"command", "anchor.rename"}, {"anchorId", second}, {"name", "Agent Observatory"}});
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(store.anchorDisplayName(second), QStringLiteral("Agent Observatory"));
+
+        result = store.runCommand({{"command", "anchor.addResource"}, {"anchorId", second}, {"typeId", "archivist.chat"}, {"resource", QVariantMap{{"kind", "chat"}, {"id", "agent-1"}}}, {"title", "Agent 1"}});
+        QVERIFY(result.value("ok").toBool());
+        QVERIFY(!result.value("viewId").toString().isEmpty());
+
+        // An agent can't throw away the only copy of unsaved edits.
+        QVERIFY(documents.applyEdits(QStringLiteral("col:lib-main:a.cpp"), QStringLiteral("p"), 1, insertAt(0, ">")).value("ok").toBool());
+        result = store.runCommand({{"command", "anchor.removeResource"}, {"viewId", a}, {"force", true}});
+        QCOMPARE(result.value("code").toString(), QStringLiteral("UNSAVED_WORK"));
+        QVERIFY(!store.view(a).isEmpty());
+
+        // Locks apply, and only the person unlocks.
+        QVERIFY(store.setAnchorLayoutLocked(first, true));
+        result = store.runCommand({{"command", "anchor.setLayoutLock"}, {"anchorId", first}, {"locked", false}});
+        QCOMPARE(result.value("code").toString(), QStringLiteral("UNLOCK_REFUSED"));
+        result = store.runCommand({{"command", "anchor.describe"}, {"anchorId", first}});
+        QVERIFY(!result.value("capabilities").toMap().value("move").toBool());
+        result = store.runCommand({{"command", "anchor.setLayoutLock"}, {"anchorId", first}, {"locked", false}, {"origin", "user"}});
+        QVERIFY(result.value("ok").toBool());
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

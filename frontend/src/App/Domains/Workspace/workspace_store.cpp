@@ -2,6 +2,7 @@
 
 #include "App/Domains/Documents/document_store.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
+#include "Core/Domains/Workspace/workspace_commands.h"
 #include "Core/Domains/Workspace/workspace_presets.h"
 
 #include <QGuiApplication>
@@ -37,6 +38,12 @@ const QStringList kAnchorRoles = {
     QStringLiteral("isHidden"),
     QStringLiteral("isDragSource"),
     QStringLiteral("isVacating"),
+    QStringLiteral("name"),
+    QStringLiteral("displayName"),
+    QStringLiteral("layoutLocked"),
+    QStringLiteral("contentLocked"),
+    QStringLiteral("switchable"),
+    QStringLiteral("contextLibraryId"),
 };
 
 const QStringList kViewRoles = {
@@ -66,6 +73,7 @@ const QStringList kSplitterRoles = {
     QStringLiteral("nodeId"),
     QStringLiteral("splitIndex"),
     QStringLiteral("orientation"),
+    QStringLiteral("locked"),
     QStringLiteral("rectX"),
     QStringLiteral("rectY"),
     QStringLiteral("rectWidth"),
@@ -449,6 +457,12 @@ void WorkspaceStore::publishSurface(const QString &surfaceId)
                 row.insert(QStringLiteral("isMaximized"), surface->maximizedAnchorId == anchorId);
                 row.insert(QStringLiteral("isHidden"), !vacating && !geometry.anchors.contains(anchorId));
                 row.insert(QStringLiteral("isVacating"), vacating);
+                row.insert(QStringLiteral("name"), anchor->name);
+                row.insert(QStringLiteral("displayName"), m_model.anchorDisplayName(anchorId));
+                row.insert(QStringLiteral("layoutLocked"), anchor->layoutLocked);
+                row.insert(QStringLiteral("contentLocked"), anchor->contentLocked);
+                row.insert(QStringLiteral("switchable"), anchor->switchable);
+                row.insert(QStringLiteral("contextLibraryId"), anchor->libraryId);
                 row.insert(
                     QStringLiteral("isDragSource"),
                     m_drag.kind == DragSource::Kind::Anchor && m_drag.id == anchorId
@@ -475,6 +489,7 @@ void WorkspaceStore::publishSurface(const QString &surfaceId)
                 row.insert(QStringLiteral("nodeId"), handle.nodeId);
                 row.insert(QStringLiteral("splitIndex"), handle.index);
                 row.insert(QStringLiteral("orientation"), orientationName(handle.orientation));
+                row.insert(QStringLiteral("locked"), m_model.isSplitBoundaryLocked(handle.nodeId, handle.index));
                 rows.append(row);
             }
         }
@@ -652,6 +667,8 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
     const bool reveal = options.value(QStringLiteral("reveal"), true).toBool()
         && !options.value(QStringLiteral("duplicate")).toBool();
     const bool focus = options.value(QStringLiteral("focus"), true).toBool();
+    Origin origin = Origin::User;
+    parseOrigin(options.value(QStringLiteral("origin")).toString(), &origin);
     QString anchorId = options.value(QStringLiteral("anchorId")).toString();
     if (anchorId.isEmpty() || !m_model.anchor(anchorId)) {
         anchorId = preferredAnchorFor(typeId);
@@ -699,7 +716,8 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
         view,
         anchorId,
         options.value(QStringLiteral("index"), -1).toInt(),
-        options.value(QStringLiteral("activate"), true).toBool()
+        options.value(QStringLiteral("activate"), true).toBool(),
+        origin
     );
 
     if (!result.ok) {
@@ -965,9 +983,17 @@ bool WorkspaceStore::setViewType(const QString &viewId, const QString &typeId)
     return check(m_model.setViewType(viewId, typeId, type ? type->stateVersion : 1));
 }
 
-bool WorkspaceStore::setViewResource(const QString &viewId, const QVariantMap &resource)
+bool WorkspaceStore::setViewResource(const QString &viewId, const QVariantMap &resource, const QString &originName)
 {
-    return check(m_model.setViewResource(viewId, resourceFromMap(resource)));
+    Origin origin = Origin::User;
+    parseOrigin(originName, &origin);
+    const OpResult result = m_model.setViewResource(viewId, resourceFromMap(resource), origin);
+
+    // Automatic rebinding that a lock refuses is expected, not an error.
+    if (!result.ok && origin != Origin::User) {
+        return false;
+    }
+    return check(result);
 }
 
 QVariantMap WorkspaceStore::view(const QString &viewId) const
@@ -1168,21 +1194,160 @@ QVariantMap WorkspaceStore::anchor(const QString &anchorId) const
         {QStringLiteral("pinned"), anchor->pinned},
         {QStringLiteral("roles"), anchor->roles},
         {QStringLiteral("maximized"), surface && surface->maximizedAnchorId == anchorId},
+        {QStringLiteral("name"), anchor->name},
+        {QStringLiteral("displayName"), m_model.anchorDisplayName(anchorId)},
+        {QStringLiteral("automaticName"), m_model.automaticAnchorName(anchorId)},
+        {QStringLiteral("layoutLocked"), anchor->layoutLocked},
+        {QStringLiteral("contentLocked"), anchor->contentLocked},
+        {QStringLiteral("switchable"), anchor->switchable},
+        {QStringLiteral("libraryId"), anchor->libraryId},
     };
+}
+
+bool WorkspaceStore::renameAnchor(const QString &anchorId, const QString &name)
+{
+    return check(m_model.renameAnchor(anchorId, name));
+}
+
+bool WorkspaceStore::setAnchorLayoutLocked(const QString &anchorId, bool locked)
+{
+    return check(m_model.setAnchorLayoutLocked(anchorId, locked));
+}
+
+bool WorkspaceStore::setAnchorContentLocked(const QString &anchorId, bool locked)
+{
+    return check(m_model.setAnchorContentLocked(anchorId, locked));
+}
+
+bool WorkspaceStore::setAnchorSwitchable(const QString &anchorId, bool switchable)
+{
+    return check(m_model.setAnchorSwitchable(anchorId, switchable));
+}
+
+bool WorkspaceStore::setAnchorLibrary(const QString &anchorId, const QString &libraryId)
+{
+    return check(m_model.setAnchorLibrary(anchorId, libraryId));
+}
+
+QString WorkspaceStore::anchorDisplayName(const QString &anchorId) const
+{
+    return m_model.anchorDisplayName(anchorId);
+}
+
+QVariantMap WorkspaceStore::anchorCapabilities(const QString &anchorId) const
+{
+    const AnchorCapabilities capabilities = m_model.anchorCapabilities(anchorId, Origin::User);
+    QVariantMap map = Commands::capabilitiesMap(capabilities);
+    QVariantMap restrictions;
+    for (auto it = capabilities.reasons.cbegin(); it != capabilities.reasons.cend(); ++it) {
+        restrictions.insert(it.key(), it.value());
+    }
+    map.insert(QStringLiteral("restrictions"), restrictions);
+    return map;
+}
+
+QVariantMap WorkspaceStore::resolveLibrary(
+    const QString &anchorId,
+    const QString &explorerLibraryId,
+    const QString &defaultLibraryId,
+    const QStringList &knownLibraryIds
+) const
+{
+    const LibraryResolution resolution = m_model.resolveLibrary(anchorId, explorerLibraryId, defaultLibraryId, knownLibraryIds);
+    return {
+        {QStringLiteral("libraryId"), resolution.libraryId},
+        {QStringLiteral("source"), librarySourceName(resolution.source)},
+    };
+}
+
+QVariantMap WorkspaceStore::runCommand(const QVariantMap &command)
+{
+    Origin origin = Origin::Agent;
+    if (command.contains(QStringLiteral("origin")) && !parseOrigin(command.value(QStringLiteral("origin")).toString(), &origin)) {
+        return {{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("INVALID_ARGUMENT")}, {QStringLiteral("error"), QStringLiteral("Unknown origin.")}};
+    }
+
+    const QString name = command.value(QStringLiteral("command")).toString();
+
+    // Closing a view goes through the same unsaved-work guard as the UI.
+    if (name == QStringLiteral("anchor.removeResource")) {
+        const QString viewId = command.value(QStringLiteral("viewId")).toString();
+        const bool force = origin == Origin::User && command.value(QStringLiteral("force")).toBool();
+        const QStringList unsaved = unsavedDocumentsForViews({viewId});
+        if (!force && !unsaved.isEmpty()) {
+            return {
+                {QStringLiteral("ok"), false},
+                {QStringLiteral("code"), QStringLiteral("UNSAVED_WORK")},
+                {QStringLiteral("error"), QStringLiteral("That view holds the only open copy of unsaved edits.")},
+                {QStringLiteral("documents"), unsaved},
+            };
+        }
+        const ViewRecord *record = m_model.view(viewId);
+        const ViewRecord view = record ? *record : ViewRecord();
+        const Commands::Result result = Commands::execute(m_model, command, origin);
+        if (result.op.ok) {
+            releaseResources(viewId, view.typeId, view.resource);
+            publish();
+            emit viewClosed(viewId, view.typeId, resourceToMap(view.resource));
+        }
+        return Commands::resultMap(result);
+    }
+
+    const Commands::Result result = Commands::execute(m_model, command, origin);
+
+    if (result.op.ok && !Commands::isQuery(name)) {
+        publish();
+        const QString opened = result.data.value(QStringLiteral("viewId")).toString();
+        if (!opened.isEmpty()) {
+            emit viewOpened(opened);
+        }
+    }
+
+    return Commands::resultMap(result);
 }
 
 QString WorkspaceStore::preferredAnchorFor(const QString &typeId) const
 {
     const bool document = typeId == ViewTypes::Editor || typeId == ViewTypes::Preview || typeId == ViewTypes::Diff;
 
+    // Content-locked panels keep what they hold: new content goes elsewhere
+    // unless the person points it there (or nowhere else exists).
+    auto open = [this](const QString &anchorId) {
+        const AnchorRecord *anchor = m_model.anchor(anchorId);
+        return anchor && !anchor->contentLocked;
+    };
+    auto fallback = [this, &open]() {
+        const QString target = m_model.targetAnchorId();
+        if (open(target)) {
+            return target;
+        }
+        if (open(m_model.focusedAnchorId())) {
+            return m_model.focusedAnchorId();
+        }
+        for (const QString &anchorId : m_model.anchorIds(m_model.primarySurfaceId())) {
+            if (open(anchorId)) {
+                return anchorId;
+            }
+        }
+        for (const QString &anchorId : m_model.anchorIds()) {
+            if (open(anchorId)) {
+                return anchorId;
+            }
+        }
+        return target;
+    };
+
     if (document || typeId.isEmpty()) {
-        return m_model.targetAnchorId();
+        return fallback();
     }
 
     QString holding;
 
     for (const QString &anchorId : m_model.anchorIds()) {
         const AnchorRecord *anchor = m_model.anchor(anchorId);
+        if (!open(anchorId)) {
+            continue;
+        }
         if (anchor->roles.contains(typeId)) {
             return anchorId;
         }
@@ -1197,7 +1362,7 @@ QString WorkspaceStore::preferredAnchorFor(const QString &typeId) const
         }
     }
 
-    return holding.isEmpty() ? m_model.targetAnchorId() : holding;
+    return holding.isEmpty() ? fallback() : holding;
 }
 
 QVariantMap WorkspaceStore::tabStripAt(const QString &surfaceId, double x, double y, double stripHeight) const

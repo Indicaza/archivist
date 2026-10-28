@@ -51,6 +51,12 @@ Item {
     function detachView(viewId) { workspace.detachView(viewId, root) }
     function detachAnchor(anchorId) { workspace.detachAnchor(anchorId, root) }
     function returnToMainWindow(kind, id) { workspace.returnToMainWindow(kind, id) }
+    function viewIconName(info) { return workspace.viewIconName(info) }
+    function libraryLabel(libraryId) { return workspace.libraryLabel(libraryId) }
+    function shelfCandidates(anchorId) { return workspace.shelfCandidates(anchorId) }
+    function addToShelf(anchorId, viewId) { return workspace.addToShelf(anchorId, viewId) }
+    function notePointerFocus() { workspace.notePointerFocus() }
+    readonly property bool keyboardFocusVisible: workspace.keyboardFocusVisible
     readonly property bool isFloating: surfaceId.length > 0 && surfaceId !== Docking.primarySurfaceId
 
     function containsGlobal(point) {
@@ -118,8 +124,10 @@ Item {
         }
     }
 
-    // The focus ring glides to whichever panel has focus, drawn above
-    // panel content so it reads even over editors and terminals.
+    // Focus moved from the keyboard gets a clear ring, drawn above panel
+    // content so it reads over editors and terminals. It does not travel:
+    // it fades out on one panel and in on the next. Pointer focus only
+    // gets the panel's quiet edge (DockAnchor).
     Rectangle {
         id: focusRing
 
@@ -127,7 +135,7 @@ Item {
             Docking.revision
             return root.workspace.anchorItems[Docking.focusedAnchorId] || null
         }
-        readonly property bool shown: root.showFocus && target !== null && target.visible
+        readonly property bool shown: root.showFocus && root.keyboardFocusVisible && target !== null && target.visible
             && !Docking.dragActive && target.surfaceId === root.surfaceId
 
         x: target && shown ? target.x : x
@@ -138,15 +146,11 @@ Item {
         color: "transparent"
         radius: 3
         border.width: 1.5
-        border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.7)
+        border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.75)
         opacity: shown ? 1 : 0
         enabled: false
 
-        Behavior on opacity { NumberAnimation { duration: root.theme.motionFast } }
-        Behavior on x { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-        Behavior on y { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-        Behavior on width { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-        Behavior on height { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 120; easing.type: Easing.OutCubic } }
     }
 
     DockDropOverlay {

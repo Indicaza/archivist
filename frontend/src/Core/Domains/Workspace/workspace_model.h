@@ -63,39 +63,40 @@ public:
 
     // Adds a view to `anchorId` (empty: the target anchor) at `index`
     // (-1: after the active tab). Returns the new view id in createdId.
-    OpResult openView(ViewRecord view, const QString &anchorId = {}, int index = -1, bool activate = true);
+    OpResult openView(ViewRecord view, const QString &anchorId = {}, int index = -1, bool activate = true, Origin origin = Origin::User);
     // Removes a view. The caller has already made sure nothing is lost.
-    OpResult closeView(const QString &viewId);
+    OpResult closeView(const QString &viewId, Origin origin = Origin::User);
     OpResult activateView(const QString &viewId);
     OpResult updateViewState(const QString &viewId, const QVariantMap &state);
     OpResult setViewTitle(const QString &viewId, const QString &title);
     // Rebinds the view to another resource (for example after a rename).
-    OpResult setViewResource(const QString &viewId, const ResourceRef &resource);
+    // Refused for automation and agents when the anchor's content is locked.
+    OpResult setViewResource(const QString &viewId, const ResourceRef &resource, Origin origin = Origin::User);
     // Changes how a view presents its resource (rendered Markdown -> source
     // editor) without moving it or changing its id.
     OpResult setViewType(const QString &viewId, const QString &typeId, int stateVersion = 1);
     // Adds a second view of the same resource next to the original (or in
     // `anchorId`). The copy shares the resource, never its canonical state.
-    OpResult duplicateView(const QString &viewId, const QString &anchorId = {}, Edge edge = Edge::Center);
+    OpResult duplicateView(const QString &viewId, const QString &anchorId = {}, Edge edge = Edge::Center, Origin origin = Origin::User);
 
     // Reorders within an anchor or moves to another anchor (tab drag).
-    OpResult moveView(const QString &viewId, const QString &targetAnchorId, int index = -1);
+    OpResult moveView(const QString &viewId, const QString &targetAnchorId, int index = -1, Origin origin = Origin::User);
     // Moves a view into a new anchor beside `targetAnchorId`.
-    OpResult splitView(const QString &viewId, const QString &targetAnchorId, Edge edge);
+    OpResult splitView(const QString &viewId, const QString &targetAnchorId, Edge edge, Origin origin = Origin::User);
     // Moves a view into a new anchor along an outer edge of a surface.
-    OpResult dockViewAtSurfaceEdge(const QString &viewId, const QString &surfaceId, Edge edge);
+    OpResult dockViewAtSurfaceEdge(const QString &viewId, const QString &surfaceId, Edge edge, Origin origin = Origin::User);
     // Moves a view into a new floating surface.
-    OpResult detachView(const QString &viewId, const QRectF &geometry, const QString &screenName = {});
+    OpResult detachView(const QString &viewId, const QRectF &geometry, const QString &screenName = {}, Origin origin = Origin::User);
 
     // ---- anchors ---------------------------------------------------------
 
     // A new pinned, empty anchor beside `targetAnchorId` (empty: target).
     OpResult createAnchor(const QString &targetAnchorId = {}, Edge edge = Edge::Right);
     // Closes an anchor and every view in it. Guard first.
-    OpResult closeAnchor(const QString &anchorId);
+    OpResult closeAnchor(const QString &anchorId, Origin origin = Origin::User);
     // Moves a whole anchor beside another, or merges into it (Center).
-    OpResult moveAnchor(const QString &anchorId, const QString &targetAnchorId, Edge edge);
-    OpResult mergeAnchor(const QString &anchorId, const QString &targetAnchorId);
+    OpResult moveAnchor(const QString &anchorId, const QString &targetAnchorId, Edge edge, Origin origin = Origin::User);
+    OpResult mergeAnchor(const QString &anchorId, const QString &targetAnchorId, Origin origin = Origin::User);
     OpResult dockAnchorAtSurfaceEdge(const QString &anchorId, const QString &surfaceId, Edge edge);
     OpResult detachAnchor(const QString &anchorId, const QRectF &geometry, const QString &screenName = {});
     OpResult setAnchorPinned(const QString &anchorId, bool pinned);
@@ -104,6 +105,41 @@ public:
     OpResult setTargetAnchor(const QString &anchorId); // empty clears
     OpResult maximizeAnchor(const QString &anchorId);
     OpResult restoreAnchor(const QString &surfaceId);
+
+    // ---- anchor identity and configuration -------------------------------
+    //
+    // These are the operations a future agent tool calls too (see
+    // workspace_commands.h). Locks are enforced here, not in the UI.
+
+    // Empty (or blank) resets to the automatic name.
+    OpResult renameAnchor(const QString &anchorId, const QString &name, Origin origin = Origin::User);
+    OpResult setAnchorLayoutLocked(const QString &anchorId, bool locked, Origin origin = Origin::User);
+    OpResult setAnchorContentLocked(const QString &anchorId, bool locked, Origin origin = Origin::User);
+    OpResult setAnchorSwitchable(const QString &anchorId, bool switchable, Origin origin = Origin::User);
+    // Empty clears the binding. Existing views keep their own worktree.
+    OpResult setAnchorLibrary(const QString &anchorId, const QString &libraryId, Origin origin = Origin::User);
+    // The anchor's name, or an automatic one ("Editor", "Chat 2", ...).
+    [[nodiscard]] QString anchorDisplayName(const QString &anchorId) const;
+    [[nodiscard]] QString automaticAnchorName(const QString &anchorId) const;
+    [[nodiscard]] AnchorCapabilities anchorCapabilities(const QString &anchorId, Origin origin = Origin::User) const;
+    // Which worktree a new resource opened in `anchorId` belongs to:
+    //   1. the anchor's own binding;
+    //   2. the worktree of the anchor's active view;
+    //   3. `explorerLibraryId` (the Explorer's selection);
+    //   4. `defaultLibraryId`.
+    // When `knownLibraryIds` is not empty, ids outside it are skipped (a
+    // binding to a Library that no longer exists falls through).
+    [[nodiscard]] LibraryResolution resolveLibrary(
+        const QString &anchorId,
+        const QString &explorerLibraryId,
+        const QString &defaultLibraryId,
+        const QStringList &knownLibraryIds = {}
+    ) const;
+    // True when moving the divider between children[index] and
+    // children[index + 1] of `nodeId` would resize a layout-locked anchor.
+    [[nodiscard]] bool isSplitBoundaryLocked(const QString &nodeId, int index) const;
+    // Anchors that are layout locked, in tree order.
+    [[nodiscard]] QStringList layoutLockedAnchorIds() const;
 
     // ---- splits ----------------------------------------------------------
 
@@ -213,6 +249,17 @@ private:
     QSizeF minimumSize(const QString &nodeId, const LayoutMetrics &metrics) const;
     void collectAnchors(const QString &nodeId, QStringList &out) const;
     QString anchorForDropSimulation(const DragSource &source, const DropTarget &target, const WorkspaceModel &after) const;
+    // Lock checks shared by the operations and canDrop.
+    OpResult layoutLockFailure(const QString &anchorId, const QString &action) const;
+    OpResult contentLockFailure(const QString &anchorId, Origin origin) const;
+    // Docking along a window edge squeezes the panels already there.
+    OpResult surfaceEdgeLockFailure(const QString &surfaceId, Edge edge) const;
+    [[nodiscard]] bool isLayoutLocked(const QString &anchorId) const;
+    [[nodiscard]] bool containsLayoutLocked(const QString &nodeId) const;
+    // Gives `share` of a split to (or takes it from) the children that are
+    // not layout locked, so a locked anchor keeps its size when a sibling
+    // comes or goes. Falls back to every child when all are locked.
+    void rebalance(SplitNode &split, double freed, qsizetype skipIndex = -1);
 
     QHash<QString, SurfaceRecord> m_surfaces;
     QStringList m_surfaceOrder;
