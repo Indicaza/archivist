@@ -550,8 +550,18 @@ private slots:
         QVERIFY(store.undoLayout());
         QCOMPARE(store.view(chat).value("anchorId").toString(), QStringLiteral("dev.chat"));
         QCOMPARE(store.currentLayoutId(), QStringLiteral("development"));
-        QVERIFY(!store.canUndoLayout());
         QVERIFY(!store.view(a).isEmpty());
+        // One history: redo goes forward again, undo again goes further back.
+        QVERIFY(store.canRedo());
+        QVERIFY(store.redo());
+        QCOMPARE(store.view(chat).value("anchorId").toString(), chatAnchorInResearch);
+        QCOMPARE(store.currentLayoutId(), saved);
+        QVERIFY(!store.canRedo());
+        QVERIFY(store.undo());
+        QVERIFY(store.undo());
+        QCOMPARE(store.currentLayoutId(), saved); // saved from Research just before
+        QCOMPARE(store.view(chat).value("anchorId").toString(), chatAnchorInResearch);
+        QVERIFY(store.canUndoLayout()); // switching to Research
 
         // Saving under the same name replaces; rename and delete.
         QCOMPARE(store.saveLayout(QStringLiteral("my research")), saved);
@@ -1013,7 +1023,8 @@ private slots:
 
         result = store.runAgentRequest(agentRestore("before_task"), true);
         QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
-        QVERIFY(!store.canUndoAgentChange());
+        // Putting back is itself a step.
+        QCOMPARE(store.undoSummary(), QStringLiteral("Put the workspace back the way it was"));
 
         QVERIFY(store.view(b).isEmpty());
         QVERIFY(!store.view(a).isEmpty());
@@ -1025,7 +1036,19 @@ private slots:
         // The panels the person had are back as they were.
         QCOMPARE(agentAreas(store), anchorsBefore);
 
-        QCOMPARE(store.runAgentRequest(agentRestore("last_change"), true).value("code").toString(), QStringLiteral("NOTHING_TO_RESTORE"));
+        // Undoing the put back brings the agent's tabs back (same views and
+        // documents) and the temporary arrangement with them; redo puts back again.
+        const QStringList putBack = agentAreas(store);
+        QVERIFY(store.undo());
+        QVERIFY(!store.view(b).isEmpty());
+        QVERIFY(!store.view(a).isEmpty());
+        QVERIFY(!store.temporaryArrangement().isEmpty());
+        QVERIFY(store.redo());
+        QVERIFY(store.view(b).isEmpty());
+        QVERIFY(!store.view(a).isEmpty()); // edited: never closed
+        QCOMPARE(agentAreas(store), putBack);
+        QVERIFY(store.temporaryArrangement().isEmpty());
+        QCOMPARE(documents.snapshot(docA).value("text").toString(), QStringLiteral(">alpha"));
     }
 
     // 10. Agent rearrangements never touch named layouts.
@@ -1150,7 +1173,7 @@ private slots:
         const QStringList arranged = agentAreas(store);
         store.keepArrangement();
         QVERIFY(store.temporaryArrangement().isEmpty());
-        QVERIFY(!store.canUndoAgentChange());
+        QVERIFY(store.canUndo()); // keeping ends the task, not the history
         QCOMPARE(store.runAgentRequest(agentRestore("before_task"), true).value("code").toString(), QStringLiteral("NOTHING_TO_RESTORE"));
         QCOMPARE(agentAreas(store), arranged);
 
@@ -1166,7 +1189,7 @@ private slots:
         QVERIFY(store.runAgentRequest(agentShow({agentFile("again.md")}, QStringLiteral("bottom")), true).value("ok").toBool());
         QVERIFY(store.putBackArrangement());
         QCOMPARE(agentAreas(store), arranged);
-        QVERIFY(!store.canUndoAgentChange());
+        QCOMPARE(store.undoSummary(), QStringLiteral("Put the workspace back the way it was"));
     }
 
     // Phase D. Preferences: lasting ones survive a restart, one-offs don't,
@@ -1578,6 +1601,126 @@ private slots:
         QVERIFY(store.undoAgentChange());
         QVERIFY(!store.canUndoAgentChange());
         QCOMPARE(agentViews(store).size(), viewsBefore);
+    }
+
+    // Patch (the default) keeps the panels that exist and changes only the
+    // ones named; a recipe replaces the arrangement.
+    void composePatchesByDefault()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("compose-patch"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        const QString mine = store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        const QString editorPanel = store.view(mine).value("anchorId").toString();
+        auto compose = [](const QString &mode, const QString &strategy, const QVariantList &panelList) {
+            return QVariantMap{
+                {"action", "compose"}, {"mode", mode}, {"template", ""}, {"strategy", strategy}, {"rows", 0}, {"columns", 0},
+                {"slots", panelList}, {"focus", ""}, {"saveAs", ""}, {"explicit", true}, {"chatId", "chat-1"},
+            };
+        };
+        auto slot = [](const QString &name, const QString &position, const QVariantList &items) {
+            return QVariantMap{{"name", name}, {"holds", QStringList{}}, {"weight", 0}, {"position", position}, {"items", items}};
+        };
+
+        // "Put the guide on the right": one new panel, the editor untouched.
+        QVariantMap result = store.runAgentRequest(compose("", "", {slot("Docs", "right", {agentFile("guide.md")})}), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 2);
+        QVERIFY(agentAreas(store).contains(editorPanel));
+        QCOMPARE(store.view(mine).value("anchorId").toString(), editorPanel);
+        const QStringList patched = agentAreas(store);
+
+        // A slot named like an existing panel fills that panel: no new one.
+        result = store.runAgentRequest(compose("patch", "", {slot("Docs", "", {agentFile("notes.md")})}), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store), patched);
+
+        // A recipe replaces the arrangement, even when patch was asked for.
+        result = store.runAgentRequest(compose("patch", "columns", {
+            slot("Code", "left", {agentFile("main.cpp")}), slot("Docs", "center", {agentFile("guide.md")}), slot("Notes", "right", {agentFile("notes.md")})}), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 3);
+        QVERIFY(!store.view(mine).isEmpty());
+
+        // Each was one step: three undos go back to the start.
+        QVERIFY(store.undo());
+        QCOMPARE(agentAreas(store), patched);
+        QVERIFY(store.undo());
+        QVERIFY(store.undo());
+        QCOMPARE(agentAreas(store), QStringList({editorPanel}));
+        QCOMPARE(agentViews(store), QStringList({mine}));
+    }
+
+    // Undo and redo walk one history: views an undo closed come back as
+    // they were on redo, edits are never touched, and a new change clears
+    // redo.
+    void undoAndRedoKeepDocuments()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        disk.files.insert(QStringLiteral("lib-main:b.cpp"), QStringLiteral("beta"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("history-redo"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString mine = store.openView(QStringLiteral("archivist.editor"), documentResource("mine.cpp"), "mine.cpp");
+        QVERIFY(!store.canUndo());
+        QVERIFY(!store.canRedo());
+
+        QVariantMap result = store.runAgentRequest(agentShow({agentFile("a.cpp"), agentFile("b.cpp")}, QStringLiteral("right")), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        const QStringList arranged = agentAreas(store);
+        QString a;
+        QString b;
+        for (const QString &viewId : agentViews(store)) {
+            const QString fileId = store.view(viewId).value("resource").toMap().value("details").toMap().value("fileId").toString();
+            if (fileId == QStringLiteral("a.cpp")) {
+                a = viewId;
+            } else if (fileId == QStringLiteral("b.cpp")) {
+                b = viewId;
+            }
+        }
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+        const QVariantMap resourceB = store.view(b).value("resource").toMap();
+        const QString docA = store.view(a).value("resource").toMap().value("id").toString();
+        QVERIFY(documents.applyEdits(docA, QStringLiteral("p"), 1, insertAt(0, ">")).value("ok").toBool());
+
+        // Undo: b (clean) closes, a (edited) stays with its edit.
+        QVERIFY(store.undo());
+        QVERIFY(store.view(b).isEmpty());
+        QVERIFY(!store.view(a).isEmpty());
+        QVERIFY(store.canRedo());
+        QVERIFY(!store.redoSummary().isEmpty());
+
+        // Redo: the same arrangement, b back with the same id and resource.
+        QSignalSpy opened(&store, &WorkspaceStore::viewOpened);
+        QVERIFY(store.redo());
+        QCOMPARE(agentAreas(store), arranged);
+        QVERIFY(!store.view(b).isEmpty());
+        QCOMPARE(store.view(b).value("resource").toMap(), resourceB);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(documents.snapshot(docA).value("text").toString(), QStringLiteral(">alpha"));
+        QVERIFY(documents.isDirty(docA));
+        QVERIFY(!store.canRedo());
+
+        // Undo, then a new change: redo is gone.
+        QVERIFY(store.undo());
+        QVERIFY(store.canRedo());
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("c.md")}, QStringLiteral("left")), true).value("ok").toBool());
+        QVERIFY(!store.canRedo());
+        QVERIFY(!store.redo());
+
+        // The agent can redo too ("redo").
+        QVERIFY(store.undo());
+        result = store.runAgentRequest({{"action", "restore"}, {"scope", "redo"}, {"layout", ""}, {"explicit", true}, {"chatId", "chat-1"}}, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QVERIFY(!store.canRedo());
+        QVERIFY(!store.view(mine).isEmpty());
     }
 
     // A 2 x 2 grid with this chat in a panel: the bottom chat (the same

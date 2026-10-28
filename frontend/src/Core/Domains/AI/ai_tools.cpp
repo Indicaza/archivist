@@ -833,7 +833,7 @@ const QStringList &arrangeActions()
 
 const QStringList &restoreScopes()
 {
-    static const QStringList scopes{QStringLiteral("last_change"), QStringLiteral("before_task"), QStringLiteral("saved_layout")};
+    static const QStringList scopes{QStringLiteral("last_change"), QStringLiteral("redo"), QStringLiteral("before_task"), QStringLiteral("saved_layout")};
     return scopes;
 }
 
@@ -1061,6 +1061,7 @@ QVariantMap workspaceComposeTool(const QVariantMap &input, Context &context)
     const QString strategy = input.value(QStringLiteral("arrangement")).toString();
     return callWorkspace(context, {
         {QStringLiteral("action"), QStringLiteral("compose")},
+        {QStringLiteral("mode"), input.value(QStringLiteral("mode"))},
         {QStringLiteral("template"), templateId == QStringLiteral("none") ? QString() : templateId},
         {QStringLiteral("strategy"), strategy == QStringLiteral("auto") ? QString() : strategy},
         {QStringLiteral("rows"), input.value(QStringLiteral("rows"))},
@@ -1632,10 +1633,11 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_compose"),
             QStringLiteral("Compose Workspace"),
-            QStringLiteral("Arrange the whole workspace in one call. Pick an arrangement and say where each panel goes; Archivist builds the panels, sizes them for the window, puts each item in its panel and applies it as one change the person can undo. Never build it from moves or splits. Arrangements: grid (rows x columns; \"4 panes, chat bottom-left\" is grid, rows 2, columns 2, chat at bottom-left; places nobody fills become empty panels showing what was open), columns (side by side: left, center, right), rows (stacked: top, middle, bottom), split (one large panel, position primary, the rest stacked on one side: \"chat dominant, three images stacked on the right\" is split with chat primary and the images right), stack (everything as tabs in one panel). Weights are relative (1 normal, 2 about twice, capped); every panel keeps a usable size and panels that don't fit become tabs. To change your last arrangement (\"give the images more room\"), compose again from it with the same names, positions and items, changing only what was asked. Files can be named by file name, path or an open tab's title; things already open are reused, and nothing closes. Or fill a template's panels by name: %1. save_as also saves it as a named layout (\"\" keeps it temporary). focus: a panel name to bring forward, only when asked.").arg(templateLines.join(QStringLiteral("; "))),
+            QStringLiteral("Set the workspace to the state the person asked for, in one call. You only choose; Archivist finds the files, builds and sizes the panels, reuses what is open and applies it as one change the person can undo or redo. Never build layouts from moves or splits. mode patch (the usual case): the current panels stay where they are; a slot named like an existing panel gets its items there, a new name adds one panel at its position (left, right, top or bottom), and panels you don't name are left alone. Use it for \"put the PDF beside the chat\" or \"add my notes on the right\": arrangement auto, rows and columns 0. mode replace: a whole new arrangement from a recipe, only when the person asks for one (\"4 panes\", \"three columns\", \"chat dominant\", a template). Recipes: grid (rows x columns; \"4 panes, chat bottom-left\" is grid, rows 2, columns 2, chat at bottom-left; empty places become panels showing what was open), columns (left, center, right), rows (top, middle, bottom), split (one large panel at position primary, the rest stacked on one side: \"chat dominant, three images stacked on the right\"), stack (everything as tabs in one panel). Weights are relative (1 normal, 2 about twice); panels that don't fit become tabs. Files can be named by file name, path or an open tab's title; nothing closes. Templates fill their panels by name: %1. save_as also saves it as a named layout (\"\" keeps it temporary). focus: a panel name to bring forward, only when asked.").arg(templateLines.join(QStringLiteral("; "))),
             mutation, workspaceMode,
             objectSchema(
                 {
+                    {QStringLiteral("mode"), enumSchema(QStringList{QStringLiteral("patch"), QStringLiteral("replace")})},
                     {QStringLiteral("template"), enumSchema(templateChoices)},
                     {QStringLiteral("arrangement"), enumSchema(QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
                     {QStringLiteral("rows"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 3}, {QStringLiteral("description"), QStringLiteral("grid only, else 0.")}}},
@@ -1644,10 +1646,10 @@ const QList<Definition> &definitions()
                     {QStringLiteral("focus"), stringSchema(0, 40, QStringLiteral("A panel name, or \"\"."))},
                     {QStringLiteral("save_as"), stringSchema(0, 80, QStringLiteral("A new layout name, or \"\"."))},
                 },
-                {QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")}
+                {QStringLiteral("mode"), QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")}
             ),
             [slotFields, templateChoices](const QVariant &input) {
-                const QVariantMap map = strictObject(input, {QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")});
+                const QVariantMap map = strictObject(input, {QStringLiteral("mode"), QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")});
                 const QVariant slotsValue = map.value(QStringLiteral("slots"));
                 if (slotsValue.typeId() != QMetaType::QVariantList) {
                     invalid(QStringLiteral("slots"), QStringLiteral("Expected array."));
@@ -1693,6 +1695,7 @@ const QList<Definition> &definitions()
                     });
                 }
                 return QVariantMap{
+                    {QStringLiteral("mode"), map.contains(QStringLiteral("mode")) ? enumField(map, QStringLiteral("mode"), QStringList{QStringLiteral("patch"), QStringLiteral("replace")}) : QString()},
                     {QStringLiteral("template"), enumField(map, QStringLiteral("template"), templateChoices)},
                     {QStringLiteral("arrangement"), enumField(map, QStringLiteral("arrangement"), QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
                     {QStringLiteral("rows"), map.contains(QStringLiteral("rows")) ? intField(map, QStringLiteral("rows"), 0, 3, 0) : 0},
@@ -1722,7 +1725,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_restore"),
             QStringLiteral("Restore Workspace"),
-            QStringLiteral("Put the workspace back. before_task: how it was before you started rearranging (\"put everything back\", \"restore my workspace\", \"put it back\"). last_change: undo only your most recent change (\"undo that\", \"switch back\" after a change). saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed."),
+            QStringLiteral("Put the workspace back. before_task: how it was before you started rearranging (\"put everything back\", \"restore my workspace\", \"put it back\"). last_change: undo the most recent workspace change (\"undo that\", \"switch back\" after a change). redo: redo the change just undone (\"redo\", \"actually, put it back how you had it\"). saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed."),
             mutation, workspaceMode,
             objectSchema(
                 {

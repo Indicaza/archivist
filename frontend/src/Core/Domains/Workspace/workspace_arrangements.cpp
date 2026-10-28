@@ -50,7 +50,8 @@ Result restore(
     const WorkspaceModel::Data &arrangement,
     const QSet<QString> &closable,
     const QHash<QString, QSizeF> &surfaceSizes,
-    const LayoutMetrics &metrics
+    const LayoutMetrics &metrics,
+    const QSet<QString> &reopen
 )
 {
     Result result;
@@ -62,15 +63,22 @@ Result restore(
     for (auto it = out.anchors.begin(); it != out.anchors.end(); ++it) {
         QStringList kept;
         for (const QString &viewId : std::as_const(it->views)) {
-            if (current.views.contains(viewId) && !closable.contains(viewId)) {
+            const bool reopened = !current.views.contains(viewId) && reopen.contains(viewId) && arrangement.views.contains(viewId);
+            if ((current.views.contains(viewId) && !closable.contains(viewId)) || reopened) {
                 kept.append(viewId);
                 placed.insert(viewId, it.key());
+            }
+            if (reopened) {
+                result.reopenedViews.append(viewId);
             }
         }
         it->views = kept;
     }
 
     out.views.clear();
+    for (const QString &viewId : std::as_const(result.reopenedViews)) {
+        out.views.insert(viewId, arrangement.views.value(viewId));
+    }
     QString fallback = out.anchors.contains(out.targetAnchorId) ? out.targetAnchorId : firstAnchorOfPrimary(out);
 
     for (auto it = current.views.cbegin(); it != current.views.cend(); ++it) {
@@ -173,6 +181,7 @@ Result restore(
             result.message = QStringLiteral("“%1” is locked in place, and putting things back would move it. Unlock it first.")
                                  .arg(model.anchorDisplayName(anchorId));
             result.closedViews.clear();
+            result.reopenedViews.clear();
             return result;
         }
     }

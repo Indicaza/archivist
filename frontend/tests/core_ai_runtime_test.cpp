@@ -205,8 +205,9 @@ private:
                             {QStringLiteral("resources"), QVariantList{QVariantMap{{QStringLiteral("reference"), QStringLiteral("ghost.png")}, {QStringLiteral("status"), QStringLiteral("not_found")}, {QStringLiteral("detail"), QStringLiteral("“ghost.png” isn't open or in the Library.")}}}}};
                 }
                 if (action == QStringLiteral("restore")) {
+                    const bool redo = request.value(QStringLiteral("scope")).toString() == QStringLiteral("redo");
                     return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")},
-                            {QStringLiteral("notes"), QStringList{QStringLiteral("Put the workspace back the way it was")}}};
+                            {QStringLiteral("notes"), QStringList{redo ? QStringLiteral("Redid: Put the workspace back the way it was") : QStringLiteral("Put the workspace back the way it was")}}};
                 }
                 return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
             });
@@ -416,6 +417,7 @@ private slots:
             {QStringLiteral("Switch to Research"), {}, {}, QStringLiteral("Switched to the “Research” layout."), false},
             {QStringLiteral("try another"), QStringLiteral("workspace_layout"), QStringLiteral(R"({"action":"apply","name":"Development","new_name":"","replace":false})"), QStringLiteral("Switched to the “Development” layout."), true},
             {QStringLiteral("Put everything back."), {}, {}, QStringLiteral("Put the workspace back the way it was."), false},
+            {QStringLiteral("redo"), {}, {}, QStringLiteral("Redid: Put the workspace back the way it was."), true},
         };
 
         int round = 0;
@@ -464,9 +466,9 @@ private slots:
             QCOMPARE(turn.streamed, step.reply);
         }
         QVERIFY(openai.responses.isEmpty());
-        QCOMPARE(workspace.actions().count(QStringLiteral("describe")), 3); // one per turn
+        QCOMPARE(workspace.actions().count(QStringLiteral("describe")), 4); // one per turn
         QCOMPARE(workspace.actions().count(QStringLiteral("layout")), 2);
-        QCOMPARE(workspace.actions().count(QStringLiteral("restore")), 1);
+        QCOMPARE(workspace.actions().count(QStringLiteral("restore")), 2);
     }
 
     // "Make chat dominant and show three images stacked on the right": one

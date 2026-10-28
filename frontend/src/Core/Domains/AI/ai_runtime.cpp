@@ -147,7 +147,7 @@ const QRegularExpression &workspaceFollowUpPattern()
         QStringLiteral(
             "\\b(?:try\\s+(?:another|again|a\\s+different|something\\s+else)|another\\s+one|a\\s+different\\s+one|the\\s+other\\s+one|"
             "switch\\s+back|go\\s+back|change\\s+it\\s+back|back\\s+to\\s+(?:the\\s+)?(?:last|previous|old|other)|put\\s+it\\s+back|"
-            "undo|revert|do\\s+(?:that|it)\\s+again|again|one\\s+more|next\\s+one|keep\\s+(?:it|that|this)|save\\s+(?:it|that|this)|"
+            "undo|redo|revert|do\\s+(?:that|it)\\s+again|again|one\\s+more|next\\s+one|keep\\s+(?:it|that|this)|save\\s+(?:it|that|this)|"
             "bigger|smaller|wider|narrower|swap\\s+them|flip\\s+(?:it|them)|mirror)\\b"
         ),
         QRegularExpression::CaseInsensitiveOption
@@ -385,6 +385,7 @@ QVariantMap workspaceCommand(const QString &message, const QStringList &layoutNa
         return {
             {QStringLiteral("name"), QStringLiteral("workspace_compose")},
             {QStringLiteral("arguments"), JsonValues::toJsonString(QVariantMap{
+                {QStringLiteral("mode"), QStringLiteral("replace")},
                 {QStringLiteral("template"), QStringLiteral("none")}, {QStringLiteral("arrangement"), arrangement},
                 {QStringLiteral("rows"), rows}, {QStringLiteral("columns"), columns}, {QStringLiteral("slots"), panelList},
                 {QStringLiteral("focus"), QString()}, {QStringLiteral("save_as"), QString()}})},
@@ -395,8 +396,10 @@ QVariantMap workspaceCommand(const QString &message, const QStringList &layoutNa
         QRegularExpression::CaseInsensitiveOption
     );
     static const QRegularExpression undo(QStringLiteral("^undo(?:\\s+(?:that|it|the\\s+last\\s+change))?$"), QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression redo(QStringLiteral("^redo(?:\\s+(?:that|it|the\\s+last\\s+change))?$"), QRegularExpression::CaseInsensitiveOption);
     const QString scope = putBack.match(text).hasMatch() ? QStringLiteral("before_task")
                         : undo.match(text).hasMatch()    ? QStringLiteral("last_change")
+                        : redo.match(text).hasMatch()    ? QStringLiteral("redo")
                                                          : QString();
     if (scope.isEmpty()) {
         return {};
@@ -522,7 +525,7 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
 
     if (input.workspaceToolsAvailable) {
         // How to use each tool lives in its description; this only frames the turn.
-        lines << QStringLiteral("The workspace_* tools change the person's panels and layouts. Use them only for what the person asked; do it in one call (workspace_compose for a new arrangement, workspace_layout apply to switch, workspace_arrange for one small change, workspace_restore to put things back).")
+        lines << QStringLiteral("The workspace_* tools change the person's panels and layouts. Use them only for what the person asked; do it in one call (workspace_compose to put things in panels: patch to change only what was asked, replace for a whole new arrangement; workspace_layout apply to switch; workspace_arrange for one small change; workspace_restore to undo, redo or put things back).")
               << QStringLiteral("Only say a change happened when its tool result says applied; say suggested results are waiting for the person, and failures in one sentence. Describe only what the result reports.");
         if (input.workspaceRequested) {
             lines << QStringLiteral("This message asks for a workspace change. Act on it now; don't search the Library or look at the workspace first.");

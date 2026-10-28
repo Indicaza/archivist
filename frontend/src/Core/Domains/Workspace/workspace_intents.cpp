@@ -876,6 +876,7 @@ bool Run::show(const QVariantMap &request)
     if (items.isEmpty()) {
         return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Nothing to show."));
     }
+    m_destination.clear(); // a new show (a patch runs several)
 
     QStringList openedTitles;
     QStringList revealedTitles;
@@ -1578,7 +1579,9 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
         for (qsizetype index = 0; ok && index < steps.size(); ++index) {
             const QVariantMap step = steps.at(index).toMap();
             const QString name = step.value(QStringLiteral("action")).toString();
-            if (name == QStringLiteral("show") || name == QStringLiteral("steps") || name == QStringLiteral("compose") || !actions().contains(name) || name == QStringLiteral("describe")) {
+            // show is a step only for compose patches (the store builds those;
+            // the arrange tool can't name it).
+            if (name == QStringLiteral("steps") || name == QStringLiteral("compose") || !actions().contains(name) || name == QStringLiteral("describe")) {
                 return Outcome::failure(QStringLiteral("UNSUPPORTED"), QStringLiteral("Step %1: Archivist can't do “%2” as an arrange step.").arg(index + 1).arg(name));
             }
             ok = runOne(name, step);

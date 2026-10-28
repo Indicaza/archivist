@@ -182,6 +182,14 @@ workspace should look like instead of how to get there:
   - `stack`: everything as tabs in one panel.
   - No primitive: a grid for rows/columns or four or more panels, a split
     when one panel asks for more room, otherwise columns.
+- **Patch or replace.** The model only states the desired result: a recipe
+  (or nothing) and which items go in which named panel. `mode: patch` (the
+  default) keeps the current panels where they are: a slot named like an
+  existing panel gets its items there, a new name adds one panel at its
+  position (left, right, top, bottom), and panels nobody named are left
+  alone. It runs as ordinary `show`/`add` steps in one transaction.
+  `mode: replace` builds a new arrangement from the recipe as described
+  below. Naming a recipe, template or grid size always means replace.
 - **Built-in grid commands.** "4 panes, chat on bottom left", "2x2 grid",
   "three columns" and "6 panels" are parsed natively and composed without
   a model call.
@@ -325,9 +333,7 @@ with more panels are in the layout picker.
     apply or dismiss. Background agents never restore on their own.
   - Focus only moves when asked for, and never within 1.5 s of the person
     typing or clicking.
-  - Each applied request is one undo step (`undoAgentChange`), separate from
-    layout undo and never touching document edits. Up to 20 steps are kept;
-    `before_task` restores all of them at once.
+  - Each applied request is one step in the workspace history (below).
   - Everything is logged in `agentActivity`.
 - Temporary arrangements. The first agent change in a task remembers the
   arrangement before it (`temporaryArrangement`).
@@ -340,6 +346,31 @@ with more panels are in the layout picker.
     it in one step, closing only clean, non-terminal tabs that agents opened.
   - Keep (`keepArrangement`) makes the current arrangement the normal one.
     Undoing the task's first change also ends it.
+
+Workspace history (`WorkspaceStore::undo` / `redo`, `canUndo`, `canRedo`,
+`undoSummary`, `redoSummary`). There is one list of steps, grown from the
+agent undo stack; the old one-step layout undo is folded into it.
+
+- A step is recorded for every layout switch (picker, shortcut or agent),
+  every applied agent change (compose, show, arrange) and every put back.
+  Dragging panels by hand is not recorded. Up to 20 steps are kept, and a
+  new step clears redo.
+- Each step stores the model data before it, the views it opened, the views
+  it closed, the bottom panel, the current layout and the temporary
+  arrangement record. Undo and redo both go through
+  `Arrangements::restore`, which only moves panels and tabs:
+  - views that still exist keep their state;
+  - undo closes the clean, non-terminal views the step opened, and never
+    one with unsaved work;
+  - redo brings back the views the undo closed, with the same ids and
+    resources (`reopen`), so buffers and sessions attach again;
+  - locked panels refuse a step that would move them.
+- Resources, buffers and document edits are never touched. Document edits
+  have their own undo (AI edit proposals).
+- Agents use `workspace_restore` with `last_change` (undo), `redo` or
+  `before_task`. "undo" and "redo" typed on their own run natively.
+- `undoLayout` and `undoAgentChange` remain as names for `undo` (the
+  notices call them).
 
 Preferences (`workspace_preferences`) are a few plain settings:
 

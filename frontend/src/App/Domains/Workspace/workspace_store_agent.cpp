@@ -26,7 +26,7 @@ using namespace Workspace;
 
 namespace
 {
-constexpr qsizetype kMaximumAgentSteps = 20;
+constexpr qsizetype kMaximumHistorySteps = 20;
 constexpr qsizetype kMaximumAgentLog = 50;
 // After a key press or click, agents leave focus alone for this long.
 constexpr qint64 kUserBusyMs = 1500;
@@ -562,6 +562,26 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
         });
     }
 
+    // Replace builds a new arrangement from a recipe; patch keeps the panels
+    // that exist and only changes the ones named. A recipe, template or grid
+    // size always means replace.
+    const bool recipeNamed = !spec.templateId.isEmpty() || !spec.strategy.isEmpty() || spec.rows > 0 || spec.columns > 0;
+    const QString mode = recipeNamed || request.value(QStringLiteral("mode")).toString() == QStringLiteral("replace")
+        ? QStringLiteral("replace")
+        : QStringLiteral("patch");
+    if (mode == QStringLiteral("patch")) {
+        QVariantMap intent = patchIntent(spec, failed);
+        if (!failed->isEmpty()) {
+            return {};
+        }
+        intent.insert(QStringLiteral("resources"), resources);
+        intent.insert(QStringLiteral("composition"), QVariantMap{
+            {QStringLiteral("mode"), mode},
+            {QStringLiteral("panels"), composition},
+        });
+        return intent;
+    }
+
     const Compose::Plan plan = Compose::plan(spec, m_model);
     if (!plan.ok) {
         *failed = failure(plan.code, plan.message);
@@ -571,12 +591,86 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
     intent.insert(QStringLiteral("resources"), resources);
     intent.insert(QStringLiteral("adjustments"), plan.adjustments);
     intent.insert(QStringLiteral("composition"), QVariantMap{
+        {QStringLiteral("mode"), mode},
         {QStringLiteral("template"), spec.templateId},
         {QStringLiteral("strategy"), spec.strategy},
         {QStringLiteral("rows"), spec.rows},
         {QStringLiteral("columns"), spec.columns},
         {QStringLiteral("panels"), composition},
     });
+    return intent;
+}
+
+// A patch as ordinary arrange steps, run as one change: items go to the
+// panel of the same name, a new name adds one panel at its side, and
+// panels nobody named stay exactly as they are.
+QVariantMap WorkspaceStore::patchIntent(const Compose::Spec &spec, QVariantMap *failed) const
+{
+    const auto existingPanel = [this](const QString &name) -> QString {
+        if (name.trimmed().isEmpty()) {
+            return {};
+        }
+        for (const QString &anchorId : m_model.anchorIds()) {
+            if (m_model.surfaceOfAnchor(anchorId) == primarySurfaceId()
+                && m_model.anchorDisplayName(anchorId).compare(name.trimmed(), Qt::CaseInsensitive) == 0) {
+                return anchorId;
+            }
+        }
+        return {};
+    };
+    const auto sideOf = [](const QString &position) {
+        const QString text = position.toLower();
+        for (const QString side : {QStringLiteral("left"), QStringLiteral("right"), QStringLiteral("top"), QStringLiteral("bottom")}) {
+            if (text.contains(side)) {
+                return side;
+            }
+        }
+        return QStringLiteral("right");
+    };
+
+    QVariantList steps;
+    QString focusTarget;
+    for (const Compose::Slot &slot : spec.panels) {
+        QString target = existingPanel(slot.name);
+        if (target.isEmpty()) {
+            const bool anyClosed = std::any_of(slot.items.cbegin(), slot.items.cend(), [](const QVariant &item) {
+                return item.toMap().value(QStringLiteral("viewId")).toString().isEmpty();
+            });
+            // Something already open with no new place asked for stays put.
+            if (slot.position.isEmpty() && !anyClosed && !slot.items.isEmpty()) {
+                steps.append(QVariantMap{{QStringLiteral("action"), QStringLiteral("show")}, {QStringLiteral("items"), slot.items}});
+                continue;
+            }
+            steps.append(QVariantMap{
+                {QStringLiteral("action"), QStringLiteral("add")},
+                {QStringLiteral("target"), QString()},
+                {QStringLiteral("to"), sideOf(slot.position)},
+                {QStringLiteral("name"), slot.name},
+            });
+            target = slot.name;
+        }
+        if (!slot.items.isEmpty()) {
+            steps.append(QVariantMap{
+                {QStringLiteral("action"), QStringLiteral("show")},
+                {QStringLiteral("items"), slot.items},
+                {QStringLiteral("where"), target},
+            });
+        }
+        if (!spec.focus.isEmpty() && slot.name.compare(spec.focus, Qt::CaseInsensitive) == 0) {
+            focusTarget = target;
+        }
+    }
+    if (steps.isEmpty()) {
+        *failed = failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Nothing to change: name a panel and what goes in it."));
+        return {};
+    }
+    if (!focusTarget.isEmpty()) {
+        steps.append(QVariantMap{{QStringLiteral("action"), QStringLiteral("focus")}, {QStringLiteral("target"), focusTarget}});
+    }
+    QVariantMap intent{{QStringLiteral("action"), QStringLiteral("steps")}, {QStringLiteral("steps"), steps}};
+    if (!focusTarget.isEmpty()) {
+        intent.insert(QStringLiteral("focusAnchor"), focusTarget);
+    }
     return intent;
 }
 
@@ -599,9 +693,7 @@ QVariantMap WorkspaceStore::applyAgentIntent(const QVariantMap &intent, const QS
         cancelDrag();
     }
 
-    const WorkspaceModel::Data before = m_model.data();
-    const bool surfaceCollapsedBefore = m_commandSurfaceCollapsed;
-    const QString surfaceViewBefore = m_commandSurfaceView;
+    HistoryStep step = historyStep(QString());
     const Intents::Outcome outcome = Intents::perform(m_model, intent, agentEnvironment(mayMoveFocus));
 
     if (!outcome.ok) {
@@ -615,19 +707,11 @@ QVariantMap WorkspaceStore::applyAgentIntent(const QVariantMap &intent, const QS
     const QString summary = summaryOf(outcome.notes);
 
     if (outcome.changed || surfaceChanges) {
-        AgentStep step;
-        step.before = before;
-        step.opened = outcome.opened;
+        step.close = outcome.opened;
         step.summary = summary;
         step.surfaceTouched = surfaceChanges;
-        step.surfaceCollapsedBefore = surfaceCollapsedBefore;
-        step.surfaceViewBefore = surfaceViewBefore;
-        step.startedTask = m_baseline.isEmpty();
-        m_agentUndo.append(step);
-        rememberArrangement(before, outcome.opened, summary);
-        while (m_agentUndo.size() > kMaximumAgentSteps) {
-            m_agentUndo.removeFirst();
-        }
+        rememberArrangement(step.state, outcome.opened, summary);
+        recordStep(step);
     }
 
     if (outcome.changed) {
@@ -806,11 +890,9 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
             chatInPanel = chatInPanel || (view && view->typeId == ViewTypes::Chat && m_model.surfaceOfAnchor(m_model.anchorOfView(viewId)) == primarySurfaceId());
         }
         if (chatInPanel && !chatId.isEmpty() && !m_commandSurfaceCollapsed && m_commandSurfaceView == QStringLiteral("chat")
-            && result.value(QStringLiteral("status")).toString() == QStringLiteral("applied") && !m_agentUndo.isEmpty()) {
-            AgentStep &step = m_agentUndo.last();
-            step.surfaceTouched = true;
-            step.surfaceCollapsedBefore = false;
-            step.surfaceViewBefore = m_commandSurfaceView;
+            && result.value(QStringLiteral("status")).toString() == QStringLiteral("applied") && !m_history.isEmpty()) {
+            // The step already holds the bottom panel as it was (open, chat).
+            m_history.last().surfaceTouched = true;
             m_commandSurfaceCollapsed = true;
             emit commandSurfaceRequested(QStringLiteral("chat"), false);
             emit commandSurfaceChanged();
@@ -887,7 +969,8 @@ QSet<QString> WorkspaceStore::closableAgentViews(const QStringList &opened) cons
     return closable;
 }
 
-bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error)
+bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QStringList &opened, QString *code, QString *error,
+                               const QStringList &reopen, QStringList *closed, QStringList *reopened)
 {
     QHash<QString, QSizeF> sizes;
     for (const QString &surfaceId : m_model.surfaceIds()) {
@@ -900,7 +983,8 @@ bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QS
         closing.append(*m_model.view(viewId));
     }
 
-    const Arrangements::Result result = Arrangements::restore(m_model, arrangement, closable, sizes, m_metrics);
+    const Arrangements::Result result = Arrangements::restore(
+        m_model, arrangement, closable, sizes, m_metrics, QSet<QString>(reopen.cbegin(), reopen.cend()));
     if (!result.ok) {
         *code = result.code;
         *error = result.message;
@@ -908,52 +992,147 @@ bool WorkspaceStore::restoreTo(const WorkspaceModel::Data &arrangement, const QS
     }
 
     publish();
-    for (const ViewRecord &closed : std::as_const(closing)) {
-        emit viewClosed(closed.id, closed.typeId, resourceToMap(closed.resource));
+    for (const ViewRecord &view : std::as_const(closing)) {
+        emit viewClosed(view.id, view.typeId, resourceToMap(view.resource));
+    }
+    for (const QString &viewId : result.reopenedViews) {
+        emit viewOpened(viewId);
+    }
+    if (closed) {
+        *closed = result.closedViews;
+    }
+    if (reopened) {
+        *reopened = result.reopenedViews;
     }
     return true;
 }
 
-// The bottom panel goes back to how the earliest undone step found it.
-void WorkspaceStore::restoreCommandSurface(qsizetype firstStep)
+// ---- history ---------------------------------------------------------------
+
+WorkspaceStore::HistoryStep WorkspaceStore::historyStep(const QString &summary) const
 {
-    for (qsizetype index = firstStep; index < m_agentUndo.size(); ++index) {
-        const AgentStep &step = m_agentUndo.at(index);
-        if (step.surfaceTouched) {
-            emit commandSurfaceRequested(step.surfaceViewBefore, !step.surfaceCollapsedBefore);
-            return;
-        }
-    }
+    HistoryStep step;
+    step.state = m_model.data();
+    step.summary = summary;
+    step.surfaceCollapsed = m_commandSurfaceCollapsed;
+    step.surfaceView = m_commandSurfaceView;
+    step.layoutId = m_currentLayoutId;
+    step.arrangement = arrangementRecord();
+    return step;
 }
 
-bool WorkspaceStore::restoreAgentSteps(qsizetype count, QString *code, QString *error)
+void WorkspaceStore::recordStep(HistoryStep step)
 {
-    if (m_agentUndo.isEmpty() || count <= 0) {
+    m_history.append(std::move(step));
+    while (m_history.size() > kMaximumHistorySteps) {
+        m_history.removeFirst();
+    }
+    m_redo.clear();
+    emit historyChanged();
+}
+
+bool WorkspaceStore::restoreStep(const HistoryStep &step, HistoryStep *inverse, QString *code, QString *error)
+{
+    HistoryStep back = historyStep(step.summary);
+    back.surfaceTouched = step.surfaceTouched;
+    QStringList closed;
+    QStringList reopened;
+    if (!restoreTo(step.state, step.close, code, error, step.reopen, &closed, &reopened)) {
+        return false;
+    }
+    back.close = reopened;
+    back.reopen = closed;
+
+    // The shell may not have reported the bottom panel's state since, so
+    // ask for it either way.
+    if (step.surfaceTouched) {
+        setCommandSurfaceState(step.surfaceCollapsed, step.surfaceView);
+        emit commandSurfaceRequested(step.surfaceView, !step.surfaceCollapsed);
+    }
+    if (step.layoutId != m_currentLayoutId) {
+        setCurrentLayoutId(step.layoutId);
+    }
+    setArrangementRecord(step.arrangement);
+    *inverse = back;
+    return true;
+}
+
+bool WorkspaceStore::undoSteps(qsizetype count, QString *code, QString *error)
+{
+    if (m_history.isEmpty() || count <= 0) {
         *code = QStringLiteral("NOTHING_TO_RESTORE");
-        *error = QStringLiteral("There's no agent change to undo.");
+        *error = QStringLiteral("There's no workspace change to undo.");
         return false;
     }
 
-    count = std::min(count, m_agentUndo.size());
-    const qsizetype first = m_agentUndo.size() - count;
-    QStringList opened;
-    bool endsTask = false;
-    for (qsizetype index = first; index < m_agentUndo.size(); ++index) {
-        opened.append(m_agentUndo.at(index).opened);
-        endsTask = endsTask || m_agentUndo.at(index).startedTask;
+    count = std::min(count, m_history.size());
+    const qsizetype first = m_history.size() - count;
+    HistoryStep target = m_history.at(first);
+    for (qsizetype index = first + 1; index < m_history.size(); ++index) {
+        const HistoryStep &later = m_history.at(index);
+        target.close.append(later.close);
+        target.reopen.append(later.reopen);
+        target.surfaceTouched = target.surfaceTouched || later.surfaceTouched;
+    }
+    if (count > 1) {
+        target.summary = QStringLiteral("%1 workspace changes").arg(count);
     }
 
-    if (!restoreTo(m_agentUndo.at(first).before, opened, code, error)) {
+    HistoryStep inverse;
+    if (!restoreStep(target, &inverse, code, error)) {
         return false;
     }
-
-    restoreCommandSurface(first);
-    m_agentUndo.remove(first, count);
-    if (endsTask) {
-        // Back to where the task started: nothing temporary is left.
-        forgetArrangement();
-    }
+    m_history.remove(first, count);
+    m_redo.append(inverse);
+    emit historyChanged();
     emit agentChanged();
+    return true;
+}
+
+bool WorkspaceStore::undo()
+{
+    const QString summary = undoSummary();
+    QString code;
+    QString error;
+    if (!undoSteps(1, &code, &error)) {
+        emit operationFailed(error);
+        return false;
+    }
+    logAgent(QStringLiteral("Undid: %1").arg(summary), QStringLiteral("restored"), {});
+    return true;
+}
+
+bool WorkspaceStore::redoStep(QString *code, QString *error)
+{
+    if (m_redo.isEmpty()) {
+        *code = QStringLiteral("NOTHING_TO_RESTORE");
+        *error = QStringLiteral("There's nothing to redo.");
+        return false;
+    }
+    HistoryStep inverse;
+    if (!restoreStep(m_redo.last(), &inverse, code, error)) {
+        return false;
+    }
+    m_redo.removeLast();
+    m_history.append(inverse);
+    while (m_history.size() > kMaximumHistorySteps) {
+        m_history.removeFirst();
+    }
+    emit historyChanged();
+    emit agentChanged();
+    return true;
+}
+
+bool WorkspaceStore::redo()
+{
+    const QString summary = redoSummary();
+    QString code;
+    QString error;
+    if (!redoStep(&code, &error)) {
+        emit operationFailed(error);
+        return false;
+    }
+    logAgent(QStringLiteral("Redid: %1").arg(summary), QStringLiteral("applied"), {});
     return true;
 }
 
@@ -1003,18 +1182,49 @@ void WorkspaceStore::rememberArrangement(const WorkspaceModel::Data &before, con
     }
     if (!summary.isEmpty()) {
         m_baselineChanges.append(summary);
-        while (m_baselineChanges.size() > kMaximumAgentSteps) {
+        while (m_baselineChanges.size() > kMaximumHistorySteps) {
             m_baselineChanges.removeFirst();
         }
     }
 
-    const QJsonObject record{
+    const QJsonObject record = arrangementRecord();
+    m_settings.setValue(arrangementKey(m_collectionId), QString::fromUtf8(QJsonDocument(record).toJson(QJsonDocument::Compact)));
+}
+
+QJsonObject WorkspaceStore::arrangementRecord() const
+{
+    if (m_baseline.isEmpty()) {
+        return {};
+    }
+    return {
         {QStringLiteral("baseline"), m_baseline},
         {QStringLiteral("opened"), QJsonArray::fromStringList(m_baselineOpened)},
         {QStringLiteral("changes"), QJsonArray::fromStringList(m_baselineChanges)},
         {QStringLiteral("since"), m_baselineSince},
     };
-    m_settings.setValue(arrangementKey(m_collectionId), QString::fromUtf8(QJsonDocument(record).toJson(QJsonDocument::Compact)));
+}
+
+void WorkspaceStore::setArrangementRecord(const QJsonObject &record)
+{
+    if (record.value(QStringLiteral("baseline")).toObject().isEmpty()) {
+        if (!m_baseline.isEmpty()) {
+            forgetArrangement();
+        }
+        return;
+    }
+    m_baseline = record.value(QStringLiteral("baseline")).toObject();
+    m_baselineOpened.clear();
+    m_baselineChanges.clear();
+    for (const QJsonValue &value : record.value(QStringLiteral("opened")).toArray()) {
+        m_baselineOpened.append(value.toString());
+    }
+    for (const QJsonValue &value : record.value(QStringLiteral("changes")).toArray()) {
+        m_baselineChanges.append(value.toString());
+    }
+    m_baselineSince = record.value(QStringLiteral("since")).toString();
+    if (!m_collectionId.isEmpty()) {
+        m_settings.setValue(arrangementKey(m_collectionId), QString::fromUtf8(QJsonDocument(record).toJson(QJsonDocument::Compact)));
+    }
 }
 
 void WorkspaceStore::loadArrangement()
@@ -1055,7 +1265,13 @@ void WorkspaceStore::forgetArrangement()
 bool WorkspaceStore::restoreArrangement(QString *code, QString *error)
 {
     if (m_baseline.isEmpty()) {
-        return restoreAgentSteps(m_agentUndo.size(), code, error);
+        // Without a collection nothing is remembered: undo everything instead.
+        if (m_collectionId.isEmpty() && !m_history.isEmpty()) {
+            return undoSteps(m_history.size(), code, error);
+        }
+        *code = QStringLiteral("NOTHING_TO_RESTORE");
+        *error = QStringLiteral("There's no temporary arrangement to put back.");
+        return false;
     }
 
     WorkspaceModel then;
@@ -1068,17 +1284,42 @@ bool WorkspaceStore::restoreArrangement(QString *code, QString *error)
         return false;
     }
 
-    QStringList opened = m_baselineOpened;
-    for (const AgentStep &step : std::as_const(m_agentUndo)) {
-        opened.append(step.opened);
+    // Putting back is a step too: undo returns to the arrangement it replaced.
+    HistoryStep step = historyStep(QStringLiteral("Put the workspace back the way it was"));
+    // Only this task's steps: the last one that found no temporary
+    // arrangement started it.
+    qsizetype taskStart = 0;
+    for (qsizetype index = m_history.size() - 1; index >= 0; --index) {
+        if (m_history.at(index).arrangement.isEmpty()) {
+            taskStart = index;
+            break;
+        }
     }
-    if (!restoreTo(then.data(), opened, code, error)) {
+    QStringList opened = m_baselineOpened;
+    const HistoryStep *surfaceBefore = nullptr; // the bottom panel as the task found it
+    for (qsizetype index = taskStart; index < m_history.size(); ++index) {
+        const HistoryStep &earlier = m_history.at(index);
+        opened.append(earlier.close);
+        if (!surfaceBefore && earlier.surfaceTouched) {
+            surfaceBefore = &earlier;
+        }
+    }
+    const bool surfaceTouched = surfaceBefore != nullptr;
+    const bool collapse = surfaceTouched && surfaceBefore->surfaceCollapsed;
+    const QString view = surfaceTouched ? surfaceBefore->surfaceView : QString();
+
+    QStringList closed;
+    if (!restoreTo(then.data(), opened, code, error, {}, &closed)) {
         return false;
     }
-
-    restoreCommandSurface(0);
-    m_agentUndo.clear();
+    step.reopen = closed;
+    if (surfaceTouched) {
+        step.surfaceTouched = true;
+        setCommandSurfaceState(collapse, view);
+        emit commandSurfaceRequested(view, !collapse);
+    }
     forgetArrangement();
+    recordStep(step);
     emit agentChanged();
     return true;
 }
@@ -1098,10 +1339,10 @@ bool WorkspaceStore::putBackArrangement()
 
 void WorkspaceStore::keepArrangement()
 {
-    if (m_baseline.isEmpty() && m_agentUndo.isEmpty()) {
+    if (m_baseline.isEmpty()) {
         return;
     }
-    m_agentUndo.clear();
+    // The arrangement becomes the normal one; the history stays.
     forgetArrangement();
     logAgent(QStringLiteral("Kept the current arrangement"), QStringLiteral("kept"), {});
     emit agentChanged();
@@ -1109,14 +1350,7 @@ void WorkspaceStore::keepArrangement()
 
 bool WorkspaceStore::undoAgentChange()
 {
-    QString code;
-    QString error;
-    if (!restoreAgentSteps(1, &code, &error)) {
-        emit operationFailed(error);
-        return false;
-    }
-    logAgent(QStringLiteral("Undid the last agent change"), QStringLiteral("restored"), {});
-    return true;
+    return undo();
 }
 
 QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
@@ -1140,18 +1374,15 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
         if (!applyLayout(layoutId) || currentLayoutId() != layoutId) {
             return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be applied."));
         }
-        AgentStep step;
-        step.before = before;
-        step.summary = QStringLiteral("Switched to the “%1” layout").arg(currentLayoutName());
-        step.startedTask = m_baseline.isEmpty();
-        m_agentUndo.append(step);
-        rememberArrangement(before, {}, step.summary);
-        logAgent(step.summary, QStringLiteral("applied"), chatId);
+        // applyLayout recorded the history step.
+        const QString summary = QStringLiteral("Switched to the “%1” layout").arg(currentLayoutName());
+        rememberArrangement(before, {}, summary);
+        logAgent(summary, QStringLiteral("applied"), chatId);
         emit agentChanged();
         return {
             {QStringLiteral("ok"), true},
             {QStringLiteral("status"), QStringLiteral("applied")},
-            {QStringLiteral("notes"), QStringList{step.summary}},
+            {QStringLiteral("notes"), QStringList{summary}},
             {QStringLiteral("currentLayout"), currentLayoutName()},
             {QStringLiteral("panels"), panelsForAgent()},
         };
@@ -1159,9 +1390,22 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
 
     QString code;
     QString error;
-    const bool restored = scope == QStringLiteral("before_task") || m_agentUndo.isEmpty()
+    if (scope == QStringLiteral("redo")) {
+        const QString summary = QStringLiteral("Redid: %1").arg(redoSummary());
+        if (!redoStep(&code, &error)) {
+            return failure(code, error);
+        }
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        emit agentRestored(summary);
+        return {
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("status"), QStringLiteral("applied")},
+            {QStringLiteral("notes"), QStringList{summary}},
+        };
+    }
+    const bool restored = scope == QStringLiteral("before_task") || m_history.isEmpty()
         ? restoreArrangement(&code, &error)
-        : restoreAgentSteps(1, &code, &error);
+        : undoSteps(1, &code, &error);
     if (!restored) {
         return failure(code, error);
     }

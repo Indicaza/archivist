@@ -37,7 +37,7 @@
 //   label    target, name           (what the person calls it)
 //   add      target (beside it; "" = window edge), to (side), name   (a new empty panel)
 //   remove   target, to (where its tabs go; "" = the main editor)
-//   steps    steps: [arrange requests]   (one change; all or nothing)
+//   steps    steps: [arrange requests, or show for compose patches]   (one change; all or nothing)
 //   compose  layout (a layout document), slots: [{anchorId, items}], focusAnchor
 //            (a whole arrangement at once; see workspace_compose.h)
 //
