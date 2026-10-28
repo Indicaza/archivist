@@ -368,7 +368,7 @@ private slots:
         AITools::Availability plain;
         AITools::Availability workspace;
         workspace.workspace = true;
-        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 5);
+        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 6);
         for (const QVariant &definition : AITools::providerTools(plain)) {
             QVERIFY(!AITools::isWorkspaceTool(definition.toMap().value(QStringLiteral("name")).toString()));
         }

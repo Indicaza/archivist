@@ -161,6 +161,11 @@ QVariantMap WorkspaceStore::describeForAgent() const
     if (!layouts.isEmpty()) {
         description.insert(QStringLiteral("savedLayouts"), layouts);
     }
+    // Every layout that can be switched to, the person's and the built-in ones.
+    description.insert(QStringLiteral("layouts"), layoutsForAgent());
+    if (!currentLayoutName().isEmpty()) {
+        description.insert(QStringLiteral("currentLayout"), currentLayoutName());
+    }
     return description;
 }
 
@@ -462,6 +467,23 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
         holdBack = QStringLiteral("this conversation isn't the one in front");
     } else if (m_drag.kind != DragSource::Kind::None || m_resizing) {
         holdBack = QStringLiteral("the person is moving a panel");
+    }
+
+    if (action == QStringLiteral("layout")) {
+        const QString op = request.value(QStringLiteral("op")).toString();
+        if (op == QStringLiteral("apply")) {
+            if (!holdBack.isEmpty()) {
+                return failure(QStringLiteral("NOT_ALLOWED"), QStringLiteral("Not switching layouts now: %1.").arg(holdBack));
+            }
+            QVariantMap restore = request;
+            restore.insert(QStringLiteral("scope"), QStringLiteral("saved_layout"));
+            restore.insert(QStringLiteral("layout"), request.value(QStringLiteral("name")));
+            return restoreForAgent(restore);
+        }
+        if (op != QStringLiteral("list") && !holdBack.isEmpty()) {
+            return failure(QStringLiteral("NOT_ALLOWED"), QStringLiteral("Not changing saved layouts now: %1.").arg(holdBack));
+        }
+        return layoutForAgent(request);
     }
 
     if (action == QStringLiteral("preference")) {
@@ -779,17 +801,7 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
 
     if (scope == QStringLiteral("saved_layout")) {
         const QString name = request.value(QStringLiteral("layout")).toString().trimmed();
-        QString layoutId;
-        for (const QVariant &value : savedLayouts()) {
-            if (value.toMap().value(QStringLiteral("name")).toString().compare(name, Qt::CaseInsensitive) == 0) {
-                layoutId = value.toMap().value(QStringLiteral("id")).toString();
-            }
-        }
-        for (const Presets::Preset &preset : Presets::all()) {
-            if (layoutId.isEmpty() && preset.name.compare(name, Qt::CaseInsensitive) == 0) {
-                layoutId = preset.id;
-            }
-        }
+        const QString layoutId = layoutIdNamed(name);
         if (layoutId.isEmpty()) {
             return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("There's no saved layout called “%1”.").arg(name));
         }
@@ -1025,4 +1037,106 @@ QVariantMap WorkspaceStore::preferenceForAgent(const QVariantMap &request)
     result.insert(QStringLiteral("status"), QStringLiteral("applied"));
     result.insert(QStringLiteral("notes"), notes);
     return result;
+}
+
+// ---- named layouts ----------------------------------------------------------
+
+QString WorkspaceStore::layoutIdNamed(const QString &name) const
+{
+    const QString wanted = name.trimmed();
+    for (const QVariant &value : savedLayouts()) {
+        if (value.toMap().value(QStringLiteral("name")).toString().compare(wanted, Qt::CaseInsensitive) == 0) {
+            return value.toMap().value(QStringLiteral("id")).toString();
+        }
+    }
+    for (const Presets::Preset &preset : Presets::all()) {
+        if (preset.name.compare(wanted, Qt::CaseInsensitive) == 0 || preset.id.compare(wanted, Qt::CaseInsensitive) == 0) {
+            return preset.id;
+        }
+    }
+    return {};
+}
+
+QVariantList WorkspaceStore::layoutsForAgent() const
+{
+    QVariantList layouts;
+    for (const QVariant &value : savedLayouts()) {
+        const QVariantMap layout = value.toMap();
+        layouts.append(QVariantMap{
+            {QStringLiteral("name"), layout.value(QStringLiteral("name"))},
+            {QStringLiteral("kind"), QStringLiteral("saved by the person")},
+            {QStringLiteral("current"), layout.value(QStringLiteral("id")).toString() == m_currentLayoutId},
+        });
+    }
+    for (const Presets::Preset &preset : Presets::all()) {
+        layouts.append(QVariantMap{
+            {QStringLiteral("name"), preset.name},
+            {QStringLiteral("kind"), QStringLiteral("built in")},
+            {QStringLiteral("description"), preset.description},
+            {QStringLiteral("current"), preset.id == m_currentLayoutId},
+        });
+    }
+    return layouts;
+}
+
+QVariantMap WorkspaceStore::layoutForAgent(const QVariantMap &request)
+{
+    const QString op = request.value(QStringLiteral("op")).toString();
+    const QString name = request.value(QStringLiteral("name")).toString().trimmed();
+    const QString chatId = request.value(QStringLiteral("chatId")).toString();
+
+    if (op == QStringLiteral("list")) {
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("layouts"), layoutsForAgent()}};
+    }
+
+    if (op == QStringLiteral("save")) {
+        if (name.isEmpty()) {
+            return failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("A layout needs a name."));
+        }
+        for (const Presets::Preset &preset : Presets::all()) {
+            if (preset.name.compare(name, Qt::CaseInsensitive) == 0) {
+                return failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("“%1” is a built-in layout; pick another name.").arg(preset.name));
+            }
+        }
+        // A saved layout is only replaced when the person said so.
+        if (!layoutIdNamed(name).isEmpty() && !request.value(QStringLiteral("replace")).toBool()) {
+            return failure(QStringLiteral("EXISTS"), QStringLiteral("There's already a layout called “%1”. Ask whether to replace it.").arg(name));
+        }
+        const QString saved = saveLayout(name);
+        if (saved.isEmpty()) {
+            return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be saved."));
+        }
+        // Saved on purpose: this arrangement is no longer temporary.
+        keepArrangement();
+        const QString summary = QStringLiteral("Saved the current arrangement as the “%1” layout").arg(name);
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+    }
+
+    if (op == QStringLiteral("rename") || op == QStringLiteral("delete")) {
+        const QString layoutId = layoutIdNamed(name);
+        if (layoutId.isEmpty() || !layoutId.startsWith(QStringLiteral("user."))) {
+            return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("There's no saved layout called “%1” (built-in layouts can't be changed).").arg(name));
+        }
+        if (op == QStringLiteral("rename")) {
+            const QString newName = request.value(QStringLiteral("newName")).toString().trimmed();
+            if (newName.isEmpty() || !layoutIdNamed(newName).isEmpty()) {
+                return failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Give a new name that isn't taken."));
+            }
+            if (!renameLayout(layoutId, newName)) {
+                return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be renamed."));
+            }
+            const QString summary = QStringLiteral("Renamed the “%1” layout to “%2”").arg(name, newName);
+            logAgent(summary, QStringLiteral("applied"), chatId);
+            return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+        }
+        if (!deleteLayout(layoutId)) {
+            return failure(QStringLiteral("FAILED"), QStringLiteral("The layout couldn't be deleted."));
+        }
+        const QString summary = QStringLiteral("Deleted the “%1” layout").arg(name);
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+    }
+
+    return failure(QStringLiteral("UNSUPPORTED"), QStringLiteral("Layouts can be listed, applied, saved, renamed or deleted."));
 }

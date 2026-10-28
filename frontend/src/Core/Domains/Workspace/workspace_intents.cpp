@@ -499,6 +499,8 @@ public:
     bool move(const QVariantMap &request);
     bool keep(const QVariantMap &request);
     bool label(const QVariantMap &request);
+    bool addPanel(const QVariantMap &request);
+    bool removePanel(const QVariantMap &request);
 
     QString focusTarget;
 
@@ -1194,13 +1196,103 @@ bool Run::label(const QVariantMap &request)
     m_out.notes.append(QStringLiteral("Named “%1” “%2”").arg(before, m_work.anchorDisplayName(match.anchorId)));
     return true;
 }
+
+// A new, empty panel for building a layout: beside an area, or along a
+// window edge when no area is named. It stays when empty.
+bool Run::addPanel(const QVariantMap &request)
+{
+    const QString to = request.value(QStringLiteral("to")).toString().trimmed().toLower();
+    Edge side = Edge::Right;
+    if (!to.isEmpty() && !parseSide(to, &side)) {
+        return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Say which side: left, right, top or bottom."));
+    }
+    const QString target = request.value(QStringLiteral("target")).toString().trimmed();
+    QString created;
+    if (target.isEmpty()) {
+        const QString surfaceId = m_work.surfaceOfAnchor(m_work.focusedAnchorId()).isEmpty() ? m_work.primarySurfaceId()
+                                                                                            : m_work.surfaceOfAnchor(m_work.focusedAnchorId());
+        created = newAnchorAtEdge(surfaceId, side, m_env.sidePanelShare);
+    } else {
+        AreaMatch near;
+        if (!resolve(target, &near)) {
+            return false;
+        }
+        created = newAnchorBeside(near.anchorId, side, 0.5);
+    }
+    if (created.isEmpty()) {
+        return false;
+    }
+    m_work.setAnchorPinned(created, true);
+    const QString name = request.value(QStringLiteral("name")).toString().trimmed();
+    if (!name.isEmpty()) {
+        const OpResult named = m_work.renameAnchor(created, name, m_env.origin);
+        if (!named.ok) {
+            return failWith(named);
+        }
+    }
+    focusTarget = created;
+    m_out.notes.append(QStringLiteral("Added a panel “%1”").arg(m_work.anchorDisplayName(created)));
+    return true;
+}
+
+// Takes a panel away. Its tabs move to another area (`to`, else the main
+// editor); nothing closes.
+bool Run::removePanel(const QVariantMap &request)
+{
+    AreaMatch match;
+    if (!resolve(request.value(QStringLiteral("target")).toString(), &match)) {
+        return false;
+    }
+    if (m_work.anchorIds().size() < 2) {
+        return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("That's the only panel; there has to be one."));
+    }
+    const QString name = m_work.anchorDisplayName(match.anchorId);
+    const AnchorRecord *anchor = m_work.anchor(match.anchorId);
+    if (anchor && !anchor->views.isEmpty()) {
+        QString into;
+        const QString to = request.value(QStringLiteral("to")).toString().trimmed();
+        if (!to.isEmpty()) {
+            AreaMatch other;
+            if (!resolve(to, &other)) {
+                return false;
+            }
+            into = other.anchorId;
+        } else {
+            into = mainEditorAnchor(m_work, m_env);
+            if (into == match.anchorId) {
+                for (const QString &anchorId : m_work.anchorIds(m_work.surfaceOfAnchor(match.anchorId))) {
+                    if (anchorId != match.anchorId) {
+                        into = anchorId;
+                        break;
+                    }
+                }
+            }
+        }
+        if (into == match.anchorId) {
+            return fail(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("Its tabs need somewhere else to go."));
+        }
+        const OpResult merged = m_work.mergeAnchor(match.anchorId, into, m_env.origin);
+        if (!merged.ok) {
+            return failWith(merged);
+        }
+        m_out.notes.append(QStringLiteral("Moved the tabs from “%1” into “%2”").arg(name, m_work.anchorDisplayName(into)));
+    }
+    if (m_work.anchor(match.anchorId)) {
+        const OpResult closed = m_work.closeAnchor(match.anchorId, m_env.origin);
+        if (!closed.ok) {
+            return failWith(closed);
+        }
+    }
+    m_out.notes.append(QStringLiteral("Removed the panel “%1”").arg(name));
+    return true;
+}
 } // namespace
 
 QStringList actions()
 {
     return {
         QStringLiteral("describe"), QStringLiteral("show"), QStringLiteral("focus"), QStringLiteral("resize"),
-        QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"),
+        QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"), QStringLiteral("add"), QStringLiteral("remove"),
     };
 }
 
@@ -1341,6 +1433,10 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
         ok = run.keep(request);
     } else if (action == QStringLiteral("label")) {
         ok = run.label(request);
+    } else if (action == QStringLiteral("add")) {
+        ok = run.addPanel(request);
+    } else if (action == QStringLiteral("remove")) {
+        ok = run.removePanel(request);
     }
 
     if (!ok) {

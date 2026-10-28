@@ -1347,6 +1347,65 @@ private slots:
         QVERIFY(store.temporaryArrangement().isEmpty());
     }
 
+    // "Make a review layout with docs on the right, save it, switch to
+    // Research, then back to mine."
+    void layoutsByConversation()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("layouts-by-chat"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        const QString mine = store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        auto layout = [](const QString &op, const QString &name, bool replace = false, const QString &newName = {}) {
+            return QVariantMap{{"action", "layout"}, {"op", op}, {"name", name}, {"newName", newName}, {"replace", replace}, {"explicit", true}, {"chatId", "chat-1"}};
+        };
+
+        // What exists, built-in layouts included.
+        const QVariantList listed = store.runAgentRequest(layout("list", {}), true).value("layouts").toList();
+        QVERIFY(listed.size() >= 6);
+        QVERIFY(store.describeForAgent().contains("layouts"));
+
+        // Build: a named empty panel on the right, docs in it, then save.
+        QVariantMap result = store.runAgentRequest({{"action", "add"}, {"target", ""}, {"to", "right"}, {"name", "Docs"}, {"explicit", true}}, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 2);
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("guide.md")}, QStringLiteral("Docs")), true).value("ok").toBool());
+        result = store.runAgentRequest(layout("save", "Review"), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(store.savedLayouts().size(), 1);
+        QVERIFY(store.temporaryArrangement().isEmpty());
+
+        // Never over the person's layout or a built-in one unless told to.
+        QCOMPARE(store.runAgentRequest(layout("save", "review"), true).value("code").toString(), QStringLiteral("EXISTS"));
+        QVERIFY(store.runAgentRequest(layout("save", "review", true), true).value("ok").toBool());
+        QCOMPARE(store.runAgentRequest(layout("save", "Research"), true).value("code").toString(), QStringLiteral("INVALID_ARGUMENT"));
+
+        // Switch to a built-in one and back; tabs come along.
+        QVERIFY(store.runAgentRequest(layout("apply", "research"), true).value("ok").toBool());
+        QCOMPARE(store.currentLayoutId(), QStringLiteral("research"));
+        QVERIFY(!store.view(mine).isEmpty());
+        QVERIFY(store.runAgentRequest(layout("apply", "Review"), true).value("ok").toBool());
+        QCOMPARE(store.currentLayoutName(), QStringLiteral("review"));
+        QCOMPARE(store.runAgentRequest(layout("apply", "Nowhere"), true).value("code").toString(), QStringLiteral("NOT_FOUND"));
+        // Background chats only look.
+        QCOMPARE(store.runAgentRequest(layout("apply", "research"), false).value("code").toString(), QStringLiteral("NOT_ALLOWED"));
+
+        // Remove a panel: its tabs move, nothing closes.
+        const int viewsBefore = agentViews(store).size();
+        result = store.runAgentRequest({{"action", "remove"}, {"target", "Docs"}, {"to", ""}, {"explicit", true}}, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 1);
+        QCOMPARE(agentViews(store).size(), viewsBefore);
+
+        // Rename and delete only the person's own layouts.
+        QVERIFY(store.runAgentRequest(layout("rename", "review", false, "Deep Review"), true).value("ok").toBool());
+        QCOMPARE(store.runAgentRequest(layout("delete", "Research"), true).value("code").toString(), QStringLiteral("NOT_FOUND"));
+        QVERIFY(store.runAgentRequest(layout("delete", "Deep Review"), true).value("ok").toBool());
+        QVERIFY(store.savedLayouts().isEmpty());
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

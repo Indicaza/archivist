@@ -823,6 +823,7 @@ const QStringList &arrangeActions()
 {
     static const QStringList actions{
         QStringLiteral("focus"), QStringLiteral("resize"), QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"),
+        QStringLiteral("add"), QStringLiteral("remove"),
     };
     return actions;
 }
@@ -831,6 +832,12 @@ const QStringList &restoreScopes()
 {
     static const QStringList scopes{QStringLiteral("last_change"), QStringLiteral("before_task"), QStringLiteral("saved_layout")};
     return scopes;
+}
+
+const QStringList &layoutOps()
+{
+    static const QStringList ops{QStringLiteral("list"), QStringLiteral("apply"), QStringLiteral("save"), QStringLiteral("rename"), QStringLiteral("delete")};
+    return ops;
 }
 
 const QStringList &preferenceOps()
@@ -987,6 +994,17 @@ QVariantMap workspaceRestoreTool(const QVariantMap &input, Context &context)
         {QStringLiteral("action"), QStringLiteral("restore")},
         {QStringLiteral("scope"), input.value(QStringLiteral("scope"))},
         {QStringLiteral("layout"), input.value(QStringLiteral("layout"))},
+    });
+}
+
+QVariantMap workspaceLayoutTool(const QVariantMap &input, Context &context)
+{
+    return callWorkspace(context, {
+        {QStringLiteral("action"), QStringLiteral("layout")},
+        {QStringLiteral("op"), input.value(QStringLiteral("action"))},
+        {QStringLiteral("name"), input.value(QStringLiteral("name"))},
+        {QStringLiteral("newName"), input.value(QStringLiteral("new_name"))},
+        {QStringLiteral("replace"), input.value(QStringLiteral("replace"))},
     });
 }
 
@@ -1438,15 +1456,15 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_arrange"),
             QStringLiteral("Arrange Workspace"),
-            QStringLiteral("Change one area of the workspace: focus (bring it forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it). Locked areas refuse changes; never try to unlock one."),
+            QStringLiteral("Change one area of the workspace: focus (bring it forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). Locked areas refuse changes; never try to unlock one."),
             mutation, workspaceMode,
             objectSchema(
                 {
                     {QStringLiteral("action"), enumSchema(arrangeActions())},
-                    {QStringLiteral("area"), stringSchema(1, 200, areaDescription)},
+                    {QStringLiteral("area"), stringSchema(0, 200, areaDescription)},
                     {QStringLiteral("change"), stringSchema(0, 32, QStringLiteral("resize only, else \"\"."))},
-                    {QStringLiteral("to"), stringSchema(0, 200, QStringLiteral("move only, else \"\"."))},
-                    {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("label only, else \"\"."))},
+                    {QStringLiteral("to"), stringSchema(0, 200, QStringLiteral("move, add and remove only, else \"\"."))},
+                    {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("label and add only, else \"\"."))},
                 },
                 {QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")}
             ),
@@ -1454,7 +1472,7 @@ const QList<Definition> &definitions()
                 const QVariantMap map = strictObject(input, {QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")});
                 return QVariantMap{
                     {QStringLiteral("action"), enumField(map, QStringLiteral("action"), arrangeActions())},
-                    {QStringLiteral("area"), stringField(map, QStringLiteral("area"), 1, 200, true)},
+                    {QStringLiteral("area"), stringField(map, QStringLiteral("area"), 0, 200, true, QString())},
                     {QStringLiteral("change"), stringField(map, QStringLiteral("change"), 0, 32, true, QString())},
                     {QStringLiteral("to"), stringField(map, QStringLiteral("to"), 0, 200, true, QString())},
                     {QStringLiteral("name"), stringField(map, QStringLiteral("name"), 0, 80, true, QString())},
@@ -1488,6 +1506,36 @@ const QList<Definition> &definitions()
             },
             workspaceRestoreTool,
             [](const QVariantMap &input) { return QVariantMap{{QStringLiteral("scope"), input.value(QStringLiteral("scope"))}}; },
+            workspaceOutputSummary,
+        });
+
+        tools.append({
+            QStringLiteral("workspace_layout"),
+            QStringLiteral("Workspace Layouts"),
+            QStringLiteral("Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable). save stores the current arrangement under name; to build a new layout, arrange it first with workspace_arrange and workspace_show, then save. Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask."),
+            mutation, workspaceMode,
+            objectSchema(
+                {
+                    {QStringLiteral("action"), enumSchema(layoutOps())},
+                    {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("The layout's name; \"\" for list."))},
+                    {QStringLiteral("new_name"), stringSchema(0, 80, QStringLiteral("rename only, else \"\"."))},
+                    {QStringLiteral("replace"), QVariantMap{{QStringLiteral("type"), QStringLiteral("boolean")}, {QStringLiteral("description"), QStringLiteral("save only: replace a saved layout with the same name.")}}},
+                },
+                {QStringLiteral("action"), QStringLiteral("name"), QStringLiteral("new_name"), QStringLiteral("replace")}
+            ),
+            [](const QVariant &input) {
+                const QVariantMap map = strictObject(input, {QStringLiteral("action"), QStringLiteral("name"), QStringLiteral("new_name"), QStringLiteral("replace")});
+                return QVariantMap{
+                    {QStringLiteral("action"), enumField(map, QStringLiteral("action"), layoutOps())},
+                    {QStringLiteral("name"), stringField(map, QStringLiteral("name"), 0, 80, true, QString())},
+                    {QStringLiteral("new_name"), stringField(map, QStringLiteral("new_name"), 0, 80, true, QString())},
+                    {QStringLiteral("replace"), boolField(map, QStringLiteral("replace"))},
+                };
+            },
+            workspaceLayoutTool,
+            [](const QVariantMap &input) {
+                return QVariantMap{{QStringLiteral("action"), input.value(QStringLiteral("action"))}, {QStringLiteral("name"), input.value(QStringLiteral("name"))}};
+            },
             workspaceOutputSummary,
         });
 

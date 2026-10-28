@@ -35,6 +35,8 @@
 //   move     target, to ("left", "right", "top", "bottom", "beside <area>")
 //   keep     target                 (layout lock: it stays where it is)
 //   label    target, name           (what the person calls it)
+//   add      target (beside it; "" = window edge), to (side), name   (a new empty panel)
+//   remove   target, to (where its tabs go; "" = the main editor)
 //
 // Targets and areas are anchor ids or descriptions: a name, what an area
 // shows ("the code", "the chat", "the documentation"), where it is ("the

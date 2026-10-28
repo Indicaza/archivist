@@ -437,6 +437,9 @@ private:
     void forgetArrangement();
     bool restoreArrangement(QString *code, QString *error);
     QVariantMap preferenceForAgent(const QVariantMap &request);
+    QVariantMap layoutForAgent(const QVariantMap &request);
+    [[nodiscard]] QString layoutIdNamed(const QString &name) const;
+    [[nodiscard]] QVariantList layoutsForAgent() const;
     QVariantMap addPreference(Workspace::Preferences::Preference preference);
     void loadPreferences();
     void savePreferences();

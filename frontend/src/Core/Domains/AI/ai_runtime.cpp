@@ -110,6 +110,8 @@ const QRegularExpression &workspaceRequestPattern()
             "|\\bkeep\\b[\\s\\S]{0,40}\\b(?:panel|pane|area|where\\s+it\\s+is|accessible|visible|open|on\\s+screen)\\b"
             "|\\buse\\s+(?:this|that|the)\\s+(?:\\w+\\s+)?(?:panel|pane|area)\\s+for\\b"
             "|\\b(?:my|the)\\s+(?:workspace|layout)\\b"
+            "|\\blayouts?\\b|\\b(?:anchors?|panels?|panes?)\\b[\\s\\S]{0,60}\\b(?:add|new|split|remove|close|rename|name)\\b"
+            "|\\b(?:add|new|split|remove|close)\\b[\\s\\S]{0,40}\\b(?:anchors?|panels?|panes?)\\b"
             "|\\b(?:i\\s+(?:like|prefer|want)|always|never|don'?t|do\\s+not|keep\\s+my)\\b[\\s\\S]{0,80}\\b(?:chat|editor|panel|windows?|layout|rearrange|docs?|documentation|terminal)\\b"
             ")"
         ),
@@ -183,6 +185,8 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
 
     if (input.workspaceToolsAvailable) {
         lines << QStringLiteral("You can show and arrange things in the person's workspace with the workspace_* tools. Use them only for what the person asked to see, open, arrange, resize or restore in this message.")
+              << QStringLiteral("What the workspace can do: panels (areas) hold tabs of files, chats, terminals and previews, side by side or in floating windows. The bottom panel holds this chat, the terminal and problems. You can open files into a named or described panel, move tabs and panels, resize or maximize a panel, add an empty named panel on any side, remove a panel (its tabs move elsewhere), name panels, lock one in place, switch to a named layout, save the current arrangement as a new layout, rename or delete the person's layouts, undo your last change, put everything back, and remember preferences. The person can also make a panel a shelf, lock its content and bind it to a worktree from its menu; you can't unlock anything.")
+              << QStringLiteral("To build a new layout: add and name the panels it needs (workspace_arrange add), put things in them (workspace_show), size them, then save it with workspace_layout. To switch, use workspace_layout apply with a name from workspace_view's layouts.")
               << QStringLiteral("Call workspace_view first unless you already know the areas. Refer to areas by the names it returns, or describe them plainly (\"the code\", \"the right panel\").")
               << QStringLiteral("Prefer one workspace_show call with every item over several calls, reuse what is already open, and leave where empty unless the person said where.")
               << QStringLiteral("To find the relevant files, use Library evidence or search first, then show only the files that matter (usually two to five).")
@@ -741,8 +745,14 @@ void ChatRunJob::prepare()
     const bool verificationToolsAvailable = initialRetrievalAvailable && verificationRequested;
     m_workspaceRequested = Workspace::Gateway::installed() && workspaceRequestPattern().match(userContent).hasMatch();
     m_workspaceLastingPreference = m_workspaceRequested && lastingPreferencePattern().match(userContent).hasMatch();
+    // "Save this layout" or "create a new layout" is about the workspace, not files.
+    static const QRegularExpression layoutVerbs(
+        QStringLiteral("\\b(?:save|create|make|rename|delete|update)\\b[\\s\\S]{0,40}\\b(?:layouts?|panels?|anchors?)\\b"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    const bool layoutOnly = m_workspaceRequested && layoutVerbs.match(userContent).hasMatch();
     m_mutationProposalRequested = explicitLibraryMutationPattern().match(userContent).hasMatch()
-        && (!m_workspaceRequested || strongLibraryMutationPattern().match(userContent).hasMatch());
+        && (!m_workspaceRequested || (strongLibraryMutationPattern().match(userContent).hasMatch() && !layoutOnly));
     const bool discoveryToolsSuppressed = initialRetrievalAvailable && !toolTestingRequested;
     const bool fullFileReadSuppressed = initialRetrievalAvailable && !toolTestingRequested;
     m_maximumToolRounds = toolTestingRequested ? 6 : initialRetrievalAvailable ? 1 : 6;
