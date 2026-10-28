@@ -1144,6 +1144,32 @@ OpResult WorkspaceModel::createAnchor(const QString &targetAnchorId, Edge edge)
     });
 }
 
+OpResult WorkspaceModel::createAnchorAtSurfaceEdge(const QString &surfaceId, Edge edge)
+{
+    return transact([&]() {
+        if (!m_surfaces.contains(surfaceId)) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such window: ") + surfaceId);
+        }
+
+        if (edge == Edge::Center) {
+            return OpResult::failure(QStringLiteral("INVALID_DROP"), QStringLiteral("Pick a window edge."));
+        }
+
+        if (const OpResult locked = surfaceEdgeLockFailure(surfaceId, edge); !locked.ok) {
+            return locked;
+        }
+
+        AnchorRecord created;
+        created.id = newId(QStringLiteral("a"));
+        created.pinned = true;
+        m_anchors.insert(created.id, created);
+        insertAtSurfaceEdge(surfaceId, createLeaf(created.id), edge);
+        m_focusedAnchorId = created.id;
+        bump();
+        return OpResult::success(created.id);
+    });
+}
+
 OpResult WorkspaceModel::closeAnchor(const QString &anchorId, Origin origin)
 {
     return transact([&]() {

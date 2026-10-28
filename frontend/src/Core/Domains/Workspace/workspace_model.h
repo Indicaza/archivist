@@ -92,6 +92,9 @@ public:
 
     // A new pinned, empty anchor beside `targetAnchorId` (empty: target).
     OpResult createAnchor(const QString &targetAnchorId = {}, Edge edge = Edge::Right);
+    // A new pinned, empty anchor along an outer edge of a surface (the whole
+    // side of the window), squeezing the anchors already there.
+    OpResult createAnchorAtSurfaceEdge(const QString &surfaceId, Edge edge);
     // Closes an anchor and every view in it. Guard first.
     OpResult closeAnchor(const QString &anchorId, Origin origin = Origin::User);
     // Moves a whole anchor beside another, or merges into it (Center).
