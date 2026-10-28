@@ -131,6 +131,10 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Shell/shell_navigation.h
     src/Core/Domains/Shell/recent_items.cpp
     src/Core/Domains/Shell/recent_items.h
+    src/Core/Domains/Home/home_modules.cpp
+    src/Core/Domains/Home/home_modules.h
+    src/Core/Domains/Home/home_items.cpp
+    src/Core/Domains/Home/home_items.h
     src/Core/Domains/Documents/document_buffers.cpp
     src/Core/Domains/Documents/document_buffers.h
     src/Core/Support/core_values.h
@@ -230,6 +234,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Workspace/keyed_list_model.h
     src/App/Domains/Shell/shell_store.cpp
     src/App/Domains/Shell/shell_store.h
+    src/App/Domains/Home/home_store.cpp
+    src/App/Domains/Home/home_store.h
     src/App/Domains/Workspace/workspace_store.cpp
     src/App/Domains/Workspace/workspace_store.h
     src/App/Domains/Workspace/workspace_store_agent.cpp
@@ -297,6 +303,20 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Home/HomeSidebar.qml
         qml/App/Workbench/Home/HomeSidebarRow.qml
         qml/App/Workbench/Home/RecentActivityTracker.qml
+        qml/App/Workbench/Home/HomeChip.qml
+        qml/App/Workbench/Home/HomeSendButton.qml
+        qml/App/Workbench/Home/HomeCard.qml
+        qml/App/Workbench/Home/HomePanel.qml
+        qml/App/Workbench/Home/HomeListRow.qml
+        qml/App/Workbench/Home/HomeKeyedModel.qml
+        qml/App/Workbench/Home/HomeModuleFrame.qml
+        qml/App/Workbench/Home/HomeModuleGrid.qml
+        qml/App/Workbench/Home/HomeCustomizeBar.qml
+        qml/App/Workbench/Home/HomeFirstRun.qml
+        qml/App/Workbench/Home/ResumeModule.qml
+        qml/App/Workbench/Home/PinnedModule.qml
+        qml/App/Workbench/Home/ActivityModule.qml
+        qml/App/Workbench/Home/LayoutsModule.qml
         qml/App/Workbench/Workspace/Workspace.qml
         qml/App/Workbench/Workspace/ChatViewportPolicy.js
         qml/App/Workbench/Workspace/EditorTabs/EditorTabStrip.qml
@@ -489,6 +509,16 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-shell-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-shell-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-shell-test COMMAND core-shell-test)
+
+    qt_add_executable(core-home-test
+        tests/core_home_test.cpp
+        src/App/Domains/Home/home_store.cpp
+        src/App/Domains/Home/home_store.h
+    )
+    target_include_directories(core-home-test PRIVATE src)
+    target_link_libraries(core-home-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-home-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-home-test COMMAND core-home-test)
 
     qt_add_executable(core-workspace-test tests/core_workspace_test.cpp)
     target_link_libraries(core-workspace-test PRIVATE archivist-core Qt6::Test)

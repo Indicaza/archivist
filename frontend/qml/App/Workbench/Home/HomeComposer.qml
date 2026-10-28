@@ -4,13 +4,14 @@ import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../Icons"
 
-// Home's composer: one rounded field. Sending starts a new conversation in
-// the chosen folder.
+// Home's composer: the centerpiece. A roomy field over a quiet toolbar
+// (add, where the conversation starts, who answers) and one Send button.
+// Sending starts a new conversation.
 //
 // The draft belongs to Home (Shell.homeDraft), not to this field: leaving
 // Home, switching projects or restarting keeps it. It's cleared only once
 // the conversation exists and the message went out.
-Rectangle {
+FocusScope {
     id: root
 
     required property var theme
@@ -19,18 +20,33 @@ Rectangle {
     property string libraryId: ""
     property string libraryName: ""
     property string projectName: ""
+    // [{ id, name, generation }] who can answer; empty hides the chip.
+    property var agents: []
+    property string agentId: ""
     // Why sending isn't possible right now; empty when it is.
     property string blockedReason: ""
+    property string placeholder: "Ask Archivist anything"
     property bool sending: false
+    // A reply is streaming somewhere: Send becomes Stop.
+    property bool streaming: false
 
     readonly property alias input: field
-    readonly property bool canSend: blockedReason.length === 0
-        && !sending
-        && field.text.trim().length > 0
-    readonly property bool multiline: field.lineCount > 1
+    readonly property bool hasText: field.text.trim().length > 0
+    readonly property bool canSend: blockedReason.length === 0 && !sending && hasText
+    readonly property bool focused: field.activeFocus
+    readonly property var agent: {
+        for (var index = 0; index < agents.length; index += 1) {
+            if (String(agents[index].id) === agentId) {
+                return agents[index]
+            }
+        }
+        return agents.length > 0 ? agents[0] : null
+    }
 
     signal submitRequested(string text)
+    signal stopRequested()
     signal libraryChosen(string libraryId)
+    signal agentChosen(string agentId)
     signal addFolderRequested()
     signal newProjectRequested()
 
@@ -46,82 +62,102 @@ Rectangle {
         field.cursorPosition = field.length
     }
 
-    implicitHeight: Math.max(56, Math.min(240, field.implicitHeight) + 16)
-    radius: multiline ? 22 : height / 2
-    color: root.theme.composerCardBg
-    border.width: 1
-    border.color: field.activeFocus ? Qt.lighter(root.theme.panelBorder, 1.25) : root.theme.quietBorder
-
-    Behavior on border.color {
-        enabled: !root.theme.reducedMotion
-        ColorAnimation { duration: root.theme.motionFast }
+    function setText(text) {
+        field.text = text
+        focusInput()
     }
 
-    Behavior on radius {
-        enabled: !root.theme.reducedMotion
-        NumberAnimation { duration: root.theme.motionFast }
+    function agentLabel(entry) {
+        if (!entry) {
+            return ""
+        }
+        var name = String(entry.name || "Agent")
+        var model = String((entry.generation || {}).model || "")
+        return model.length > 0 ? name + " · " + model : name
     }
 
-    RowLayout {
-        anchors.fill: parent
-        anchors.leftMargin: 10
-        anchors.rightMargin: 10
-        anchors.topMargin: 8
-        anchors.bottomMargin: 8
-        spacing: 6
+    readonly property real fieldHeight: Math.min(260, Math.max(field.implicitHeight, 28 + root.theme.textBodySize * 1.5))
 
-        // Add a folder or start a project.
-        Button {
-            id: plusButton
+    implicitHeight: card.height
+    activeFocusOnTab: true
 
-            Layout.preferredWidth: 36
-            Layout.preferredHeight: 36
-            Layout.alignment: Qt.AlignBottom
-            hoverEnabled: true
-            focusPolicy: Qt.StrongFocus
-            padding: 0
-            Accessible.name: "Add"
-            ToolTip.visible: hovered
-            ToolTip.delay: 600
-            ToolTip.text: "Add a folder or project"
-            onClicked: plusMenu.popup(plusButton, 0, plusButton.height + 6)
+    // Soft shadow: two offset layers, no blur pass.
+    Rectangle {
+        x: 2
+        y: 10
+        width: card.width - 4
+        height: card.height
+        radius: card.radius
+        color: root.theme.withAlpha(root.theme.homeShadow, root.focused ? 0.22 : 0.14)
 
-            contentItem: Item {
-                AppIcon {
-                    anchors.centerIn: parent
-                    name: "add"
-                    tone: plusButton.hovered || plusButton.activeFocus ? "normal" : "muted"
-                    iconSize: 16
-                }
-            }
+        Behavior on color {
+            enabled: !root.theme.reducedMotion
+            ColorAnimation { duration: root.theme.motionHover }
+        }
+    }
 
-            background: Rectangle {
-                radius: height / 2
-                color: plusButton.down ? root.theme.activeBg : plusButton.hovered ? root.theme.hoverBg : "transparent"
-            }
+    // Focus ring: a faint wash of the accent around the card.
+    Rectangle {
+        anchors.fill: card
+        anchors.margins: -3
+        radius: card.radius + 3
+        color: "transparent"
+        border.width: 3
+        border.color: root.theme.withAlpha(root.theme.accent, 0.13)
+        opacity: root.focused ? 1 : 0
+
+        Behavior on opacity {
+            enabled: !root.theme.reducedMotion
+            NumberAnimation { duration: root.theme.motionHover }
+        }
+    }
+
+    Rectangle {
+        id: card
+
+        width: parent.width
+        height: Math.round(root.fieldHeight + toolbar.height + 18)
+        radius: root.theme.homeComposerRadius
+        color: root.focused ? Qt.lighter(root.theme.homeComposerBg, 1.05) : root.theme.homeComposerBg
+        border.width: 1
+        border.color: root.focused
+            ? root.theme.homeComposerFocusBorder
+            : hover.hovered ? root.theme.homeCardBorderHover : root.theme.homeCardBorder
+
+        Behavior on height {
+            enabled: !root.theme.reducedMotion
+            NumberAnimation { duration: root.theme.motionFast; easing.type: Easing.OutCubic }
         }
 
-        Menu {
-            id: plusMenu
+        Behavior on border.color {
+            enabled: !root.theme.reducedMotion
+            ColorAnimation { duration: root.theme.motionHover }
+        }
 
-            MenuItem {
-                text: root.projectName.length > 0 ? "Add a folder to " + root.projectName : "Add a folder"
-                enabled: root.projectName.length > 0
-                onTriggered: root.addFolderRequested()
-            }
+        Behavior on color {
+            enabled: !root.theme.reducedMotion
+            ColorAnimation { duration: root.theme.motionHover }
+        }
 
-            MenuItem {
-                text: "New project…"
-                onTriggered: root.newProjectRequested()
-            }
+        HoverHandler {
+            id: hover
+        }
+
+        // A click anywhere on the card that isn't a control puts the caret
+        // in the field.
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.IBeamCursor
+            onClicked: root.focusInput()
         }
 
         ScrollView {
             id: fieldScroll
 
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(240, field.implicitHeight)
-            Layout.alignment: Qt.AlignVCenter
+            x: 12
+            y: 8
+            width: parent.width - 24
+            height: root.fieldHeight
             clip: true
 
             TextArea {
@@ -134,19 +170,20 @@ Rectangle {
                     }
                 }
                 enabled: !root.sending
-                placeholderText: root.blockedReason.length > 0 ? root.blockedReason : "Ask Archivist"
+                placeholderText: root.blockedReason.length > 0 ? root.blockedReason : root.placeholder
                 placeholderTextColor: root.theme.composerPlaceholder
                 color: root.theme.appText
                 selectionColor: root.theme.messageSelectionBg
                 selectedTextColor: root.theme.messageSelectionText
                 font.family: root.theme.chatFontFamily
-                font.pixelSize: root.theme.textBodySize
+                font.pixelSize: root.theme.textBodySize + 1
                 wrapMode: TextEdit.Wrap
-                leftPadding: 4
-                rightPadding: 4
-                topPadding: 9
-                bottomPadding: 9
+                leftPadding: 8
+                rightPadding: 8
+                topPadding: 12
+                bottomPadding: 8
                 Accessible.name: "Message"
+                Accessible.description: root.blockedReason
 
                 Keys.onPressed: function(event) {
                     var returnPressed = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
@@ -172,106 +209,149 @@ Rectangle {
             }
         }
 
-        // Where the conversation starts, like a model picker.
-        Button {
-            id: libraryButton
+        RowLayout {
+            id: toolbar
 
-            Layout.alignment: Qt.AlignBottom
-            Layout.preferredHeight: 36
-            visible: root.libraries.length > 0
-            enabled: root.libraries.length > 1 && !root.sending
-            hoverEnabled: true
-            focusPolicy: Qt.StrongFocus
-            leftPadding: 10
-            rightPadding: 8
-            Accessible.name: "Start the conversation in " + root.libraryName
-            ToolTip.visible: hovered
-            ToolTip.delay: 600
-            ToolTip.text: root.libraries.length > 1
-                ? "Choose which folder the conversation starts in"
-                : "The conversation starts in " + root.libraryName
-            onClicked: libraryMenu.popup(libraryButton, 0, libraryButton.height + 6)
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            anchors.bottomMargin: 10
+            height: 36
+            spacing: 4
 
-            contentItem: Row {
-                spacing: 5
+            HomeChip {
+                id: plusButton
 
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.libraryName.length > 0 ? root.libraryName : "Folder"
-                    color: libraryButton.hovered ? root.theme.appText : root.theme.mutedText
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: root.theme.textControlSize
-                }
-
-                AppIcon {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: root.libraries.length > 1
-                    name: "chevron-down"
-                    tone: libraryButton.hovered ? "normal" : "muted"
-                    iconSize: 10
-                }
+                theme: root.theme
+                iconName: "add"
+                round: true
+                toolTipText: "Add a folder or start a project"
+                Accessible.name: "Add"
+                onClicked: plusMenu.popup(plusButton, 0, plusButton.height + 6)
             }
 
-            background: Rectangle {
-                radius: height / 2
-                color: libraryButton.hovered && libraryButton.enabled ? root.theme.hoverBg : "transparent"
-                border.width: libraryButton.activeFocus ? 1 : 0
-                border.color: root.theme.accent
-            }
-        }
+            HomeChip {
+                id: libraryButton
 
-        Menu {
-            id: libraryMenu
-
-            Repeater {
-                model: root.libraries
-
-                delegate: MenuItem {
-                    required property var modelData
-
-                    text: String(modelData.name || "Folder")
-                    checkable: true
-                    checked: String(modelData.id) === root.libraryId
-                    onTriggered: root.libraryChosen(String(modelData.id))
-                }
-            }
-        }
-
-        Button {
-            id: sendButton
-
-            Layout.preferredWidth: 36
-            Layout.preferredHeight: 36
-            Layout.alignment: Qt.AlignBottom
-            enabled: root.canSend
-            hoverEnabled: true
-            focusPolicy: Qt.StrongFocus
-            padding: 0
-            Accessible.name: root.sending ? "Sending" : "Send"
-            ToolTip.visible: hovered
-            ToolTip.delay: 600
-            ToolTip.text: "Send (Enter). Shift+Enter adds a line."
-            onClicked: root.submit()
-
-            contentItem: Item {
-                AppIcon {
-                    anchors.centerIn: parent
-                    name: "send"
-                    tone: sendButton.enabled ? "normal" : "muted"
-                    iconSize: 15
+                visible: root.libraries.length > 0
+                theme: root.theme
+                iconName: "folder"
+                label: root.libraryName.length > 0 ? root.libraryName : "Folder"
+                menu: root.libraries.length > 1
+                enabled: !root.sending
+                toolTipText: root.libraries.length > 1
+                    ? "Choose the folder this conversation starts in"
+                    : "This conversation starts in " + root.libraryName
+                Accessible.name: "Start in " + root.libraryName
+                onClicked: {
+                    if (root.libraries.length > 1) {
+                        libraryMenu.popup(libraryButton, 0, libraryButton.height + 6)
+                    }
                 }
             }
 
-            background: Rectangle {
-                radius: height / 2
-                color: sendButton.enabled
-                    ? (sendButton.down ? Qt.darker(root.theme.accent, 1.15) : sendButton.hovered ? root.theme.accentBright : root.theme.accent)
-                    : root.theme.hoverBg
+            HomeChip {
+                id: agentButton
 
-                Behavior on color {
+                visible: root.agent !== null && root.libraries.length > 0
+                theme: root.theme
+                iconName: "agent"
+                label: root.agentLabel(root.agent)
+                menu: root.agents.length > 1
+                enabled: !root.sending
+                Layout.maximumWidth: Math.max(120, toolbar.width * 0.42)
+                toolTipText: root.agents.length > 1 ? "Choose who answers" : "Answers with " + root.agentLabel(root.agent)
+                Accessible.name: "Answered by " + root.agentLabel(root.agent)
+                onClicked: {
+                    if (root.agents.length > 1) {
+                        agentMenu.popup(agentButton, 0, agentButton.height + 6)
+                    }
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.rightMargin: 6
+                text: root.streaming && !root.hasText ? "Archivist is answering" : "⏎ to send  ·  ⇧⏎ new line"
+                color: root.theme.withAlpha(root.theme.mutedText, 0.8)
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+                opacity: (root.focused && root.hasText) || (root.streaming && !root.hasText) ? 1 : 0
+                visible: opacity > 0 && toolbar.width > 460
+
+                Behavior on opacity {
                     enabled: !root.theme.reducedMotion
-                    ColorAnimation { duration: root.theme.motionFast }
+                    NumberAnimation { duration: root.theme.motionHover }
                 }
+            }
+
+            HomeSendButton {
+                id: sendButton
+
+                theme: root.theme
+                mode: root.sending
+                    ? "sending"
+                    : root.streaming && !root.canSend
+                        ? "stop"
+                        : root.canSend ? "ready" : "idle"
+                onSendRequested: root.submit()
+                onStopRequested: root.stopRequested()
+            }
+        }
+    }
+
+    Menu {
+        id: plusMenu
+
+        MenuItem {
+            text: root.projectName.length > 0 ? "Add a folder to " + root.projectName : "Add a folder"
+            enabled: root.projectName.length > 0
+            onTriggered: root.addFolderRequested()
+        }
+
+        MenuItem {
+            text: "New project…"
+            onTriggered: root.newProjectRequested()
+        }
+    }
+
+    Menu {
+        id: libraryMenu
+
+        Repeater {
+            model: root.libraries
+
+            delegate: MenuItem {
+                required property var modelData
+
+                text: String(modelData.name || "Folder")
+                checkable: true
+                checked: String(modelData.id) === root.libraryId
+                onTriggered: root.libraryChosen(String(modelData.id))
+            }
+        }
+    }
+
+    Menu {
+        id: agentMenu
+
+        Repeater {
+            model: root.agents
+
+            delegate: MenuItem {
+                required property var modelData
+
+                text: root.agentLabel(modelData)
+                checkable: true
+                checked: root.agent && String(modelData.id) === String(root.agent.id)
+                onTriggered: root.agentChosen(String(modelData.id))
             }
         }
     }

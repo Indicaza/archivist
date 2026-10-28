@@ -8,7 +8,9 @@ var tones = {
     "warning": true,
     "danger": true,
     "info": true,
-    "purple": true
+    "purple": true,
+    // Dark ink for icons on light controls (Send). Hand-drawn icons only.
+    "ink": true
 }
 
 function normalizedTone(tone) {

@@ -151,6 +151,11 @@ public:
     Q_INVOKABLE void setCollection(const QString &collectionId);
     Q_INVOKABLE void saveNow();
     [[nodiscard]] Q_INVOKABLE bool hasSavedWorkspace(const QString &collectionId) const;
+    // What returning to a project brings back, read from its saved
+    // workspace (or the live one for the current project) without loading
+    // it: { available, viewCount, titles (focused first, up to 3), layoutName }.
+    // available is false when the project has no saved workspace yet.
+    [[nodiscard]] Q_INVOKABLE QVariantMap savedWorkspaceSummary(const QString &collectionId) const;
 
     // ---- views ------------------------------------------------------------
     // resource: {kind, id, collectionId, libraryId, details}
@@ -433,6 +438,7 @@ private:
     bool applyLayoutDocument(const QJsonObject &layout, const QString &layoutId);
     [[nodiscard]] QJsonObject layoutDocument(const QString &layoutId) const;
     [[nodiscard]] QJsonArray readSavedLayouts() const;
+    [[nodiscard]] QString layoutName(const QString &layoutId) const;
     void writeSavedLayouts(const QJsonArray &layouts);
     void setCurrentLayoutId(const QString &layoutId);
 

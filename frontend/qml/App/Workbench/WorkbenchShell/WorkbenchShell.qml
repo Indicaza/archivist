@@ -400,7 +400,7 @@ Rectangle {
         })
     }
 
-    function startConversationFromHome(text, libraryId) {
+    function startConversationFromHome(text, libraryId, agentId) {
         if (root.homeSending || String(libraryId || "").length === 0) {
             return
         }
@@ -410,7 +410,7 @@ Rectangle {
         root.homeSending = true
         ChatStore.startChat(
             libraryId,
-            String(CollectionStore.scope.defaultAgentId || ""),
+            String(agentId || CollectionStore.scope.defaultAgentId || ""),
             text
         )
         // Refused before it started (another write in flight): keep the draft.
@@ -516,6 +516,15 @@ Rectangle {
             root.pendingDocument = null
             root.openDocument(item)
         }
+    }
+
+    // A layout chosen on Home: back to the project, presented that way.
+    function applyLayoutFromHome(layoutId) {
+        if (!CollectionStore.selectedCollectionId) {
+            return
+        }
+        Shell.returnToWorkspace()
+        Docking.applyLayout(String(layoutId))
     }
 
     function addFolderFromHome() {
@@ -647,12 +656,15 @@ Rectangle {
         theme: root.theme
         sending: root.homeSending
         visible: root.homeReveal > 0
-        opacity: root.homeReveal
+        reveal: root.homeReveal
         enabled: Shell.homeActive
         z: 40
 
-        onStartConversationRequested: function(text, libraryId) {
-            root.startConversationFromHome(text, libraryId)
+        onStartConversationRequested: function(text, libraryId, agentId) {
+            root.startConversationFromHome(text, libraryId, agentId)
+        }
+        onLayoutRequested: function(layoutId) {
+            root.applyLayoutFromHome(layoutId)
         }
         onChatRequested: function(chat, collectionId) {
             root.openChatFromHome(chat, collectionId)

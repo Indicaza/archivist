@@ -25,7 +25,13 @@ const tones = {
 
 // Drawn by hand in Assets/ui/<tone>/ because no vendored match fits;
 // vendoring leaves them alone.
-const handDrawnUiIcons = new Set(["git-branch", "lock", "home"]);
+const handDrawnUiIcons = new Set([
+  "git-branch", "lock", "home", "send", "stop-square", "pin", "bell", "sliders",
+  "grip", "eye", "eye-off", "history", "arrow-right", "grid", "agent",
+  "span-full", "span-half",
+]);
+// Also hand-drawn only: the "ink" tone (dark, for light controls) of send
+// and stop-square.
 
 const uiIcons = {
   workspace: ["layout-dashboard", "dashboard", "grid-layout", "module-four"],
@@ -72,7 +78,6 @@ const uiIcons = {
   reveal: ["target-center", "focus-frame", "locate-target"],
   refresh: ["synchronize-arrows", "refresh", "rotate-back"],
   settings: ["settings-cog", "cog", "settings-slider"],
-  send: ["send-email", "send", "navigation-next"],
   attach: ["attachment", "paperclip", "link"],
   expand: ["expand", "maximize", "arrow-expand"],
   collapse: ["collapse", "minimize", "arrow-shrink"],
@@ -92,6 +97,18 @@ const uiIcons = {
   "git-branch": ["branch-line", "git-branch", "hierarchy"],
   lock: ["lock-1", "padlock", "lock"],
   home: ["house-1", "home", "house"],
+  send: ["arrow-up", "send", "navigation-up"],
+  "stop-square": ["stop", "button-stop", "square"],
+  pin: ["pin", "push-pin", "pin-1"],
+  bell: ["bell", "alarm-bell", "notification"],
+  sliders: ["settings-slider", "sliders", "equalizer"],
+  grip: ["drag-handle", "grip", "menu-dots-vertical"],
+  eye: ["eye", "eye-optic", "view"],
+  "eye-off": ["eye-off", "invisible", "eye-slash"],
+  history: ["history", "time-clock-circle", "clock"],
+  "arrow-right": ["arrow-right", "navigation-right", "line-arrow-right"],
+  "span-full": ["layout-window", "window", "rectangle"],
+  "span-half": ["layout-column", "columns", "split-vertical"],
   "arrow-left-right": ["arrow-left-right", "synchronize-arrows", "move-horizontal"],
   "actual-size": ["expand-6", "focus-frame", "frame"],
   "context-memory": ["brain", "memory-chip", "database"],

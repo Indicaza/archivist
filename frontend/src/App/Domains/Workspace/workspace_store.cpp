@@ -549,6 +549,52 @@ bool WorkspaceStore::hasSavedWorkspace(const QString &collectionId) const
     return !collectionId.isEmpty() && m_settings.contains(snapshotKey(collectionId));
 }
 
+QVariantMap WorkspaceStore::savedWorkspaceSummary(const QString &collectionId) const
+{
+    QVariantMap summary{{QStringLiteral("available"), false}};
+    if (collectionId.isEmpty()) {
+        return summary;
+    }
+
+    WorkspaceModel saved;
+    const WorkspaceModel *model = &m_model;
+    if (collectionId != m_collectionId) {
+        const QJsonObject snapshot = QJsonDocument::fromJson(m_settings.value(snapshotKey(collectionId)).toString().toUtf8()).object();
+        if (snapshot.isEmpty() || !Codec::decodeSnapshot(snapshot, m_registry, saved).ok) {
+            return summary;
+        }
+        model = &saved;
+    }
+
+    QStringList titles;
+    const AnchorRecord *focused = model->anchor(model->focusedAnchorId());
+    const QString focusedViewId = focused ? focused->activeViewId : QString();
+    if (const ViewRecord *view = model->view(focusedViewId); view && !view->title.trimmed().isEmpty()) {
+        titles.append(view->title.trimmed());
+    }
+    const QStringList viewIds = model->viewIds();
+    for (const QString &viewId : viewIds) {
+        if (titles.size() >= 3) {
+            break;
+        }
+        const ViewRecord *view = model->view(viewId);
+        const QString title = view ? view->title.trimmed() : QString();
+        if (viewId != focusedViewId && !title.isEmpty() && !titles.contains(title)) {
+            titles.append(title);
+        }
+    }
+
+    const QString layoutId = collectionId == m_collectionId
+        ? m_currentLayoutId
+        : m_settings.value(QStringLiteral("workspace/collections/%1/docking/layoutId").arg(collectionId)).toString();
+
+    summary.insert(QStringLiteral("available"), true);
+    summary.insert(QStringLiteral("viewCount"), static_cast<int>(viewIds.size()));
+    summary.insert(QStringLiteral("titles"), titles);
+    summary.insert(QStringLiteral("layoutName"), layoutName(layoutId));
+    return summary;
+}
+
 void WorkspaceStore::setCollection(const QString &collectionId)
 {
     if (collectionId == m_collectionId) {
@@ -1782,19 +1828,24 @@ QJsonObject WorkspaceStore::layoutDocument(const QString &layoutId) const
 
 QString WorkspaceStore::currentLayoutName() const
 {
-    if (m_currentLayoutId.isEmpty()) {
+    return layoutName(m_currentLayoutId);
+}
+
+QString WorkspaceStore::layoutName(const QString &layoutId) const
+{
+    if (layoutId.isEmpty()) {
         return {};
     }
 
     for (const Presets::Preset &preset : Presets::all()) {
-        if (preset.id == m_currentLayoutId) {
+        if (preset.id == layoutId) {
             return preset.name;
         }
     }
 
     for (const QJsonValue &value : readSavedLayouts()) {
         const QJsonObject entry = value.toObject();
-        if (entry.value(QStringLiteral("id")).toString() == m_currentLayoutId) {
+        if (entry.value(QStringLiteral("id")).toString() == layoutId) {
             return entry.value(QStringLiteral("name")).toString();
         }
     }
