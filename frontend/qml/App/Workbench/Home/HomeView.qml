@@ -6,7 +6,8 @@ import "../../Icons"
 
 // Home: the personal layer above every project. A conversation up front;
 // under it, the modules the person chose (Resume work, Pinned, Activity,
-// Layouts, later plugins), and a sidebar to go anywhere.
+// Layouts, later plugins). Its sidebar is a side panel of the shell, in
+// the same slot as the Explorer (HomeSidebar); Home leaves it room.
 //
 // Home only presents and asks. Opening anything goes through the shell
 // (signals below), which uses the same stores as the rest of the app, so
@@ -20,6 +21,9 @@ Rectangle {
     // 1 when Home is fully in front, 0 when the workspace is. Drives the
     // zoom between the two.
     property real reveal: 1
+    // Room the shell's sidebar takes on the left, and whether it's open.
+    property real leftInset: 0
+    property bool sidebarShown: false
 
     signal startConversationRequested(string text, string libraryId, string agentId)
     signal chatRequested(var chat, string collectionId)
@@ -29,6 +33,8 @@ Rectangle {
     signal addFolderRequested()
     signal setupProjectRequested()
     signal backRequested()
+    // Show Home's sidebar (the shell owns it); allProjects lists every one.
+    signal sidebarRequested(bool allProjects)
 
     property int scopeRevision: 0
     property string chosenLibraryId: ""
@@ -71,11 +77,6 @@ Rectangle {
         }
         return agents.length > 0 ? String(agents[0].id) : ""
     }
-    readonly property bool roomForSidebar: width >= 860
-    property bool sidebarWanted: readSidebarWanted()
-    // Narrow windows show the sidebar over the page, only when asked.
-    property bool sidebarOverlayOpen: false
-    readonly property bool sidebarShown: roomForSidebar ? sidebarWanted : sidebarOverlayOpen
     readonly property bool projectHasChats: chatsForProject(String(CollectionStore.selectedCollectionId || ""), 1).length > 0
     readonly property string blockedReason: {
         if (firstRun) {
@@ -179,15 +180,6 @@ Rectangle {
             }
         }
         return null
-    }
-
-    function readSidebarWanted() {
-        return String(WorkspaceState.value("shell/homeSidebarOpen", "true")) !== "false"
-    }
-
-    function setSidebarWanted(open) {
-        sidebarWanted = open
-        WorkspaceState.setValue("shell/homeSidebarOpen", open ? "true" : "false")
     }
 
     // Every conversation, newest first, with the project it belongs to.
@@ -364,12 +356,7 @@ Rectangle {
     }
 
     function showAllProjects() {
-        if (roomForSidebar) {
-            setSidebarWanted(true)
-        } else {
-            sidebarOverlayOpen = true
-        }
-        sidebar.allProjects = true
+        sidebarRequested(true)
     }
 
     function moveModule(module, step) {
@@ -442,59 +429,6 @@ Rectangle {
         }
     }
 
-    // ---- sidebar ----------------------------------------------------------
-
-    HomeSidebar {
-        id: sidebar
-
-        x: (root.sidebarShown ? 0 : -width) - (1 - root.reveal) * 12
-        width: root.theme.homeSidebarWidth
-        height: parent.height
-        visible: x > -width
-        opacity: root.reveal
-        z: 3
-        theme: root.theme
-        home: root
-
-        onNewChatRequested: {
-            root.sidebarOverlayOpen = false
-            Shell.homeDraft = ""
-            root.focusComposer()
-        }
-        onChatRequested: function(chat, collectionId) { root.chatRequested(chat, collectionId) }
-        onProjectRequested: function(collectionId) {
-            root.diveCollectionId = collectionId
-            root.projectRequested(collectionId)
-        }
-        onPinOpenRequested: function(pin) { root.openLink(pin) }
-        onSetupProjectRequested: root.setupProjectRequested()
-        onCollapseRequested: {
-            if (root.roomForSidebar) {
-                root.setSidebarWanted(false)
-            } else {
-                root.sidebarOverlayOpen = false
-            }
-        }
-
-        Behavior on x {
-            enabled: !root.theme.reducedMotion
-            NumberAnimation { duration: root.theme.motionPanel; easing.type: Easing.OutCubic }
-        }
-    }
-
-    // Narrow windows: a scrim behind the overlaid sidebar.
-    Rectangle {
-        anchors.fill: parent
-        z: 2
-        visible: !root.roomForSidebar && root.sidebarOverlayOpen
-        color: root.theme.withAlpha("#000000", 0.35)
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.sidebarOverlayOpen = false
-        }
-    }
-
     // ---- stage ------------------------------------------------------------
 
     Item {
@@ -502,7 +436,7 @@ Rectangle {
 
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        x: root.roomForSidebar ? sidebar.x + sidebar.width : 0
+        x: root.leftInset
         width: parent.width - x
 
         // Top bar: restrained. The sidebar toggle when it's hidden; on the
@@ -525,13 +459,7 @@ Rectangle {
                 iconName: "chevron-right"
                 iconSize: 13
                 toolTipText: "Show sidebar"
-                onClicked: {
-                    if (root.roomForSidebar) {
-                        root.setSidebarWanted(true)
-                    } else {
-                        root.sidebarOverlayOpen = true
-                    }
-                }
+                onClicked: root.sidebarRequested(false)
             }
 
             Row {

@@ -395,7 +395,6 @@ QtObject {
     readonly property int homeCardRadius: 14
     readonly property int homeContentWidth: px(1040)
     readonly property int homeComposerWidth: px(720)
-    readonly property int homeSidebarWidth: px(264)
     readonly property int typeEyebrow: px(11)
     readonly property real textTrackingEyebrow: 1.1
     readonly property int motionDive: 280

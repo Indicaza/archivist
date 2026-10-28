@@ -5,7 +5,7 @@ import Archivist.Services 1.0
 import "RailButton"
 
 // The left-edge rail. Its items and what a click does come from Shell
-// (Core/Domains/Shell): Home first, then the side panels.
+// (Core/Domains/Shell): Home first, then the side panels, one list.
 Rectangle {
     id: root
 
@@ -40,44 +40,28 @@ Rectangle {
         Repeater {
             model: Shell.railItems
 
-            delegate: ColumnLayout {
-                id: railEntry
+            delegate: RailButton {
+                id: railButton
 
                 required property int index
                 required property var modelData
 
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 4
-
-                RailButton {
-                    Layout.alignment: Qt.AlignHCenter
-                    theme: root.theme
-                    iconName: String(railEntry.modelData.icon)
-                    label: String(railEntry.modelData.label)
-                    active: root.itemActive(railEntry.modelData)
-                    neighborHovered: root.hoveredButtonIndex >= 0
-                        && Math.abs(root.hoveredButtonIndex - railEntry.index) === 1
-                    Accessible.description: String(railEntry.modelData.description || "")
-                    onHoveredChanged: {
-                        if (hovered) {
-                            root.hoveredButtonIndex = railEntry.index
-                        } else if (root.hoveredButtonIndex === railEntry.index) {
-                            root.hoveredButtonIndex = -1
-                        }
+                theme: root.theme
+                iconName: String(railButton.modelData.icon)
+                label: String(railButton.modelData.label)
+                active: root.itemActive(railButton.modelData)
+                neighborHovered: root.hoveredButtonIndex >= 0
+                    && Math.abs(root.hoveredButtonIndex - railButton.index) === 1
+                Accessible.description: String(railButton.modelData.description || "")
+                onHoveredChanged: {
+                    if (hovered) {
+                        root.hoveredButtonIndex = railButton.index
+                    } else if (root.hoveredButtonIndex === railButton.index) {
+                        root.hoveredButtonIndex = -1
                     }
-                    onClicked: Shell.activate(String(railEntry.modelData.id))
                 }
-
-                // Home stands apart from the panels.
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 18
-                    Layout.preferredHeight: 1
-                    Layout.topMargin: 2
-                    Layout.bottomMargin: 2
-                    visible: !railEntry.modelData.isPanel
-                    color: root.theme.quietBorder
-                }
+                onClicked: Shell.activate(String(railButton.modelData.id))
             }
         }
     }

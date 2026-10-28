@@ -3,17 +3,21 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../Icons"
+import "../WorkbenchShell/ExplorerDock/WorkspaceNavigator"
 
-// Home's sidebar: start something, find something, go somewhere.
+// Home's side panel. It sits in the shell's side panel slot, where the
+// Explorer is in a project, and is built like it: the same header bar,
+// band headers and rows, and the shell's drag-to-resize edge.
 //
-//   New chat, Search
-//   Pinned      what the person keeps close (only when there is some)
+//   Header      search conversations, New chat, close
+//   Pinned      what the person keeps close (only when the page doesn't
+//               already show it)
 //   Projects    each opens where it was left; the arrow shows its chats
 //   Recent      a short list of conversations
 //
 // Exhaustive browsing (every file, every chat) stays in the workspace's
-// Explorer, Search and Library panels. The sidebar only lists and asks;
-// HomeView turns the requests into opening things.
+// panels. The sidebar only lists and asks; the shell and HomeView turn the
+// requests into opening things.
 Rectangle {
     id: root
 
@@ -26,7 +30,7 @@ Rectangle {
     signal projectRequested(string collectionId)
     signal pinOpenRequested(var pin)
     signal setupProjectRequested()
-    signal collapseRequested()
+    signal closeRequested()
 
     property string query: ""
     // Projects the person opened or closed in the list.
@@ -34,6 +38,8 @@ Rectangle {
     property bool allProjects: false
     // Per project: how many chats to show when open.
     property var chatLimits: ({})
+    // Bands the person folded: { pinned, projects, recent }.
+    property var folded: ({})
     // What the context menu acts on: { kind, id, collectionId, title, subtitle }.
     property var menuTarget: ({})
 
@@ -96,6 +102,16 @@ Rectangle {
         return result
     }
 
+    function bandOpen(band) {
+        return folded[band] !== true
+    }
+
+    function toggleBand(band) {
+        var next = Object.assign({}, folded)
+        next[band] = bandOpen(band)
+        folded = next
+    }
+
     function openMenu(target) {
         menuTarget = target
         rowMenu.popup()
@@ -109,14 +125,15 @@ Rectangle {
         return "pin"
     }
 
-    color: theme.sidebarBg
+    color: theme.surfaceBg
 
     Rectangle {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         width: 1
-        color: root.theme.homeHairline
+        z: 2
+        color: root.theme.panelBorder
     }
 
     Menu {
@@ -145,88 +162,127 @@ Rectangle {
         }
     }
 
+    // Laid out at no less than the panel's minimum width, so opening and
+    // closing slides the panel instead of squeezing its rows.
     ColumnLayout {
-        anchors.fill: parent
-        anchors.topMargin: 12
-        anchors.leftMargin: 10
-        anchors.rightMargin: 11
-        spacing: 2
+        width: Math.max(root.width, root.theme.explorerMinWidth)
+        height: parent.height
+        spacing: 0
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 4
-
-            HomeSidebarRow {
-                Layout.fillWidth: true
-                implicitHeight: 34
-                theme: root.theme
-                iconName: "edit"
-                label: "New chat"
-                strong: true
-                onClicked: root.newChatRequested()
-            }
-
-            HomeChip {
-                theme: root.theme
-                round: true
-                implicitHeight: 30
-                iconName: "chevron-left"
-                iconSize: 12
-                toolTipText: "Hide sidebar"
-                onClicked: root.collapseRequested()
-            }
-        }
-
-        // Search filters every conversation by title.
+        // Header bar, as in the Workspace Navigator.
         Rectangle {
             Layout.fillWidth: true
-            visible: root.home.allChats.length > 0
-            Layout.preferredHeight: 32
-            Layout.topMargin: 2
-            radius: 8
-            color: searchField.activeFocus
-                ? root.theme.controlSurfaceBg
-                : searchHover.hovered ? root.theme.withAlpha(root.theme.appText, 0.04) : "transparent"
-            border.width: searchField.activeFocus ? 1 : 0
-            border.color: root.theme.panelBorder
+            Layout.preferredHeight: 30
+            color: root.theme.controlSurfaceBg
 
-            HoverHandler {
-                id: searchHover
-                cursorShape: Qt.IBeamCursor
-            }
-
-            AppIcon {
-                id: searchIcon
-
+            Rectangle {
                 anchors.left: parent.left
-                anchors.leftMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                name: "search"
-                tone: searchField.activeFocus ? "normal" : "muted"
-                iconSize: 14
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: root.theme.quietBorder
+                opacity: 0.72
             }
 
-            TextField {
-                id: searchField
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
+                spacing: 3
 
-                anchors.left: searchIcon.right
-                anchors.leftMargin: 4
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.query
-                onTextChanged: root.query = text
-                placeholderText: "Search conversations"
-                placeholderTextColor: Qt.darker(root.theme.appText, 1.12)
-                color: root.theme.appText
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textControlSize - 1
-                Accessible.name: "Search conversations"
-                background: Item {}
-                Keys.onEscapePressed: function(event) {
-                    if (text.length > 0) {
-                        text = ""
-                        event.accepted = true
+                Rectangle {
+                    id: searchBox
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: 5
+                    color: searchHover.hovered || searchField.activeFocus
+                        ? root.theme.hoverBg
+                        : root.theme.surfaceBg
+                    border.width: 1
+                    border.color: searchField.activeFocus ? "#554a7b" : root.theme.quietBorder
+
+                    Behavior on color {
+                        ColorAnimation { duration: root.theme.motionFast }
                     }
+
+                    HoverHandler {
+                        id: searchHover
+                        cursorShape: Qt.IBeamCursor
+                    }
+
+                    AppIcon {
+                        id: searchIcon
+
+                        anchors.left: parent.left
+                        anchors.leftMargin: 7
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "search"
+                        tone: searchField.activeFocus ? "accent" : "muted"
+                        iconSize: 13
+                        accessibleLabel: "Search conversations"
+                    }
+
+                    TextField {
+                        id: searchField
+
+                        anchors.left: searchIcon.right
+                        anchors.leftMargin: 2
+                        anchors.right: parent.right
+                        anchors.rightMargin: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.query
+                        onTextChanged: root.query = text
+                        placeholderText: "Search conversations"
+                        placeholderTextColor: root.theme.mutedText
+                        color: root.theme.appText
+                        font.pixelSize: root.theme.typeSize(9)
+                        leftPadding: 4
+                        rightPadding: 4
+                        topPadding: 0
+                        bottomPadding: 0
+                        Accessible.name: "Search conversations"
+                        background: Item {}
+                        Keys.onEscapePressed: function(event) {
+                            if (text.length > 0) {
+                                text = ""
+                                event.accepted = true
+                            }
+                        }
+                    }
+                }
+
+                IconButton {
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 24
+                    height: 24
+                    theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
+                    iconName: "edit"
+                    iconSize: 14
+                    toolTipText: "New chat"
+                    onClicked: root.newChatRequested()
+                }
+
+                IconButton {
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 24
+                    height: 24
+                    theme: root.theme
+                    circular: true
+                    idleBackgroundColor: root.theme.surfaceBg
+                    hoverBackgroundColor: root.theme.hoverBg
+                    iconName: "chevron-left"
+                    iconSize: 15
+                    toolTipText: "Close sidebar"
+                    onClicked: root.closeRequested()
                 }
             }
         }
@@ -236,10 +292,9 @@ Rectangle {
 
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.topMargin: 8
             clip: true
             contentWidth: width
-            contentHeight: sections.implicitHeight + 24
+            contentHeight: bands.implicitHeight + 12
             boundsBehavior: Flickable.StopAtBounds
 
             ScrollBar.vertical: ScrollBar {
@@ -247,213 +302,263 @@ Rectangle {
             }
 
             ColumnLayout {
-                id: sections
+                id: bands
 
                 width: list.width
-                spacing: 1
+                spacing: 0
 
-                component Eyebrow: Text {
+                // Rows under a band header, inset like the navigator's.
+                component BandRows: ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 8
-                    Layout.topMargin: 16
-                    Layout.bottomMargin: 4
-                    color: root.theme.homeEyebrow
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: root.theme.typeEyebrow
-                    font.weight: root.theme.textWeightEmphasis
-                    font.letterSpacing: root.theme.textTrackingEyebrow
-                    Accessible.role: Accessible.Heading
+                    Layout.leftMargin: 7
+                    Layout.rightMargin: 7
+                    Layout.topMargin: 4
+                    Layout.bottomMargin: 6
+                    spacing: 2
                 }
 
                 // ---- search results -----------------------------------------
 
-                Eyebrow {
+                SidebarBandHeader {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
                     visible: root.searching
-                    Layout.topMargin: 6
-                    text: resultsRepeater.count === 0 ? "NO MATCHES" : "CONVERSATIONS"
+                    theme: root.theme
+                    title: "RESULTS"
+                    iconName: "search"
+                    count: resultsRepeater.count
+                    expanded: true
                 }
 
-                Repeater {
-                    id: resultsRepeater
+                BandRows {
+                    visible: root.searching
 
-                    model: root.searching ? root.searchResults() : []
-
-                    delegate: HomeSidebarRow {
-                        required property var modelData
-
+                    HomeSidebarRow {
                         Layout.fillWidth: true
+                        visible: resultsRepeater.count === 0
                         theme: root.theme
-                        iconName: "chat"
-                        label: String(modelData.chat.title || "Untitled conversation")
-                        trailing: modelData.projectName
-                        current: String(modelData.chat.id) === String(ChatStore.selectedChatId)
-                        onClicked: root.chatRequested(modelData.chat, modelData.collectionId)
+                        label: "No conversations match"
+                        enabled: false
+                    }
+
+                    Repeater {
+                        id: resultsRepeater
+
+                        model: root.searching ? root.searchResults() : []
+
+                        delegate: HomeSidebarRow {
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            theme: root.theme
+                            iconName: "chat"
+                            label: String(modelData.chat.title || "Untitled conversation")
+                            trailing: modelData.projectName
+                            current: String(modelData.chat.id) === String(ChatStore.selectedChatId)
+                            onClicked: root.chatRequested(modelData.chat, modelData.collectionId)
+                        }
                     }
                 }
 
                 // ---- pinned -------------------------------------------------
 
-                Eyebrow {
+                SidebarBandHeader {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
                     visible: !root.searching && root.pins.length > 0
-                    Layout.topMargin: 6
-                    text: "PINNED"
+                    theme: root.theme
+                    title: "PINNED"
+                    iconName: "pin"
+                    count: root.pins.length
+                    expanded: root.bandOpen("pinned")
+                    onToggleRequested: root.toggleBand("pinned")
                 }
 
-                Repeater {
-                    model: root.searching ? [] : root.pins
+                BandRows {
+                    visible: !root.searching && root.pins.length > 0 && root.bandOpen("pinned")
 
-                    delegate: HomeSidebarRow {
-                        required property var modelData
+                    Repeater {
+                        model: root.searching ? [] : root.pins
 
-                        Layout.fillWidth: true
-                        theme: root.theme
-                        iconName: root.iconForPin(String(modelData.kind))
-                        showSwatch: modelData.kind === "collection"
-                        swatch: root.home.projectHue(String(modelData.id))
-                        label: String(modelData.title || "")
-                        onClicked: root.pinOpenRequested(modelData)
-                        onContextMenuRequested: root.openMenu(modelData)
+                        delegate: HomeSidebarRow {
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            theme: root.theme
+                            iconName: root.iconForPin(String(modelData.kind))
+                            showSwatch: modelData.kind === "collection"
+                            swatch: root.home.projectHue(String(modelData.id))
+                            label: String(modelData.title || "")
+                            onClicked: root.pinOpenRequested(modelData)
+                            onContextMenuRequested: root.openMenu(modelData)
+                        }
                     }
                 }
 
                 // ---- projects -----------------------------------------------
 
-                Eyebrow {
-                    visible: !root.searching
-                    Layout.topMargin: root.pins.length > 0 ? 16 : 6
-                    text: "PROJECTS"
-                }
-
-                HomeSidebarRow {
+                SidebarBandHeader {
                     Layout.fillWidth: true
-                    visible: !root.searching && root.home.projects.length === 0
+                    Layout.preferredHeight: 28
+                    visible: !root.searching
                     theme: root.theme
-                    iconName: "add"
-                    label: "Set up a project"
-                    onClicked: root.setupProjectRequested()
+                    title: "PROJECTS"
+                    iconName: "folder"
+                    count: root.home.projects.length
+                    expanded: root.bandOpen("projects")
+                    primaryVisible: true
+                    primaryToolTip: "New project"
+                    onToggleRequested: root.toggleBand("projects")
+                    onPrimaryRequested: root.setupProjectRequested()
                 }
 
-                Repeater {
-                    model: root.searching ? [] : root.visibleProjects
+                BandRows {
+                    visible: !root.searching && root.bandOpen("projects")
 
-                    delegate: ColumnLayout {
-                        id: projectEntry
-
-                        required property var modelData
-
-                        readonly property string projectId: String(modelData.id)
-                        readonly property bool open: root.projectExpanded(projectId)
-                        readonly property var chats: open ? root.home.chatsForProject(projectId, 0) : []
-                        readonly property int limit: root.chatLimit(projectId)
-
+                    HomeSidebarRow {
                         Layout.fillWidth: true
-                        spacing: 1
+                        visible: root.home.projects.length === 0
+                        theme: root.theme
+                        iconName: "add"
+                        label: "Set up a project"
+                        onClicked: root.setupProjectRequested()
+                    }
 
-                        HomeSidebarRow {
+                    Repeater {
+                        model: root.searching ? [] : root.visibleProjects
+
+                        delegate: ColumnLayout {
+                            id: projectEntry
+
+                            required property var modelData
+
+                            readonly property string projectId: String(modelData.id)
+                            readonly property bool open: root.projectExpanded(projectId)
+                            readonly property var chats: open ? root.home.chatsForProject(projectId, 0) : []
+                            readonly property int limit: root.chatLimit(projectId)
+
                             Layout.fillWidth: true
-                            theme: root.theme
-                            showSwatch: true
-                            swatch: root.home.projectHue(projectEntry.projectId)
-                            disclosure: projectEntry.open ? 1 : 0
-                            label: root.home.projectLabel(projectEntry.modelData)
-                            current: projectEntry.projectId === root.currentProjectId
-                            trailing: projectEntry.projectId === root.currentProjectId ? "open" : ""
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 900
-                            ToolTip.text: "Open where you left it"
-                            Accessible.description: projectEntry.open ? "Expanded" : "Collapsed"
-                            onClicked: root.projectRequested(projectEntry.projectId)
-                            onDisclosureToggled: root.toggleProject(projectEntry.projectId)
-                            onContextMenuRequested: root.openMenu({
-                                kind: "collection",
-                                id: projectEntry.projectId,
-                                title: root.home.projectLabel(projectEntry.modelData),
-                                subtitle: "Project"
-                            })
-                        }
+                            spacing: 2
 
-                        Repeater {
-                            model: projectEntry.chats.slice(0, projectEntry.limit)
-
-                            delegate: HomeSidebarRow {
-                                required property var modelData
-
+                            HomeSidebarRow {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                indent: 24
-                                label: String(modelData.title || "Untitled conversation")
-                                current: String(modelData.id) === String(ChatStore.selectedChatId)
-                                onClicked: root.chatRequested(modelData, projectEntry.projectId)
+                                showSwatch: true
+                                swatch: root.home.projectHue(projectEntry.projectId)
+                                disclosure: projectEntry.open ? 1 : 0
+                                label: root.home.projectLabel(projectEntry.modelData)
+                                current: projectEntry.projectId === root.currentProjectId
+                                trailing: projectEntry.projectId === root.currentProjectId ? "OPEN" : ""
+                                trailingBadge: true
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 900
+                                ToolTip.text: "Open where you left it"
+                                Accessible.description: projectEntry.open ? "Expanded" : "Collapsed"
+                                onClicked: root.projectRequested(projectEntry.projectId)
+                                onDisclosureToggled: root.toggleProject(projectEntry.projectId)
                                 onContextMenuRequested: root.openMenu({
-                                    kind: "chat",
-                                    id: String(modelData.id),
-                                    collectionId: projectEntry.projectId,
-                                    libraryId: String(modelData.libraryId || ""),
-                                    title: String(modelData.title || "Untitled conversation"),
-                                    subtitle: root.home.projectLabel(projectEntry.modelData)
+                                    kind: "collection",
+                                    id: projectEntry.projectId,
+                                    title: root.home.projectLabel(projectEntry.modelData),
+                                    subtitle: "Project"
                                 })
                             }
-                        }
 
-                        HomeSidebarRow {
-                            Layout.fillWidth: true
-                            visible: projectEntry.open && projectEntry.chats.length > projectEntry.limit
-                            theme: root.theme
-                            indent: 24
-                            label: "Show " + (projectEntry.chats.length - projectEntry.limit) + " more"
-                            onClicked: root.showMoreChats(projectEntry.projectId)
-                        }
+                            Repeater {
+                                model: projectEntry.chats.slice(0, projectEntry.limit)
 
-                        HomeSidebarRow {
-                            Layout.fillWidth: true
-                            visible: projectEntry.open && projectEntry.chats.length === 0
-                            theme: root.theme
-                            indent: 24
-                            label: "No conversations yet"
-                            enabled: false
+                                delegate: HomeSidebarRow {
+                                    required property var modelData
+
+                                    Layout.fillWidth: true
+                                    theme: root.theme
+                                    indent: 22
+                                    label: String(modelData.title || "Untitled conversation")
+                                    current: String(modelData.id) === String(ChatStore.selectedChatId)
+                                    onClicked: root.chatRequested(modelData, projectEntry.projectId)
+                                    onContextMenuRequested: root.openMenu({
+                                        kind: "chat",
+                                        id: String(modelData.id),
+                                        collectionId: projectEntry.projectId,
+                                        libraryId: String(modelData.libraryId || ""),
+                                        title: String(modelData.title || "Untitled conversation"),
+                                        subtitle: root.home.projectLabel(projectEntry.modelData)
+                                    })
+                                }
+                            }
+
+                            HomeSidebarRow {
+                                Layout.fillWidth: true
+                                visible: projectEntry.open && projectEntry.chats.length > projectEntry.limit
+                                theme: root.theme
+                                indent: 22
+                                label: "Show " + (projectEntry.chats.length - projectEntry.limit) + " more"
+                                onClicked: root.showMoreChats(projectEntry.projectId)
+                            }
+
+                            HomeSidebarRow {
+                                Layout.fillWidth: true
+                                visible: projectEntry.open && projectEntry.chats.length === 0
+                                theme: root.theme
+                                indent: 22
+                                label: "No conversations yet"
+                                enabled: false
+                            }
                         }
                     }
-                }
 
-                HomeSidebarRow {
-                    Layout.fillWidth: true
-                    visible: !root.searching && root.home.projects.length > root.projectLimit
-                    theme: root.theme
-                    iconName: root.allProjects ? "chevron-up" : "more"
-                    label: root.allProjects ? "Fewer projects" : "All projects (" + root.home.projects.length + ")"
-                    onClicked: root.allProjects = !root.allProjects
+                    HomeSidebarRow {
+                        Layout.fillWidth: true
+                        visible: root.home.projects.length > root.projectLimit
+                        theme: root.theme
+                        iconName: root.allProjects ? "chevron-up" : "more"
+                        label: root.allProjects ? "Fewer projects" : "All projects (" + root.home.projects.length + ")"
+                        onClicked: root.allProjects = !root.allProjects
+                    }
                 }
 
                 // ---- recent conversations -----------------------------------
 
-                Eyebrow {
+                SidebarBandHeader {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 28
                     visible: !root.searching && root.recentChats.length > 0
-                    text: "RECENT"
+                    theme: root.theme
+                    title: "RECENT"
+                    iconName: "history"
+                    count: root.recentChats.length
+                    expanded: root.bandOpen("recent")
+                    onToggleRequested: root.toggleBand("recent")
                 }
 
-                Repeater {
-                    model: root.searching ? [] : root.recentChats
+                BandRows {
+                    visible: !root.searching && root.recentChats.length > 0 && root.bandOpen("recent")
 
-                    delegate: HomeSidebarRow {
-                        required property var modelData
+                    Repeater {
+                        model: root.searching ? [] : root.recentChats
 
-                        Layout.fillWidth: true
-                        theme: root.theme
-                        label: String(modelData.chat.title || "Untitled conversation")
-                        trailing: modelData.meta
-                        current: String(modelData.chat.id) === String(ChatStore.selectedChatId)
-                        ToolTip.visible: hovered && modelData.projectName.length > 0
-                        ToolTip.delay: 700
-                        ToolTip.text: "In " + modelData.projectName
-                        onClicked: root.chatRequested(modelData.chat, modelData.collectionId)
-                        onContextMenuRequested: root.openMenu({
-                            kind: "chat",
-                            id: String(modelData.chat.id),
-                            collectionId: modelData.collectionId,
-                            libraryId: String(modelData.chat.libraryId || ""),
-                            title: String(modelData.chat.title || "Untitled conversation"),
-                            subtitle: modelData.projectName
-                        })
+                        delegate: HomeSidebarRow {
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            theme: root.theme
+                            iconName: "chat"
+                            label: String(modelData.chat.title || "Untitled conversation")
+                            trailing: modelData.meta
+                            current: String(modelData.chat.id) === String(ChatStore.selectedChatId)
+                            ToolTip.visible: hovered && modelData.projectName.length > 0
+                            ToolTip.delay: 700
+                            ToolTip.text: "In " + modelData.projectName
+                            onClicked: root.chatRequested(modelData.chat, modelData.collectionId)
+                            onContextMenuRequested: root.openMenu({
+                                kind: "chat",
+                                id: String(modelData.chat.id),
+                                collectionId: modelData.collectionId,
+                                libraryId: String(modelData.chat.libraryId || ""),
+                                title: String(modelData.chat.title || "Untitled conversation"),
+                                subtitle: modelData.projectName
+                            })
+                        }
                     }
                 }
             }

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import "../../Icons"
 
 // One line in Home's sidebar: a conversation, a project, an action.
+// Styled like the Workspace Navigator's rows (hover nudge, selection).
 Button {
     id: root
 
@@ -14,6 +15,8 @@ Button {
     property bool showSwatch: false
     property string label: ""
     property string trailing: ""
+    // The trailing text is a state ("OPEN"), shown like the navigator's ACTIVE.
+    property bool trailingBadge: false
     property int indent: 0
     property bool current: false
     property bool strong: false
@@ -27,12 +30,19 @@ Button {
     signal disclosureToggled()
     signal contextMenuRequested()
 
-    implicitHeight: 32
+    implicitHeight: 28
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
     padding: 0
-    leftPadding: 8 + indent
-    rightPadding: 6
+    leftPadding: (lit ? 9 : 7) + indent
+    rightPadding: 5
+
+    Behavior on leftPadding {
+        NumberAnimation {
+            duration: root.lit ? root.theme.motionHover : root.theme.motionHoverExit
+            easing.type: Easing.OutCubic
+        }
+    }
     Accessible.name: label
 
     readonly property bool lit: hovered || activeFocus || hoverAction.hovered || disclosureButton.hovered
@@ -69,8 +79,8 @@ Button {
                 anchors.centerIn: parent
                 visible: !root.showSwatch && root.iconName.length > 0 && !(root.disclosure >= 0 && root.lit)
                 name: root.iconName
-                tone: root.current || root.lit ? "normal" : "muted"
-                iconSize: 14
+                tone: root.current ? "accent" : root.lit ? "normal" : "muted"
+                iconSize: 13
             }
 
             Rectangle {
@@ -113,7 +123,7 @@ Button {
 
                 background: Rectangle {
                     radius: 5
-                    color: disclosureButton.hovered ? root.theme.withAlpha(root.theme.appText, 0.08) : "transparent"
+                    color: disclosureButton.hovered ? root.theme.activeBg : "transparent"
                 }
             }
         }
@@ -122,10 +132,9 @@ Button {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             text: root.label
-            color: root.current || root.lit || root.strong ? root.theme.appText : Qt.darker(root.theme.appText, 1.12)
-            font.family: root.theme.bodyFontFamily
-            font.pixelSize: root.theme.textControlSize - 1
-            font.weight: root.strong ? root.theme.textWeightEmphasis : root.theme.textWeightRegular
+            color: root.current || root.lit || root.strong ? root.theme.appText : root.theme.mutedText
+            font.pixelSize: root.theme.typeSize(9)
+            font.weight: root.current || root.strong ? Font.DemiBold : Font.Normal
             elide: Text.ElideRight
         }
 
@@ -133,9 +142,11 @@ Button {
             Layout.alignment: Qt.AlignVCenter
             visible: root.trailing.length > 0 && !hoverAction.visible
             text: root.trailing
-            color: root.theme.withAlpha(root.theme.mutedText, 0.85)
-            font.family: root.theme.bodyFontFamily
-            font.pixelSize: root.theme.textCaptionSize - 1
+            color: root.trailingBadge ? root.theme.accentBright : root.theme.mutedText
+            opacity: root.trailingBadge ? 1 : 0.62
+            font.pixelSize: root.theme.typeSize(root.trailingBadge ? 7 : 8)
+            font.weight: root.trailingBadge ? Font.Bold : Font.Normal
+            font.letterSpacing: root.trailingBadge ? 0.45 : 0
         }
 
         Button {
@@ -165,22 +176,22 @@ Button {
 
             background: Rectangle {
                 radius: 6
-                color: hoverAction.hovered ? root.theme.withAlpha(root.theme.appText, 0.08) : "transparent"
+                color: hoverAction.hovered ? root.theme.activeBg : "transparent"
             }
         }
     }
 
     background: Rectangle {
-        radius: 8
+        radius: root.theme.radiusSmall
         color: root.down
-            ? root.theme.withAlpha(root.theme.appText, 0.09)
-            : root.current
-                ? root.theme.withAlpha(root.theme.appText, 0.07)
-                : root.lit
-                    ? root.theme.withAlpha(root.theme.appText, 0.04)
+            ? "#292621"
+            : root.lit
+                ? root.theme.hoverBg
+                : root.current
+                    ? root.theme.activeBg
                     : "transparent"
-        border.width: root.activeFocus ? 1 : 0
-        border.color: root.theme.withAlpha(root.theme.accent, 0.8)
+        border.width: root.current || root.activeFocus ? 1 : 0
+        border.color: root.activeFocus ? root.theme.accent : "#554a7b"
 
         Behavior on color {
             enabled: !root.theme.reducedMotion

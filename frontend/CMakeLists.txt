@@ -279,6 +279,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
+        qml/App/Workbench/WorkbenchShell/SidePanelResizeHandle/SidePanelResizeHandle.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceDragSession.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
