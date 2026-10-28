@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../Files/FileIdentity.js" as FileIdentity
+import "../../Icons"
 import "AgentEditor"
 import "ChatAgentPicker"
 import "ChatComposer"
@@ -12,7 +13,6 @@ Rectangle {
     id: root
 
     required property var theme
-    property bool attached: true
     property string activePanel: "none"
     property bool archivedAgentsOpen: false
     property bool archivedChatsOpen: false
@@ -61,7 +61,8 @@ Rectangle {
         && !ChatStore.mutatingAttachment
         && chatComposer.input.text.trim().length > 0
 
-    signal dockModeToggleRequested()
+    // Fold the dock into the compact, ChatGPT-style composer.
+    signal compactRequested()
     signal messageSubmitted(string message)
 
     function sidebarStateKey(scopeId) {
@@ -935,14 +936,12 @@ Rectangle {
 
                     Layout.preferredWidth: 28
                     Layout.preferredHeight: 28
-                    text: root.attached ? "↙" : "↗"
                     hoverEnabled: true
                     padding: 0
+                    Accessible.name: "Compact composer"
                     ToolTip.visible: hovered
-                    ToolTip.text: root.attached
-                        ? "Center Chat Dock"
-                        : "Attach Chat Dock"
-                    onClicked: root.dockModeToggleRequested()
+                    ToolTip.text: "Compact composer"
+                    onClicked: root.compactRequested()
                     onHoveredChanged: root.updateHoverIndex(
                         "header",
                         0,
@@ -966,17 +965,13 @@ Rectangle {
                         }
                     }
 
-                    contentItem: Text {
-                        text: parent.text
-                        color: parent.hovered
-                            ? root.theme.appText
-                            : root.theme.mutedText
-                        font.pixelSize:
-                            root.theme.typeSize(14)
-                        horizontalAlignment:
-                            Text.AlignHCenter
-                        verticalAlignment:
-                            Text.AlignVCenter
+                    contentItem: Item {
+                        AppIcon {
+                            anchors.centerIn: parent
+                            name: "collapse"
+                            tone: dockModeButton.hovered ? "normal" : "muted"
+                            iconSize: 14
+                        }
                     }
 
                     background: Rectangle {

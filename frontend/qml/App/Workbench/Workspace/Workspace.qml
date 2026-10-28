@@ -26,6 +26,12 @@ Rectangle {
     // Hosted by the docking workspace as the live chat view: no header, tab
     // strip or file surfaces, just the conversation filling this item.
     property bool dockedMode: false
+    // Height of something floating over the bottom of this view (the
+    // compact chat composer). The transcript runs underneath it and pads its
+    // end so the last message can scroll clear.
+    property real bottomOverlay: 0
+    // Whether the transcript was at its end before the overlay changed.
+    property bool followEndOnOverlay: true
     property real previewLeftObstruction: 0
     property bool historyLoadPending: false
     property int historyAnchorIndex: -1
@@ -1227,6 +1233,12 @@ Rectangle {
         onFinished: root.scheduleScrollToEnd(true)
     }
 
+    onBottomOverlayChanged: {
+        if (transcript.visible && root.followEndOnOverlay) {
+            root.scheduleScrollToEnd(false)
+        }
+    }
+
     onJumpProgressChanged: {
         if (jumpAnimation.running) {
             root.stepAnimatedJump()
@@ -1822,7 +1834,7 @@ Rectangle {
         clip: true
         spacing: root.theme.messageVerticalGap
         topMargin: 42
-        bottomMargin: 44
+        bottomMargin: 44 + root.bottomOverlay
         cacheBuffer: Math.max(1200, Math.ceil(height * 2))
         displayMarginBeginning: 0
         displayMarginEnd: 0
@@ -1881,6 +1893,7 @@ Rectangle {
         }
 
         onContentHeightChanged: {
+            root.followEndOnOverlay = nearEnd
             root.traceChatViewport("contentHeight.changed")
 
             if (root.scrollToEndPending) {
@@ -1897,6 +1910,7 @@ Rectangle {
         }
 
         onContentYChanged: {
+            root.followEndOnOverlay = nearEnd
             var previousContentY = root.chatTracePreviousContentY
             root.chatTracePreviousContentY = contentY
 
@@ -2309,7 +2323,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.rightMargin: 18
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 18
+        anchors.bottomMargin: 18 + root.bottomOverlay
         theme: root.theme
         hue: root.chatHue
         unreadCount: root.unreadCount

@@ -11,14 +11,13 @@ Rectangle {
 
     required property var theme
     required property string collectionId
-    property bool attached: true
     property string activeView: "chat"
     property string stateScopeId: ""
     property bool stateRestored: false
     // Folded down to its tab strip.
     property bool collapsed: false
 
-    signal dockModeToggleRequested()
+    signal compactRequested()
     signal collapseToggleRequested()
     signal expandRequested()
     signal messageSubmitted(string message)
@@ -236,9 +235,7 @@ Rectangle {
                 anchors.fill: parent
                 visible: root.activeView === "chat"
                 theme: root.theme
-                attached: root.attached
-                onDockModeToggleRequested:
-                    root.dockModeToggleRequested()
+                onCompactRequested: root.compactRequested()
                 onMessageSubmitted: function(message) {
                     root.messageSubmitted(message)
                 }

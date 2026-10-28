@@ -63,6 +63,27 @@ Item {
         }
     }
 
+    // The same draft changed elsewhere (the compact composer, or cleared).
+    Connections {
+        target: root.drafts
+        ignoreUnknownSignals: true
+
+        function onDraftChanged(key) {
+            var expected = root.draftChatId.length > 0 ? root.draftChatId : "none"
+
+            if (key !== expected || root.draftChatId.length === 0) {
+                return
+            }
+
+            var stored = root.drafts.draft(root.draftChatId)
+            // Blank text is stored as no draft; that's no change.
+            if (stored !== composer.text
+                    && !(stored.length === 0 && composer.text.trim().length === 0)) {
+                root.loadDraft()
+            }
+        }
+    }
+
     Component.onCompleted: loadDraft()
 
     // A small press on the card when a message leaves it.

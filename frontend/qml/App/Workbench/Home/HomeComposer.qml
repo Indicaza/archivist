@@ -29,6 +29,20 @@ FocusScope {
     property bool sending: false
     // A reply is streaming somewhere: Send becomes Stop.
     property bool streaming: false
+    // Home's own draft (Shell.homeDraft). Off when another owner keeps the
+    // text, such as the workspace's compact chat composer (ChatDrafts).
+    property bool syncHomeDraft: true
+    // The "+" menu (add a folder, new project).
+    property bool showAdd: true
+    // An expand button beside Send: grow into the docked workbench.
+    property bool showExpand: false
+    // The folder chip; off where the folder is already decided.
+    property bool showLibrary: true
+    // Floating over content (the workspace's compact chat): a raised,
+    // slightly lighter bubble with a lit top edge. Its owner draws the
+    // shadow underneath.
+    property bool floating: false
+    property string expandToolTip: "Expand"
 
     readonly property alias input: field
     readonly property bool hasText: field.text.trim().length > 0
@@ -49,6 +63,7 @@ FocusScope {
     signal agentChosen(string agentId)
     signal addFolderRequested()
     signal newProjectRequested()
+    signal expandRequested()
 
     function submit() {
         if (!canSend) {
@@ -83,6 +98,7 @@ FocusScope {
 
     // Soft shadow: two offset layers, no blur pass.
     Rectangle {
+        visible: !root.floating
         x: 2
         y: 10
         width: card.width - 4
@@ -117,12 +133,28 @@ FocusScope {
 
         width: parent.width
         height: Math.round(root.fieldHeight + toolbar.height + 18)
-        radius: root.theme.homeComposerRadius
-        color: root.focused ? Qt.lighter(root.theme.homeComposerBg, 1.05) : root.theme.homeComposerBg
+        radius: root.floating ? root.theme.compactComposerRadius : root.theme.homeComposerRadius
+        color: {
+            var base = root.floating ? root.theme.compactComposerBg : root.theme.homeComposerBg
+            return root.focused ? Qt.lighter(base, 1.05) : base
+        }
         border.width: 1
         border.color: root.focused
             ? root.theme.homeComposerFocusBorder
-            : hover.hovered ? root.theme.homeCardBorderHover : root.theme.homeCardBorder
+            : root.floating
+                ? (hover.hovered ? root.theme.compactComposerBorderHover : root.theme.compactComposerBorder)
+                : hover.hovered ? root.theme.homeCardBorderHover : root.theme.homeCardBorder
+
+        // A lit top edge: the bubble catches light above the page.
+        Rectangle {
+            visible: root.floating
+            anchors.fill: parent
+            anchors.margins: 1
+            radius: parent.radius - 1
+            color: "transparent"
+            border.width: 1
+            border.color: root.theme.compactComposerHighlight
+        }
 
         Behavior on height {
             enabled: !root.theme.reducedMotion
@@ -163,9 +195,13 @@ FocusScope {
             TextArea {
                 id: field
 
-                Component.onCompleted: text = Shell.homeDraft
+                Component.onCompleted: {
+                    if (root.syncHomeDraft) {
+                        text = Shell.homeDraft
+                    }
+                }
                 onTextChanged: {
-                    if (text !== Shell.homeDraft) {
+                    if (root.syncHomeDraft && text !== Shell.homeDraft) {
                         Shell.homeDraft = text
                     }
                 }
@@ -199,6 +235,7 @@ FocusScope {
                 // The draft changed elsewhere (sent, so cleared).
                 Connections {
                     target: Shell
+                    enabled: root.syncHomeDraft
 
                     function onHomeDraftChanged() {
                         if (field.text !== Shell.homeDraft) {
@@ -224,6 +261,7 @@ FocusScope {
             HomeChip {
                 id: plusButton
 
+                visible: root.showAdd
                 theme: root.theme
                 iconName: "add"
                 round: true
@@ -235,7 +273,7 @@ FocusScope {
             HomeChip {
                 id: libraryButton
 
-                visible: root.libraries.length > 0
+                visible: root.showLibrary && root.libraries.length > 0
                 theme: root.theme
                 iconName: "folder"
                 label: root.libraryName.length > 0 ? root.libraryName : "Folder"
@@ -255,7 +293,7 @@ FocusScope {
             HomeChip {
                 id: agentButton
 
-                visible: root.agent !== null && root.libraries.length > 0
+                visible: root.agent !== null && (root.libraries.length > 0 || !root.showLibrary)
                 theme: root.theme
                 iconName: "agent"
                 label: root.agentLabel(root.agent)
@@ -290,6 +328,18 @@ FocusScope {
                     enabled: !root.theme.reducedMotion
                     NumberAnimation { duration: root.theme.motionHover }
                 }
+            }
+
+            HomeChip {
+                id: expandButton
+
+                visible: root.showExpand
+                theme: root.theme
+                iconName: "expand"
+                round: true
+                toolTipText: root.expandToolTip
+                Accessible.name: root.expandToolTip
+                onClicked: root.expandRequested()
             }
 
             HomeSendButton {

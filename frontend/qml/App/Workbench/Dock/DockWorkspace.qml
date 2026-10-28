@@ -14,6 +14,26 @@ Item {
 
     required property var theme
     property real leftInset: 0
+    // Something floats over the bottom of the workspace (the compact chat
+    // composer): the conversation pads its end by this much when its pane
+    // reaches the bottom, so the last message can scroll clear of it.
+    property real bottomOverlay: 0
+    // Where the live conversation sits, in this item's coordinates, or
+    // null when no chat pane is showing. The compact composer centres on it.
+    // Built from the main area's own position (it springs with the side
+    // panel) plus the pane's place in it, so it follows both live. A chat
+    // in a floating window has no frame here.
+    readonly property var chatFrame: {
+        if (!chatSurface.visible || !chatSurface.placed || chatSurface.surfaceArea !== area) {
+            return null
+        }
+        return {
+            x: area.x + chatSurface.x,
+            y: area.y + chatSurface.y,
+            width: chatSurface.width,
+            height: chatSurface.height
+        }
+    }
 
     signal contextInspectionRequested(string messageId)
     signal revealInLibraryRequested(string libraryId, string fileId, string relativePath)
@@ -1262,6 +1282,10 @@ Item {
                 theme: root.theme
                 dockedMode: true
                 leftObstruction: 0
+                bottomOverlay: placed && surfaceArea !== null
+                    && y + height >= surfaceArea.height - 4
+                    ? root.bottomOverlay
+                    : 0
                 previewLeftObstruction: 0
 
                 onContextInspectionRequested: function(messageId) {

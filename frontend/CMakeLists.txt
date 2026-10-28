@@ -304,6 +304,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
         qml/App/Workbench/Home/HomeView.qml
+        qml/App/Workbench/CompactChat/CompactChatComposer.qml
         qml/App/Workbench/Home/HomeComposer.qml
         qml/App/Workbench/Home/HomeSidebar.qml
         qml/App/Workbench/Home/HomeSidebarRow.qml
