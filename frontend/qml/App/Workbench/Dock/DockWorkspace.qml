@@ -1022,6 +1022,10 @@ Item {
             })
         }
 
+        function onAgentRestored(summary) {
+            toast.show(summary)
+        }
+
         function onLayoutApplied(layoutId, name) {
             if (root.quietLayout) {
                 return
@@ -1156,13 +1160,37 @@ Item {
         onSecondaryClicked: Docking.dismissAgentSuggestion()
     }
 
-    DockSurfaceArea {
-        id: area
+    // While an agent's arrangement is in place, one quiet line offers the
+    // way back, or to keep it as the normal layout.
+    DockNoticeBar {
+        id: temporaryArrangementBar
+
+        readonly property var arrangement: Docking.temporaryArrangement
 
         x: root.leftInset
         y: agentSuggestionBar.height
         width: Math.max(0, root.width - root.leftInset)
-        height: Math.max(0, root.height - agentSuggestionBar.height)
+        z: 5
+        theme: root.theme
+        open: arrangement.since !== undefined && !agentSuggestionBar.open
+        iconName: "workspace"
+        text: "Arranged for this task" + (arrangement.summary ? ": " + String(arrangement.summary) : "")
+        shortText: "Arranged for this task"
+        primaryText: "Keep"
+        secondaryText: "Put back"
+        onPrimaryClicked: Docking.keepArrangement()
+        onSecondaryClicked: Docking.putBackArrangement()
+    }
+
+    DockSurfaceArea {
+        id: area
+
+        readonly property real noticeHeight: agentSuggestionBar.height + temporaryArrangementBar.height
+
+        x: root.leftInset
+        y: noticeHeight
+        width: Math.max(0, root.width - root.leftInset)
+        height: Math.max(0, root.height - noticeHeight)
         theme: root.theme
         workspace: root
         surfaceId: root.surfaceId

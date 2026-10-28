@@ -584,6 +584,7 @@ void WorkspaceStore::setCollection(const QString &collectionId)
     m_model = fresh;
     m_publishedModelRevision = m_model.revision();
     m_agentUndo.clear();
+    loadArrangement();
     m_suggestion.clear();
     m_suggestionIntent.clear();
     m_recentAnchors.clear();

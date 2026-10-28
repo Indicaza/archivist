@@ -212,6 +212,17 @@ with more panels are in the layout picker.
     layout undo and never touching document edits. Up to 20 steps are kept;
     `before_task` restores all of them at once.
   - Everything is logged in `agentActivity`.
+- Temporary arrangements. The first agent change in a task remembers the
+  arrangement before it (`temporaryArrangement`).
+  - It is kept per collection under
+    `workspace/collections/<id>/docking/temporaryArrangement`. That's apart
+    from named layouts, which agents never write.
+  - It is stored without focus, drag or animation state, and survives a
+    restart.
+  - "Put everything back" (`before_task`, or the notice's Put back) restores
+    it in one step, closing only clean, non-terminal tabs that agents opened.
+  - Keep (`keepArrangement`) makes the current arrangement the normal one.
+    Undoing the task's first change also ends it.
 
 The bottom panel (Chat, Terminal, Problems) stays the main place for the
 conversation. It can be folded to its tabs, and "beside our conversation"
