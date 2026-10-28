@@ -1,4 +1,5 @@
 import QtQuick
+import Archivist.Services 1.0
 import "IconRegistry.js" as IconRegistry
 
 Item {
@@ -10,22 +11,24 @@ Item {
     property string accessibleLabel: ""
     property bool mirrored: false
     property real iconRotation: 0
+    // Icons grow with the interface size (Cmd/Ctrl + -), like the text.
+    readonly property real drawnSize: Math.round(iconSize * InterfaceScale.scale)
 
-    implicitWidth: iconSize
-    implicitHeight: iconSize
-    width: iconSize
-    height: iconSize
+    implicitWidth: drawnSize
+    implicitHeight: drawnSize
+    width: drawnSize
+    height: drawnSize
 
     Accessible.role: Accessible.Graphic
     Accessible.name: accessibleLabel
 
     Image {
         anchors.centerIn: parent
-        width: root.iconSize
-        height: root.iconSize
+        width: root.drawnSize
+        height: root.drawnSize
         source: IconRegistry.appIconSource(root.name, root.tone)
-        sourceSize.width: Math.ceil(root.iconSize * 2)
-        sourceSize.height: Math.ceil(root.iconSize * 2)
+        sourceSize.width: Math.ceil(root.drawnSize * 2)
+        sourceSize.height: Math.ceil(root.drawnSize * 2)
         fillMode: Image.PreserveAspectFit
         smooth: true
         mipmap: true

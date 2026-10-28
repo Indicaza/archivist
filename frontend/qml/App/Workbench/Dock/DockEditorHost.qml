@@ -299,13 +299,60 @@ Item {
         }
     }
 
+    // Recovered edits and outside changes are decisions, not surprises.
+    property var dismissedRecovery: ({})
+
+    DockNoticeBar {
+        id: notice
+
+        readonly property bool diskChanged: Boolean(root.snapshot.diskChanged)
+        readonly property bool recovered: Boolean(root.snapshot.recovered)
+            && !root.dismissedRecovery[root.documentId]
+
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: markdownToolbar.visible ? markdownToolbar.bottom : parent.top
+        z: 2
+        theme: root.theme
+        open: root.shown && root.loaded && (diskChanged || recovered)
+        tone: diskChanged ? "warning" : "info"
+        text: diskChanged
+            ? "This file changed on disk while you had unsaved edits."
+            : "Unsaved edits recovered from your last session."
+        shortText: diskChanged ? "Changed on disk" : "Recovered edits"
+        readonly property bool narrow: width < 520
+        secondaryText: diskChanged ? (narrow ? "Use Disk" : "Use File on Disk") : "Discard"
+        primaryText: diskChanged ? (narrow ? "Keep Mine" : "Keep My Edits") : "Save"
+        dismissible: !diskChanged
+
+        onPrimaryClicked: {
+            if (diskChanged) {
+                Documents.keepUnsavedOverDisk(root.documentId)
+            } else {
+                Documents.save(root.documentId)
+            }
+        }
+        onSecondaryClicked: {
+            if (diskChanged) {
+                Documents.takeDiskVersion(root.documentId)
+            } else {
+                Documents.discard(root.documentId)
+            }
+        }
+        onDismissed: {
+            var dismissed = root.dismissedRecovery
+            dismissed[root.documentId] = true
+            root.dismissedRecovery = dismissed
+        }
+    }
+
     IdeHost {
         id: ideHost
 
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.top: markdownToolbar.visible ? markdownToolbar.bottom : parent.top
+        anchors.top: notice.bottom
         visible: root.shown && root.loaded
         theme: root.theme
         activeSurface: "editor"

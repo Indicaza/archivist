@@ -4,6 +4,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QStandardPaths>
 #include <QVariantMap>
 #include <QtEnvironmentVariables>
 #include <QtWebEngineQuick>
@@ -20,9 +21,11 @@
 #include "App/Domains/Library/library_store.h"
 #include "App/Domains/Worktree/worktree_store.h"
 #include "App/Domains/Documents/document_store.h"
+#include "App/Domains/Documents/unsaved_recovery.h"
 #include "App/Domains/Workspace/workspace_store.h"
 #include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
+#include "App/Services/interface_scale.h"
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
 #include "Core/Domains/Ide/ide_server.h"
@@ -103,6 +106,18 @@ int main(int argc, char *argv[])
     QObject::connect(&libraryStore, &LibraryStore::fileSaved, &documentStore, &DocumentStore::noteFileSaved);
     QObject::connect(&libraryStore, &LibraryStore::fileSaveFailed, &documentStore, &DocumentStore::noteFileSaveFailed);
     dockingStore.setDocumentStore(&documentStore);
+    // Unsaved editor text survives crashes: it is kept beside the database
+    // and comes back, marked unsaved, on the next start.
+    UnsavedRecovery unsavedRecovery(
+        &documentStore,
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/recovery/unsaved.json")
+    );
+    const int recoveredDocuments = unsavedRecovery.restore();
+    if (recoveredDocuments > 0) {
+        qInfo().noquote() << "[Documents] Recovered unsaved edits in" << recoveredDocuments << "file(s)";
+    }
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &unsavedRecovery, &UnsavedRecovery::flush);
+    InterfaceScale interfaceScale;
 
     QObject::connect(
         &chatStore,
@@ -201,6 +216,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "CodeThemes", &codeThemes);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "WorktreeStore", &worktreeStore);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Documents", &documentStore);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "InterfaceScale", &interfaceScale);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Docking", &dockingStore);
 
     QQmlApplicationEngine engine;

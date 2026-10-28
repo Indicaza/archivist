@@ -22,6 +22,7 @@ Item {
     required property string collectionId
     required property string libraryId
     required property var details
+    required property var viewState
     required property string anchorId
     required property bool isActive
     required property bool isHidden
@@ -157,6 +158,7 @@ Item {
             loading: textual && !snapshot.loaded && String(snapshot.error || "").length === 0
             errorMessage: String(snapshot.error || "")
             leftObstruction: 0
+            zoomShortcutsEnabled: false
 
             onViewModeChanged: {
                 // "Edit source" turns this tab into the editor for the file.

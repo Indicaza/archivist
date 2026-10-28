@@ -204,6 +204,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Worktree/worktree_store.h
     src/App/Domains/Documents/document_store.cpp
     src/App/Domains/Documents/document_store.h
+    src/App/Domains/Documents/unsaved_recovery.cpp
+    src/App/Domains/Documents/unsaved_recovery.h
     src/App/Domains/Workspace/keyed_list_model.cpp
     src/App/Domains/Workspace/keyed_list_model.h
     src/App/Domains/Workspace/workspace_store.cpp
@@ -212,6 +214,8 @@ qt_add_executable(archivist-qt
     src/App/Services/runtime_trace_store.h
     src/App/Services/workspace_state_store.cpp
     src/App/Services/workspace_state_store.h
+    src/App/Services/interface_scale.cpp
+    src/App/Services/interface_scale.h
 )
 
 set_source_files_properties(
@@ -294,6 +298,10 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockSplitter.qml
         qml/App/Workbench/Dock/DockDropOverlay.qml
         qml/App/Workbench/Dock/DockDialogButton.qml
+        qml/App/Workbench/Dock/DockNoticeBar.qml
+        qml/App/Workbench/Dock/DockLayoutCard.qml
+        qml/App/Workbench/Dock/DockLayoutPicker.qml
+        qml/App/Workbench/Dock/DockLayoutThumb.qml
         qml/App/Workbench/Dock/DockMenu.qml
         qml/App/Workbench/Dock/DockMenuItem.qml
         qml/App/Workbench/Dock/DockMenuSeparator.qml
@@ -452,6 +460,8 @@ if(ARCHIVIST_BUILD_TESTS)
         tests/workspace_store_test.cpp
         src/App/Domains/Documents/document_store.cpp
         src/App/Domains/Documents/document_store.h
+        src/App/Domains/Documents/unsaved_recovery.cpp
+        src/App/Domains/Documents/unsaved_recovery.h
         src/App/Domains/Workspace/keyed_list_model.cpp
         src/App/Domains/Workspace/keyed_list_model.h
         src/App/Domains/Workspace/workspace_store.cpp

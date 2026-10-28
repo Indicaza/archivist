@@ -61,6 +61,7 @@ Item {
     readonly property bool filePreviewAttached: false
 
     property var anchorItems: ({})
+    property bool quietLayout: false
     property var terminalItems: ({})
     property string preferredChatViewId: ""
     property string lastSelectionKey: ""
@@ -597,6 +598,44 @@ Item {
         return opened
     }
 
+    // Unsaved edits recovered after a crash always end up in front of the
+    // person: files no view shows any more get a tab in the target panel.
+    function surfaceRecoveredDocuments(collectionId) {
+        var recovered = Documents.recoveredDocuments || []
+        var reopened = 0
+        var inCollection = 0
+        for (var index = 0; index < recovered.length; index += 1) {
+            var documentId = String(recovered[index])
+            if (documentId.indexOf(collectionId + ":") !== 0) {
+                continue
+            }
+            inCollection += 1
+            Documents.reload(documentId)
+            if (Documents.holders(documentId).length > 0) {
+                continue
+            }
+            var snapshot = Documents.snapshot(documentId)
+            var path = String(snapshot.path || "")
+            var name = path.split("/").pop()
+            var dot = name.lastIndexOf(".")
+            var file = {
+                id: String(snapshot.fileId || ""),
+                name: name,
+                relativePath: path,
+                extension: dot > 0 ? name.slice(dot) : ""
+            }
+            var resource = root.documentResource(String(snapshot.libraryId || ""), file)
+            resource.id = documentId
+            Docking.openView("archivist.editor", resource, name)
+            reopened += 1
+        }
+        if (inCollection > 0) {
+            toast.show(inCollection === 1
+                ? "Recovered unsaved edits in 1 file"
+                : "Recovered unsaved edits in " + inCollection + " files")
+        }
+    }
+
     function restoreCollection() {
         var collectionId = String(CollectionStore.selectedCollectionId || "")
         if (collectionId.length > 0 && collectionId !== Docking.collectionId) {
@@ -607,6 +646,12 @@ Item {
     }
 
     Component.onCompleted: {
+        // Buffers recovered before this page existed: let the worktree
+        // badges know they are unsaved.
+        var dirty = Documents.dirtyDocuments || []
+        for (var index = 0; index < dirty.length; index += 1) {
+            WorktreeStore.setDocumentDirty(dirty[index], String(Documents.snapshot(dirty[index]).libraryId || ""), true)
+        }
         root.surfaceId = Docking.primarySurfaceId
         restoreCollection()
     }
@@ -626,11 +671,14 @@ Item {
         function onWorkspaceRestored(collectionId, fromSnapshot) {
             root.surfaceId = Docking.primarySurfaceId
             if (!fromSnapshot) {
+                root.quietLayout = true
                 Docking.applyPreset("development")
+                root.quietLayout = false
                 root.migrateLegacyTabs(collectionId)
             }
             var chats = Docking.viewIdsOfType("archivist.chat")
             root.preferredChatViewId = chats.length > 0 ? chats[0] : ""
+            Qt.callLater(root.surfaceRecoveredDocuments, collectionId)
         }
 
         function onRevisionChanged() {
@@ -645,6 +693,17 @@ Item {
 
         function onOperationFailed(message) {
             toast.show(message)
+        }
+
+        function onLayoutApplied(layoutId, name) {
+            if (root.quietLayout) {
+                return
+            }
+            toast.show("Switched to " + (name.length > 0 ? name : "layout"), "Undo", function() {
+                if (Docking.undoLayout()) {
+                    toast.show("Layout restored")
+                }
+            })
         }
     }
 
@@ -673,6 +732,16 @@ Item {
     }
 
     // ---- keyboard --------------------------------------------------------
+
+    // Cmd/Ctrl + = - 0 size the whole interface (InterfaceScale catches
+    // the keys application-wide, even inside editors and terminals).
+    Connections {
+        target: InterfaceScale
+
+        function onScaleChanged() {
+            zoomBadge.show(Math.round(InterfaceScale.scale * 100) + "%")
+        }
+    }
 
     Shortcut {
         sequence: "Escape"
@@ -871,24 +940,142 @@ Item {
         onTriggered: root.resizingSurface = false
     }
 
-    // A short note when an operation is refused.
+    // A brief readout of the interface size, like a browser's zoom bubble:
+    // a percentage and a meter on the size ladder.
+    Rectangle {
+        id: zoomBadge
+
+        property string label: ""
+        readonly property var ladder: [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
+        readonly property int position: {
+            var best = 0
+            for (var index = 0; index < ladder.length; index += 1) {
+                if (Math.abs(ladder[index] - InterfaceScale.scale) < Math.abs(ladder[best] - InterfaceScale.scale)) {
+                    best = index
+                }
+            }
+            return best
+        }
+
+        function show(text) {
+            label = text
+            opacity = 1
+            zoomBadgeTimer.restart()
+        }
+
+        anchors.horizontalCenter: area.horizontalCenter
+        y: area.y + 18
+        z: 210
+        width: Math.max(150, zoomBadgeRow.implicitWidth + 36)
+        height: 58
+        radius: 14
+        color: Qt.rgba(0.08, 0.075, 0.07, 0.9)
+        border.width: 1
+        border.color: root.theme.panelBorder
+        opacity: 0
+        visible: opacity > 0.01
+        scale: opacity > 0.5 ? 1 : 0.94
+
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 160 } }
+        Behavior on scale { enabled: !root.theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+
+        HoverHandler {
+            onHoveredChanged: hovered ? zoomBadgeTimer.stop() : zoomBadgeTimer.restart()
+        }
+
+        Row {
+            id: zoomBadgeRow
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 9
+            spacing: 10
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: zoomBadge.label
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textPanelTitleSize - 4
+                font.weight: root.theme.textWeightEmphasis
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: Math.abs(InterfaceScale.scale - 1) > 0.001
+                text: Qt.platform.os === "osx" ? "⌘0 resets" : "Ctrl+0 resets"
+                color: root.theme.mutedText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textMetadataSize
+            }
+        }
+
+        // Where this size sits on the ladder; the dot glides between steps.
+        Item {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height - 15
+            width: parent.width - 36
+            height: 6
+
+            Repeater {
+                model: zoomBadge.ladder.length
+
+                Rectangle {
+                    required property int index
+
+                    x: index * (parent.width - 4) / (zoomBadge.ladder.length - 1)
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 4
+                    height: zoomBadge.ladder[index] === 1 ? 6 : 4
+                    radius: 2
+                    color: index <= zoomBadge.position ? root.theme.accent : root.theme.panelBorder
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                }
+            }
+
+            Rectangle {
+                width: 10
+                height: 10
+                radius: 5
+                anchors.verticalCenter: parent.verticalCenter
+                x: zoomBadge.position * (parent.width - 4) / (zoomBadge.ladder.length - 1) - 3
+                color: root.theme.accentBright
+                Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4; damping: 0.4; epsilon: 0.25 } }
+            }
+        }
+
+        Timer {
+            id: zoomBadgeTimer
+            interval: 1400
+            onTriggered: zoomBadge.opacity = 0
+        }
+    }
+
+    // Short confirmations, optionally with one action (Undo).
     Rectangle {
         id: toast
 
         property string message: ""
+        property string actionText: ""
+        property var action: null
 
-        function show(text) {
+        function show(text, actionLabel, actionCallback) {
             message = String(text || "")
+            actionText = actionLabel ? String(actionLabel) : ""
+            action = actionCallback || null
             opacity = 1
+            y = area.y + area.height - height - 14
+            toastTimer.interval = actionText.length > 0 ? 6000 : 2600
             toastTimer.restart()
         }
 
+        onOpacityChanged: if (opacity === 0) y = area.y + area.height
+
         anchors.horizontalCenter: area.horizontalCenter
-        y: 12
+        y: area.y + area.height
         z: 200
-        width: toastText.implicitWidth + 28
-        height: 30
-        radius: 15
+        width: toastRow.implicitWidth + 28
+        height: 32
+        radius: 16
         color: root.theme.controlSurfaceBg
         border.width: 1
         border.color: root.theme.panelBorder
@@ -896,14 +1083,55 @@ Item {
         visible: opacity > 0.01
 
         Behavior on opacity { NumberAnimation { duration: root.theme.motionPanel } }
+        Behavior on y { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4; damping: 0.35; epsilon: 0.2 } }
 
-        Text {
-            id: toastText
+        HoverHandler {
+            id: toastHover
+            onHoveredChanged: hovered ? toastTimer.stop() : toastTimer.restart()
+        }
+
+        Row {
+            id: toastRow
+
             anchors.centerIn: parent
-            text: toast.message
-            color: root.theme.appText
-            font.family: root.theme.bodyFontFamily
-            font.pixelSize: root.theme.textCaptionSize
+            spacing: 12
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: toast.message
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+            }
+
+            Text {
+                id: toastAction
+
+                anchors.verticalCenter: parent.verticalCenter
+                visible: toast.actionText.length > 0
+                text: toast.actionText
+                color: toastActionArea.containsMouse ? root.theme.appText : root.theme.accentBright
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+                font.weight: root.theme.textWeightStrong
+
+                MouseArea {
+                    id: toastActionArea
+
+                    anchors.fill: parent
+                    anchors.margins: -6
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        var callback = toast.action
+                        toast.opacity = 0
+                        toast.action = null
+                        if (callback) {
+                            callback()
+                        }
+                    }
+                }
+            }
         }
 
         Timer {

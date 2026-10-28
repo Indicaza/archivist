@@ -1497,6 +1497,7 @@ Rectangle {
     FilePreview {
         id: filePreview
 
+        zoomShortcutsEnabled: !root.dockedMode
         anchors.top: workspaceHeader.bottom
         anchors.bottom: parent.bottom
         x: root.previewLeftObstruction

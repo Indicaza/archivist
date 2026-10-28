@@ -1,7 +1,9 @@
 #include "App/Domains/Documents/document_store.h"
+#include "App/Domains/Documents/unsaved_recovery.h"
 #include "App/Domains/Workspace/keyed_list_model.h"
 #include "App/Domains/Workspace/workspace_store.h"
 
+#include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -25,6 +27,7 @@ struct FakeDisk
 {
     QHash<QString, QString> files; // libraryId:fileId -> text
     QList<QStringList> saves;      // {libraryId, fileId, text}
+    QHash<QString, QString> modified; // libraryId:fileId -> modifiedAt
     int loads = 0;
 
     void attach(DocumentStore &store)
@@ -38,7 +41,7 @@ struct FakeDisk
             }
             done(true, {}, {
                 {QStringLiteral("content"), files.value(key)},
-                {QStringLiteral("file"), QVariantMap{{QStringLiteral("modifiedAt"), QStringLiteral("t0")}}},
+                {QStringLiteral("file"), QVariantMap{{QStringLiteral("modifiedAt"), modified.value(key, QStringLiteral("t0"))}}},
             });
         });
         store.setSaver([this](const QString &libraryId, const QString &fileId, const QString &text, const QString &) {
@@ -338,6 +341,160 @@ private slots:
         QVERIFY(!reopened.isEmpty());
         QCOMPARE(disk.loads, 1);
         QCOMPARE(documents.snapshot(docId).value("text").toString(), QStringLiteral("hello!"));
+    }
+
+    void namedLayoutsSaveApplyAndUndo()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("layouts"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString chat = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("c1")}}, "Chat");
+
+        QVERIFY(store.applyPreset(QStringLiteral("research")));
+        QCOMPARE(store.currentLayoutId(), QStringLiteral("research"));
+        QCOMPARE(store.currentLayoutName(), QStringLiteral("Research"));
+        QVERIFY(store.canUndoLayout());
+        const QString chatAnchorInResearch = store.view(chat).value("anchorId").toString();
+        QCOMPARE(chatAnchorInResearch, QStringLiteral("research.chat"));
+
+        // Thumbnails cover the window and name what each panel is for.
+        const QVariantList preview = store.layoutPreview(QStringLiteral("development"));
+        QCOMPARE(preview.size(), 3);
+        QStringList kinds;
+        for (const QVariant &rect : preview) {
+            kinds.append(rect.toMap().value("kind").toString());
+            QVERIFY(rect.toMap().value("width").toDouble() > 0.1);
+        }
+        QVERIFY(kinds.contains(QStringLiteral("chat")));
+        QVERIFY(kinds.contains(QStringLiteral("terminal")));
+
+        // Save the current arrangement, switch away, come back.
+        const QString saved = store.saveLayout(QStringLiteral("  My Research  "));
+        QVERIFY(saved.startsWith(QStringLiteral("user.")));
+        QCOMPARE(store.savedLayouts().size(), 1);
+        QCOMPARE(store.savedLayouts().first().toMap().value("name").toString(), QStringLiteral("My Research"));
+        QVERIFY(store.applyPreset(QStringLiteral("development")));
+        QCOMPARE(store.view(chat).value("anchorId").toString(), QStringLiteral("dev.chat"));
+        QVERIFY(store.applyLayout(saved));
+        QCOMPARE(store.view(chat).value("anchorId").toString(), chatAnchorInResearch);
+        QCOMPARE(store.layoutPreview(saved).size(), store.layoutPreview(QString()).size());
+
+        // Undo puts back the arrangement before the last change; views stay.
+        QVERIFY(store.undoLayout());
+        QCOMPARE(store.view(chat).value("anchorId").toString(), QStringLiteral("dev.chat"));
+        QCOMPARE(store.currentLayoutId(), QStringLiteral("development"));
+        QVERIFY(!store.canUndoLayout());
+        QVERIFY(!store.view(a).isEmpty());
+
+        // Saving under the same name replaces; rename and delete.
+        QCOMPARE(store.saveLayout(QStringLiteral("my research")), saved);
+        QCOMPARE(store.savedLayouts().size(), 1);
+        QVERIFY(store.renameLayout(saved, QStringLiteral("Deep Work")));
+        QCOMPARE(store.currentLayoutName(), QStringLiteral("Deep Work"));
+        QVERIFY(store.deleteLayout(saved));
+        QVERIFY(store.savedLayouts().isEmpty());
+        QVERIFY(store.currentLayoutId().isEmpty());
+        QVERIFY(store.saveLayout(QStringLiteral("   ")).isEmpty());
+    }
+
+    void unsavedEditsSurviveACrash()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("recovery/unsaved.json"));
+        const QString docId = QStringLiteral("col:lib-main:a.cpp");
+
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("hello"));
+
+        {
+            DocumentStore documents;
+            disk.attach(documents);
+            UnsavedRecovery recovery(&documents, path);
+            WorkspaceStore store;
+            store.setDocumentStore(&documents);
+            store.setCollection(QStringLiteral("recovery"));
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+
+            // Nothing unsaved: no file.
+            recovery.flush();
+            QVERIFY(!QFile::exists(path));
+
+            QVERIFY(documents.applyEdits(docId, QStringLiteral("page"), 1, insertAt(5, " world")).value("ok").toBool());
+            recovery.flush();
+            QVERIFY(QFile::exists(path));
+            // The process dies here: no save, no discard.
+        }
+
+        {
+            DocumentStore documents;
+            disk.attach(documents);
+            UnsavedRecovery recovery(&documents, path);
+            QCOMPARE(recovery.restore(), 1);
+            QCOMPARE(documents.recoveredDocuments(), QStringList({docId}));
+            QVERIFY(documents.isDirty(docId));
+            QCOMPARE(documents.snapshot(docId).value("text").toString(), QStringLiteral("hello world"));
+            QVERIFY(documents.snapshot(docId).value("recovered").toBool());
+            QVERIFY(!documents.snapshot(docId).value("diskChanged").toBool());
+
+            // A view opening the file gets the recovered text, not the disk.
+            WorkspaceStore store;
+            store.setDocumentStore(&documents);
+            store.setCollection(QStringLiteral("recovery"));
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+            QCOMPARE(documents.snapshot(docId).value("text").toString(), QStringLiteral("hello world"));
+
+            // Saving clears it, and the recovery file goes away.
+            documents.save(docId);
+            documents.noteFileSaved(QStringLiteral("lib-main"), QStringLiteral("a.cpp"), {});
+            QVERIFY(!documents.isDirty(docId));
+            QVERIFY(documents.recoveredDocuments().isEmpty());
+            recovery.flush();
+            QVERIFY(!QFile::exists(path));
+        }
+    }
+
+    void editsSurviveTheFileChangingOnDisk()
+    {
+        const QString docId = QStringLiteral("col:lib-main:a.cpp");
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("hello"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("conflict"));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        QVERIFY(documents.applyEdits(docId, QStringLiteral("page"), 1, insertAt(5, "!")).value("ok").toBool());
+
+        // Someone else writes the file. Our edits stay; the buffer is flagged.
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("HELLO"));
+        disk.modified.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("t1"));
+        documents.reload(docId);
+        QVERIFY(documents.isDirty(docId));
+        QVERIFY(documents.snapshot(docId).value("diskChanged").toBool());
+        QCOMPARE(documents.snapshot(docId).value("text").toString(), QStringLiteral("hello!"));
+
+        // Keep mine: still unsaved, no longer flagged, saves against t1.
+        documents.keepUnsavedOverDisk(docId);
+        QVERIFY(documents.isDirty(docId));
+        QVERIFY(!documents.snapshot(docId).value("diskChanged").toBool());
+        QCOMPARE(documents.snapshot(docId).value("modifiedAt").toString(), QStringLiteral("t1"));
+
+        // Or take the file: the disk text, clean.
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("HELLO again"));
+        documents.reload(docId);
+        QVERIFY(documents.snapshot(docId).value("diskChanged").toBool());
+        QSignalSpy reset(&documents, &DocumentStore::documentReset);
+        documents.takeDiskVersion(docId);
+        QCOMPARE(reset.count(), 1);
+        QVERIFY(!documents.isDirty(docId));
+        QCOMPARE(documents.snapshot(docId).value("text").toString(), QStringLiteral("HELLO again"));
     }
 
     void savesGoToTheDocumentsOwnWorktree()

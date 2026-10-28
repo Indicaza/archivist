@@ -13,6 +13,7 @@ Button {
     implicitWidth: Math.max(78, label.implicitWidth + 28)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
+    opacity: enabled ? 1 : 0.45
 
     contentItem: Text {
         id: label
@@ -23,7 +24,6 @@ Button {
         color: root.primary
             ? "#17151f"
             : root.destructive && root.hovered ? "#e08c84" : root.theme.appText
-        opacity: root.enabled ? 1 : 0.5
         font.family: root.theme.bodyFontFamily
         font.pixelSize: root.theme.textCaptionSize
         font.weight: root.theme.textWeightEmphasis

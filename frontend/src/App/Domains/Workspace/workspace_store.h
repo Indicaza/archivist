@@ -5,6 +5,8 @@
 #include "Core/Domains/Workspace/workspace_model.h"
 
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QPointer>
 #include <QSettings>
@@ -44,6 +46,10 @@ class WorkspaceStore final : public QObject
     Q_PROPERTY(QVariantMap dragLandingRect READ dragLandingRect NOTIFY dragChanged)
     Q_PROPERTY(bool dropAllowed READ dropAllowed NOTIFY dragChanged)
     Q_PROPERTY(QVariantList presets READ presets CONSTANT)
+    Q_PROPERTY(QVariantList savedLayouts READ savedLayouts NOTIFY layoutsChanged)
+    Q_PROPERTY(QString currentLayoutId READ currentLayoutId NOTIFY layoutsChanged)
+    Q_PROPERTY(QString currentLayoutName READ currentLayoutName NOTIFY layoutsChanged)
+    Q_PROPERTY(bool canUndoLayout READ canUndoLayout NOTIFY layoutsChanged)
     Q_PROPERTY(double minimumAnchorWidth READ minimumAnchorWidth WRITE setMinimumAnchorWidth NOTIFY metricsChanged)
     Q_PROPERTY(double minimumAnchorHeight READ minimumAnchorHeight WRITE setMinimumAnchorHeight NOTIFY metricsChanged)
     Q_PROPERTY(double splitterThickness READ splitterThickness WRITE setSplitterThickness NOTIFY metricsChanged)
@@ -162,7 +168,24 @@ public:
     Q_INVOKABLE void cancelDrag();
 
     // ---- layouts ----------------------------------------------------------
+    // Layouts arrange panels; they never open or close views. Presets are
+    // built in; saved layouts are the user's own and shared by every
+    // Collection. Applying one can be undone (the arrangement before it is
+    // kept until the next layout change).
     Q_INVOKABLE bool applyPreset(const QString &presetId);
+    Q_INVOKABLE bool applyLayout(const QString &layoutId);
+    Q_INVOKABLE QString saveLayout(const QString &name);
+    Q_INVOKABLE bool renameLayout(const QString &layoutId, const QString &name);
+    Q_INVOKABLE bool deleteLayout(const QString &layoutId);
+    Q_INVOKABLE bool undoLayout();
+    // Normalised panel rectangles for a thumbnail: [{x, y, width, height,
+    // kind}] in 0..1, kind one of editor, terminal, chat, preview, diff, any.
+    // "" previews the current arrangement.
+    [[nodiscard]] Q_INVOKABLE QVariantList layoutPreview(const QString &layoutId) const;
+    [[nodiscard]] QVariantList savedLayouts() const;
+    [[nodiscard]] QString currentLayoutId() const { return m_currentLayoutId; }
+    [[nodiscard]] QString currentLayoutName() const;
+    [[nodiscard]] bool canUndoLayout() const { return !m_layoutUndo.isEmpty(); }
 
 signals:
     void collectionIdChanged();
@@ -176,6 +199,9 @@ signals:
     void viewClosed(const QString &viewId, const QString &typeId, const QVariantMap &resource);
     void workspaceRestored(const QString &collectionId, bool fromSnapshot);
     void operationFailed(const QString &message);
+    void layoutsChanged();
+    // A layout was applied from the picker or a shortcut (not by undo).
+    void layoutApplied(const QString &layoutId, const QString &name);
 
 private:
     void publish();
@@ -216,6 +242,15 @@ private:
     QRectF m_landingRect;
     Workspace::LayoutGeometry m_preview;
     QString m_previewSurfaceId;
+    bool applyLayoutDocument(const QJsonObject &layout, const QString &layoutId);
+    [[nodiscard]] QJsonObject layoutDocument(const QString &layoutId) const;
+    [[nodiscard]] QJsonArray readSavedLayouts() const;
+    void writeSavedLayouts(const QJsonArray &layouts);
+    void setCurrentLayoutId(const QString &layoutId);
+
+    QString m_currentLayoutId;
+    QJsonObject m_layoutUndo;
+    QString m_layoutUndoId;
     QHash<QString, QRectF> m_lastViewRects;
     QHash<QString, QRectF> m_lastAnchorRects;
 };
