@@ -367,7 +367,7 @@ private slots:
         AITools::Availability plain;
         AITools::Availability workspace;
         workspace.workspace = true;
-        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 4);
+        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 5);
         for (const QVariant &definition : AITools::providerTools(plain)) {
             QVERIFY(!AITools::isWorkspaceTool(definition.toMap().value(QStringLiteral("name")).toString()));
         }
@@ -443,6 +443,23 @@ private slots:
         }
         QCOMPARE(code, QStringLiteral("permission_denied"));
         QCOMPARE(requests.last().value(QStringLiteral("target")).toString(), QStringLiteral("the code"));
+
+        // A preference lasts only when the message stated one.
+        answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
+        const QVariantMap preference{
+            {QStringLiteral("action"), QStringLiteral("set")},
+            {QStringLiteral("preference"), QStringLiteral("chat_location")},
+            {QStringLiteral("value"), QStringLiteral("bottom")},
+            {QStringLiteral("area"), QString()},
+            {QStringLiteral("duration"), QStringLiteral("always")},
+        };
+        AITools::execute(context, QStringLiteral("workspace_preference"), preference);
+        QCOMPARE(requests.last().value(QStringLiteral("action")).toString(), QStringLiteral("preference"));
+        QVERIFY(requests.last().value(QStringLiteral("lasting")).toBool());
+        QVERIFY(!requests.last().value(QStringLiteral("lastingAllowed")).toBool());
+        context.workspaceLastingPreference = true;
+        AITools::execute(context, QStringLiteral("workspace_preference"), preference);
+        QVERIFY(requests.last().value(QStringLiteral("lastingAllowed")).toBool());
 
         // With no workspace attached, the tools say so instead of guessing.
         AITools::Context detached = toolContext(runId);

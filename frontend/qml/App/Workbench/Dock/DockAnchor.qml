@@ -685,6 +685,7 @@ Item {
         }
     }
 
+    // The common actions first; everything else under More.
     DockMenu {
         id: panelMenu
 
@@ -692,33 +693,46 @@ Item {
 
         DockMenuItem {
             theme: root.theme
-            text: "Rename Panel…"
+            text: "Rename…"
             shortcutText: "F2"
             onTriggered: root.startRename()
         }
         DockMenuItem {
             theme: root.theme
-            text: "Use Automatic Name"
-            visible: root.name.length > 0
-            onTriggered: Docking.renameAnchor(root.anchorId, "")
+            text: "Lock in Place"
+            shortcutText: "position and size"
+            checkable: true
+            checked: root.layoutLocked
+            onTriggered: Docking.setAnchorLayoutLocked(root.anchorId, !root.layoutLocked)
+        }
+        DockMenuItem {
+            theme: root.theme
+            text: root.switchable ? "Show as Tabs" : "Show as Shelf"
+            onTriggered: Docking.setAnchorSwitchable(root.anchorId, !root.switchable)
+        }
+        DockMenuSeparator { theme: root.theme }
+        DockMenuItem { theme: root.theme; text: "Split Right"; shortcutText: "Ctrl+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "right") }
+        DockMenuItem { theme: root.theme; text: "Split Down"; shortcutText: "Ctrl+Shift+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "bottom") }
+        DockMenuItem {
+            theme: root.theme
+            text: root.isMaximized ? "Restore Layout" : "Maximize"
+            shortcutText: "Ctrl+Shift+Enter"
+            onTriggered: Docking.toggleMaximize(root.anchorId)
         }
         DockMenuSeparator { theme: root.theme }
 
-        // The two locks are independent.
         DockMenu {
-            id: lockMenu
+            id: moreMenu
 
             theme: root.theme
-            title: root.locked ? "Locked" : "Lock"
-            width: 268
+            title: "More"
+            width: 280
 
             DockMenuItem {
                 theme: root.theme
-                text: "Lock Layout"
-                shortcutText: "position and size"
-                checkable: true
-                checked: root.layoutLocked
-                onTriggered: Docking.setAnchorLayoutLocked(root.anchorId, !root.layoutLocked)
+                text: "Use Automatic Name"
+                visible: root.name.length > 0
+                onTriggered: Docking.renameAnchor(root.anchorId, "")
             }
             DockMenuItem {
                 theme: root.theme
@@ -728,81 +742,91 @@ Item {
                 checked: root.contentLocked
                 onTriggered: Docking.setAnchorContentLocked(root.anchorId, !root.contentLocked)
             }
-        }
+            DockMenuItem {
+                id: docsPurposeItem
 
-        // Where new terminals (and other new items) opened from this panel go.
-        DockMenu {
-            id: worktreeMenu
+                // Re-read when preferences change.
+                readonly property bool forDocs: Docking.workspacePreferences, Docking.anchorPurpose(root.anchorId) === "documentation"
 
-            theme: root.theme
-            title: "New Items Open In"
-            width: 280
-
+                theme: root.theme
+                text: "Use for Documentation"
+                shortcutText: "reference opens here"
+                checkable: true
+                checked: forDocs
+                onTriggered: {
+                    if (forDocs) {
+                        var preferences = Docking.workspacePreferences
+                        for (var i = 0; i < preferences.length; ++i) {
+                            if (preferences[i].key === "area_purpose" && preferences[i].anchorId === root.anchorId) {
+                                Docking.forgetPreference(preferences[i].id)
+                            }
+                        }
+                    } else {
+                        Docking.setPreference("area_purpose", "documentation", root.anchorId, true)
+                    }
+                }
+            }
             DockMenuItem {
                 theme: root.theme
-                text: "Follow Context"
-                shortcutText: "default"
-                checkable: true
-                checked: root.contextLibraryId.length === 0
-                onTriggered: Docking.setAnchorLibrary(root.anchorId, "")
+                text: root.isTarget ? "Stop Opening New Files Here" : "Open New Files Here"
+                onTriggered: Docking.toggleTargetAnchor(root.anchorId)
             }
-            DockMenuSeparator { theme: root.theme }
 
-            Instantiator {
-                model: LibraryStore.libraries || []
-                delegate: DockMenuItem {
-                    required property var modelData
+            // Where new terminals (and other new items) opened from this panel go.
+            DockMenu {
+                id: worktreeMenu
 
+                theme: root.theme
+                title: "New Items Open In"
+                width: 280
+
+                DockMenuItem {
                     theme: root.theme
-                    text: root.workspace.libraryLabel(String(modelData.id || ""))
+                    text: "Follow Context"
+                    shortcutText: "default"
                     checkable: true
-                    checked: root.contextLibraryId === String(modelData.id || "")
-                    onTriggered: Docking.setAnchorLibrary(root.anchorId, String(modelData.id || ""))
+                    checked: root.contextLibraryId.length === 0
+                    onTriggered: Docking.setAnchorLibrary(root.anchorId, "")
                 }
-                onObjectAdded: function(index, object) { worktreeMenu.insertItem(index + 2, object) }
-                onObjectRemoved: function(index, object) { worktreeMenu.removeItem(object) }
+                DockMenuSeparator { theme: root.theme }
+
+                Instantiator {
+                    model: LibraryStore.libraries || []
+                    delegate: DockMenuItem {
+                        required property var modelData
+
+                        theme: root.theme
+                        text: root.workspace.libraryLabel(String(modelData.id || ""))
+                        checkable: true
+                        checked: root.contextLibraryId === String(modelData.id || "")
+                        onTriggered: Docking.setAnchorLibrary(root.anchorId, String(modelData.id || ""))
+                    }
+                    onObjectAdded: function(index, object) { worktreeMenu.insertItem(index + 2, object) }
+                    onObjectRemoved: function(index, object) { worktreeMenu.removeItem(object) }
+                }
+            }
+
+            DockMenuSeparator { theme: root.theme }
+            DockMenuItem {
+                theme: root.theme
+                text: "Move Panel to New Window"
+                visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.anchorCount > 1)
+                enabled: !root.layoutLocked
+                onTriggered: root.workspace.detachAnchor(root.anchorId)
+            }
+            DockMenuItem {
+                theme: root.theme
+                text: "Return Panel to Main Window"
+                visible: root.workspace.isFloating
+                enabled: !root.layoutLocked
+                onTriggered: root.workspace.returnToMainWindow("anchor", root.anchorId)
             }
         }
 
-        DockMenuItem {
-            theme: root.theme
-            text: root.switchable ? "Show as Tabs" : "Show as Shelf"
-            onTriggered: Docking.setAnchorSwitchable(root.anchorId, !root.switchable)
-        }
         DockMenuSeparator { theme: root.theme }
         DockMenuItem {
             theme: root.theme
-            text: root.isTarget ? "Stop Opening New Files Here" : "Open New Files Here"
-            onTriggered: Docking.toggleTargetAnchor(root.anchorId)
-        }
-        DockMenuSeparator { theme: root.theme }
-        DockMenuItem { theme: root.theme; text: "Split Right"; shortcutText: "Ctrl+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "right") }
-        DockMenuItem { theme: root.theme; text: "Split Down"; shortcutText: "Ctrl+Shift+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "bottom") }
-        DockMenuItem {
-            theme: root.theme
-            text: root.isMaximized ? "Restore Layout" : "Maximize Panel"
-            shortcutText: "Ctrl+Shift+Enter"
-            onTriggered: Docking.toggleMaximize(root.anchorId)
-        }
-        DockMenuSeparator { theme: root.theme }
-        DockMenuItem {
-            theme: root.theme
-            text: "Move Panel to New Window"
-            visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.anchorCount > 1)
-            enabled: !root.layoutLocked
-            onTriggered: root.workspace.detachAnchor(root.anchorId)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Return Panel to Main Window"
-            visible: root.workspace.isFloating
-            enabled: !root.layoutLocked
-            onTriggered: root.workspace.returnToMainWindow("anchor", root.anchorId)
-        }
-        DockMenuSeparator { theme: root.theme }
-        DockMenuItem {
-            theme: root.theme
-            text: root.layoutLocked ? "Close Panel (layout locked)" : "Close Panel"
+            text: root.layoutLocked ? "Close Panel (locked in place)" : "Close Panel"
             enabled: !root.layoutLocked
             onTriggered: root.workspace.closeAnchor(root.anchorId)
         }

@@ -833,6 +833,24 @@ const QStringList &restoreScopes()
     return scopes;
 }
 
+const QStringList &preferenceOps()
+{
+    static const QStringList ops{QStringLiteral("set"), QStringLiteral("clear"), QStringLiteral("list")};
+    return ops;
+}
+
+const QStringList &preferenceKeys()
+{
+    static const QStringList keys{QStringLiteral("chat_location"), QStringLiteral("main_editor"), QStringLiteral("rearranging"), QStringLiteral("area_purpose")};
+    return keys;
+}
+
+const QStringList &preferenceDurations()
+{
+    static const QStringList durations{QStringLiteral("this_session"), QStringLiteral("always")};
+    return durations;
+}
+
 // The Library a file reference belongs to: this chat's, or another by id or
 // name (a worktree is a Library of its own).
 QVariantMap resolveLibrary(CoreDatabase &database, const Context &context, const QString &reference)
@@ -969,6 +987,19 @@ QVariantMap workspaceRestoreTool(const QVariantMap &input, Context &context)
         {QStringLiteral("action"), QStringLiteral("restore")},
         {QStringLiteral("scope"), input.value(QStringLiteral("scope"))},
         {QStringLiteral("layout"), input.value(QStringLiteral("layout"))},
+    });
+}
+
+QVariantMap workspacePreferenceTool(const QVariantMap &input, Context &context)
+{
+    return callWorkspace(context, {
+        {QStringLiteral("action"), QStringLiteral("preference")},
+        {QStringLiteral("op"), input.value(QStringLiteral("action"))},
+        {QStringLiteral("preference"), input.value(QStringLiteral("preference"))},
+        {QStringLiteral("value"), input.value(QStringLiteral("value"))},
+        {QStringLiteral("area"), input.value(QStringLiteral("area"))},
+        {QStringLiteral("lasting"), input.value(QStringLiteral("duration")).toString() == QStringLiteral("always")},
+        {QStringLiteral("lastingAllowed"), context.workspaceLastingPreference},
     });
 }
 
@@ -1457,6 +1488,38 @@ const QList<Definition> &definitions()
             },
             workspaceRestoreTool,
             [](const QVariantMap &input) { return QVariantMap{{QStringLiteral("scope"), input.value(QStringLiteral("scope"))}}; },
+            workspaceOutputSummary,
+        });
+
+        tools.append({
+            QStringLiteral("workspace_preference"),
+            QStringLiteral("Workspace Preference"),
+            QStringLiteral("Remember how the person likes their workspace, only when they state a preference (not for a one-off request). chat_location: bottom | docked (\"I like my chat at the bottom\"). main_editor: large | normal (\"keep my main editor large\"). rearranging: only_when_asked | when_helpful (\"don't rearrange my windows unless I ask\"). area_purpose: value is what a panel is for, e.g. documentation, and area names the panel (\"use the right panel for documentation\"). duration: always only when they say always, from now on, by default or describe a standing habit; otherwise this_session. clear forgets one; list shows them."),
+            mutation, workspaceMode,
+            objectSchema(
+                {
+                    {QStringLiteral("action"), enumSchema(preferenceOps())},
+                    {QStringLiteral("preference"), enumSchema(preferenceKeys())},
+                    {QStringLiteral("value"), stringSchema(0, 40, QStringLiteral("set: the value; clear: \"\" (or the purpose for area_purpose)."))},
+                    {QStringLiteral("area"), stringSchema(0, 200, QStringLiteral("area_purpose only: the panel, e.g. \"the right panel\" or \"this panel\"; else \"\"."))},
+                    {QStringLiteral("duration"), enumSchema(preferenceDurations())},
+                },
+                {QStringLiteral("action"), QStringLiteral("preference"), QStringLiteral("value"), QStringLiteral("area"), QStringLiteral("duration")}
+            ),
+            [](const QVariant &input) {
+                const QVariantMap map = strictObject(input, {QStringLiteral("action"), QStringLiteral("preference"), QStringLiteral("value"), QStringLiteral("area"), QStringLiteral("duration")});
+                return QVariantMap{
+                    {QStringLiteral("action"), enumField(map, QStringLiteral("action"), preferenceOps())},
+                    {QStringLiteral("preference"), enumField(map, QStringLiteral("preference"), preferenceKeys())},
+                    {QStringLiteral("value"), stringField(map, QStringLiteral("value"), 0, 40, true, QString())},
+                    {QStringLiteral("area"), stringField(map, QStringLiteral("area"), 0, 200, true, QString())},
+                    {QStringLiteral("duration"), enumField(map, QStringLiteral("duration"), preferenceDurations())},
+                };
+            },
+            workspacePreferenceTool,
+            [](const QVariantMap &input) {
+                return QVariantMap{{QStringLiteral("action"), input.value(QStringLiteral("action"))}, {QStringLiteral("preference"), input.value(QStringLiteral("preference"))}, {QStringLiteral("duration"), input.value(QStringLiteral("duration"))}};
+            },
             workspaceOutputSummary,
         });
 

@@ -110,8 +110,21 @@ const QRegularExpression &workspaceRequestPattern()
             "|\\bkeep\\b[\\s\\S]{0,40}\\b(?:panel|pane|area|where\\s+it\\s+is|accessible|visible|open|on\\s+screen)\\b"
             "|\\buse\\s+(?:this|that|the)\\s+(?:\\w+\\s+)?(?:panel|pane|area)\\s+for\\b"
             "|\\b(?:my|the)\\s+(?:workspace|layout)\\b"
-            "|\\b(?:i\\s+(?:like|prefer|want)|always|never|don'?t|do\\s+not)\\b[\\s\\S]{0,80}\\b(?:chat|editor|panel|windows?|layout|rearrange|docs?|documentation|terminal)\\b"
+            "|\\b(?:i\\s+(?:like|prefer|want)|always|never|don'?t|do\\s+not|keep\\s+my)\\b[\\s\\S]{0,80}\\b(?:chat|editor|panel|windows?|layout|rearrange|docs?|documentation|terminal)\\b"
             ")"
+        ),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    return pattern;
+}
+
+// A standing preference, not a one-off: only these may be stored.
+const QRegularExpression &lastingPreferencePattern()
+{
+    static const QRegularExpression pattern(
+        QStringLiteral(
+            "\\b(?:always|from\\s+now\\s+on|by\\s+default|in\\s+general|every\\s+time|whenever|going\\s+forward|never|"
+            "i\\s+(?:like|prefer|want)\\s+my|don'?t\\s+[\\s\\S]{0,60}\\bunless|keep\\s+my|remember)\\b"
         ),
         QRegularExpression::CaseInsensitiveOption
     );
@@ -175,7 +188,8 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
               << QStringLiteral("To find the relevant files, use Library evidence or search first, then show only the files that matter (usually two to five).")
               << QStringLiteral("\"Put everything back\" or \"restore my workspace\" means workspace_restore with before_task; \"undo that\" means last_change.")
               << QStringLiteral("Talk about areas and panels in the person's words; never mention anchors, view ids or tool names.")
-              << QStringLiteral("When a workspace result says suggested, the change was prepared but not applied: say it is ready to apply from the notice. When it fails, say why in one sentence and do not retry the same change.");
+              << QStringLiteral("When a workspace result says suggested, the change was prepared but not applied: say it is ready to apply from the notice. When it fails, say why in one sentence and do not retry the same change.")
+              << QStringLiteral("When the person states how they like their workspace (\"I like my chat at the bottom\", \"use the right panel for documentation\"), record it with workspace_preference; never turn a one-off request into a preference. Say whether it is kept for this session or always, and that they can forget it from the Layouts menu.");
     }
 
     if (input.initialRetrievalAvailable) {
@@ -474,6 +488,7 @@ private:
     bool m_retrievalContextIncluded = false;
     bool m_mutationProposalRequested = false;
     bool m_workspaceRequested = false;
+    bool m_workspaceLastingPreference = false;
     QString m_instructions;
     QJsonArray m_initialInput;
     QJsonArray m_tools;
@@ -725,6 +740,7 @@ void ChatRunJob::prepare()
     const bool verificationRequested = explicitToolRequestPattern().match(userContent).hasMatch() || toolTestingRequested;
     const bool verificationToolsAvailable = initialRetrievalAvailable && verificationRequested;
     m_workspaceRequested = Workspace::Gateway::installed() && workspaceRequestPattern().match(userContent).hasMatch();
+    m_workspaceLastingPreference = m_workspaceRequested && lastingPreferencePattern().match(userContent).hasMatch();
     m_mutationProposalRequested = explicitLibraryMutationPattern().match(userContent).hasMatch()
         && (!m_workspaceRequested || strongLibraryMutationPattern().match(userContent).hasMatch());
     const bool discoveryToolsSuppressed = initialRetrievalAvailable && !toolTestingRequested;
@@ -1046,6 +1062,7 @@ QVariantMap ChatRunJob::executeToolCall(const QVariantMap &call)
     context.cancelled = [this]() { return m_aborted; };
     context.emitEvent = [this](const QString &type, const QVariantMap &payload) { m_worker.appendEvent(m_runId, type, payload); };
     context.workspaceExplicit = m_workspaceRequested;
+    context.workspaceLastingPreference = m_workspaceLastingPreference;
 
     QString code;
     QString message;

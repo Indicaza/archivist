@@ -57,6 +57,9 @@ struct Context
     std::function<void(const QString &eventType, const QVariantMap &payload)> emitEvent;
     // The person's message asked for a workspace change in this turn.
     bool workspaceExplicit = false;
+    // The message states a lasting preference ("always", "from now on",
+    // "I like my ..."), so a workspace preference may be stored.
+    bool workspaceLastingPreference = false;
     // Reaches the workspace (see Workspace::Gateway). Empty: the installed
     // gateway handler.
     std::function<QVariantMap(const QVariantMap &request)> workspace;

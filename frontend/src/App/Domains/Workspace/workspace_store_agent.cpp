@@ -14,6 +14,7 @@
 #include "Core/Domains/Workspace/workspace_resources.h"
 
 #include <QDateTime>
+#include <algorithm>
 #include <QEvent>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -120,6 +121,13 @@ Intents::Environment WorkspaceStore::agentEnvironment(bool mayMoveFocus) const
     for (const QString &surfaceId : m_model.surfaceIds()) {
         environment.surfaceSizes.insert(surfaceId, surfaceSize(surfaceId));
     }
+    const Preferences::Effects effects = preferenceEffects();
+    environment.mayAddAreas = !effects.onlyWhenAsked;
+    if (effects.keepMainLarge) {
+        environment.sidePanelShare = 0.28;
+        environment.largestSideShare = 0.45;
+    }
+    environment.purposeAreas = effects.purposeAreas;
     return environment;
 }
 
@@ -131,6 +139,14 @@ QVariantMap WorkspaceStore::describeForAgent() const
         {QStringLiteral("collapsed"), m_commandSurfaceCollapsed},
     });
     description.insert(QStringLiteral("canUndoLastChange"), canUndoAgentChange());
+    QStringList preferences;
+    for (const QVariant &preference : workspacePreferences()) {
+        const QVariantMap map = preference.toMap();
+        preferences.append(map.value(QStringLiteral("sentence")).toString() + QStringLiteral(" (") + map.value(QStringLiteral("duration")).toString() + QLatin1Char(')'));
+    }
+    if (!preferences.isEmpty()) {
+        description.insert(QStringLiteral("preferences"), preferences);
+    }
     if (!m_baseline.isEmpty()) {
         // "Put everything back" (before_task) is available, even after a restart.
         description.insert(QStringLiteral("temporaryArrangementSince"), m_baselineSince);
@@ -210,7 +226,8 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
                     break;
                 }
             }
-            if (!docked.isEmpty()) {
+            const bool keepAtBottom = wanted == chatId && preferenceEffects().chatAtBottom;
+            if (!docked.isEmpty() && !keepAtBottom) {
                 items.append(QVariantMap{{QStringLiteral("viewId"), docked}});
             } else if (wanted == chatId) {
                 // This conversation lives in the bottom workbench.
@@ -445,6 +462,18 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
         holdBack = QStringLiteral("this conversation isn't the one in front");
     } else if (m_drag.kind != DragSource::Kind::None || m_resizing) {
         holdBack = QStringLiteral("the person is moving a panel");
+    }
+
+    if (action == QStringLiteral("preference")) {
+        if (request.value(QStringLiteral("op")).toString() != QStringLiteral("list") && !holdBack.isEmpty()) {
+            return failure(QStringLiteral("NOT_ALLOWED"), QStringLiteral("Not changing preferences now: %1.").arg(holdBack));
+        }
+        return preferenceForAgent(request);
+    }
+
+    // "Don't rearrange my windows unless I ask": only explicit requests.
+    if (holdBack.isEmpty() && preferenceEffects().onlyWhenAsked && !request.value(QStringLiteral("explicit")).toBool()) {
+        holdBack = QStringLiteral("the person asked not to rearrange unless they ask");
     }
 
     if (action == QStringLiteral("restore")) {
@@ -808,4 +837,192 @@ QVariantMap WorkspaceStore::restoreForAgent(const QVariantMap &request)
         {QStringLiteral("status"), QStringLiteral("applied")},
         {QStringLiteral("notes"), QStringList{summary}},
     };
+}
+
+// ---- preferences ----------------------------------------------------------
+
+namespace
+{
+const QString kPreferencesKey = QStringLiteral("workspace/preferences");
+}
+
+void WorkspaceStore::loadPreferences()
+{
+    const QJsonArray stored = QJsonDocument::fromJson(m_settings.value(kPreferencesKey).toString().toUtf8()).array();
+    QList<Preferences::Preference> session;
+    for (const Preferences::Preference &preference : std::as_const(m_preferences)) {
+        if (!preference.lasting) {
+            session.append(preference);
+        }
+    }
+    m_preferences = Preferences::fromJson(stored) + session;
+}
+
+void WorkspaceStore::savePreferences()
+{
+    QList<Preferences::Preference> lasting;
+    for (const Preferences::Preference &preference : std::as_const(m_preferences)) {
+        if (preference.lasting) {
+            lasting.append(preference);
+        }
+    }
+    if (lasting.isEmpty()) {
+        m_settings.remove(kPreferencesKey);
+    } else {
+        m_settings.setValue(kPreferencesKey, QString::fromUtf8(QJsonDocument(Preferences::toJson(lasting)).toJson(QJsonDocument::Indented)));
+    }
+}
+
+Preferences::Effects WorkspaceStore::preferenceEffects() const
+{
+    return Preferences::effects(m_preferences, m_collectionId);
+}
+
+QVariantList WorkspaceStore::workspacePreferences() const
+{
+    QVariantList list;
+    for (const Preferences::Preference &preference : m_preferences) {
+        if (!preference.collectionId.isEmpty() && preference.collectionId != m_collectionId) {
+            continue;
+        }
+        QVariantMap map = Preferences::toMap(preference);
+        const QString area = preference.anchorId.isEmpty() || !m_model.anchor(preference.anchorId) ? QString() : m_model.anchorDisplayName(preference.anchorId);
+        map.insert(QStringLiteral("sentence"), Preferences::sentence(preference, area));
+        list.append(map);
+    }
+    return list;
+}
+
+QString WorkspaceStore::anchorPurpose(const QString &anchorId) const
+{
+    const Preferences::Effects effects = preferenceEffects();
+    for (auto it = effects.purposeAreas.cbegin(); it != effects.purposeAreas.cend(); ++it) {
+        if (it.value() == anchorId) {
+            return it.key();
+        }
+    }
+    return {};
+}
+
+QVariantMap WorkspaceStore::addPreference(Preferences::Preference preference)
+{
+    if (preference.key == QStringLiteral("area_purpose")) {
+        preference.value = Preferences::normalizedPurpose(preference.value);
+        preference.collectionId = m_collectionId;
+    }
+    const QString problem = Preferences::validate(preference.key, preference.value, preference.anchorId);
+    if (!problem.isEmpty()) {
+        return failure(QStringLiteral("INVALID_ARGUMENT"), problem);
+    }
+    if (!preference.anchorId.isEmpty() && !m_model.anchor(preference.anchorId)) {
+        return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("That panel isn't open."));
+    }
+    preference.id = QUuid::createUuid().toString(QUuid::Id128).left(12);
+    preference.setAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    Preferences::put(m_preferences, preference);
+    savePreferences();
+    emit preferencesChanged();
+    const QString area = preference.anchorId.isEmpty() ? QString() : m_model.anchorDisplayName(preference.anchorId);
+    return {
+        {QStringLiteral("ok"), true},
+        {QStringLiteral("id"), preference.id},
+        {QStringLiteral("sentence"), Preferences::sentence(preference, area)},
+    };
+}
+
+QVariantMap WorkspaceStore::setPreference(const QString &key, const QString &value, const QString &anchorId, bool lasting)
+{
+    Preferences::Preference preference;
+    preference.key = key;
+    preference.value = value;
+    preference.anchorId = anchorId;
+    preference.lasting = lasting;
+    preference.setBy = QStringLiteral("person");
+    return addPreference(preference);
+}
+
+bool WorkspaceStore::forgetPreference(const QString &id)
+{
+    const qsizetype before = m_preferences.size();
+    m_preferences.erase(
+        std::remove_if(m_preferences.begin(), m_preferences.end(), [&](const Preferences::Preference &preference) { return preference.id == id; }),
+        m_preferences.end()
+    );
+    if (m_preferences.size() == before) {
+        return false;
+    }
+    savePreferences();
+    emit preferencesChanged();
+    return true;
+}
+
+QVariantMap WorkspaceStore::preferenceForAgent(const QVariantMap &request)
+{
+    const QString op = request.value(QStringLiteral("op")).toString();
+    const QString chatId = request.value(QStringLiteral("chatId")).toString();
+
+    if (op == QStringLiteral("list")) {
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("preferences"), workspacePreferences()}};
+    }
+
+    const QString key = request.value(QStringLiteral("preference")).toString();
+    QString anchorId;
+    if (key == QStringLiteral("area_purpose")) {
+        const QString area = request.value(QStringLiteral("area")).toString();
+        const Intents::AreaMatch match = Intents::resolveArea(m_model, area.isEmpty() ? QStringLiteral("this") : area, agentEnvironment(false));
+        if (!match.isValid()) {
+            return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("There's no panel matching “%1”.").arg(area));
+        }
+        anchorId = match.anchorId;
+    }
+
+    if (op == QStringLiteral("clear")) {
+        QStringList forgotten;
+        const QString purpose = Preferences::normalizedPurpose(request.value(QStringLiteral("value")).toString());
+        for (const QVariant &value : workspacePreferences()) {
+            const QVariantMap map = value.toMap();
+            if (map.value(QStringLiteral("key")).toString() != key) {
+                continue;
+            }
+            if (key == QStringLiteral("area_purpose") && map.value(QStringLiteral("anchorId")).toString() != anchorId
+                && map.value(QStringLiteral("value")).toString() != purpose) {
+                continue;
+            }
+            forgetPreference(map.value(QStringLiteral("id")).toString());
+            forgotten.append(map.value(QStringLiteral("sentence")).toString());
+        }
+        if (forgotten.isEmpty()) {
+            return failure(QStringLiteral("NOT_FOUND"), QStringLiteral("There's no such preference to forget."));
+        }
+        const QString summary = QStringLiteral("Forgot: ") + forgotten.join(QStringLiteral("; "));
+        logAgent(summary, QStringLiteral("applied"), chatId);
+        return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("notes"), QStringList{summary}}};
+    }
+
+    if (op != QStringLiteral("set")) {
+        return failure(QStringLiteral("UNSUPPORTED"), QStringLiteral("Preferences can be set, cleared or listed."));
+    }
+
+    // Only a statement of preference ("always", "from now on", "I like my")
+    // lasts; anything else is for this session.
+    const bool wantsLasting = request.value(QStringLiteral("lasting")).toBool();
+    const bool mayLast = request.value(QStringLiteral("lastingAllowed")).toBool();
+    Preferences::Preference preference;
+    preference.key = key;
+    preference.value = request.value(QStringLiteral("value")).toString();
+    preference.anchorId = anchorId;
+    preference.lasting = wantsLasting && mayLast;
+    preference.setBy = QStringLiteral("agent");
+    QVariantMap result = addPreference(preference);
+    if (!result.value(QStringLiteral("ok")).toBool()) {
+        return result;
+    }
+    QStringList notes{result.value(QStringLiteral("sentence")).toString() + (preference.lasting ? QStringLiteral(" (always)") : QStringLiteral(" (this session)"))};
+    if (wantsLasting && !mayLast) {
+        notes.append(QStringLiteral("Kept for this session only: the person didn't say to always do it"));
+    }
+    logAgent(notes.first(), QStringLiteral("applied"), chatId);
+    result.insert(QStringLiteral("status"), QStringLiteral("applied"));
+    result.insert(QStringLiteral("notes"), notes);
+    return result;
 }

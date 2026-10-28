@@ -4,6 +4,7 @@
 #include "Core/Domains/Workspace/view_type_registry.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
+#include "Core/Domains/Workspace/workspace_preferences.h"
 
 #include <QHash>
 #include <QJsonArray>
@@ -68,6 +69,9 @@ class WorkspaceStore final : public QObject
     // While an agent's arrangement is in place: {since, changes, summary}.
     // Empty once the person keeps it or it is put back.
     Q_PROPERTY(QVariantMap temporaryArrangement READ temporaryArrangement NOTIFY agentChanged)
+    // How the person likes the workspace (see workspace_preferences.h):
+    // [{id, key, value, anchorId, lasting, duration, sentence, setBy}].
+    Q_PROPERTY(QVariantList workspacePreferences READ workspacePreferences NOTIFY preferencesChanged)
     // The bottom Chat/Terminal workbench as the shell reports it:
     // {collapsed, view}.
     Q_PROPERTY(QVariantMap commandSurface READ commandSurface NOTIFY commandSurfaceChanged)
@@ -295,6 +299,15 @@ public:
     [[nodiscard]] QVariantMap temporaryArrangement() const;
     Q_INVOKABLE bool putBackArrangement();
     Q_INVOKABLE void keepArrangement();
+
+    // Preferences. Lasting ones are stored under workspace/preferences as
+    // a plain JSON list; session ones are kept in memory only.
+    [[nodiscard]] QVariantList workspacePreferences() const;
+    // The person sets one from the UI. Returns {ok, id} or {ok: false, error}.
+    Q_INVOKABLE QVariantMap setPreference(const QString &key, const QString &value, const QString &anchorId = {}, bool lasting = true);
+    Q_INVOKABLE bool forgetPreference(const QString &id);
+    // The purpose set for a panel ("documentation"), or "".
+    [[nodiscard]] Q_INVOKABLE QString anchorPurpose(const QString &anchorId) const;
     // What agents did to the workspace this session, newest first:
     // [{at, summary, status, chatId}].
     [[nodiscard]] Q_INVOKABLE QVariantList agentActivity() const { return m_agentLog; }
@@ -332,6 +345,7 @@ signals:
     void agentArranged(const QString &summary);
     // An agent put an earlier arrangement back (nothing to undo).
     void agentRestored(const QString &summary);
+    void preferencesChanged();
     // Asks the shell to open (or close) the bottom workbench on `view`
     // ("chat" or "terminal").
     void commandSurfaceRequested(const QString &view, bool open);
@@ -422,6 +436,11 @@ private:
     void loadArrangement();
     void forgetArrangement();
     bool restoreArrangement(QString *code, QString *error);
+    QVariantMap preferenceForAgent(const QVariantMap &request);
+    QVariantMap addPreference(Workspace::Preferences::Preference preference);
+    void loadPreferences();
+    void savePreferences();
+    [[nodiscard]] Workspace::Preferences::Effects preferenceEffects() const;
 
     QList<AgentStep> m_agentUndo;
     QVariantMap m_suggestion;
@@ -438,6 +457,7 @@ private:
     QStringList m_baselineOpened;
     QStringList m_baselineChanges;
     QString m_baselineSince;
+    QList<Workspace::Preferences::Preference> m_preferences;
 
     QString m_currentLayoutId;
     QJsonObject m_layoutUndo;
