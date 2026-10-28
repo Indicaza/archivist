@@ -1600,6 +1600,24 @@ void ChatStore::createChat(
     const QString &agentId
 )
 {
+    createChatWithMessage(libraryId, agentId, {});
+}
+
+void ChatStore::startChat(
+    const QString &libraryId,
+    const QString &agentId,
+    const QString &firstMessage
+)
+{
+    createChatWithMessage(libraryId, agentId, firstMessage.trimmed());
+}
+
+void ChatStore::createChatWithMessage(
+    const QString &libraryId,
+    const QString &agentId,
+    const QString &firstMessage
+)
+{
     if (
         libraryId.isEmpty()
         || m_mutating
@@ -1629,7 +1647,7 @@ void ChatStore::createChat(
     core->write(
         [input](CoreDatabase &database) { return QVariant(ChatRepository::createChat(database, input)); },
         this,
-        [this](const CoreResult &result) {
+        [this, firstMessage](const CoreResult &result) {
             setMutating(false);
 
             if (!result.ok) {
@@ -1645,6 +1663,10 @@ void ChatStore::createChat(
             resetMessagePageState();
             setSelectedChatId(chatId);
             emit chatCreated(chat);
+
+            if (!firstMessage.isEmpty() && m_selectedChatId == chatId) {
+                sendMessage(firstMessage);
+            }
         }
     );
 }

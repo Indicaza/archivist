@@ -7,14 +7,24 @@ import "../Workspace"
 import "../Dock"
 import "../WorkbenchDock"
 import "../ArtifactDrawer"
+import "../Home"
 
 Rectangle {
     id: root
 
     required property var theme
 
-    property int activeViewIndex: 0
-    property bool explorerOpen: true
+    // The side panel follows Shell (rail ids, Home); its state is still
+    // saved per project here, by the panel's old index.
+    readonly property int activeViewIndex: Shell.panelIndex
+    readonly property bool explorerOpen: Shell.panelOpen
+    // Home covers the workspace, which stays as it was underneath: same
+    // size, same panels, nothing rebuilt. 1 is Home fully shown.
+    property real homeReveal: Shell.homeActive ? 1 : 0
+    readonly property bool workspaceHidden: homeReveal >= 1
+    property bool homeSending: false
+    property string pendingChatId: ""
+    property var pendingDocument: null
     property bool dockAttached: true
     property bool resizingExplorer: false
     property bool resizingDock: false
@@ -76,6 +86,14 @@ Rectangle {
     readonly property real workspaceBottomObstruction: effectiveDockAttached
         ? clampedDockHeight
         : 0
+
+    Behavior on homeReveal {
+        enabled: !root.theme.reducedMotion
+        NumberAnimation {
+            duration: root.theme.motionPanel
+            easing.type: Easing.OutCubic
+        }
+    }
 
     Behavior on explorerExtent {
         enabled: !root.resizingExplorer
@@ -181,24 +199,26 @@ Rectangle {
         }
 
         workspaceScopeId = targetScopeId
-        activeViewIndex = Math.max(
-            0,
-            Math.min(
-                4,
-                Number(
-                    readStateValue(
-                        "activeViewIndex",
-                        "workspace/shell/activeViewIndex",
-                        0
+        Shell.restorePanelIndex(
+            Math.max(
+                0,
+                Math.min(
+                    4,
+                    Number(
+                        readStateValue(
+                            "activeViewIndex",
+                            "workspace/shell/activeViewIndex",
+                            0
+                        )
                     )
                 )
-            )
-        )
-        explorerOpen = Boolean(
-            readStateValue(
-                "explorerOpen",
-                "workspace/shell/explorerOpen",
-                true
+            ),
+            Boolean(
+                readStateValue(
+                    "explorerOpen",
+                    "workspace/shell/explorerOpen",
+                    true
+                )
             )
         )
         explorerWidth = Number(
@@ -299,6 +319,9 @@ Rectangle {
 
     Component.onCompleted: {
         switchCollectionWorkspace()
+        if (Shell.homeActive) {
+            Qt.callLater(homeView.focusComposer)
+        }
     }
     Component.onDestruction: {
         workspaceStateSaveTimer.stop()
@@ -344,6 +367,7 @@ Rectangle {
         function onWorkspaceScopeChanged() {
             LibraryStore.refresh()
             ChatStore.refresh()
+            Qt.callLater(root.finishPendingOpen)
         }
     }
 
@@ -357,9 +381,199 @@ Rectangle {
         - root.workspaceBottomObstruction
 
     function revealFileInLibrary(libraryId, fileId, relativePath) {
-        root.activeViewIndex = 0
-        root.explorerOpen = true
+        Shell.showPanel("navigation.navigator")
         explorerDock.revealFile(libraryId, fileId, relativePath)
+    }
+
+    // ---- Home ------------------------------------------------------------
+
+    // Back to the workspace with the conversation in front.
+    function showConversation() {
+        Shell.returnToWorkspace()
+        chatDock.activeView = "chat"
+        root.dockCollapsed = false
+        Qt.callLater(function() {
+            var workspace = workspaceLoader.item
+            if (workspace && workspace.followSelectedChat) {
+                workspace.followSelectedChat()
+            }
+        })
+    }
+
+    function startConversationFromHome(text, libraryId) {
+        if (root.homeSending || String(libraryId || "").length === 0) {
+            return
+        }
+        if (libraryId !== String(LibraryStore.selectedLibraryId || "")) {
+            LibraryStore.selectLibrary(libraryId)
+        }
+        root.homeSending = true
+        ChatStore.startChat(
+            libraryId,
+            String(CollectionStore.scope.defaultAgentId || ""),
+            text
+        )
+        // Refused before it started (another write in flight): keep the draft.
+        if (!ChatStore.mutating) {
+            root.homeSending = false
+        }
+    }
+
+    function openChat(chat) {
+        if (!chat || !chat.id) {
+            return
+        }
+        if (ChatStore.responding && String(chat.id) !== String(ChatStore.selectedChatId)) {
+            // A reply is streaming; switching now would cut it off screen.
+            root.showConversation()
+            return
+        }
+        var libraryId = String(chat.libraryId || "")
+        if (libraryId.length > 0 && libraryId !== String(LibraryStore.selectedLibraryId)) {
+            LibraryStore.selectLibrary(libraryId)
+        }
+        if (String(chat.id) !== String(ChatStore.selectedChatId)) {
+            LibraryStore.clearFilePreview()
+            ChatStore.selectChat(String(chat.id))
+        }
+        root.showConversation()
+    }
+
+    function openChatFromHome(chat, collectionId) {
+        var target = String(collectionId || "")
+        if (target.length > 0 && target !== String(CollectionStore.selectedCollectionId)) {
+            root.pendingChatId = String(chat.id)
+            root.pendingDocument = null
+            CollectionStore.selectCollection(target)
+            Shell.returnToWorkspace()
+            return
+        }
+        root.openChat(chat)
+    }
+
+    function openProjectFromHome(collectionId) {
+        if (String(collectionId) !== String(CollectionStore.selectedCollectionId)) {
+            root.pendingChatId = ""
+            root.pendingDocument = null
+            CollectionStore.selectCollection(collectionId)
+        }
+        Shell.returnToWorkspace()
+    }
+
+    function openDocument(item) {
+        var details = item.details || ({})
+        var existing = Docking.viewsForResource("document", String(item.id))
+        Shell.returnToWorkspace()
+        if (existing.length > 0) {
+            Docking.activateView(existing[0])
+            return
+        }
+        var libraryId = String(item.libraryId || "")
+        var fileId = String(details.fileId || "")
+        var file = libraryId === String(LibraryStore.selectedLibraryId)
+            ? ({})
+            : ({
+                id: fileId,
+                name: String(details.name || item.title || ""),
+                relativePath: String(details.path || ""),
+                extension: String(details.extension || ""),
+                mimeType: String(details.mimeType || ""),
+                languageId: String(details.languageId || "")
+            })
+        LibraryStore.previewFileFromLibrary(libraryId, fileId, file)
+    }
+
+    function openRecentFromHome(item) {
+        if (!item || item.kind !== "document") {
+            return
+        }
+        var target = String(item.collectionId || "")
+        if (target.length > 0 && target !== String(CollectionStore.selectedCollectionId)) {
+            root.pendingDocument = item
+            root.pendingChatId = ""
+            CollectionStore.selectCollection(target)
+            Shell.returnToWorkspace()
+            return
+        }
+        root.openDocument(item)
+    }
+
+    // A project switch from Home finished: open what was asked for there.
+    function finishPendingOpen() {
+        if (root.pendingChatId.length > 0) {
+            var chats = ChatStore.chats || []
+            for (var index = 0; index < chats.length; index += 1) {
+                if (String(chats[index].id) === root.pendingChatId) {
+                    root.pendingChatId = ""
+                    root.openChat(chats[index])
+                    return
+                }
+            }
+            root.pendingChatId = ""
+        }
+        if (root.pendingDocument) {
+            var item = root.pendingDocument
+            root.pendingDocument = null
+            root.openDocument(item)
+        }
+    }
+
+    function addFolderFromHome() {
+        Shell.showPanel("navigation.navigator")
+        explorerDock.openLibraryFolderDialog()
+    }
+
+    function setupProjectFromHome() {
+        Shell.showPanel("navigation.navigator")
+    }
+
+    RecentActivityTracker {}
+
+    Connections {
+        target: ChatStore
+
+        function onChatCreated(chat) {
+            if (!root.homeSending) {
+                return
+            }
+            root.homeSending = false
+            Shell.homeDraft = ""
+            root.showConversation()
+        }
+
+        function onErrorMessageChanged() {
+            if (root.homeSending && String(ChatStore.errorMessage || "").length > 0) {
+                root.homeSending = false
+            }
+        }
+
+        function onMutatingChanged() {
+            // Finished without a chat (the write failed): the draft stays.
+            if (root.homeSending && !ChatStore.mutating) {
+                Qt.callLater(function() {
+                    if (root.homeSending && !ChatStore.mutating) {
+                        root.homeSending = false
+                    }
+                })
+            }
+        }
+    }
+
+    Shortcut {
+        sequences: ["Ctrl+Shift+H"]
+        context: Qt.ApplicationShortcut
+        onActivated: Shell.toggleHome()
+    }
+
+    onWorkspaceHiddenChanged: {
+        if (!workspaceHidden) {
+            return
+        }
+        Qt.callLater(function() {
+            if (Shell.homeActive) {
+                homeView.focusComposer()
+            }
+        })
     }
 
     Loader {
@@ -370,6 +584,7 @@ Rectangle {
         width: parent.width
         height: root.workspaceAreaHeight
         sourceComponent: root.legacyWorkspace ? legacyWorkspaceComponent : dockWorkspaceComponent
+        visible: !root.workspaceHidden
 
         Behavior on height {
             enabled: !root.resizingDock
@@ -419,19 +634,38 @@ Rectangle {
         y: 0
         height: parent.height - statusBar.height
         theme: root.theme
-        activeViewIndex: root.activeViewIndex
-        panelOpen: root.explorerOpen
         z: 20
+    }
 
-        onViewRequested: function(index) {
-            if (root.explorerOpen && root.activeViewIndex === index) {
-                root.explorerOpen = false
-                return
-            }
+    HomeView {
+        id: homeView
 
-            root.activeViewIndex = index
-            root.explorerOpen = true
+        x: root.theme.activityRailWidth
+        y: 0
+        width: parent.width - root.theme.activityRailWidth
+        height: parent.height - statusBar.height
+        theme: root.theme
+        sending: root.homeSending
+        visible: root.homeReveal > 0
+        opacity: root.homeReveal
+        enabled: Shell.homeActive
+        z: 40
+
+        onStartConversationRequested: function(text, libraryId) {
+            root.startConversationFromHome(text, libraryId)
         }
+        onChatRequested: function(chat, collectionId) {
+            root.openChatFromHome(chat, collectionId)
+        }
+        onProjectRequested: function(collectionId) {
+            root.openProjectFromHome(collectionId)
+        }
+        onRecentRequested: function(item) {
+            root.openRecentFromHome(item)
+        }
+        onAddFolderRequested: root.addFolderFromHome()
+        onSetupProjectRequested: root.setupProjectFromHome()
+        onBackRequested: Shell.returnToWorkspace()
     }
 
     ExplorerDock {
@@ -441,12 +675,12 @@ Rectangle {
         y: 0
         width: root.explorerExtent
         height: parent.height - statusBar.height
-        visible: width > 0.5
+        visible: width > 0.5 && !root.workspaceHidden
         opacity: root.explorerOpen ? 1 : 0
         theme: root.theme
         activeViewIndex: root.activeViewIndex
         z: 15
-        onCloseRequested: root.explorerOpen = false
+        onCloseRequested: Shell.setPanelOpen(false)
 
         Behavior on opacity {
             NumberAnimation { duration: root.theme.motionFast }
@@ -460,7 +694,7 @@ Rectangle {
         y: 0
         width: root.theme.resizeHandleThickness
         height: parent.height - statusBar.height
-        visible: root.explorerOpen
+        visible: root.explorerOpen && !root.workspaceHidden
         z: 25
 
         Rectangle {
@@ -516,6 +750,7 @@ Rectangle {
             CollectionStore.selectedCollectionId
         attached: root.effectiveDockAttached
         collapsed: root.dockCollapsed
+        visible: !root.workspaceHidden
         z: 30
 
         onDockModeToggleRequested: root.dockAttached = !root.dockAttached
@@ -562,7 +797,7 @@ Rectangle {
         y: chatDock.y - height / 2
         width: chatDock.width
         height: root.theme.resizeHandleThickness
-        visible: !root.dockCollapsed
+        visible: !root.dockCollapsed && !root.workspaceHidden
         z: 35
 
         Rectangle {
