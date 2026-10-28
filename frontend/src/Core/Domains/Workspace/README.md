@@ -154,7 +154,7 @@ defaults.
 ## Agents and the workspace
 
 People ask for arrangements in plain words ("open these files beside our
-conversation", "make the code bigger", "put everything back"). Four AI tools
+conversation", "make the code bigger", "put everything back"). Five AI tools
 carry those requests; none of them mention anchors or ids.
 
 | Tool | Does |
@@ -163,6 +163,7 @@ carry those requests; none of them mention anchors or ids.
 | `workspace_show` | Shows files, a chat, a terminal or an open view, reusing what is already open. |
 | `workspace_arrange` | Focuses, resizes, moves, keeps (locks in place) or labels an area. |
 | `workspace_restore` | Puts back the arrangement before the last change, before the whole task, or a saved layout by name. |
+| `workspace_preference` | Remembers, forgets or lists how the person likes the workspace. |
 
 The layers, from the model up:
 
@@ -223,6 +224,30 @@ with more panels are in the layout picker.
     it in one step, closing only clean, non-terminal tabs that agents opened.
   - Keep (`keepArrangement`) makes the current arrangement the normal one.
     Undoing the task's first change also ends it.
+
+Preferences (`workspace_preferences`) are a few plain settings:
+
+| Key | Values | Effect |
+|---|---|---|
+| `chat_location` | bottom, docked | `bottom`: the conversation is shown in the bottom panel, never docked |
+| `main_editor` | large, normal | `large`: side panels open at 28% and "larger" stops at 45% unless a size is given |
+| `rearranging` | only_when_asked, when_helpful | `only_when_asked`: unasked requests only suggest, and nothing new is added for content that wasn't placed |
+| `area_purpose` | a purpose, for one panel | Material for that purpose opens there ("Use for Documentation" in the panel's More menu) |
+
+- **Duration.** Each preference is for this session or always. Lasting ones
+  are stored as an indented JSON list under `workspace/preferences`.
+- **When an agent may store one.** Only when the message states a standing
+  preference ("always", "from now on", "I like my…", "don't … unless").
+  Otherwise it is kept for the session, so a one-off never becomes
+  permanent.
+- **Precedence.** A session preference overrides a stored one; the newer of
+  equals wins. Explicit destinations and sizes always win over preferences.
+- **Revoking.** Each is listed, with Forget, in the Layouts popup.
+- **Who may set them.** Background conversations can't set preferences.
+
+The panel menu keeps the common actions on top (Rename, Lock in Place, Tabs
+or Shelf, Split, Maximize, Close). The rest (automatic name, content lock,
+documentation panel, new-file target, worktree, windows) is under More.
 
 The bottom panel (Chat, Terminal, Problems) stays the main place for the
 conversation. It can be folded to its tabs, and "beside our conversation"

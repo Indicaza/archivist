@@ -61,6 +61,15 @@ struct Environment
     // Smallest share "smaller" leaves, and the largest "larger" reaches.
     double minimumShare = 0.15;
     double maximumShare = 0.82;
+
+    // Preferences (workspace_preferences). They shape only what nobody
+    // spelled out: an explicit destination or size always wins.
+    // New panels may be added for content the request didn't place.
+    bool mayAddAreas = true;
+    // "larger" on anything but the main editor stops at this share.
+    double largestSideShare = 1.0;
+    // Panels set aside for a purpose ("documentation" -> anchor).
+    QHash<QString, QString> purposeAreas;
 };
 
 struct Outcome

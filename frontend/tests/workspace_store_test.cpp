@@ -1169,6 +1169,116 @@ private slots:
         QVERIFY(!store.canUndoAgentChange());
     }
 
+    // Phase D. Preferences: lasting ones survive a restart, one-offs don't,
+    // and each changes only what nobody spelled out.
+    void preferencesSurviveARestart()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/preferences"));
+        auto preference = [](const QString &key, const QString &value, bool lasting, bool allowed, const QString &area = {}) {
+            return QVariantMap{
+                {"action", "preference"}, {"op", "set"}, {"preference", key}, {"value", value}, {"area", area},
+                {"lasting", lasting}, {"lastingAllowed", allowed}, {"explicit", true}, {"chatId", "chat-1"},
+            };
+        };
+
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("prefs"));
+            QVariantMap result = store.runAgentRequest(preference("chat_location", "bottom", true, true), true);
+            QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+            // Asked to last, but the message wasn't a standing preference.
+            result = store.runAgentRequest(preference("main_editor", "large", true, false), true);
+            QVERIFY(result.value("ok").toBool());
+            QVERIFY(result.value("notes").toStringList().join(" ").contains("this session"));
+            QCOMPARE(store.workspacePreferences().size(), 2);
+            // Background conversations can't set preferences.
+            QCOMPARE(store.runAgentRequest(preference("rearranging", "only_when_asked", true, true), false).value("code").toString(), QStringLiteral("NOT_ALLOWED"));
+        }
+
+        settings.sync();
+        QVERIFY(settings.value("workspace/preferences").toString().contains("chat_location"));
+        QVERIFY(!settings.value("workspace/preferences").toString().contains("main_editor"));
+
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("prefs"));
+        const QVariantList kept = store.workspacePreferences();
+        QCOMPARE(kept.size(), 1);
+        QCOMPARE(kept.first().toMap().value("sentence").toString(), QStringLiteral("Chat stays in the bottom panel"));
+        QCOMPARE(kept.first().toMap().value("duration").toString(), QStringLiteral("always"));
+        QVERIFY(store.describeForAgent().value("preferences").toStringList().first().contains("bottom panel"));
+
+        // Easy to revoke.
+        QVERIFY(store.forgetPreference(kept.first().toMap().value("id").toString()));
+        QVERIFY(store.workspacePreferences().isEmpty());
+        settings.sync();
+        QVERIFY(!settings.contains("workspace/preferences"));
+    }
+
+    void preferencesShapeWhatWasNotSpelledOut()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("prefs-effects"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString main = store.focusedAnchorId();
+        store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        const QString side = store.createAnchor(main, QStringLiteral("right"));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("side.cpp"), "side.cpp", {{"anchorId", side}});
+
+        // "Use the right panel for documentation."
+        QVERIFY(store.setPreference(QStringLiteral("area_purpose"), QStringLiteral("docs"), side).value("ok").toBool());
+        QCOMPARE(store.anchorPurpose(side), QStringLiteral("documentation"));
+        QVariantMap docs = agentShow({agentFile("guide.md")});
+        docs.insert("purpose", "documentation");
+        QVERIFY(store.runAgentRequest(docs, true).value("ok").toBool());
+        QCOMPARE(store.view(agentViews(store).last()).value("anchorId").toString(), side);
+        QCOMPARE(agentAreas(store).size(), 2);
+
+        // "Don't rearrange my windows unless I ask": nothing new appears for
+        // reference material, and unasked requests only suggest.
+        QVERIFY(store.setPreference(QStringLiteral("area_purpose"), QStringLiteral("documentation"), main).value("ok").toBool());
+        QCOMPARE(store.anchorPurpose(side), QString());
+        store.forgetPreference(store.workspacePreferences().last().toMap().value("id").toString());
+        QVERIFY(store.setPreference(QStringLiteral("rearranging"), QStringLiteral("only_when_asked"), {}, false).value("ok").toBool());
+        QVariantMap reference = agentShow({agentFile("spec.md")});
+        reference.insert("purpose", "reference");
+        QVERIFY(store.runAgentRequest(reference, true).value("ok").toBool());
+        QCOMPARE(agentAreas(store).size(), 2);
+        QCOMPARE(store.runAgentRequest(agentShow({agentFile("x.md")}, {}, false, false), true).value("status").toString(), QStringLiteral("suggested"));
+        store.dismissAgentSuggestion();
+        // An explicit place still wins.
+        QVERIFY(store.runAgentRequest(agentShow({agentFile("y.md")}, QStringLiteral("new")), true).value("ok").toBool());
+        QCOMPARE(agentAreas(store).size(), 3);
+        QVERIFY(store.runAgentRequest(agentRestore("last_change"), true).value("ok").toBool());
+
+        // "Keep my main editor large": others grow only so far.
+        QVERIFY(store.setPreference(QStringLiteral("main_editor"), QStringLiteral("large"), {}, false).value("ok").toBool());
+        QVERIFY(store.runAgentRequest({{"action", "resize"}, {"target", side}, {"change", "0.3"}, {"explicit", true}}, true).value("ok").toBool());
+        for (int step = 0; step < 4; ++step) {
+            store.runAgentRequest({{"action", "resize"}, {"target", side}, {"change", "larger"}, {"explicit", true}}, true);
+        }
+        QVERIFY(store.runAgentRequest({{"action", "resize"}, {"target", side}, {"change", "larger"}, {"explicit", true}}, true).value("error").toString().contains("main editor"));
+        const QVariantList areas = store.describeForAgent().value("areas").toList();
+        for (const QVariant &area : areas) {
+            if (area.toMap().value("id").toString() == side) {
+                QVERIFY(area.toMap().value("sizePercent").toInt() <= 46);
+            }
+        }
+        // Unless a size is asked for.
+        QVERIFY(store.runAgentRequest({{"action", "resize"}, {"target", side}, {"change", "0.7"}, {"explicit", true}}, true).value("ok").toBool());
+
+        // "I like my chat at the bottom": the conversation isn't docked.
+        store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("chat-1")}}, "Chat", {{"anchorId", side}});
+        QVERIFY(store.setPreference(QStringLiteral("chat_location"), QStringLiteral("bottom"), {}, false).value("ok").toBool());
+        QSignalSpy surface(&store, &WorkspaceStore::commandSurfaceRequested);
+        store.setCommandSurfaceState(true, QStringLiteral("terminal"));
+        QVERIFY(store.runAgentRequest(agentShow({QVariantMap{{"kind", "chat"}, {"reference", ""}}}), true).value("ok").toBool());
+        QCOMPARE(surface.count(), 1);
+        QCOMPARE(surface.first().at(0).toString(), QStringLiteral("chat"));
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

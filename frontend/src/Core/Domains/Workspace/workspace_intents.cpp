@@ -612,11 +612,25 @@ QString Run::destinationFor(const QString &typeId, const ResourceRef &resource, 
         return Placement::canReceive(m_work, anchorId, origin);
     };
 
+    // A panel the person set aside for this purpose comes first.
+    if (text.isEmpty() && !purpose.trimmed().isEmpty()) {
+        const QString wanted = purpose.trimmed().toLower();
+        for (auto it = m_env.purposeAreas.cbegin(); it != m_env.purposeAreas.cend(); ++it) {
+            const bool matches = wanted.contains(it.key()) || it.key().contains(wanted) || (isDocPurpose(wanted) && isDocPurpose(it.key()));
+            if (matches && m_work.anchor(it.value()) && receivable(it.value())) {
+                return it.value();
+            }
+        }
+    }
+
     // Reference material goes to an area meant for it, else to the side.
     if (text.isEmpty() && isDocPurpose(purpose)) {
         const AreaMatch docs = matchArea(m_work, QStringLiteral("documentation"), m_env);
         if (docs.isValid() && docs.score >= 260 && receivable(docs.anchorId)) {
             return docs.anchorId;
+        }
+        if (!m_env.mayAddAreas) {
+            return destinationFor(typeId, resource, {}, {});
         }
         return destinationFor(typeId, resource, QStringLiteral("right"), {});
     }
@@ -969,6 +983,7 @@ bool Run::resize(const QVariantMap &request)
     }
 
     const double before = shareOf(m_work, anchorId, m_env);
+    const bool keepsRoomForMain = m_env.largestSideShare < 1.0 && anchorId != mainEditorAnchor(m_work, m_env);
     QString node = m_work.leafOfAnchor(anchorId);
     int levels = 0;
 
@@ -984,6 +999,11 @@ bool Run::resize(const QVariantMap &request)
         double target = fraction ? requested
             : larger ? std::min(m_env.maximumShare, std::max(current + 0.12, current * 1.3))
             : std::max(m_env.minimumShare, std::min(current - 0.1, current * 0.7));
+        // "Keep my main editor large": others grow only so far, unless a
+        // size was asked for.
+        if (larger && !fraction && keepsRoomForMain) {
+            target = std::max(current, std::min(target, m_env.largestSideShare));
+        }
 
         // Only unlocked siblings give or take space.
         QList<qsizetype> free;
@@ -1037,7 +1057,9 @@ bool Run::resize(const QVariantMap &request)
     if (std::abs(after - before) < 0.005) {
         return fail(
             QStringLiteral("NO_ROOM"),
-            larger ? QStringLiteral("“%1” can't get any larger here.").arg(name) : QStringLiteral("“%1” can't change size here.").arg(name)
+            larger && keepsRoomForMain ? QStringLiteral("“%1” is as large as it gets while the main editor stays large (the person's preference). Give a size to go further.").arg(name)
+            : larger ? QStringLiteral("“%1” can't get any larger here.").arg(name)
+                     : QStringLiteral("“%1” can't change size here.").arg(name)
         );
     }
 

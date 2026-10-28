@@ -231,6 +231,65 @@ Popup {
             color: root.theme.quietBorder
         }
 
+        // How the person likes the workspace, as the assistant remembered it.
+        // Each can be forgotten here.
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+            visible: Docking.workspacePreferences.length > 0
+
+            Text {
+                text: "Workspace preferences"
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.textCaptionSize
+            }
+
+            Repeater {
+                model: Docking.workspacePreferences
+
+                delegate: RowLayout {
+                    required property var modelData
+
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: String(modelData.sentence || "")
+                        elide: Text.ElideRight
+                        color: root.theme.appText
+                        font.family: root.theme.bodyFontFamily
+                        font.pixelSize: root.theme.textMetadataSize
+                    }
+
+                    Text {
+                        text: modelData.lasting ? "always" : "this session"
+                        color: root.theme.mutedText
+                        font.family: root.theme.bodyFontFamily
+                        font.pixelSize: root.theme.textMetadataSize
+                    }
+
+                    IconButton {
+                        theme: root.theme
+                        width: 22
+                        height: 22
+                        iconName: "close"
+                        iconSize: 10
+                        toolTipText: "Forget"
+                        onClicked: Docking.forgetPreference(String(modelData.id))
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: root.theme.quietBorder
+            visible: Docking.workspacePreferences.length > 0
+        }
+
         // The size of the whole interface lives here too, for discoverability.
         RowLayout {
             Layout.fillWidth: true

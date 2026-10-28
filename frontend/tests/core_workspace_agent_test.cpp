@@ -7,10 +7,13 @@
 #include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 #include "Core/Domains/Workspace/workspace_placement.h"
+#include "Core/Domains/Workspace/workspace_preferences.h"
 #include "Core/Domains/Workspace/workspace_presets.h"
 #include "Core/Domains/Workspace/workspace_resources.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QSet>
 #include <QtTest>
 
@@ -619,6 +622,46 @@ private slots:
 
         const ResourceRef next = Resources::terminal(QStringLiteral("col"), QStringLiteral("lib-feature"), QStringLiteral("t3"));
         QCOMPARE(Placement::chooseAnchor(d.model, ViewTypes::Terminal, next), featureTerms);
+    }
+
+    void sessionPreferencesOverrideStoredOnes()
+    {
+        using Preferences::Preference;
+        auto make = [](const QString &key, const QString &value, bool lasting, const QString &at, const QString &anchor = {}) {
+            Preference preference;
+            preference.id = key + value + at;
+            preference.key = key;
+            preference.value = value;
+            preference.lasting = lasting;
+            preference.setAt = at;
+            preference.anchorId = anchor;
+            preference.collectionId = anchor.isEmpty() ? QString() : QStringLiteral("col");
+            return preference;
+        };
+
+        QList<Preference> list;
+        Preferences::put(list, make("main_editor", "large", true, "2026-01-01"));
+        Preferences::put(list, make("main_editor", "normal", false, "2025-01-01"));
+        QCOMPARE(list.size(), 2);
+        QVERIFY(!Preferences::effects(list, "col").keepMainLarge); // session wins, whatever its age
+
+        // Setting a lasting one replaces the session one too.
+        Preferences::put(list, make("main_editor", "large", true, "2026-02-01"));
+        QCOMPARE(list.size(), 1);
+        QVERIFY(Preferences::effects(list, "col").keepMainLarge);
+
+        // One panel per purpose, one purpose per panel, per collection.
+        Preferences::put(list, make("area_purpose", "documentation", true, "2026-01-01", "a1"));
+        Preferences::put(list, make("area_purpose", "documentation", true, "2026-01-02", "a2"));
+        QCOMPARE(Preferences::effects(list, "col").purposeAreas.value("documentation"), QStringLiteral("a2"));
+        QVERIFY(Preferences::effects(list, "other").purposeAreas.isEmpty());
+
+        // Round trip through the stored form; damaged entries are skipped.
+        QJsonArray stored = Preferences::toJson(list);
+        stored.append(QJsonObject{{"id", "x"}, {"key", "teleport"}, {"value", "yes"}});
+        QCOMPARE(Preferences::fromJson(stored).size(), list.size());
+        QCOMPARE(Preferences::normalizedPurpose("the docs"), QStringLiteral("documentation"));
+        QVERIFY(!Preferences::validate("chat_location", "sideways", {}).isEmpty());
     }
 
 };

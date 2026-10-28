@@ -128,6 +128,7 @@ WorkspaceStore::WorkspaceStore(QObject *parent)
         app->installEventFilter(this);
     }
 
+    loadPreferences();
     publish();
 }
 
