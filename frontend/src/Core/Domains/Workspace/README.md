@@ -70,19 +70,86 @@ and how a live instance may move (`TransferPolicy`).
 
 ## Moving live views
 
-Qt Quick items can be reparented inside one window. Qt WebEngine views should
-not be moved between native windows. So:
+View content items (terminals, previews, the live chat) are keyed by view and
+reparent themselves into whichever window shows their view, including from one
+native window to another. Qt WebEngine Quick renders through the scene graph,
+so a page survives the move with its state (a terminal keeps its scrollback and
+session, no reload). Editors share their Anchor's Monaco page, so an editor that
+moves to an Anchor in another window is rebuilt there from the shared buffer and
+its view state (cursor, scroll).
 
 ```text
 same window      reparent the live item (no reload)
-another window   save view state → rebuild in the target window → restore
+another window   reparent the live item; editors rebuild from buffer + view state
 ```
+
+### Floating windows (`App/Domains/Workspace/workspace_store`, `Dock/DockFloatingWindow.qml`)
+
+- Dragging a tab or a panel past every window shows a miniature of the window
+  it would become under the pointer; releasing opens it there. Tabs and panels
+  also have "Move to New Window" and "Return to Main Window".
+- Drags report the pointer in global coordinates, so they cross windows: the
+  window under the pointer previews the drop, others stay still.
+- A window remembers its frame and monitor in the Collection's snapshot and
+  reopens there. When a monitor goes away (at launch or while running), its
+  windows move onto a screen that exists, sized to fit; they go back when the
+  monitor returns.
+- Closing a floating window moves its tabs into the main window. Nothing closes.
+- Coordinates are Qt's device-independent virtual desktop, so mixed-DPI
+  monitors need no special handling.
+
+Platform compromises:
+
+- Wayland does not let apps place windows, so a torn-off window opens where the
+  compositor puts it and saved positions are only a hint there.
+- The tear-off miniature is a translucent tool window; without a compositor
+  (some X11 setups) its corners draw opaque.
 
 This is safe because canonical state lives natively. Document text is in
 `Core/Domains/Documents/document_buffers` (versioned, shared by every view of a
 document). Terminal processes live in `TerminalSessions` and replay scrollback
 when a view reattaches. Chats and AI runs live in their stores and the AI
 runtime.
+
+## Anchors as workstations
+
+An anchor can be configured, and the configuration belongs to the anchor, so
+it survives docking, splitting, floating, layouts and restarts.
+
+- **Name.** `renameAnchor`; an empty name goes back to the automatic one
+  ("Editor", "Chat", "Terminal 2", "Shelf"). Anchors that hold views are
+  numbered before empty ones.
+- **Layout lock.** Nobody (person, automation or agent) can move, close,
+  resize, merge, float or dock beside the anchor, take tabs out of it, or apply
+  a layout over it. Freed or needed space goes to unlocked siblings, so a
+  locked anchor keeps its size. Its content stays usable.
+- **Content lock.** Automation and agents can't replace, retarget or add to
+  what the anchor holds (a locked "Architecture" chat never becomes another
+  chat). The person still can.
+- **Shelf** (`switchable`). The anchor shows one view and a picker instead of
+  tabs. The items are ordinary views, so switching never closes, reloads or
+  restarts anything.
+- **Worktree binding** (`libraryId`). New terminals and other new resources
+  started from the anchor use it. Without one, `resolveLibrary` tries the
+  active view's Library, then the Explorer's, then the project default. A
+  resource keeps the Library it was created with.
+
+Each mutating operation takes an `Origin` (`User`, `Automatic`, `Agent`). The
+rules are checked in the model, so the UI, the store and the command layer all
+get the same answers. Refusals carry a code (`LAYOUT_LOCKED`,
+`CONTENT_LOCKED`, `UNLOCK_REFUSED`) and a sentence for the person. Agents and
+automation may lock an anchor but never unlock one. `anchorCapabilities`
+answers what a caller may do, with a reason for each refusal.
+
+`workspace_commands` exposes these as named commands (`anchor.list`,
+`anchor.describe`, `anchor.rename`, `anchor.setLayoutLock`,
+`anchor.setContentLock`, `anchor.setSwitchable`, `anchor.setWorktree`,
+`anchor.addResource`, `anchor.removeResource`, `anchor.selectResource`,
+`anchor.reorderResource`, `view.open`, `view.move`) for a future agent tool.
+`WorkspaceStore.runCommand` runs them from QML, as an agent by default.
+
+All of this is optional in saved snapshots; older snapshots read with
+defaults.
 
 ## Document buffers (`Core/Domains/Documents`)
 

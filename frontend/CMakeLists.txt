@@ -109,6 +109,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_model.h
     src/Core/Domains/Workspace/workspace_codec.cpp
     src/Core/Domains/Workspace/workspace_codec.h
+    src/Core/Domains/Workspace/workspace_commands.cpp
+    src/Core/Domains/Workspace/workspace_commands.h
     src/Core/Domains/Workspace/workspace_presets.cpp
     src/Core/Domains/Workspace/workspace_presets.h
     src/Core/Domains/Documents/document_buffers.cpp
@@ -296,11 +298,15 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockViewContent.qml
         qml/App/Workbench/Dock/DockEditorHost.qml
         qml/App/Workbench/Dock/DockSplitter.qml
+        qml/App/Workbench/Dock/DockSurfaceArea.qml
+        qml/App/Workbench/Dock/DockFloatingWindow.qml
+        qml/App/Workbench/Dock/DockTearGhost.qml
         qml/App/Workbench/Dock/DockDropOverlay.qml
         qml/App/Workbench/Dock/DockDialogButton.qml
         qml/App/Workbench/Dock/DockNoticeBar.qml
         qml/App/Workbench/Dock/DockLayoutCard.qml
         qml/App/Workbench/Dock/DockLayoutPicker.qml
+        qml/App/Workbench/Dock/DockShelfPicker.qml
         qml/App/Workbench/Dock/DockLayoutThumb.qml
         qml/App/Workbench/Dock/DockMenu.qml
         qml/App/Workbench/Dock/DockMenuItem.qml
@@ -468,7 +474,7 @@ if(ARCHIVIST_BUILD_TESTS)
         src/App/Domains/Workspace/workspace_store.h
     )
     target_include_directories(workspace-store-test PRIVATE src)
-    target_link_libraries(workspace-store-test PRIVATE archivist-core Qt6::Test)
+    target_link_libraries(workspace-store-test PRIVATE archivist-core Qt6::Gui Qt6::Test)
     set_target_properties(workspace-store-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME workspace-store-test COMMAND workspace-store-test)
 endif()

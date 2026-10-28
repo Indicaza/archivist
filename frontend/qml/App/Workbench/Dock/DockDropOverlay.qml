@@ -10,8 +10,13 @@ Item {
     required property var theme
     required property var workspace
 
+    property string surfaceId: ""
+    // The drag's pointer is over this window (the ghost is drawn here).
+    property bool pointerHere: true
+
     readonly property var landing: Docking.dragLandingRect
     readonly property bool hasLanding: Docking.dragActive && Docking.dropAllowed && landing.width !== undefined
+        && String(Docking.dropTarget.surfaceId || "") === root.surfaceId
     readonly property var target: Docking.dropTarget
     readonly property string actionLabel: {
         if (!Docking.dragActive || !Docking.dropAllowed) {
@@ -103,7 +108,7 @@ Item {
         width: Math.min(260, ghostRow.implicitWidth + 22)
         height: 30
         radius: 8
-        visible: Docking.dragActive
+        visible: Docking.dragActive && root.pointerHere && !Docking.dragDetached
         color: root.theme.controlSurfaceBg
         border.width: 1
         border.color: refused ? root.theme.danger : root.theme.accent

@@ -161,7 +161,7 @@ Item {
                 dragging = root.workspace.beginDrag("view", root.viewId, root.title)
             }
             if (dragging) {
-                root.workspace.moveDrag(mapToItem(root.workspace.area, mouse.x, mouse.y))
+                root.workspace.moveDrag(mapToGlobal(mouse.x, mouse.y))
             }
         }
         onReleased: function(mouse) {
@@ -235,6 +235,18 @@ Item {
         DockMenuSeparator { theme: root.theme }
         DockMenuItem { theme: root.theme; text: "Split Right"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "right") }
         DockMenuItem { theme: root.theme; text: "Split Down"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "bottom") }
+        DockMenuItem {
+            theme: root.theme
+            text: "Move to New Window"
+            visible: !root.workspace.isFloating || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+            onTriggered: root.workspace.detachView(root.viewId)
+        }
+        DockMenuItem {
+            theme: root.theme
+            text: "Return to Main Window"
+            visible: root.workspace.isFloating
+            onTriggered: root.workspace.returnToMainWindow("view", root.viewId)
+        }
         DockMenuItem {
             theme: root.theme
             text: "Open Second View to the Right"

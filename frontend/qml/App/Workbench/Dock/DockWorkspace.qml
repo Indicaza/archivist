@@ -22,11 +22,38 @@ Item {
     // Set explicitly (not bound) so the per-surface models are fetched once
     // per window, not on every layout revision.
     property string surfaceId: ""
-    property bool resizingSplit: false
-    property bool resizingSurface: false
-    readonly property bool animateLayout: !theme.reducedMotion && !resizingSplit && !resizingSurface
-    readonly property bool showFocus: Docking.surfaceIds.length > 1 || anchorCount > 1
-    readonly property int anchorCount: anchorRepeater.count
+    readonly property bool animateLayout: area.animateLayout
+    readonly property bool showFocus: area.showFocus
+    readonly property int anchorCount: area.anchorCount
+
+    // Each window's DockSurfaceArea, by surface id. View content (terminals,
+    // previews, the live chat) lives in whichever window shows its view.
+    property var surfaceAreas: ({})
+    property string dragGhostTitle: ""
+    property string dragGhostIcon: "file"
+    property string dragSourceSurfaceId: ""
+
+    function registerSurfaceArea(surfaceId, item) {
+        if (surfaceId.length === 0) {
+            return
+        }
+        var areas = Object.assign({}, surfaceAreas)
+        areas[surfaceId] = item
+        surfaceAreas = areas
+    }
+
+    function unregisterSurfaceArea(surfaceId, item) {
+        if (surfaceAreas[surfaceId] === item) {
+            var areas = Object.assign({}, surfaceAreas)
+            delete areas[surfaceId]
+            surfaceAreas = areas
+        }
+    }
+
+    function surfaceAreaOfAnchor(anchorId) {
+        var item = anchorItems[anchorId]
+        return item ? (surfaceAreas[item.surfaceId] || null) : null
+    }
 
     // What the status bar shows about the focused document.
     readonly property var focusedView: {
@@ -62,6 +89,8 @@ Item {
 
     property var anchorItems: ({})
     property bool quietLayout: false
+    // Focus moved by keyboard: show a clear ring until the pointer is used.
+    property bool keyboardFocusVisible: false
     property var terminalItems: ({})
     property string preferredChatViewId: ""
     property string lastSelectionKey: ""
@@ -90,6 +119,18 @@ Item {
     function unregisterTerminal(viewId, item) {
         if (terminalItems[viewId] === item) {
             delete terminalItems[viewId]
+        }
+    }
+
+    // ---- focus -------------------------------------------------------------
+
+    function noteKeyboardFocus() {
+        root.keyboardFocusVisible = true
+    }
+
+    function notePointerFocus() {
+        if (root.keyboardFocusVisible) {
+            root.keyboardFocusVisible = false
         }
     }
 
@@ -147,12 +188,122 @@ Item {
         return String(details.name || details.path || "Untitled")
     }
 
+    function viewIconName(info) {
+        var typeId = String((info || {}).typeId || "")
+        if (typeId === "archivist.chat") {
+            return "chat"
+        }
+        if (typeId === "archivist.terminal") {
+            return "terminal"
+        }
+        if (typeId === "archivist.diff") {
+            return "git-branch"
+        }
+        if (typeId === "archivist.welcome") {
+            return "workspace"
+        }
+        var details = ((info || {}).resource || {}).details || ({})
+        var identity = FileIdentity.resolve({
+            fileName: String(details.name || details.path || info.title || ""),
+            extension: String(details.extension || "")
+        })
+        return identity.category === "image" ? "file-image"
+            : identity.preferredRendererId === "markdown" ? "file-markdown"
+            : identity.preferredRendererId === "pdf" ? "file-pdf"
+            : identity.category === "code" || identity.category === "data" ? "file-text"
+            : "file"
+    }
+
+    function libraryLabel(libraryId) {
+        var library = libraryFor(libraryId)
+        if (!library) {
+            return ""
+        }
+        var branch = String(library.branch || library.worktreeBranch || "")
+        var name = String(library.name || "Library")
+        return branch.length > 0 && branch !== name ? name + " · " + branch : name
+    }
+
+    // The Library a project falls back to: the main checkout of the selected
+    // repository, else the first Library of the Collection.
+    function defaultLibraryId() {
+        var main = String(WorktreeStore.anchorLibraryId || "")
+        if (main.length > 0 && libraryFor(main)) {
+            return main
+        }
+        var libraries = LibraryStore.libraries || []
+        return libraries.length > 0 ? String(libraries[0].id || "") : ""
+    }
+
+    function knownLibraryIds() {
+        var libraries = LibraryStore.libraries || []
+        var ids = []
+        for (var index = 0; index < libraries.length; index += 1) {
+            ids.push(String(libraries[index].id || ""))
+        }
+        return ids
+    }
+
+    // ---- shelves (switchable panels) -------------------------------------
+
+    // Views elsewhere that could join `anchorId`'s shelf, one per resource.
+    function shelfCandidates(anchorId) {
+        var own = Docking.anchor(anchorId).views || []
+        var held = ({})
+        for (var index = 0; index < own.length; index += 1) {
+            var mine = Docking.view(own[index])
+            held[String(mine.typeId) + "|" + String((mine.resource || {}).kind) + "|" + String((mine.resource || {}).id)] = true
+        }
+        var result = []
+        var anchors = Object.keys(anchorItems)
+        for (var a = 0; a < anchors.length; a += 1) {
+            if (anchors[a] === anchorId) {
+                continue
+            }
+            var views = Docking.anchor(anchors[a]).views || []
+            for (var v = 0; v < views.length; v += 1) {
+                var info = Docking.view(views[v])
+                var key = String(info.typeId) + "|" + String((info.resource || {}).kind) + "|" + String((info.resource || {}).id)
+                if (held[key]) {
+                    continue
+                }
+                held[key] = true
+                result.push(info)
+            }
+        }
+        return result
+    }
+
+    // Puts a view on a shelf. Documents and chats get a second view (the
+    // original stays where it is, sharing the same buffer or conversation);
+    // a terminal moves, since its session has one home.
+    function addToShelf(anchorId, viewId) {
+        var info = Docking.view(viewId)
+        if (!info.viewId) {
+            return ""
+        }
+        var type = Docking.viewType(info.typeId)
+        if (info.typeId === "archivist.terminal" || type.allowsDuplicates === false) {
+            Docking.moveView(viewId, anchorId, -1)
+            Docking.activateView(viewId)
+            return viewId
+        }
+        return Docking.openView(info.typeId, info.resource, String(info.title || ""), {
+            anchorId: anchorId,
+            duplicate: true,
+            state: info.state || ({})
+        })
+    }
+
     function anchorTitle(anchorId) {
         var anchor = Docking.anchor(anchorId)
         var active = anchor.activeViewId ? Docking.view(anchor.activeViewId) : null
         var count = (anchor.views || []).length
         var title = active ? viewTitle(active) : "Empty panel"
-        return count > 1 ? title + "  +" + (count - 1) : title
+        title = count > 1 ? title + "  +" + (count - 1) : title
+        // A panel the person named is carried by its name.
+        var name = String(anchor.name || "")
+        return name.length > 0 ? name + " · " + title : title
     }
 
     function fileRecordFor(details) {
@@ -293,17 +444,24 @@ Item {
                 return
             }
         }
-        var current = root.preferredChatViewId.length > 0 ? Docking.view(root.preferredChatViewId) : ({})
-        if (current.typeId !== "archivist.chat") {
-            var chats = Docking.viewIdsOfType("archivist.chat")
-            current = chats.length > 0 ? Docking.view(chats[0]) : ({})
+        // Point a chat view at the newly selected chat, as before docking.
+        // This is automatic: a panel whose content is locked keeps its chat,
+        // and the conversation opens somewhere else instead.
+        var candidates = Docking.viewIdsOfType("archivist.chat")
+        if (root.preferredChatViewId.length > 0) {
+            candidates.unshift(root.preferredChatViewId)
         }
-        if (current.typeId === "archivist.chat") {
-            Docking.setViewResource(current.viewId, { kind: "chat", id: chatId })
-            Docking.setViewTitle(current.viewId, chatTitle(chatId))
-            root.preferredChatViewId = current.viewId
-            Docking.activateView(current.viewId)
-            return
+        for (var candidate = 0; candidate < candidates.length; candidate += 1) {
+            var current = Docking.view(candidates[candidate])
+            if (current.typeId !== "archivist.chat") {
+                continue
+            }
+            if (Docking.setViewResource(current.viewId, { kind: "chat", id: chatId }, "automatic")) {
+                Docking.setViewTitle(current.viewId, chatTitle(chatId))
+                root.preferredChatViewId = current.viewId
+                Docking.activateView(current.viewId)
+                return
+            }
         }
         openChat("")
     }
@@ -424,12 +582,28 @@ Item {
 
     // ---- terminals -------------------------------------------------------
 
+    // A new terminal's worktree comes from where it opens (see
+    // WorkspaceModel::resolveLibrary): the panel's own default worktree, then
+    // the worktree of the panel's active document, then the Explorer's
+    // selection, then the project default. It is fixed from then on.
+    function terminalLibraryFor(anchorId) {
+        var destination = String(anchorId || "") || Docking.preferredAnchorFor("archivist.terminal")
+        return Docking.resolveLibrary(
+            destination,
+            String(LibraryStore.selectedLibraryId || ""),
+            defaultLibraryId(),
+            knownLibraryIds()
+        )
+    }
+
     function openTerminal(anchorId) {
-        var libraryId = String(LibraryStore.selectedLibraryId || "")
+        var destination = String(anchorId || "") || Docking.preferredAnchorFor("archivist.terminal")
+        var libraryId = String(terminalLibraryFor(destination).libraryId || "")
         var collectionId = String(CollectionStore.selectedCollectionId || "")
         if (libraryId.length === 0) {
             return
         }
+        anchorId = destination
         var sessionId = "terminal-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1296).toString(36)
         var library = libraryFor(libraryId)
         Docking.openView(
@@ -444,6 +618,10 @@ Item {
             library ? "Terminal · " + String(library.name || "") : "Terminal",
             { anchorId: anchorId || "", reveal: false }
         )
+        // Say where it opened when that isn't what the Explorer shows.
+        if (libraryId !== String(LibraryStore.selectedLibraryId || "")) {
+            toast.show("Terminal opened in " + libraryLabel(libraryId))
+        }
     }
 
     // A terminal's process ends with its last view.
@@ -516,37 +694,176 @@ Item {
         if (!Docking.beginDrag(kind, id)) {
             return false
         }
-        overlay.ghostTitle = title
+        root.dragGhostTitle = title
         var view = kind === "view" ? Docking.view(id) : Docking.view(String(Docking.anchor(id).activeViewId || ""))
-        overlay.ghostIcon = !view || !view.typeId ? "grid"
+        root.dragGhostIcon = !view || !view.typeId ? "grid"
             : view.typeId === "archivist.chat" ? "chat"
             : view.typeId === "archivist.terminal" ? "terminal"
             : "file-text"
+        var sourceAnchor = kind === "view" ? String(view.anchorId || "") : id
+        var sourceItem = anchorItems[sourceAnchor]
+        root.dragSourceSurfaceId = sourceItem ? sourceItem.surfaceId : Docking.primarySurfaceId
+        tearGhost.sourceSize = sourceItem
+            ? Qt.size(Math.max(480, sourceItem.width), Math.max(320, sourceItem.height))
+            : Qt.size(720, 480)
         root.forceActiveFocus()
         return true
     }
 
-    function moveDrag(point) {
-        overlay.pointer = point
-        if (point.x < 0 || point.y < 0 || point.x > area.width || point.y > area.height) {
-            Docking.clearDragTarget()
+    // The surface under a global point: floating windows first (they sit
+    // above the main window), then the main window.
+    function surfaceAreaAt(globalPoint) {
+        var floating = Docking.floatingSurfaceIds
+        for (var index = floating.length - 1; index >= 0; index -= 1) {
+            var candidate = surfaceAreas[floating[index]]
+            if (candidate && candidate.containsGlobal(globalPoint)) {
+                return candidate
+            }
+        }
+        return area.containsGlobal(globalPoint) ? area : null
+    }
+
+    function screenAt(globalPoint) {
+        var screens = Qt.application.screens
+        for (var index = 0; index < screens.length; index += 1) {
+            var screen = screens[index]
+            if (globalPoint.x >= screen.virtualX && globalPoint.x < screen.virtualX + screen.width
+                && globalPoint.y >= screen.virtualY && globalPoint.y < screen.virtualY + screen.height) {
+                return screen
+            }
+        }
+        return null
+    }
+
+    function moveDrag(globalPoint) {
+        var target = surfaceAreaAt(globalPoint)
+        for (var key in surfaceAreas) {
+            surfaceAreas[key].dragHere = surfaceAreas[key] === target
+        }
+        tearGhost.pointer = globalPoint
+
+        if (!target) {
+            // Out on the desktop: a drop opens a new window under the pointer.
+            var screen = screenAt(globalPoint)
+            var size = tearGhost.sourceSize
+            var frameX = globalPoint.x - 60
+            var frameY = globalPoint.y - 14
+            if (screen) {
+                // Keep the new window on the monitor under the pointer.
+                var width = Math.min(size.width, screen.width - 40)
+                var height = Math.min(size.height, screen.height - 60)
+                size = Qt.size(width, height)
+                frameX = Math.max(screen.virtualX + 8, Math.min(frameX, screen.virtualX + screen.width - width - 8))
+                frameY = Math.max(screen.virtualY + 24, Math.min(frameY, screen.virtualY + screen.height - height - 8))
+            }
+            tearGhost.frame = Qt.rect(frameX, frameY, size.width, size.height)
+            Docking.updateDragDetached(frameX, frameY, size.width, size.height, screen ? screen.name : "")
             return
         }
-        var strip = Docking.tabStripAt(root.surfaceId, point.x, point.y, theme.editorTabHeight)
+
+        var point = target.mapFromGlobal(globalPoint.x, globalPoint.y)
+        target.dragPointer = point
+        var strip = Docking.tabStripAt(target.surfaceId, point.x, point.y, theme.editorTabHeight)
         if (strip.anchorId) {
             var item = anchorItems[strip.anchorId]
-            Docking.updateDragOverTabs(root.surfaceId, strip.anchorId, item ? item.tabIndexAt(strip.localX) : -1)
+            Docking.updateDragOverTabs(target.surfaceId, strip.anchorId, item ? item.tabIndexAt(strip.localX) : -1)
             return
         }
-        Docking.updateDrag(root.surfaceId, point.x, point.y)
+        Docking.updateDrag(target.surfaceId, point.x, point.y)
     }
 
     function endDrag() {
-        Docking.finishDrag()
+        var detached = Docking.dragDetached && Docking.dropAllowed
+        var title = root.dragGhostTitle
+        clearDragHere()
+        if (Docking.finishDrag() && detached) {
+            toast.show("Opened " + (title.length > 0 ? "“" + title + "”" : "panel") + " in a new window")
+        }
     }
 
     function cancelDrag() {
+        clearDragHere()
         Docking.cancelDrag()
+    }
+
+    function clearDragHere() {
+        for (var key in surfaceAreas) {
+            surfaceAreas[key].dragHere = false
+        }
+    }
+
+    // ---- windows ---------------------------------------------------------
+
+    // A frame for a new window, offset from the panel it comes from.
+    function frameBeside(anchorId) {
+        var item = anchorItems[anchorId]
+        if (!item) {
+            return { x: 120, y: 120, width: 720, height: 480 }
+        }
+        var origin = item.mapToGlobal(0, 0)
+        return {
+            x: origin.x + 36,
+            y: origin.y + 36,
+            width: Math.max(480, item.width),
+            height: Math.max(320, item.height)
+        }
+    }
+
+    function detachView(viewId) {
+        var view = Docking.view(viewId)
+        var frame = frameBeside(String(view.anchorId || ""))
+        var screen = screenAt(Qt.point(frame.x, frame.y))
+        if (Docking.detachView(viewId, frame.x, frame.y, frame.width, frame.height, screen ? screen.name : "").length > 0) {
+            toast.show("Opened “" + viewTitle(view) + "” in a new window")
+        }
+    }
+
+    function detachAnchor(anchorId) {
+        var frame = frameBeside(anchorId)
+        var screen = screenAt(Qt.point(frame.x, frame.y))
+        Docking.detachAnchor(anchorId, frame.x, frame.y, frame.width, frame.height, screen ? screen.name : "")
+    }
+
+    // A panel in the main window to receive tabs: the focused or target one
+    // when it is there, else any.
+    function mainWindowAnchor() {
+        var primary = Docking.primarySurfaceId
+        var preferred = [Docking.targetAnchorId, Docking.focusedAnchorId]
+        for (var index = 0; index < preferred.length; index += 1) {
+            var item = anchorItems[preferred[index]]
+            if (item && item.surfaceId === primary) {
+                return preferred[index]
+            }
+        }
+        for (var key in anchorItems) {
+            if (anchorItems[key].surfaceId === primary) {
+                return key
+            }
+        }
+        return ""
+    }
+
+    function returnToMainWindow(kind, id) {
+        var destination = mainWindowAnchor()
+        if (destination.length === 0) {
+            return
+        }
+        if (kind === "view") {
+            Docking.moveView(id, destination, -1)
+            Docking.activateView(id)
+        } else {
+            Docking.moveAnchor(id, destination, "right")
+            Docking.focusAnchor(id)
+        }
+        root.Window.window.requestActivate()
+    }
+
+    function closeFloatingWindow(surfaceId) {
+        var info = Docking.surface(surfaceId)
+        var count = Number(info.viewCount || 0)
+        if (Docking.closeSurface(surfaceId) && count > 0) {
+            toast.show(count === 1 ? "Moved 1 tab back to the main window" : "Moved " + count + " tabs back to the main window")
+        }
     }
 
     // ---- migration -------------------------------------------------------
@@ -733,21 +1050,12 @@ Item {
 
     // ---- keyboard --------------------------------------------------------
 
-    // Cmd/Ctrl + = - 0 size the whole interface (InterfaceScale catches
-    // the keys application-wide, even inside editors and terminals).
-    Connections {
-        target: InterfaceScale
-
-        function onScaleChanged() {
-            zoomBadge.show(Math.round(InterfaceScale.scale * 100) + "%")
-        }
-    }
 
     Shortcut {
         sequence: "Escape"
         enabled: Docking.dragActive
         context: Qt.ApplicationShortcut
-        onActivated: Docking.cancelDrag()
+        onActivated: root.cancelDrag()
     }
     Shortcut {
         sequences: ["Ctrl+\\"]
@@ -773,14 +1081,37 @@ Item {
         context: Qt.ApplicationShortcut
         onActivated: Docking.toggleMaximize(Docking.focusedAnchorId)
     }
-    Shortcut { sequences: ["Ctrl+Alt+Left"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("left") }
-    Shortcut { sequences: ["Ctrl+Alt+Right"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("right") }
-    Shortcut { sequences: ["Ctrl+Alt+Up"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("top") }
-    Shortcut { sequences: ["Ctrl+Alt+Down"]; context: Qt.ApplicationShortcut; onActivated: Docking.focusNeighbor("bottom") }
-    Shortcut { sequences: ["Ctrl+Alt+]"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleFocus(1) }
-    Shortcut { sequences: ["Ctrl+Alt+["]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleFocus(-1) }
-    Shortcut { sequences: ["Ctrl+PgDown"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(1) }
-    Shortcut { sequences: ["Ctrl+PgUp"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(-1) }
+    Shortcut { sequences: ["Ctrl+Alt+Left"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("left") } }
+    Shortcut { sequences: ["Ctrl+Alt+Right"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("right") } }
+    Shortcut { sequences: ["Ctrl+Alt+Up"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("top") } }
+    Shortcut { sequences: ["Ctrl+Alt+Down"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("bottom") } }
+    Shortcut { sequences: ["Ctrl+Alt+]"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(1) } }
+    Shortcut { sequences: ["Ctrl+Alt+["]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(-1) } }
+    // Next/previous tab, or next/previous item on a shelf.
+    Shortcut { sequences: ["Ctrl+PgDown", "Ctrl+Alt+Shift+]"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(1) }
+    Shortcut { sequences: ["Ctrl+PgUp", "Ctrl+Alt+Shift+["]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(-1) }
+    // Rename the focused panel.
+    Shortcut {
+        sequences: ["F2"]
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            var item = root.anchorItems[Docking.focusedAnchorId]
+            if (item) {
+                item.startRename()
+            }
+        }
+    }
+    // Open the focused shelf's picker.
+    Shortcut {
+        sequences: ["Ctrl+Alt+P"]
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            var item = root.anchorItems[Docking.focusedAnchorId]
+            if (item && item.switchable) {
+                item.openShelfPicker()
+            }
+        }
+    }
     Shortcut {
         sequences: ["Ctrl+S"]
         context: Qt.ApplicationShortcut
@@ -794,260 +1125,109 @@ Item {
 
     // ---- drawing ---------------------------------------------------------
 
-    Item {
+    DockSurfaceArea {
         id: area
 
         x: root.leftInset
         y: 0
         width: Math.max(0, root.width - root.leftInset)
         height: root.height
-        clip: true
-
-        onWidthChanged: root.noteSurfaceResize()
-        onHeightChanged: root.noteSurfaceResize()
+        theme: root.theme
+        workspace: root
+        surfaceId: root.surfaceId
 
         Behavior on x {
             enabled: !root.theme.reducedMotion
             SpringAnimation { spring: root.theme.motionSpring; damping: root.theme.motionDamping; epsilon: 0.2 }
         }
+    }
 
-        Rectangle {
-            anchors.fill: parent
-            color: root.theme.workspaceBgDeep
-        }
+    // Where view content waits while its window is being made.
+    Item {
+        id: viewParking
 
-        Repeater {
-            id: anchorRepeater
+        visible: false
+        width: 1
+        height: 1
 
-            model: Docking.anchors(root.surfaceId)
-
-            delegate: DockAnchor {
-                theme: root.theme
-                workspace: root
-            }
-        }
-
-        Repeater {
+        // Not a Repeater: each item reparents itself into its window.
+        Instantiator {
             model: Docking.views
 
             delegate: DockViewContent {
                 theme: root.theme
                 workspace: root
+                parking: viewParking
             }
         }
 
-        // The live conversation, placed over its chat view.
-        Workspace {
-            id: chatSurface
+            // The live conversation, placed over its chat view.
+            Workspace {
+                id: chatSurface
 
-            readonly property var row: root.liveChatRow
-            readonly property bool placed: row.viewId !== undefined
+                readonly property var row: root.liveChatRow
+                readonly property bool placed: row.viewId !== undefined
+                readonly property var surfaceArea: placed ? (root.surfaceAreas[String(row.surfaceId || "")] || null) : null
 
-            x: placed ? row.rectX + 1 : 0
-            y: placed ? row.rectY + root.theme.editorTabHeight : 0
-            width: placed ? Math.max(0, row.rectWidth - 2) : 0
-            height: placed ? Math.max(0, row.rectHeight - root.theme.editorTabHeight - 1) : 0
-            visible: placed && width > 1 && height > 1
-            clip: true
-            theme: root.theme
-            dockedMode: true
-            leftObstruction: 0
-            previewLeftObstruction: 0
+                parent: surfaceArea || viewParking
+                z: 1
 
-            onContextInspectionRequested: function(messageId) {
-                root.contextInspectionRequested(messageId)
-            }
+                x: placed ? row.rectX + 1 : 0
+                y: placed ? row.rectY + root.theme.editorTabHeight : 0
+                width: placed ? Math.max(0, row.rectWidth - 2) : 0
+                height: placed ? Math.max(0, row.rectHeight - root.theme.editorTabHeight - 1) : 0
+                visible: surfaceArea !== null && width > 1 && height > 1
+                clip: true
+                theme: root.theme
+                dockedMode: true
+                leftObstruction: 0
+                previewLeftObstruction: 0
 
-            Behavior on x { enabled: root.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-            Behavior on y { enabled: root.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-            Behavior on width { enabled: root.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-            Behavior on height { enabled: root.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                onContextInspectionRequested: function(messageId) {
+                    root.contextInspectionRequested(messageId)
+                }
 
-            MouseArea {
-                anchors.fill: parent
-                z: 1000
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                onPressed: function(mouse) {
-                    Docking.focusAnchor(chatSurface.row.anchorId)
-                    mouse.accepted = false
+                Behavior on x { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on y { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on width { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on height { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+
+                MouseArea {
+                    anchors.fill: parent
+                    z: 1000
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onPressed: function(mouse) {
+                        Docking.focusAnchor(chatSurface.row.anchorId)
+                        mouse.accepted = false
+                    }
                 }
             }
-        }
 
-        Repeater {
-            model: Docking.splitters(root.surfaceId)
+    }
 
-            delegate: DockSplitter {
-                theme: root.theme
-                workspace: root
-            }
-        }
+    // Floating windows, one per surface besides the main window.
+    Instantiator {
+        model: Docking.floatingSurfaceIds
 
-        // The focus ring glides to whichever panel has focus, drawn above
-        // panel content so it reads even over editors and terminals.
-        Rectangle {
-            id: focusRing
+        delegate: DockFloatingWindow {
+            required property string modelData
 
-            readonly property var target: {
-                Docking.revision
-                return root.anchorItems[Docking.focusedAnchorId] || null
-            }
-            readonly property bool shown: root.showFocus && target !== null && target.visible
-                && !Docking.dragActive && target.surfaceId === root.surfaceId
-
-            x: target ? target.x : 0
-            y: target ? target.y : 0
-            width: target ? target.width : 0
-            height: target ? target.height : 0
-            z: 90
-            color: "transparent"
-            radius: 3
-            border.width: 1.5
-            border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.7)
-            opacity: shown ? 1 : 0
-            enabled: false
-
-            Behavior on opacity { NumberAnimation { duration: root.theme.motionFast } }
-            Behavior on x { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-            Behavior on y { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-            Behavior on width { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-            Behavior on height { enabled: root.animateLayout && focusRing.shown; SpringAnimation { spring: 5; damping: 0.42; epsilon: 0.25 } }
-        }
-
-        DockDropOverlay {
-            id: overlay
-
-            anchors.fill: parent
-            z: 100
+            surfaceId: modelData
             theme: root.theme
             workspace: root
+            transientParent: root.Window.window
         }
     }
 
-    function noteSurfaceResize() {
-        root.resizingSurface = true
-        surfaceResizeSettle.restart()
-        Docking.setSurfaceSize(root.surfaceId, area.width, area.height)
-    }
+    // Follows the pointer outside every window while a drop would open one.
+    DockTearGhost {
+        id: tearGhost
 
-    onSurfaceIdChanged: Qt.callLater(function() {
-        Docking.setSurfaceSize(root.surfaceId, area.width, area.height)
-    })
-
-    Timer {
-        id: surfaceResizeSettle
-        interval: 160
-        onTriggered: root.resizingSurface = false
-    }
-
-    // A brief readout of the interface size, like a browser's zoom bubble:
-    // a percentage and a meter on the size ladder.
-    Rectangle {
-        id: zoomBadge
-
-        property string label: ""
-        readonly property var ladder: [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
-        readonly property int position: {
-            var best = 0
-            for (var index = 0; index < ladder.length; index += 1) {
-                if (Math.abs(ladder[index] - InterfaceScale.scale) < Math.abs(ladder[best] - InterfaceScale.scale)) {
-                    best = index
-                }
-            }
-            return best
-        }
-
-        function show(text) {
-            label = text
-            opacity = 1
-            zoomBadgeTimer.restart()
-        }
-
-        anchors.horizontalCenter: area.horizontalCenter
-        y: area.y + 18
-        z: 210
-        width: Math.max(150, zoomBadgeRow.implicitWidth + 36)
-        height: 58
-        radius: 14
-        color: Qt.rgba(0.08, 0.075, 0.07, 0.9)
-        border.width: 1
-        border.color: root.theme.panelBorder
-        opacity: 0
-        visible: opacity > 0.01
-        scale: opacity > 0.5 ? 1 : 0.94
-
-        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 160 } }
-        Behavior on scale { enabled: !root.theme.reducedMotion; NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
-
-        HoverHandler {
-            onHoveredChanged: hovered ? zoomBadgeTimer.stop() : zoomBadgeTimer.restart()
-        }
-
-        Row {
-            id: zoomBadgeRow
-
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 9
-            spacing: 10
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: zoomBadge.label
-                color: root.theme.appText
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textPanelTitleSize - 4
-                font.weight: root.theme.textWeightEmphasis
-            }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: Math.abs(InterfaceScale.scale - 1) > 0.001
-                text: Qt.platform.os === "osx" ? "⌘0 resets" : "Ctrl+0 resets"
-                color: root.theme.mutedText
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textMetadataSize
-            }
-        }
-
-        // Where this size sits on the ladder; the dot glides between steps.
-        Item {
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: parent.height - 15
-            width: parent.width - 36
-            height: 6
-
-            Repeater {
-                model: zoomBadge.ladder.length
-
-                Rectangle {
-                    required property int index
-
-                    x: index * (parent.width - 4) / (zoomBadge.ladder.length - 1)
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 4
-                    height: zoomBadge.ladder[index] === 1 ? 6 : 4
-                    radius: 2
-                    color: index <= zoomBadge.position ? root.theme.accent : root.theme.panelBorder
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                }
-            }
-
-            Rectangle {
-                width: 10
-                height: 10
-                radius: 5
-                anchors.verticalCenter: parent.verticalCenter
-                x: zoomBadge.position * (parent.width - 4) / (zoomBadge.ladder.length - 1) - 3
-                color: root.theme.accentBright
-                Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4; damping: 0.4; epsilon: 0.25 } }
-            }
-        }
-
-        Timer {
-            id: zoomBadgeTimer
-            interval: 1400
-            onTriggered: zoomBadge.opacity = 0
-        }
+        theme: root.theme
+        title: root.dragGhostTitle
+        icon: root.dragGhostIcon
+        shown: Docking.dragActive && Docking.dragDetached
+        allowed: Docking.dropAllowed
     }
 
     // Short confirmations, optionally with one action (Undo).

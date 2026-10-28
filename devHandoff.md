@@ -549,7 +549,7 @@ Core/Domains/Workspace/view_type_registry   versioned view contract (future plug
 Core/Domains/Documents/document_buffers     shared, versioned buffers; dirty text outlives views
 ```
 
-Rules: layout operations never touch resources; only closeView/closeAnchor remove views and callers guard them; closing a floating window moves its views home; a view keeps its own worktree; live views reparent inside a window and rebuild from view state across windows.
+Rules: layout operations never touch resources; only closeView/closeAnchor remove views and callers guard them; closing a floating window moves its views home; a view keeps its own worktree; live view content reparents into whichever window shows it (editors rebuild there from their buffer and view state).
 
 ## 13. Current branch: feature/ai-edit-transactions
 

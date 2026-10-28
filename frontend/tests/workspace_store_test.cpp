@@ -244,6 +244,113 @@ private slots:
         QCOMPARE(store.view(b).value("anchorId").toString(), first);
     }
 
+    void tearOffOpensAFloatingWindowAndClosingBringsTabsBack()
+    {
+        WorkspaceStore store;
+        store.setScreensForTesting({{QStringLiteral("Main"), QRectF(0, 0, 1920, 1080), QRectF(0, 25, 1920, 1055), 2.0, true}});
+        store.setCollection(QStringLiteral("float"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.terminal"), {{"kind", "terminal"}, {"id", "lib:t1"}}, "zsh");
+        QSignalSpy surfaces(&store, &WorkspaceStore::surfacesChanged);
+
+        // Drag the terminal tab out of every window: a drop opens a window.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragDetached(1200, 300, 640, 420, QStringLiteral("Main"));
+        QVERIFY(store.dragDetached());
+        QVERIFY(store.dropAllowed());
+        QCOMPARE(store.detachRect().value("width").toDouble(), 640.0);
+        // Back over the main window: an ordinary drop target again.
+        store.updateDrag(surface, 950, 300);
+        QVERIFY(!store.dragDetached());
+        store.updateDragDetached(1200, 300, 640, 420, QStringLiteral("Main"));
+        QVERIFY(store.finishDrag());
+
+        QCOMPARE(store.floatingSurfaceIds().size(), 1);
+        QCOMPARE(surfaces.count(), 1);
+        const QString floating = store.floatingSurfaceIds().first();
+        QCOMPARE(store.view(b).value("surfaceId").toString(), floating);
+        QCOMPARE(store.view(a).value("surfaceId").toString(), surface);
+        QCOMPARE(store.surface(floating).value("x").toDouble(), 1200.0);
+        QCOMPARE(store.surface(floating).value("viewCount").toInt(), 1);
+        QCOMPARE(store.focusedViewId(), b);
+
+        // Its panel models publish like the main window's.
+        store.setSurfaceSize(floating, 640, 420);
+        KeyedListModel *floatingAnchors = static_cast<KeyedListModel *>(store.anchors(floating));
+        QCOMPARE(floatingAnchors->rowCount(), 1);
+        QCOMPARE(floatingAnchors->get(0).value("rectWidth").toDouble(), 640.0);
+
+        // Tearing the only tab out of its own window again is refused: the
+        // window itself is what moves.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragDetached(100, 100, 640, 420, QStringLiteral("Main"));
+        QVERIFY(!store.dropAllowed());
+        QVERIFY(!store.finishDrag());
+        QCOMPARE(store.floatingSurfaceIds().size(), 1);
+
+        // Dragging it into the main window works across windows.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverTabs(surface, store.view(a).value("anchorId").toString(), -1);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
+        QVERIFY(store.floatingSurfaceIds().isEmpty());
+
+        // Closing a window keeps every tab.
+        const QString again = store.detachView(b, 1200, 300, 640, 420, QStringLiteral("Main"));
+        QVERIFY(!again.isEmpty());
+        QVERIFY(store.setSurfaceGeometry(again, 1300, 320, 700, 500, QStringLiteral("Main"), false));
+        QCOMPARE(store.surface(again).value("width").toDouble(), 700.0);
+        QVERIFY(store.closeSurface(again));
+        QVERIFY(store.floatingSurfaceIds().isEmpty());
+        QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
+        QVERIFY(!store.closeSurface(surface));
+    }
+
+    void floatingWindowsSurviveRestartAndLostMonitors()
+    {
+        const QList<Workspace::ScreenInfo> twoScreens = {
+            {QStringLiteral("Laptop"), QRectF(0, 0, 1512, 982), QRectF(0, 25, 1512, 957), 2.0, true},
+            {QStringLiteral("Studio"), QRectF(1512, -200, 2560, 1440), QRectF(1512, -200, 2560, 1440), 1.0, false},
+        };
+        const QList<Workspace::ScreenInfo> laptopOnly = {twoScreens.first()};
+        QString floating;
+        QString view;
+        {
+            WorkspaceStore store;
+            store.setScreensForTesting(twoScreens);
+            store.setCollection(QStringLiteral("monitors"));
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+            view = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+            floating = store.detachView(view, 2000, 100, 900, 700, QStringLiteral("Studio"));
+            QVERIFY(!floating.isEmpty());
+            store.saveNow();
+        }
+        {
+            // Restarted with the external monitor unplugged: the window comes
+            // back on the laptop, sized to fit, with its tab.
+            WorkspaceStore store;
+            store.setScreensForTesting(laptopOnly);
+            store.setCollection(QStringLiteral("monitors"));
+            QCOMPARE(store.floatingSurfaceIds(), QStringList{floating});
+            QCOMPARE(store.view(view).value("surfaceId").toString(), floating);
+            const QVariantMap rect = store.surface(floating);
+            QVERIFY(QRectF(0, 0, 1512, 982).contains(QRectF(rect.value("x").toDouble(), rect.value("y").toDouble(),
+                rect.value("width").toDouble(), rect.value("height").toDouble())));
+
+            // Plugged back in: it returns to the monitor the user chose.
+            QSignalSpy recovered(&store, &WorkspaceStore::surfaceRecovered);
+            store.setScreensForTesting(twoScreens);
+            QCOMPARE(store.recoverSurfaces(), QStringList{floating});
+            QCOMPARE(recovered.count(), 1);
+            QCOMPARE(store.surface(floating).value("x").toDouble(), 2000.0);
+            QCOMPARE(store.surface(floating).value("screen").toString(), QStringLiteral("Studio"));
+        }
+    }
+
     void snapshotsArePerCollection()
     {
         QString view;
@@ -533,6 +640,204 @@ private slots:
         documents.save(featureDoc);
         documents.noteFileSaved(QStringLiteral("lib-feature"), QStringLiteral("x.md"), {});
         QVERIFY(!documents.isDirty(featureDoc));
+    }
+
+
+    // ---- Anchor workstations ---------------------------------------------
+
+    void anchorConfigurationIsPublishedAndPersisted()
+    {
+        QString shelf;
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("anchor-config"));
+            shelf = store.focusedAnchorId();
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+
+            QVERIFY(store.renameAnchor(shelf, QStringLiteral("Reference Shelf")));
+            QVERIFY(store.setAnchorSwitchable(shelf, true));
+            QVERIFY(store.setAnchorLayoutLocked(shelf, true));
+            QVERIFY(store.setAnchorLibrary(shelf, QStringLiteral("wt-a")));
+
+            QAbstractItemModel *anchors = store.anchors(store.primarySurfaceId());
+            QCOMPARE(keys(anchors, "displayName"), QStringList({QStringLiteral("Reference Shelf")}));
+            QCOMPARE(keys(anchors, "layoutLocked"), QStringList({QStringLiteral("true")}));
+            QCOMPARE(keys(anchors, "switchable"), QStringList({QStringLiteral("true")}));
+            QCOMPARE(keys(anchors, "contextLibraryId"), QStringList({QStringLiteral("wt-a")}));
+
+            // The UI asks what is allowed, and why not.
+            const QVariantMap caps = store.anchorCapabilities(shelf);
+            QVERIFY(!caps.value("close").toBool());
+            QVERIFY(caps.value("restrictions").toMap().value("close").toString().contains(QStringLiteral("Reference Shelf")));
+
+            // Closing is refused with the reason, and nothing changes.
+            QSignalSpy failed(&store, &WorkspaceStore::operationFailed);
+            const QVariantMap closed = store.closeAnchor(shelf, true);
+            QVERIFY(!closed.value("ok").toBool());
+            QVERIFY(closed.value("error").toString().contains(QStringLiteral("locked")));
+            QCOMPARE(store.views()->rowCount(), 1);
+            QVERIFY(!store.applyPreset(QStringLiteral("development")));
+            QCOMPARE(failed.count(), 1);
+            store.saveNow();
+        }
+
+        WorkspaceStore restored;
+        restored.setCollection(QStringLiteral("anchor-config"));
+        const QVariantMap anchor = restored.anchor(shelf);
+        QCOMPARE(anchor.value("name").toString(), QStringLiteral("Reference Shelf"));
+        QVERIFY(anchor.value("switchable").toBool());
+        QVERIFY(anchor.value("layoutLocked").toBool());
+        QCOMPARE(anchor.value("libraryId").toString(), QStringLiteral("wt-a"));
+    }
+
+    void layoutUndoBringsBackAnchorProperties()
+    {
+        QSettings().remove(QStringLiteral("workspace/docking/layouts"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("anchor-undo"));
+        const QString chat = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("c1")}}, "Chat");
+        const QString anchorId = store.view(chat).value("anchorId").toString();
+        QVERIFY(store.renameAnchor(anchorId, QStringLiteral("Architecture Chat")));
+        QVERIFY(store.setAnchorContentLocked(anchorId, true));
+        QVERIFY(store.setAnchorSwitchable(anchorId, true));
+
+        QVERIFY(store.applyPreset(QStringLiteral("research")));
+        QVERIFY(store.anchor(store.view(chat).value("anchorId").toString()).value("name").toString().isEmpty());
+
+        QVERIFY(store.undoLayout());
+        const QVariantMap back = store.anchor(store.view(chat).value("anchorId").toString());
+        QCOMPARE(back.value("name").toString(), QStringLiteral("Architecture Chat"));
+        QVERIFY(back.value("contentLocked").toBool());
+        QVERIFY(back.value("switchable").toBool());
+    }
+
+    void lockedChatIsNotRepointedAutomatically()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("anchor-chat-lock"));
+        const QString architecture = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("architecture")}}, "Architecture");
+        const QString locked = store.view(architecture).value("anchorId").toString();
+        const QString other = store.createAnchor(locked, QStringLiteral("right"));
+        QVERIFY(store.setAnchorContentLocked(locked, true));
+        QVERIFY(store.focusAnchor(locked));
+
+        // Another agent changing the selected chat can't repoint the view...
+        QSignalSpy failed(&store, &WorkspaceStore::operationFailed);
+        QVERIFY(!store.setViewResource(architecture, {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("developer")}}, QStringLiteral("automatic")));
+        QCOMPARE(store.view(architecture).value("resource").toMap().value("id").toString(), QStringLiteral("architecture"));
+        QCOMPARE(failed.count(), 0); // expected, so not reported as an error
+
+        // ...and new content lands somewhere else even though it is focused.
+        QCOMPARE(store.preferredAnchorFor(QStringLiteral("archivist.chat")), other);
+        QCOMPARE(store.preferredAnchorFor(QStringLiteral("archivist.editor")), other);
+        const QString developer = store.openView(QStringLiteral("archivist.chat"), {{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("id"), QStringLiteral("developer")}}, "Developer");
+        QCOMPARE(store.view(developer).value("anchorId").toString(), other);
+
+        // The person can still put something there on purpose.
+        const QString explicitView = store.openView(QStringLiteral("archivist.editor"), documentResource("n.md"), "n.md", {{QStringLiteral("anchorId"), locked}});
+        QCOMPARE(store.view(explicitView).value("anchorId").toString(), locked);
+        QVERIFY(store.openView(QStringLiteral("archivist.editor"), documentResource("m.md"), "m.md", {{QStringLiteral("anchorId"), locked}, {QStringLiteral("origin"), QStringLiteral("agent")}}).isEmpty());
+    }
+
+    void switchingShelfResourcesKeepsUnsavedBuffers()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        disk.files.insert(QStringLiteral("wt-b:b.cpp"), QStringLiteral("beta"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("anchor-shelf"));
+        const QString shelf = store.focusedAnchorId();
+        QVERIFY(store.setAnchorSwitchable(shelf, true));
+
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp", QStringLiteral("wt-b")), "b.cpp");
+        const QString term = store.openView(QStringLiteral("archivist.terminal"), {{QStringLiteral("kind"), QStringLiteral("terminal")}, {QStringLiteral("id"), QStringLiteral("wt-b:s1")}, {QStringLiteral("libraryId"), QStringLiteral("wt-b")}}, "Terminal");
+        const QString docA = QStringLiteral("col:lib-main:a.cpp");
+        QVERIFY(documents.applyEdits(docA, QStringLiteral("page"), 1, insertAt(5, "!")).value("ok").toBool());
+        QVERIFY(store.mergeViewState(a, {{QStringLiteral("cursorLine"), 3}}));
+
+        // Rotate through the shelf a few times.
+        for (int step = 0; step < 7; ++step) {
+            QVERIFY(store.cycleView(step % 2 ? -1 : 1));
+        }
+        QVERIFY(store.activateView(b));
+        QVERIFY(store.activateView(term));
+
+        QVERIFY(documents.isDirty(docA));
+        QCOMPARE(documents.snapshot(docA).value("text").toString(), QStringLiteral("alpha!"));
+        QCOMPARE(documents.holders(docA).size(), 1); // still held by its hidden view
+        QCOMPARE(disk.loads, 2);                     // nothing reloaded
+        QCOMPARE(store.view(a).value("state").toMap().value("cursorLine").toInt(), 3);
+        QCOMPARE(store.view(b).value("resource").toMap().value("libraryId").toString(), QStringLiteral("wt-b"));
+        QCOMPARE(store.view(term).value("resource").toMap().value("id").toString(), QStringLiteral("wt-b:s1"));
+        QCOMPARE(store.views()->rowCount(), 3);
+    }
+
+    void newTerminalsResolveTheirWorktree()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("anchor-terminals"));
+        const QStringList known{QStringLiteral("lib-main"), QStringLiteral("wt-a"), QStringLiteral("wt-b")};
+        const QString editors = store.focusedAnchorId();
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp", QStringLiteral("wt-a")), "a.cpp");
+        const QString existing = store.openView(QStringLiteral("archivist.terminal"), {{QStringLiteral("kind"), QStringLiteral("terminal")}, {QStringLiteral("id"), QStringLiteral("lib-main:s1")}, {QStringLiteral("libraryId"), QStringLiteral("lib-main")}}, "Terminal", {{QStringLiteral("activate"), false}});
+
+        // The active document's worktree wins over the Explorer's selection.
+        QVariantMap resolved = store.resolveLibrary(editors, QStringLiteral("wt-b"), QStringLiteral("lib-main"), known);
+        QCOMPARE(resolved.value("libraryId").toString(), QStringLiteral("wt-a"));
+        QCOMPARE(resolved.value("source").toString(), QStringLiteral("activeView"));
+
+        // An empty panel follows the Explorer, then the default.
+        const QString empty = store.createAnchor(editors, QStringLiteral("bottom"));
+        QCOMPARE(store.resolveLibrary(empty, QStringLiteral("wt-b"), QStringLiteral("lib-main"), known).value("libraryId").toString(), QStringLiteral("wt-b"));
+        QCOMPARE(store.resolveLibrary(empty, QString(), QStringLiteral("lib-main"), known).value("source").toString(), QStringLiteral("default"));
+
+        // A panel bound to a worktree sends new terminals there.
+        QVERIFY(store.setAnchorLibrary(empty, QStringLiteral("wt-a")));
+        QCOMPARE(store.resolveLibrary(empty, QStringLiteral("wt-b"), QStringLiteral("lib-main"), known).value("source").toString(), QStringLiteral("anchor"));
+
+        // The terminal that already existed keeps its own worktree throughout.
+        QCOMPARE(store.view(existing).value("resource").toMap().value("libraryId").toString(), QStringLiteral("lib-main"));
+    }
+
+    void agentCommandsMeetTheSameLocks()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("anchor-agent"));
+        const QString first = store.focusedAnchorId();
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString second = store.createAnchor(first, QStringLiteral("right"));
+
+        QVariantMap result = store.runCommand({{"command", "anchor.rename"}, {"anchorId", second}, {"name", "Agent Observatory"}});
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(store.anchorDisplayName(second), QStringLiteral("Agent Observatory"));
+
+        result = store.runCommand({{"command", "anchor.addResource"}, {"anchorId", second}, {"typeId", "archivist.chat"}, {"resource", QVariantMap{{"kind", "chat"}, {"id", "agent-1"}}}, {"title", "Agent 1"}});
+        QVERIFY(result.value("ok").toBool());
+        QVERIFY(!result.value("viewId").toString().isEmpty());
+
+        // An agent can't throw away the only copy of unsaved edits.
+        QVERIFY(documents.applyEdits(QStringLiteral("col:lib-main:a.cpp"), QStringLiteral("p"), 1, insertAt(0, ">")).value("ok").toBool());
+        result = store.runCommand({{"command", "anchor.removeResource"}, {"viewId", a}, {"force", true}});
+        QCOMPARE(result.value("code").toString(), QStringLiteral("UNSAVED_WORK"));
+        QVERIFY(!store.view(a).isEmpty());
+
+        // Locks apply, and only the person unlocks.
+        QVERIFY(store.setAnchorLayoutLocked(first, true));
+        result = store.runCommand({{"command", "anchor.setLayoutLock"}, {"anchorId", first}, {"locked", false}});
+        QCOMPARE(result.value("code").toString(), QStringLiteral("UNLOCK_REFUSED"));
+        result = store.runCommand({{"command", "anchor.describe"}, {"anchorId", first}});
+        QVERIFY(!result.value("capabilities").toMap().value("move").toBool());
+        result = store.runCommand({{"command", "anchor.setLayoutLock"}, {"anchorId", first}, {"locked", false}, {"origin", "user"}});
+        QVERIFY(result.value("ok").toBool());
     }
 
 private:

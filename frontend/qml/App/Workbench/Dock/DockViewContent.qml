@@ -24,6 +24,20 @@ Item {
     required property var details
     required property var viewState
     required property string anchorId
+    required property string surfaceId
+    property Item parking: null
+    // The window that shows this view. Moving a view to another window
+    // reparents this item, so its state (a terminal's page) goes along.
+    readonly property var surfaceArea: root.workspace.surfaceAreas[root.surfaceId] || null
+    readonly property bool animate: surfaceArea !== null && surfaceArea.animateLayout && !windowJump
+    property bool windowJump: false
+
+    parent: surfaceArea || parking
+    z: 1
+    onSurfaceAreaChanged: {
+        windowJump = true
+        Qt.callLater(function() { root.windowJump = false })
+    }
     required property bool isActive
     required property bool isHidden
     required property real rectX
@@ -88,10 +102,10 @@ Item {
     visible: shown && width > 1 && height > 1
     clip: true
 
-    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on x { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on y { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on width { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on height { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
 
     Rectangle {
         anchors.fill: parent

@@ -48,6 +48,20 @@ enum class Orientation
 // True when the edge puts the new item before the existing one.
 [[nodiscard]] bool edgeLeads(Edge edge);
 
+// Who asked for an operation. Layout locks stop everyone; content locks stop
+// automatic behaviour (selection following, a chat switching underneath) and
+// agents, but not an explicit user action. Agents and automation may lock an
+// Anchor but never unlock one.
+enum class Origin
+{
+    User,
+    Automatic,
+    Agent,
+};
+
+[[nodiscard]] QString originName(Origin origin);
+[[nodiscard]] bool parseOrigin(const QString &name, Origin *origin);
+
 // What a view shows. `kind` + `id` is the canonical identity; two views with
 // the same pair share one underlying resource.
 struct ResourceRef
@@ -89,7 +103,58 @@ struct AnchorRecord
     bool pinned = false;
     // Layout hint: view types this anchor prefers when a layout is applied.
     QStringList roles;
+    // What the user calls this anchor ("Reference Shelf"). Empty: an
+    // automatic name from its content (WorkspaceModel::anchorDisplayName).
+    QString name;
+    // Layout lock: the anchor can't be moved, closed, resized, merged away or
+    // floated, by anyone, until it is unlocked. Its content stays usable.
+    bool layoutLocked = false;
+    // Content lock: automation and agents can't add, remove, move or rebind
+    // its views. The user still can, explicitly.
+    bool contentLocked = false;
+    // Shows one view at a time with a compact picker instead of tabs. The
+    // views are ordinary views, so each keeps its own state while hidden.
+    bool switchable = false;
+    // Default worktree (Library) for new resources opened here. Empty:
+    // follow context. Never changes the views already in the anchor.
+    QString libraryId;
 };
+
+// What an anchor allows right now, for a given origin. `reasons` maps each
+// refused capability to a short explanation.
+struct AnchorCapabilities
+{
+    bool canMove = true;
+    bool canClose = true;
+    bool canResize = true;
+    bool canMerge = true;
+    bool canFloat = true;
+    bool canDockBeside = true;
+    bool canAddViews = true;
+    bool canRemoveViews = true;
+    bool canReplaceContent = true;
+    bool canRename = true;
+    bool canUnlock = true;
+    bool canSetWorktree = true;
+    QHash<QString, QString> reasons;
+};
+
+// Where a new resource opened in an anchor belongs, and which rule chose it.
+struct LibraryResolution
+{
+    enum class Source
+    {
+        None,
+        AnchorBinding,  // the anchor's own default worktree
+        ActiveView,     // the worktree of the anchor's active view
+        Explorer,       // the worktree selected in the Explorer
+        Default,        // the Library/project default
+    };
+    QString libraryId;
+    Source source = Source::None;
+};
+
+[[nodiscard]] QString librarySourceName(LibraryResolution::Source source);
 
 struct SplitNode
 {

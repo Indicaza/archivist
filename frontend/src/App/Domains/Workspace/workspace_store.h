@@ -45,6 +45,10 @@ class WorkspaceStore final : public QObject
     Q_PROPERTY(QVariantMap dropTarget READ dropTarget NOTIFY dragChanged)
     Q_PROPERTY(QVariantMap dragLandingRect READ dragLandingRect NOTIFY dragChanged)
     Q_PROPERTY(bool dropAllowed READ dropAllowed NOTIFY dragChanged)
+    // The pointer is outside every window: dropping opens a new window.
+    Q_PROPERTY(bool dragDetached READ dragDetached NOTIFY dragChanged)
+    Q_PROPERTY(QVariantMap detachRect READ detachRect NOTIFY dragChanged)
+    Q_PROPERTY(QStringList floatingSurfaceIds READ floatingSurfaceIds NOTIFY surfacesChanged)
     Q_PROPERTY(QVariantList presets READ presets CONSTANT)
     Q_PROPERTY(QVariantList savedLayouts READ savedLayouts NOTIFY layoutsChanged)
     Q_PROPERTY(QString currentLayoutId READ currentLayoutId NOTIFY layoutsChanged)
@@ -77,6 +81,9 @@ public:
     [[nodiscard]] QVariantMap dropTarget() const;
     [[nodiscard]] QVariantMap dragLandingRect() const;
     [[nodiscard]] bool dropAllowed() const { return m_dropAllowed; }
+    [[nodiscard]] bool dragDetached() const { return m_dragDetached; }
+    [[nodiscard]] QVariantMap detachRect() const;
+    [[nodiscard]] QStringList floatingSurfaceIds() const;
     [[nodiscard]] QVariantList presets() const;
     [[nodiscard]] double minimumAnchorWidth() const { return m_metrics.minimumAnchorWidth; }
     [[nodiscard]] double minimumAnchorHeight() const { return m_metrics.minimumAnchorHeight; }
@@ -89,6 +96,30 @@ public:
     Q_INVOKABLE QAbstractItemModel *anchors(const QString &surfaceId);
     Q_INVOKABLE QAbstractItemModel *splitters(const QString &surfaceId);
     Q_INVOKABLE void setSurfaceSize(const QString &surfaceId, double width, double height);
+    // {surfaceId, primary, x, y, width, height, screen, windowMaximized,
+    //  anchorCount, viewCount} in virtual desktop coordinates.
+    [[nodiscard]] Q_INVOKABLE QVariantMap surface(const QString &surfaceId) const;
+    // Records where the user put a floating window (debounced by the UI).
+    Q_INVOKABLE bool setSurfaceGeometry(
+        const QString &surfaceId,
+        double x,
+        double y,
+        double width,
+        double height,
+        const QString &screenName,
+        bool windowMaximized
+    );
+    // Opens a view or a whole panel in a new window. Returns the window id.
+    Q_INVOKABLE QString detachView(const QString &viewId, double x, double y, double width, double height, const QString &screenName = {});
+    Q_INVOKABLE QString detachAnchor(const QString &anchorId, double x, double y, double width, double height, const QString &screenName = {});
+    // Closes a floating window; its tabs return to the main window. Nothing
+    // is closed.
+    Q_INVOKABLE bool closeSurface(const QString &surfaceId);
+    // Re-homes floating windows whose monitor is gone (and sends them back
+    // when it returns). Runs on its own when screens change; returns the
+    // ids of windows that moved.
+    Q_INVOKABLE QStringList recoverSurfaces();
+    void setScreensForTesting(const QList<Workspace::ScreenInfo> &screens);
 
     // ---- Collections ------------------------------------------------------
     // Saves the current Collection's workspace and loads `collectionId`'s.
@@ -99,7 +130,7 @@ public:
     // ---- views ------------------------------------------------------------
     // resource: {kind, id, collectionId, libraryId, details}
     // options: {anchorId, index, reveal (default true), duplicate, activate,
-    //           focus (default true), state}
+    //           focus (default true), state, origin (default "user")}
     // With reveal, an existing view of the same type and resource is
     // activated instead of opening another one. Returns the view id.
     Q_INVOKABLE QString openView(
@@ -124,7 +155,9 @@ public:
     Q_INVOKABLE bool mergeViewState(const QString &viewId, const QVariantMap &patch);
     Q_INVOKABLE bool setViewTitle(const QString &viewId, const QString &title);
     Q_INVOKABLE bool setViewType(const QString &viewId, const QString &typeId);
-    Q_INVOKABLE bool setViewResource(const QString &viewId, const QVariantMap &resource);
+    // origin: "user" (default), "automatic" (selection following) or
+    // "agent". A content-locked panel refuses the last two.
+    Q_INVOKABLE bool setViewResource(const QString &viewId, const QVariantMap &resource, const QString &origin = QStringLiteral("user"));
     [[nodiscard]] Q_INVOKABLE QVariantMap view(const QString &viewId) const;
     // The view's published row: view data plus its anchor's rect.
     [[nodiscard]] Q_INVOKABLE QVariantMap viewRow(const QString &viewId) const;
@@ -143,6 +176,33 @@ public:
     Q_INVOKABLE bool cycleFocus(int step);
     Q_INVOKABLE bool cycleView(int step);
     [[nodiscard]] Q_INVOKABLE QVariantMap anchor(const QString &anchorId) const;
+
+    // ---- anchor identity and configuration -------------------------------
+    // Locks are enforced by the model; these report false (and emit
+    // operationFailed with the reason) when one refuses.
+    Q_INVOKABLE bool renameAnchor(const QString &anchorId, const QString &name);
+    Q_INVOKABLE bool setAnchorLayoutLocked(const QString &anchorId, bool locked);
+    Q_INVOKABLE bool setAnchorContentLocked(const QString &anchorId, bool locked);
+    Q_INVOKABLE bool setAnchorSwitchable(const QString &anchorId, bool switchable);
+    // "" clears the binding. Existing views keep their own worktree.
+    Q_INVOKABLE bool setAnchorLibrary(const QString &anchorId, const QString &libraryId);
+    [[nodiscard]] Q_INVOKABLE QString anchorDisplayName(const QString &anchorId) const;
+    // {move, close, resize, merge, float, dockBeside, addViews, ...} plus
+    // `restrictions`: {capability: reason}, for the person.
+    [[nodiscard]] Q_INVOKABLE QVariantMap anchorCapabilities(const QString &anchorId) const;
+    // Which worktree a new terminal (or other resource) opened in
+    // `anchorId` belongs to: {libraryId, source}, source one of anchor,
+    // activeView, explorer, default, none.
+    [[nodiscard]] Q_INVOKABLE QVariantMap resolveLibrary(
+        const QString &anchorId,
+        const QString &explorerLibraryId,
+        const QString &defaultLibraryId,
+        const QStringList &knownLibraryIds = {}
+    ) const;
+    // Runs a workspace command (Core/Domains/Workspace/workspace_commands.h)
+    // with the given origin ("agent" when absent). Removing a view that
+    // holds the last unsaved copy of a document is refused for agents.
+    Q_INVOKABLE QVariantMap runCommand(const QVariantMap &command);
     // Where a new view of `typeId` should go when nothing asks otherwise:
     // documents follow the target anchor; chats and terminals prefer an
     // anchor whose role is that type, then one already showing that type.
@@ -164,6 +224,9 @@ public:
     Q_INVOKABLE void updateDrag(const QString &surfaceId, double x, double y);
     Q_INVOKABLE void updateDragOverTabs(const QString &surfaceId, const QString &anchorId, int index);
     Q_INVOKABLE void clearDragTarget();
+    // The pointer left every window: a drop opens a new window with this
+    // frame (virtual desktop coordinates).
+    Q_INVOKABLE void updateDragDetached(double x, double y, double width, double height, const QString &screenName);
     Q_INVOKABLE bool finishDrag();
     Q_INVOKABLE void cancelDrag();
 
@@ -202,6 +265,10 @@ signals:
     void layoutsChanged();
     // A layout was applied from the picker or a shortcut (not by undo).
     void layoutApplied(const QString &layoutId, const QString &name);
+    void surfacesChanged();
+    // A floating window was moved by monitor recovery; the window should
+    // take its stored geometry.
+    void surfaceRecovered(const QString &surfaceId);
 
 private:
     void publish();
@@ -218,6 +285,9 @@ private:
     [[nodiscard]] static QVariantMap resourceToMap(const Workspace::ResourceRef &resource);
     [[nodiscard]] static bool parseEdgeName(const QString &name, Workspace::Edge *edge);
     void setDropTarget(const Workspace::DropTarget &target);
+    [[nodiscard]] QList<Workspace::ScreenInfo> currentScreens() const;
+    [[nodiscard]] bool canDetach(const Workspace::DragSource &source) const;
+    void resetDrag();
 
     Workspace::ViewTypeRegistry m_registry;
     Workspace::WorkspaceModel m_model;
@@ -239,6 +309,12 @@ private:
     Workspace::DragSource m_drag;
     Workspace::DropTarget m_dropTarget;
     bool m_dropAllowed = false;
+    bool m_dragDetached = false;
+    QRectF m_detachRect;
+    QString m_detachScreen;
+    QStringList m_publishedSurfaces;
+    QList<Workspace::ScreenInfo> m_testScreens;
+    bool m_useTestScreens = false;
     QRectF m_landingRect;
     Workspace::LayoutGeometry m_preview;
     QString m_previewSurfaceId;
