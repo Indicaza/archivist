@@ -1293,6 +1293,7 @@ QStringList actions()
     return {
         QStringLiteral("describe"), QStringLiteral("show"), QStringLiteral("focus"), QStringLiteral("resize"),
         QStringLiteral("move"), QStringLiteral("keep"), QStringLiteral("label"), QStringLiteral("add"), QStringLiteral("remove"),
+        QStringLiteral("steps"),
     };
 }
 
@@ -1420,23 +1421,58 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
     Outcome outcome;
     Run run(work, environment, outcome);
 
+    const auto runOne = [&run](const QString &name, const QVariantMap &step) {
+        if (name == QStringLiteral("show")) {
+            return run.show(step);
+        }
+        if (name == QStringLiteral("focus")) {
+            return run.focus(step);
+        }
+        if (name == QStringLiteral("resize")) {
+            return run.resize(step);
+        }
+        if (name == QStringLiteral("move")) {
+            return run.move(step);
+        }
+        if (name == QStringLiteral("keep")) {
+            return run.keep(step);
+        }
+        if (name == QStringLiteral("label")) {
+            return run.label(step);
+        }
+        if (name == QStringLiteral("add")) {
+            return run.addPanel(step);
+        }
+        if (name == QStringLiteral("remove")) {
+            return run.removePanel(step);
+        }
+        return false;
+    };
+
     bool ok = false;
-    if (action == QStringLiteral("show")) {
-        ok = run.show(request);
-    } else if (action == QStringLiteral("focus")) {
-        ok = run.focus(request);
-    } else if (action == QStringLiteral("resize")) {
-        ok = run.resize(request);
-    } else if (action == QStringLiteral("move")) {
-        ok = run.move(request);
-    } else if (action == QStringLiteral("keep")) {
-        ok = run.keep(request);
-    } else if (action == QStringLiteral("label")) {
-        ok = run.label(request);
-    } else if (action == QStringLiteral("add")) {
-        ok = run.addPanel(request);
-    } else if (action == QStringLiteral("remove")) {
-        ok = run.removePanel(request);
+    bool focusStep = false;
+    if (action == QStringLiteral("steps")) {
+        // Several arrange steps as one change: later steps see earlier ones
+        // ("add Docs", then "resize Docs"), and nothing applies unless all do.
+        const QVariantList steps = request.value(QStringLiteral("steps")).toList();
+        if (steps.isEmpty()) {
+            return Outcome::failure(QStringLiteral("INVALID_ARGUMENT"), QStringLiteral("There are no steps to do."));
+        }
+        ok = true;
+        for (qsizetype index = 0; ok && index < steps.size(); ++index) {
+            const QVariantMap step = steps.at(index).toMap();
+            const QString name = step.value(QStringLiteral("action")).toString();
+            if (name == QStringLiteral("show") || name == QStringLiteral("steps") || !actions().contains(name) || name == QStringLiteral("describe")) {
+                return Outcome::failure(QStringLiteral("UNSUPPORTED"), QStringLiteral("Step %1: Archivist can't do “%2” as an arrange step.").arg(index + 1).arg(name));
+            }
+            ok = runOne(name, step);
+            if (!ok && !outcome.message.isEmpty() && steps.size() > 1) {
+                outcome.message = QStringLiteral("Step %1 (%2): %3 Nothing was changed.").arg(index + 1).arg(name, outcome.message);
+            }
+            focusStep = focusStep || name == QStringLiteral("focus");
+        }
+    } else {
+        ok = runOne(action, request);
     }
 
     if (!ok) {
@@ -1445,7 +1481,7 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
     }
 
     // Keyboard focus stays with the person unless they asked to go there.
-    const bool focusRequested = action == QStringLiteral("focus") || request.value(QStringLiteral("focus")).toBool();
+    const bool focusRequested = action == QStringLiteral("focus") || focusStep || request.value(QStringLiteral("focus")).toBool();
     if (focusRequested && environment.mayMoveFocus && work.anchor(run.focusTarget)) {
         work.focusAnchor(run.focusTarget);
         outcome.focusAnchorId = run.focusTarget;

@@ -157,11 +157,19 @@ People ask for arrangements in plain words ("open these files beside our
 conversation", "make the code bigger", "put everything back"). Six AI tools
 carry those requests; none of them mention anchors or ids.
 
+Each model round trip takes seconds, so a request should take as few as
+possible. The runtime puts a description of the workspace (panels and
+layouts) in the instructions, so the model doesn't have to ask first, and
+`workspace_arrange` takes a whole layout in one call. If a turn uses up its
+tool rounds (8 for workspace requests), the model gets one last round
+without tools to say what's done and what's left, instead of the turn
+failing.
+
 | Tool | Does |
 |---|---|
 | `workspace_view` | Describes the workspace in words: areas, what each shows, where it sits, its size and locks. |
 | `workspace_show` | Shows files, a chat, a terminal or an open view, reusing what is already open. |
-| `workspace_arrange` | Focuses, resizes, moves, keeps (locks in place), labels, adds (an empty named panel) or removes (tabs move elsewhere) an area. |
+| `workspace_arrange` | Runs a list of steps as one change (all or nothing, one undo): focus, resize, move, keep (lock in place), label, add (an empty named panel) or remove (tabs move elsewhere). `save_as` saves the result as a named layout in the same call. |
 | `workspace_restore` | Puts back the arrangement before the last change, before the whole task, or a saved layout by name. |
 | `workspace_preference` | Remembers, forgets or lists how the person likes the workspace. |
 | `workspace_layout` | Lists, switches to, saves, renames or deletes named layouts. Saving over a name needs `replace`; built-in layouts can't be changed. |

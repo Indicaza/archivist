@@ -1406,6 +1406,53 @@ private slots:
         QVERIFY(store.savedLayouts().isEmpty());
     }
 
+    // "Make a layout with a Docs panel on the right and a Notes panel below it,
+    // and save it as Writing": one request, one undo step.
+    void wholeLayoutInOneRequest()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("layout-in-one"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        auto step = [](const QString &action, const QString &target, const QString &change, const QString &to, const QString &name) {
+            return QVariantMap{{"action", action}, {"target", target}, {"change", change}, {"to", to}, {"name", name}};
+        };
+
+        QVariantMap result = store.runAgentRequest({
+            {"action", "steps"},
+            {"steps", QVariantList{
+                step("add", "", "", "right", "Docs"),
+                step("add", "Docs", "", "bottom", "Notes"),
+                step("resize", "Docs", "0.3", "", ""),
+            }},
+            {"saveAs", "Writing"},
+            {"explicit", true},
+            {"chatId", "chat-1"},
+        }, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 3);
+        QVERIFY(result.value("layout").toString().contains("Writing"));
+        QCOMPARE(store.savedLayouts().size(), 1);
+        QCOMPARE(store.currentLayoutName(), QStringLiteral("Writing"));
+
+        // A step that can't happen leaves everything as it was.
+        result = store.runAgentRequest({
+            {"action", "steps"},
+            {"steps", QVariantList{
+                step("add", "", "", "left", "Tests"),
+                step("resize", "Nowhere at all", "larger", "", ""),
+            }},
+            {"saveAs", ""},
+            {"explicit", true},
+        }, true);
+        QVERIFY(!result.value("ok").toBool());
+        QVERIFY2(result.value("error").toString().startsWith("Step 2"), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 3);
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

@@ -683,7 +683,8 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
         && !options.value(QStringLiteral("duplicate")).toBool();
     const bool focus = options.value(QStringLiteral("focus"), true).toBool();
     Origin origin = Origin::User;
-    parseOrigin(options.value(QStringLiteral("origin")).toString(), &origin);
+    // An unknown origin counts as the person.
+    static_cast<void>(parseOrigin(options.value(QStringLiteral("origin")).toString(), &origin));
     QString anchorId = options.value(QStringLiteral("anchorId")).toString();
     if (anchorId.isEmpty() || !m_model.anchor(anchorId)) {
         anchorId = preferredAnchorFor(typeId);
@@ -990,7 +991,7 @@ bool WorkspaceStore::setViewType(const QString &viewId, const QString &typeId)
 bool WorkspaceStore::setViewResource(const QString &viewId, const QVariantMap &resource, const QString &originName)
 {
     Origin origin = Origin::User;
-    parseOrigin(originName, &origin);
+    static_cast<void>(parseOrigin(originName, &origin)); // unknown: the person
     const OpResult result = m_model.setViewResource(viewId, resourceFromMap(resource), origin);
 
     // Automatic rebinding that a lock refuses is expected, not an error.

@@ -159,6 +159,7 @@ struct InstructionFlags
     bool mutationProposalRequested = false;
     bool toolTestingRequested = false;
     bool workspaceToolsAvailable = false;
+    QString workspaceSnapshot; // compact JSON of the workspace as the turn began
 };
 
 QString toolAwareInstructions(const QString &base, const InstructionFlags &input)
@@ -186,8 +187,10 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
     if (input.workspaceToolsAvailable) {
         lines << QStringLiteral("You can show and arrange things in the person's workspace with the workspace_* tools. Use them only for what the person asked to see, open, arrange, resize or restore in this message.")
               << QStringLiteral("What the workspace can do: panels (areas) hold tabs of files, chats, terminals and previews, side by side or in floating windows. The bottom panel holds this chat, the terminal and problems. You can open files into a named or described panel, move tabs and panels, resize or maximize a panel, add an empty named panel on any side, remove a panel (its tabs move elsewhere), name panels, lock one in place, switch to a named layout, save the current arrangement as a new layout, rename or delete the person's layouts, undo your last change, put everything back, and remember preferences. The person can also make a panel a shelf, lock its content and bind it to a worktree from its menu; you can't unlock anything.")
-              << QStringLiteral("To build a new layout: add and name the panels it needs (workspace_arrange add), put things in them (workspace_show), size them, then save it with workspace_layout. To switch, use workspace_layout apply with a name from workspace_view's layouts.")
-              << QStringLiteral("Call workspace_view first unless you already know the areas. Refer to areas by the names it returns, or describe them plainly (\"the code\", \"the right panel\").")
+              << QStringLiteral("Each tool call takes the person's time, so do a request in as few calls as possible: usually one. Put every arrange step for a request in a single workspace_arrange call. To build a new layout, add, name and size its panels in one workspace_arrange call with save_as set to the layout's name; if it also needs files in panels, call workspace_show after and then save with workspace_layout. To switch layouts, call workspace_layout apply once.")
+              << (input.workspaceSnapshot.isEmpty()
+                      ? QStringLiteral("Call workspace_view first unless you already know the areas. Refer to areas by the names it returns, or describe them plainly (\"the code\", \"the right panel\").")
+                      : QStringLiteral("The workspace as this message began is below; don't call workspace_view unless something changed since. Refer to areas by these names, or describe them plainly (\"the code\", \"the right panel\").\n<workspace>%1</workspace>").arg(input.workspaceSnapshot))
               << QStringLiteral("Prefer one workspace_show call with every item over several calls, reuse what is already open, and leave where empty unless the person said where.")
               << QStringLiteral("To find the relevant files, use Library evidence or search first, then show only the files that matter (usually two to five).")
               << QStringLiteral("\"Put everything back\" or \"restore my workspace\" means workspace_restore with before_task; \"undo that\" means last_change.")
@@ -497,6 +500,7 @@ private:
     QJsonArray m_initialInput;
     QJsonArray m_tools;
     int m_maximumToolRounds = 6;
+    bool m_finalRound = false; // the tool limit was reached: this round answers without tools
 
     // Provider loop
     QPointer<OpenAIResponseStream> m_stream;
@@ -778,7 +782,7 @@ void ChatRunJob::prepare()
         workspaceOnly.verification = false;
         workspaceOnly.workspace = true;
         providerTools.append(AITools::providerTools(workspaceOnly));
-        m_maximumToolRounds = std::max(m_maximumToolRounds, 4);
+        m_maximumToolRounds = std::max(m_maximumToolRounds, 8);
     }
 
     QVariantList toolIds;
@@ -803,6 +807,22 @@ void ChatRunJob::prepare()
     flags.mutationProposalRequested = m_mutationProposalRequested;
     flags.toolTestingRequested = toolTestingRequested;
     flags.workspaceToolsAvailable = m_workspaceRequested;
+    if (m_workspaceRequested) {
+        // Saves a round trip: the model starts out knowing the panels and layouts.
+        QVariantMap described = Workspace::Gateway::call({
+            {QStringLiteral("action"), QStringLiteral("describe")},
+            {QStringLiteral("runId"), m_runId},
+            {QStringLiteral("chatId"), m_chatId},
+            {QStringLiteral("explicit"), true},
+        });
+        if (described.value(QStringLiteral("ok")).toBool()) {
+            described.remove(QStringLiteral("ok"));
+            const QString snapshot = QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(described)).toJson(QJsonDocument::Compact));
+            if (snapshot.size() <= 8000) {
+                flags.workspaceSnapshot = snapshot;
+            }
+        }
+    }
     m_instructions = toolAwareInstructions(AgentInstructions::build(m_agent), flags);
 
     m_initialInput = QJsonArray();
@@ -879,7 +899,7 @@ void ChatRunJob::startRound()
 
     if (!m_tools.isEmpty()) {
         body.insert(QStringLiteral("tools"), m_tools);
-        body.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
+        body.insert(QStringLiteral("tool_choice"), m_finalRound ? QStringLiteral("none") : QStringLiteral("auto"));
         body.insert(QStringLiteral("parallel_tool_calls"), false);
 
         if (!m_previousResponseId.isEmpty()) {
@@ -926,7 +946,7 @@ void ChatRunJob::startChatRound()
         }
 
         body.insert(QStringLiteral("tools"), tools);
-        body.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
+        body.insert(QStringLiteral("tool_choice"), m_finalRound ? QStringLiteral("none") : QStringLiteral("auto"));
     }
 
     openStream(body);
@@ -989,9 +1009,18 @@ void ChatRunJob::roundFinished(const QString &responseId)
         return;
     }
 
-    if (m_round >= m_maximumToolRounds) {
-        throw CoreError(QStringLiteral("%1 exceeded the %2-round AI tool limit.").arg(AIProvider::displayName(m_provider)).arg(m_maximumToolRounds));
+    if (m_finalRound) {
+        // Tools were off for this round; whatever was said is the answer.
+        const QString completed = JsCompat::trimmed(m_text);
+        finish(completed.isEmpty()
+                   ? QStringLiteral("I ran out of steps before finishing this. What I did so far is in place; ask me to continue and I'll pick up from here.")
+                   : completed);
+        return;
     }
+
+    // At the limit, these calls still run, then one more round answers
+    // without tools instead of failing the whole turn.
+    const bool lastToolRound = m_round >= m_maximumToolRounds;
 
     if (responseId.isEmpty() && !m_config.chatCompletions) {
         throw CoreError(QStringLiteral("OpenAI did not return a response ID for tool continuation."));
@@ -1051,6 +1080,18 @@ void ChatRunJob::roundFinished(const QString &responseId)
                 {QStringLiteral("tool_call_id"), output.toObject().value(QStringLiteral("call_id")).toString()},
                 {QStringLiteral("content"), output.toObject().value(QStringLiteral("output")).toString()},
             });
+        }
+    }
+
+    if (lastToolRound) {
+        m_finalRound = true;
+        const QString wrapUp = QStringLiteral(
+            "You've used every tool call for this message. Without calling tools, tell the person in a sentence or two what is done and what is left, so they can ask you to continue."
+        );
+        if (m_config.chatCompletions) {
+            m_chatMessages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("system")}, {QStringLiteral("content"), wrapUp}});
+        } else {
+            outputs.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("developer")}, {QStringLiteral("content"), wrapUp}});
         }
     }
 

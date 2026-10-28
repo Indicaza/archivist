@@ -979,13 +979,24 @@ QVariantMap workspaceShowTool(const QVariantMap &input, Context &context)
 
 QVariantMap workspaceArrangeTool(const QVariantMap &input, Context &context)
 {
-    return callWorkspace(context, {
-        {QStringLiteral("action"), input.value(QStringLiteral("action"))},
-        {QStringLiteral("target"), input.value(QStringLiteral("area"))},
-        {QStringLiteral("change"), input.value(QStringLiteral("change"))},
-        {QStringLiteral("to"), input.value(QStringLiteral("to"))},
-        {QStringLiteral("name"), input.value(QStringLiteral("name"))},
-    });
+    QVariantList steps;
+    for (const QVariant &value : input.value(QStringLiteral("steps")).toList()) {
+        const QVariantMap step = value.toMap();
+        steps.append(QVariantMap{
+            {QStringLiteral("action"), step.value(QStringLiteral("action"))},
+            {QStringLiteral("target"), step.value(QStringLiteral("area"))},
+            {QStringLiteral("change"), step.value(QStringLiteral("change"))},
+            {QStringLiteral("to"), step.value(QStringLiteral("to"))},
+            {QStringLiteral("name"), step.value(QStringLiteral("name"))},
+        });
+    }
+
+    // One step goes as itself; several go as one change that undoes together.
+    QVariantMap request = steps.size() == 1
+        ? steps.first().toMap()
+        : QVariantMap{{QStringLiteral("action"), QStringLiteral("steps")}, {QStringLiteral("steps"), steps}};
+    request.insert(QStringLiteral("saveAs"), input.value(QStringLiteral("save_as")));
+    return callWorkspace(context, request);
 }
 
 QVariantMap workspaceRestoreTool(const QVariantMap &input, Context &context)
@@ -1453,34 +1464,63 @@ const QList<Definition> &definitions()
             workspaceOutputSummary,
         });
 
+        const QStringList stepFields{QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")};
+        const QVariantMap arrangeStep = objectSchema(
+            {
+                {QStringLiteral("action"), enumSchema(arrangeActions())},
+                {QStringLiteral("area"), stringSchema(0, 200, areaDescription)},
+                {QStringLiteral("change"), stringSchema(0, 32, QStringLiteral("resize only, else \"\"."))},
+                {QStringLiteral("to"), stringSchema(0, 200, QStringLiteral("move, add and remove only, else \"\"."))},
+                {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("label and add only, else \"\"."))},
+            },
+            stepFields
+        );
+
         tools.append({
             QStringLiteral("workspace_arrange"),
             QStringLiteral("Arrange Workspace"),
-            QStringLiteral("Change one area of the workspace: focus (bring it forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). Locked areas refuse changes; never try to unlock one."),
+            QStringLiteral("Change the workspace in one call: steps run in order as one change (later steps can use areas added or named by earlier ones), and nothing applies unless every step works. Put a whole request, even a whole new layout, in one call. Step actions: focus (bring an area forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). save_as: after the steps, save the result as a new named layout (\"\" to not save). Locked areas refuse changes; never try to unlock one."),
             mutation, workspaceMode,
             objectSchema(
                 {
-                    {QStringLiteral("action"), enumSchema(arrangeActions())},
-                    {QStringLiteral("area"), stringSchema(0, 200, areaDescription)},
-                    {QStringLiteral("change"), stringSchema(0, 32, QStringLiteral("resize only, else \"\"."))},
-                    {QStringLiteral("to"), stringSchema(0, 200, QStringLiteral("move, add and remove only, else \"\"."))},
-                    {QStringLiteral("name"), stringSchema(0, 80, QStringLiteral("label and add only, else \"\"."))},
+                    {QStringLiteral("steps"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), arrangeStep}, {QStringLiteral("minItems"), 1}, {QStringLiteral("maxItems"), 12}}},
+                    {QStringLiteral("save_as"), stringSchema(0, 80, QStringLiteral("A new layout name to save the result as, else \"\"."))},
                 },
-                {QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")}
+                {QStringLiteral("steps"), QStringLiteral("save_as")}
             ),
-            [](const QVariant &input) {
-                const QVariantMap map = strictObject(input, {QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")});
+            [stepFields](const QVariant &input) {
+                const QVariantMap map = strictObject(input, {QStringLiteral("steps"), QStringLiteral("save_as")});
+                const QVariant stepsValue = map.value(QStringLiteral("steps"));
+                if (stepsValue.typeId() != QMetaType::QVariantList) {
+                    invalid(QStringLiteral("steps"), QStringLiteral("Expected array."));
+                }
+                const QVariantList list = stepsValue.toList();
+                if (list.isEmpty() || list.size() > 12) {
+                    invalid(QStringLiteral("steps"), QStringLiteral("Give between one and twelve steps."));
+                }
+                QVariantList steps;
+                for (const QVariant &value : list) {
+                    const QVariantMap step = strictObject(value, stepFields);
+                    steps.append(QVariantMap{
+                        {QStringLiteral("action"), enumField(step, QStringLiteral("action"), arrangeActions())},
+                        {QStringLiteral("area"), stringField(step, QStringLiteral("area"), 0, 200, true, QString())},
+                        {QStringLiteral("change"), stringField(step, QStringLiteral("change"), 0, 32, true, QString())},
+                        {QStringLiteral("to"), stringField(step, QStringLiteral("to"), 0, 200, true, QString())},
+                        {QStringLiteral("name"), stringField(step, QStringLiteral("name"), 0, 80, true, QString())},
+                    });
+                }
                 return QVariantMap{
-                    {QStringLiteral("action"), enumField(map, QStringLiteral("action"), arrangeActions())},
-                    {QStringLiteral("area"), stringField(map, QStringLiteral("area"), 0, 200, true, QString())},
-                    {QStringLiteral("change"), stringField(map, QStringLiteral("change"), 0, 32, true, QString())},
-                    {QStringLiteral("to"), stringField(map, QStringLiteral("to"), 0, 200, true, QString())},
-                    {QStringLiteral("name"), stringField(map, QStringLiteral("name"), 0, 80, true, QString())},
+                    {QStringLiteral("steps"), steps},
+                    {QStringLiteral("save_as"), stringField(map, QStringLiteral("save_as"), 0, 80, true, QString())},
                 };
             },
             workspaceArrangeTool,
             [](const QVariantMap &input) {
-                return QVariantMap{{QStringLiteral("action"), input.value(QStringLiteral("action"))}, {QStringLiteral("area"), input.value(QStringLiteral("area"))}};
+                QStringList actions;
+                for (const QVariant &step : input.value(QStringLiteral("steps")).toList()) {
+                    actions.append(step.toMap().value(QStringLiteral("action")).toString());
+                }
+                return QVariantMap{{QStringLiteral("steps"), actions}, {QStringLiteral("saveAs"), input.value(QStringLiteral("save_as"))}};
             },
             workspaceOutputSummary,
         });
@@ -1512,7 +1552,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_layout"),
             QStringLiteral("Workspace Layouts"),
-            QStringLiteral("Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable). save stores the current arrangement under name; to build a new layout, arrange it first with workspace_arrange and workspace_show, then save. Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask."),
+            QStringLiteral("Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable). save stores the current arrangement under name (workspace_arrange save_as does this in the same call as the arranging). Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask."),
             mutation, workspaceMode,
             objectSchema(
                 {

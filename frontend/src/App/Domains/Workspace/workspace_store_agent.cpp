@@ -178,6 +178,7 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
     intent.remove(QStringLiteral("runId"));
     intent.remove(QStringLiteral("chatId"));
     intent.remove(QStringLiteral("explicit"));
+    intent.remove(QStringLiteral("saveAs"));
 
     if (action != QStringLiteral("show")) {
         return intent;
@@ -512,12 +513,38 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
         return failed;
     }
 
+    const QString saveAs = request.value(QStringLiteral("saveAs")).toString().trimmed();
+
     if (!holdBack.isEmpty()) {
-        return suggestAgentIntent(intent, chatId, holdBack);
+        QVariantMap suggested = suggestAgentIntent(intent, chatId, holdBack);
+        if (!saveAs.isEmpty() && suggested.value(QStringLiteral("ok")).toBool()) {
+            suggested.insert(QStringLiteral("layout"), QStringLiteral("Not saved as “%1”: the change wasn't applied.").arg(saveAs));
+        }
+        return suggested;
     }
 
     const bool focusWanted = request.value(QStringLiteral("focus")).toBool() || action == QStringLiteral("focus");
-    return applyAgentIntent(intent, chatId, focusWanted && !userBusy());
+    QVariantMap result = applyAgentIntent(intent, chatId, focusWanted && !userBusy());
+
+    // "…and save it as Review": arranging and saving in one request.
+    if (!saveAs.isEmpty() && result.value(QStringLiteral("ok")).toBool()) {
+        const QVariantMap saved = layoutForAgent({
+            {QStringLiteral("op"), QStringLiteral("save")},
+            {QStringLiteral("name"), saveAs},
+            {QStringLiteral("replace"), false},
+            {QStringLiteral("chatId"), chatId},
+        });
+        result.insert(
+            QStringLiteral("layout"),
+            saved.value(QStringLiteral("ok")).toBool()
+                ? QVariant(QStringLiteral("Saved as the layout “%1”.").arg(saveAs))
+                : QVariant(QStringLiteral("The arrangement is applied but wasn't saved: %1").arg(saved.value(QStringLiteral("error")).toString()))
+        );
+        if (saved.value(QStringLiteral("ok")).toBool()) {
+            result.insert(QStringLiteral("currentLayout"), saveAs);
+        }
+    }
+    return result;
 }
 
 bool WorkspaceStore::applyAgentSuggestion()

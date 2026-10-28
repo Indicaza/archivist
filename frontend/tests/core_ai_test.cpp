@@ -433,17 +433,38 @@ private slots:
         try {
             AITools::execute(context, QStringLiteral("workspace_arrange"),
                 QVariantMap{
-                    {QStringLiteral("action"), QStringLiteral("resize")},
-                    {QStringLiteral("area"), QStringLiteral("the code")},
-                    {QStringLiteral("change"), QStringLiteral("larger")},
-                    {QStringLiteral("to"), QString()},
-                    {QStringLiteral("name"), QString()},
+                    {QStringLiteral("steps"), QVariantList{QVariantMap{
+                        {QStringLiteral("action"), QStringLiteral("resize")},
+                        {QStringLiteral("area"), QStringLiteral("the code")},
+                        {QStringLiteral("change"), QStringLiteral("larger")},
+                        {QStringLiteral("to"), QString()},
+                        {QStringLiteral("name"), QString()},
+                    }}},
+                    {QStringLiteral("save_as"), QString()},
                 });
         } catch (const AITools::ToolError &error) {
             code = error.code();
         }
         QCOMPARE(code, QStringLiteral("permission_denied"));
         QCOMPARE(requests.last().value(QStringLiteral("target")).toString(), QStringLiteral("the code"));
+
+        // Several steps and a save go to the workspace as one request.
+        answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
+        const auto step = [](const QString &action, const QString &area, const QString &change, const QString &to, const QString &name) {
+            return QVariantMap{{QStringLiteral("action"), action}, {QStringLiteral("area"), area}, {QStringLiteral("change"), change}, {QStringLiteral("to"), to}, {QStringLiteral("name"), name}};
+        };
+        AITools::execute(context, QStringLiteral("workspace_arrange"),
+            QVariantMap{
+                {QStringLiteral("steps"), QVariantList{
+                    step(QStringLiteral("add"), QString(), QString(), QStringLiteral("right"), QStringLiteral("Docs")),
+                    step(QStringLiteral("resize"), QStringLiteral("Docs"), QStringLiteral("0.3"), QString(), QString()),
+                }},
+                {QStringLiteral("save_as"), QStringLiteral("Review")},
+            });
+        QCOMPARE(requests.last().value(QStringLiteral("action")).toString(), QStringLiteral("steps"));
+        QCOMPARE(requests.last().value(QStringLiteral("steps")).toList().size(), 2);
+        QCOMPARE(requests.last().value(QStringLiteral("steps")).toList().last().toMap().value(QStringLiteral("target")).toString(), QStringLiteral("Docs"));
+        QCOMPARE(requests.last().value(QStringLiteral("saveAs")).toString(), QStringLiteral("Review"));
 
         // A preference lasts only when the message stated one.
         answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
@@ -487,7 +508,7 @@ private slots:
         m_database.exec(QStringLiteral("UPDATE library_chunk_search_data SET block = x'ffffffffffffffffffffffffffffffff'"));
         QString damaged;
         try {
-            m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar();
+            static_cast<void>(m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar());
         } catch (const CoreError &error) {
             damaged = error.message();
         }
