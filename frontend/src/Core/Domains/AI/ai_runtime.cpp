@@ -795,6 +795,7 @@ private:
 
     void prepare();
     void startRound();
+    [[nodiscard]] QString layoutReasoningEffort() const;
     void startChatRound();
     void openStream(const QJsonObject &body);
     void roundFinished(const QString &responseId);
@@ -1289,6 +1290,20 @@ void ChatRunJob::prepare()
     startRound();
 }
 
+// A layout request only picks a recipe and fills slots, which needs little
+// thought. Left at the default, a reasoning model spent 7-16 s on it.
+QString ChatRunJob::layoutReasoningEffort() const
+{
+    // Only OpenAI's reasoning models take this setting; others reject it.
+    static const QRegularExpression reasoningModel(QStringLiteral("^(gpt-5|o1|o3|o4)([.-]|$)"));
+    if (!m_workspaceIntent.layoutOnly || m_config.chatCompletions || m_provider != QStringLiteral("openai")
+        || !reasoningModel.match(m_model).hasMatch() || m_model.contains(QStringLiteral("-chat"))) {
+        return {};
+    }
+    static const QRegularExpression firstGeneration(QStringLiteral("^gpt-5(-mini|-nano)?(-\\d{4}-\\d{2}-\\d{2})?$"));
+    return firstGeneration.match(m_model).hasMatch() ? QStringLiteral("minimal") : QStringLiteral("low");
+}
+
 void ChatRunJob::startRound()
 {
     if (m_config.chatCompletions) {
@@ -1313,6 +1328,10 @@ void ChatRunJob::startRound()
         if (!isNullish(value)) {
             body.insert(key, QJsonValue::fromVariant(value));
         }
+    }
+
+    if (const QString effort = layoutReasoningEffort(); !effort.isEmpty()) {
+        body.insert(QStringLiteral("reasoning"), QJsonObject{{QStringLiteral("effort"), effort}});
     }
 
     if (!m_tools.isEmpty()) {
@@ -1652,6 +1671,7 @@ void ChatRunJob::finish(const QString &text)
         {QStringLiteral("workspaceFailed"), m_workspaceErrors.size()},
         {QStringLiteral("workspaceAcknowledged"), m_workspaceAcknowledged},
         {QStringLiteral("workspaceNative"), m_workspaceNative},
+        {QStringLiteral("reasoningEffort"), layoutReasoningEffort()},
     });
 
     const QString assistantId = m_assistantMessage.value(QStringLiteral("id")).toString();

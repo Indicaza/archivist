@@ -453,6 +453,8 @@ private slots:
                 QVERIFY(first.value(QStringLiteral("instructions")).toString().contains(QStringLiteral("Layouts: Development, Research.")));
                 QVERIFY(toolNames(first).contains(QStringLiteral("workspace_compose")));
                 QVERIFY(!toolNames(first).contains(QStringLiteral("search_library")));
+                // Picking a recipe needs little thought: no default reasoning.
+                QCOMPARE(first.value(QStringLiteral("reasoning")).toObject().value(QStringLiteral("effort")).toString(), QStringLiteral("minimal"));
             }
             // The person asked, so the workspace may apply it now.
             const QVariantMap request = workspace.last();
