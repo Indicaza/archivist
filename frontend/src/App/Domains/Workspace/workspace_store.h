@@ -376,6 +376,9 @@ private:
     Workspace::ViewTypeRegistry m_registry;
     Workspace::WorkspaceModel m_model;
     Workspace::LayoutMetrics m_metrics;
+    // The last arrangement an agent composed, for follow-ups ("give the
+    // images more room") that adjust it instead of starting over.
+    QVariantMap m_lastComposition;
     QString m_collectionId;
     int m_revision = 0;
     int m_publishedModelRevision = -1;
@@ -424,6 +427,8 @@ private:
     [[nodiscard]] QVariantMap composeIntent(const QVariantMap &request, QVariantMap *failure) const;
     // Compact: each panel's name, position and what it shows.
     [[nodiscard]] QVariantList panelsForAgent() const;
+    [[nodiscard]] QStringList openViewsNamed(const QString &reference, const QString &libraryId) const;
+    [[nodiscard]] QString verifyComposition(const QVariantMap &intent, qsizetype viewsBefore) const;
     QVariantMap applyAgentIntent(const QVariantMap &intent, const QString &chatId, bool mayMoveFocus);
     QVariantMap suggestAgentIntent(const QVariantMap &intent, const QString &chatId, const QString &reason);
     QVariantMap restoreForAgent(const QVariantMap &request);

@@ -407,24 +407,29 @@ private slots:
         QCOMPARE(item.value(QStringLiteral("libraryId")).toString(), m_libraryId);
         QCOMPARE(item.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath")).toString(), QStringLiteral("notes.md"));
 
-        // An unknown file never reaches the workspace.
-        QCOMPARE(
-            [&]() {
-                try {
-                    AITools::execute(context, QStringLiteral("workspace_show"),
-                        QVariantMap{
-                            {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("missing.md")}, {QStringLiteral("library"), QString()}}}},
-                            {QStringLiteral("where"), QString()},
-                            {QStringLiteral("purpose"), QString()},
-                            {QStringLiteral("focus"), false},
-                        });
-                } catch (const AITools::ToolError &error) {
-                    return error.code();
-                }
-                return QString();
-            }(),
-            QStringLiteral("invalid_input")
-        );
+        // An unknown file travels with its verdict: the workspace may have
+        // it open from elsewhere, and reports it missing otherwise.
+        AITools::execute(context, QStringLiteral("workspace_show"),
+            QVariantMap{
+                {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("missing.md")}, {QStringLiteral("library"), QString()}}}},
+                {QStringLiteral("where"), QString()},
+                {QStringLiteral("purpose"), QString()},
+                {QStringLiteral("focus"), false},
+            });
+        QCOMPARE(requests.size(), 2);
+        QCOMPARE(requests.last().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("lookup")).toString(), QStringLiteral("not_found"));
+        requests.removeLast();
+
+        // A file named by its name alone is found by path.
+        AITools::execute(context, QStringLiteral("workspace_show"),
+            QVariantMap{
+                {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("file")}, {QStringLiteral("reference"), QStringLiteral("NOTES.MD")}, {QStringLiteral("library"), QString()}}}},
+                {QStringLiteral("where"), QString()},
+                {QStringLiteral("purpose"), QString()},
+                {QStringLiteral("focus"), false},
+            });
+        QCOMPARE(requests.last().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("lookup")).toString(), QStringLiteral("found"));
+        requests.removeLast();
         QCOMPARE(requests.size(), 1);
 
         // A locked panel is a refusal the model must respect.
@@ -489,8 +494,8 @@ private slots:
         const QVariantList composedSlots = requests.last().value(QStringLiteral("slots")).toList();
         QCOMPARE(composedSlots.size(), 2);
         QCOMPARE(composedSlots.first().toMap().value(QStringLiteral("items")).toList().size(), 1);
-        QVERIFY(composedSlots.last().toMap().value(QStringLiteral("items")).toList().isEmpty());
-        QCOMPARE(requests.last().value(QStringLiteral("unresolved")).toStringList().size(), 1);
+        // The missing file goes along with its verdict; the workspace reports it.
+        QCOMPARE(composedSlots.last().toMap().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("lookup")).toString(), QStringLiteral("not_found"));
 
         // A preference lasts only when the message stated one.
         answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};

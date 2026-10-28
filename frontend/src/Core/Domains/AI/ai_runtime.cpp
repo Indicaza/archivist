@@ -254,6 +254,25 @@ QString workspaceSnapshotText(const QVariantMap &described)
     if (described.contains(QStringLiteral("currentLayout"))) {
         lines.append(QStringLiteral("Current layout: %1.").arg(described.value(QStringLiteral("currentLayout")).toString()));
     }
+    if (described.contains(QStringLiteral("lastArrangement"))) {
+        // A follow-up composes again from this, changing only what was asked.
+        const QVariantMap last = described.value(QStringLiteral("lastArrangement")).toMap();
+        QStringList panels;
+        for (const QVariant &value : last.value(QStringLiteral("panels")).toList()) {
+            const QVariantMap panel = value.toMap();
+            panels.append(QStringLiteral("%1 [weight %2; holds %3; items %4]").arg(
+                panel.value(QStringLiteral("name")).toString(),
+                QString::number(panel.value(QStringLiteral("weight")).toDouble()),
+                panel.value(QStringLiteral("holds")).toStringList().join(QLatin1Char('/')),
+                panel.value(QStringLiteral("items")).toStringList().join(QStringLiteral(", "))
+            ));
+        }
+        lines.append(QStringLiteral("Last composed (template %1, strategy %2): %3.").arg(
+            last.value(QStringLiteral("template")).toString().isEmpty() ? QStringLiteral("none") : last.value(QStringLiteral("template")).toString(),
+            last.value(QStringLiteral("strategy")).toString().isEmpty() ? QStringLiteral("auto") : last.value(QStringLiteral("strategy")).toString(),
+            panels.join(QStringLiteral("; "))
+        ));
+    }
     if (described.value(QStringLiteral("temporaryArrangementSince")).isValid()) {
         lines.append(QStringLiteral("An earlier arrangement can be put back."));
     }
@@ -271,6 +290,113 @@ const QRegularExpression &workspaceClaimPattern()
         QRegularExpression::CaseInsensitiveOption
     );
     return pattern;
+}
+
+// Built-in workspace commands that need no model at all: "switch to
+// Research", "put everything back", "undo that". Returns the tool call
+// ({name, arguments}) or an empty map when the message is anything else.
+QVariantMap workspaceCommand(const QString &message, const QStringList &layoutNames)
+{
+    QString text = message.trimmed();
+    static const QRegularExpression politeness(QStringLiteral("^(?:please|ok(?:ay)?|now|and)[,\\s]+|[\\s,]*(?:please|thanks|thank you)?[.!\\s]*$"), QRegularExpression::CaseInsensitiveOption);
+    for (int pass = 0; pass < 2; ++pass) {
+        text.remove(politeness);
+    }
+    if (text.isEmpty() || text.size() > 80) {
+        return {};
+    }
+    static const QRegularExpression switchTo(
+        QStringLiteral("^(?:switch|change|go|move)(?:\\s+back)?\\s+to\\s+(?:the\\s+|my\\s+)?(.+?)(?:\\s+layout)?$|^(?:use|apply|open)\\s+(?:the\\s+|my\\s+)?(.+?)\\s+layout$"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    const QRegularExpressionMatch named = switchTo.match(text);
+    if (named.hasMatch()) {
+        const QString wanted = named.captured(1).isEmpty() ? named.captured(2) : named.captured(1);
+        for (const QString &name : layoutNames) {
+            if (!name.isEmpty() && name.compare(wanted.trimmed(), Qt::CaseInsensitive) == 0) {
+                return {
+                    {QStringLiteral("name"), QStringLiteral("workspace_layout")},
+                    {QStringLiteral("arguments"), JsonValues::toJsonString(QVariantMap{
+                        {QStringLiteral("action"), QStringLiteral("apply")}, {QStringLiteral("name"), name},
+                        {QStringLiteral("new_name"), QString()}, {QStringLiteral("replace"), false}})},
+                };
+            }
+        }
+        return {};
+    }
+    static const QRegularExpression putBack(
+        QStringLiteral("^(?:put|set)\\s+(?:it|everything|things|the\\s+workspace|my\\s+workspace|it\\s+all)\\s+back(?:\\s+(?:how|the\\s+way|as)\\s+it\\s+was)?$|^restore\\s+(?:my\\s+|the\\s+)?workspace$"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    static const QRegularExpression undo(QStringLiteral("^undo(?:\\s+(?:that|it|the\\s+last\\s+change))?$"), QRegularExpression::CaseInsensitiveOption);
+    const QString scope = putBack.match(text).hasMatch() ? QStringLiteral("before_task")
+                        : undo.match(text).hasMatch()    ? QStringLiteral("last_change")
+                                                         : QString();
+    if (scope.isEmpty()) {
+        return {};
+    }
+    return {
+        {QStringLiteral("name"), QStringLiteral("workspace_restore")},
+        {QStringLiteral("arguments"), JsonValues::toJsonString(QVariantMap{{QStringLiteral("scope"), scope}, {QStringLiteral("layout"), QString()}})},
+    };
+}
+
+// A short reply built from what the workspace reported, so a layout-only
+// request needs no second model round just to say it worked. Empty when
+// the results need the model (a listing, a description, a question).
+QString workspaceAcknowledgement(const QList<QPair<QString, QVariantMap>> &results)
+{
+    QStringList sentences;
+    for (const auto &[tool, result] : results) {
+        const QString status = result.value(QStringLiteral("status")).toString();
+        if (tool == QStringLiteral("workspace_view") || (status != QStringLiteral("applied") && status != QStringLiteral("suggested"))) {
+            return {};
+        }
+        if (status == QStringLiteral("suggested")) {
+            sentences.append(QStringLiteral("I've suggested that arrangement; use Apply in the workspace notice to use it."));
+            continue;
+        }
+        if (tool == QStringLiteral("workspace_compose")) {
+            QStringList panels;
+            for (const QVariant &value : result.value(QStringLiteral("panels")).toList()) {
+                const QVariantMap panel = value.toMap();
+                const QString name = panel.value(QStringLiteral("name")).toString();
+                panels.append(panel.contains(QStringLiteral("widthPercent"))
+                                  ? QStringLiteral("%1 (%2% wide)").arg(name).arg(panel.value(QStringLiteral("widthPercent")).toInt())
+                                  : name);
+            }
+            sentences.append(panels.isEmpty() ? QStringLiteral("Arranged the workspace.") : QStringLiteral("Done: %1.").arg(panels.join(QStringLiteral(", "))));
+            for (const QString &adjusted : result.value(QStringLiteral("adjusted")).toStringList()) {
+                sentences.append(adjusted + QLatin1Char('.'));
+            }
+            for (const QVariant &value : result.value(QStringLiteral("resources")).toList()) {
+                const QVariantMap resource = value.toMap();
+                const QString resourceStatus = resource.value(QStringLiteral("status")).toString();
+                if (resourceStatus == QStringLiteral("not_found") || resourceStatus == QStringLiteral("ambiguous")
+                    || resourceStatus == QStringLiteral("unsupported")) {
+                    sentences.append(resource.value(QStringLiteral("detail")).toString());
+                }
+            }
+        } else {
+            QStringList notes = result.value(QStringLiteral("notes")).toStringList();
+            if (notes.isEmpty()) {
+                notes.append(result.contains(QStringLiteral("currentLayout"))
+                                 ? QStringLiteral("Switched to the “%1” layout").arg(result.value(QStringLiteral("currentLayout")).toString())
+                                 : QStringLiteral("Done"));
+            }
+            for (QString &note : notes) {
+                if (!note.endsWith(QLatin1Char('.'))) {
+                    note += QLatin1Char('.');
+                }
+            }
+            sentences.append(notes.join(QLatin1Char(' ')));
+        }
+        if (result.contains(QStringLiteral("layout"))) {
+            sentences.append(result.value(QStringLiteral("layout")).toString());
+        }
+    }
+    sentences.removeAll(QString());
+    return sentences.join(QLatin1Char(' '));
 }
 
 // Words that only ever mean changing file contents, so a request that also
@@ -641,6 +767,9 @@ private:
     int m_workspaceApplied = 0;
     int m_workspaceStaged = 0;
     QStringList m_workspaceErrors;
+    bool m_workspaceAcknowledged = false; // replied from the results, without a model round
+    bool m_workspaceNative = false;       // carried out without the model at all
+    QVariantMap m_workspaceCommand;       // a built-in command the message is, if any
     bool m_workspaceLastingPreference = false;
     QString m_instructions;
     QJsonArray m_initialInput;
@@ -712,6 +841,7 @@ void ChatRunJob::prepare()
                 layoutNames.append(layout.toMap().value(QStringLiteral("name")).toString());
             }
             m_workspaceIntent = classifyWorkspaceIntent(userContent, earlierUser.mid(std::max<qsizetype>(0, earlierUser.size() - 1)), lastAssistant, layoutNames);
+            m_workspaceCommand = workspaceCommand(userContent, layoutNames);
         }
     }
     const bool skipRetrieval = m_workspaceIntent.layoutOnly;
@@ -1062,6 +1192,31 @@ void ChatRunJob::prepare()
     }
 
     m_providerTimer.start();
+
+    // "Switch to Research", "put everything back": done natively, and the
+    // reply comes from the result. Anything the workspace can't do this way
+    // (or that needs words from the model) goes to the model as usual.
+    if (m_workspaceIntent.layoutOnly && !m_workspaceCommand.isEmpty()) {
+        QVariantMap call = m_workspaceCommand;
+        call.insert(QStringLiteral("callId"), QStringLiteral("native"));
+        const QVariantMap output = executeToolCall(call);
+        const QVariantMap result = output.value(QStringLiteral("result")).toMap();
+        const QString acknowledgement = output.value(QStringLiteral("ok")).toBool()
+            ? workspaceAcknowledgement({{call.value(QStringLiteral("name")).toString(), result}})
+            : QString();
+        if (!acknowledgement.isEmpty()) {
+            ++m_toolCallCount;
+            ++(result.value(QStringLiteral("status")).toString() == QStringLiteral("suggested") ? m_workspaceStaged : m_workspaceApplied);
+            m_workspaceAcknowledged = true;
+            m_workspaceNative = true;
+            m_streamedText = acknowledgement;
+            emitEvent(QStringLiteral("model.delta"), {{QStringLiteral("delta"), acknowledgement}});
+            finish(acknowledgement);
+            return;
+        }
+        // Not applied as asked (say a lock refused it): the model explains.
+    }
+
     startRound();
 }
 
@@ -1223,10 +1378,12 @@ void ChatRunJob::roundFinished(const QString &responseId)
     ++m_toolRoundCount;
     QJsonArray outputs;
     const QList<QVariantMap> calls = m_roundToolCalls;
+    QList<QVariantMap> executed;
 
     for (const QVariantMap &call : calls) {
         ++m_toolCallCount;
         const QVariantMap output = executeToolCall(call);
+        executed.append(output);
         const QString name = call.value(QStringLiteral("name")).toString();
         const QVariantMap result = output.value(QStringLiteral("result")).toMap();
 
@@ -1255,6 +1412,33 @@ void ChatRunJob::roundFinished(const QString &responseId)
             {QStringLiteral("call_id"), call.value(QStringLiteral("callId")).toString()},
             {QStringLiteral("output"), serialized},
         });
+    }
+
+    // A layout-only request that the workspace carried out needs no second
+    // model round to confirm it: the reply comes from the results.
+    if (m_workspaceIntent.layoutOnly && !lastToolRound) {
+        QList<QPair<QString, QVariantMap>> results;
+        bool allWorkspace = true;
+        for (qsizetype i = 0; i < calls.size(); ++i) {
+            const QString name = calls.at(i).value(QStringLiteral("name")).toString();
+            const QVariantMap output = executed.at(i);
+            if (!AITools::isWorkspaceTool(name) || !output.value(QStringLiteral("ok")).toBool()
+                || (name == QStringLiteral("workspace_layout") && toolArguments(calls.at(i).value(QStringLiteral("arguments")).toString()).toMap().value(QStringLiteral("action")).toString() == QStringLiteral("list"))) {
+                allWorkspace = false;
+                break;
+            }
+            results.append({name, output.value(QStringLiteral("result")).toMap()});
+        }
+        const QString acknowledgement = allWorkspace ? workspaceAcknowledgement(results) : QString();
+        if (!acknowledgement.isEmpty()) {
+            const QString said = JsCompat::trimmed(m_text);
+            const QString delta = said.isEmpty() ? acknowledgement : QStringLiteral("\n\n") + acknowledgement;
+            m_streamedText += delta;
+            emitEvent(QStringLiteral("model.delta"), {{QStringLiteral("delta"), delta}});
+            m_workspaceAcknowledged = true;
+            finish(said + delta);
+            return;
+        }
     }
 
     if (m_config.chatCompletions) {
@@ -1391,11 +1575,14 @@ void ChatRunJob::finish(const QString &text)
         {QStringLiteral("toolCallCount"), m_tools.isEmpty() ? 0 : m_toolCallCount},
         {QStringLiteral("toolRoundCount"), m_tools.isEmpty() ? 0 : m_toolRoundCount},
         {QStringLiteral("toolResultEstimatedTokens"), m_toolResultEstimatedTokens},
-        {QStringLiteral("providerRoundCount"), 1 + (m_tools.isEmpty() ? 0 : m_toolRoundCount)},
+        // A reply built from workspace results saves the round that would confirm it.
+        {QStringLiteral("providerRoundCount"), m_workspaceNative ? 0 : 1 + (m_tools.isEmpty() ? 0 : m_toolRoundCount) - (m_workspaceAcknowledged ? 1 : 0)},
         {QStringLiteral("providerDurationMs"), providerDurationMs},
         {QStringLiteral("workspaceApplied"), m_workspaceApplied},
         {QStringLiteral("workspaceStaged"), m_workspaceStaged},
         {QStringLiteral("workspaceFailed"), m_workspaceErrors.size()},
+        {QStringLiteral("workspaceAcknowledged"), m_workspaceAcknowledged},
+        {QStringLiteral("workspaceNative"), m_workspaceNative},
     });
 
     const QString assistantId = m_assistantMessage.value(QStringLiteral("id")).toString();

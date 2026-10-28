@@ -193,7 +193,20 @@ private:
                 }
                 if (action == QStringLiteral("layout") && request.value(QStringLiteral("op")).toString() == QStringLiteral("apply")) {
                     current = request.value(QStringLiteral("name")).toString();
-                    return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("currentLayout"), current}};
+                    return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("currentLayout"), current},
+                            {QStringLiteral("notes"), QStringList{QStringLiteral("Switched to the “%1” layout").arg(current)}}};
+                }
+                if (action == QStringLiteral("compose")) {
+                    QVariantList panels;
+                    for (const QVariant &slot : request.value(QStringLiteral("slots")).toList()) {
+                        panels.append(QVariantMap{{QStringLiteral("name"), slot.toMap().value(QStringLiteral("name"))}, {QStringLiteral("widthPercent"), slot.toMap().value(QStringLiteral("name")) == QStringLiteral("Chat") ? 64 : 36}});
+                    }
+                    return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}, {QStringLiteral("panels"), panels},
+                            {QStringLiteral("resources"), QVariantList{QVariantMap{{QStringLiteral("reference"), QStringLiteral("ghost.png")}, {QStringLiteral("status"), QStringLiteral("not_found")}, {QStringLiteral("detail"), QStringLiteral("“ghost.png” isn't open or in the Library.")}}}}};
+                }
+                if (action == QStringLiteral("restore")) {
+                    return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")},
+                            {QStringLiteral("notes"), QStringList{QStringLiteral("Put the workspace back the way it was")}}};
                 }
                 return {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};
             });
@@ -394,30 +407,32 @@ private slots:
         struct Step
         {
             QString message;
-            QString tool;
+            QString tool;      // empty: a built-in command, done without the model
             QString arguments;
-            QString reply;
+            QString reply;     // built from the workspace's result
             bool followUp;
         };
         const QList<Step> steps{
-            {QStringLiteral("Switch to Research"), QStringLiteral("workspace_layout"), QStringLiteral(R"({"action":"apply","name":"Research","new_name":"","replace":false})"), QStringLiteral("Switched to Research."), false},
-            {QStringLiteral("try another"), QStringLiteral("workspace_layout"), QStringLiteral(R"({"action":"apply","name":"Development","new_name":"","replace":false})"), QStringLiteral("Switched to Development."), true},
-            {QStringLiteral("put it back"), QStringLiteral("workspace_restore"), QStringLiteral(R"({"scope":"before_task","layout":""})"), QStringLiteral("Put everything back."), false},
+            {QStringLiteral("Switch to Research"), {}, {}, QStringLiteral("Switched to the “Research” layout."), false},
+            {QStringLiteral("try another"), QStringLiteral("workspace_layout"), QStringLiteral(R"({"action":"apply","name":"Development","new_name":"","replace":false})"), QStringLiteral("Switched to the “Development” layout."), true},
+            {QStringLiteral("Put everything back."), {}, {}, QStringLiteral("Put the workspace back the way it was."), false},
         };
 
         int round = 0;
         for (const Step &step : steps) {
             const qsizetype requestsBefore = openai.requests.size();
-            openai.responses.append(toolTurn(QStringLiteral("r%1").arg(++round), step.tool, step.arguments));
-            openai.responses.append(textTurn(QStringLiteral("r%1").arg(++round), step.reply));
+            if (!step.tool.isEmpty()) {
+                openai.responses.append(toolTurn(QStringLiteral("r%1").arg(++round), step.tool, step.arguments));
+            }
 
             const Turn turn = runTurn(runtime, step.message);
             QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(step.message + QStringLiteral(": ") + turn.events.join(QLatin1Char(','))));
+            const QVariantMap completed = turn.payloads.value(QStringLiteral("model.completed"));
             qInfo().noquote() << QStringLiteral("[timing] \"%1\": %2 ms end to end, %3 model calls, %4 tool call, prepare %5 ms")
                                      .arg(step.message)
                                      .arg(turn.elapsedMs)
                                      .arg(openai.requests.size() - requestsBefore)
-                                     .arg(turn.payloads.value(QStringLiteral("model.completed")).value(QStringLiteral("toolCallCount")).toInt())
+                                     .arg(completed.value(QStringLiteral("toolCallCount")).toInt())
                                      .arg(turn.payloads.value(QStringLiteral("model.started")).value(QStringLiteral("prepareMs")).toDouble());
 
             // Routed before retrieval: no Library search for a layout command.
@@ -425,24 +440,57 @@ private slots:
             const QVariantMap started = turn.payloads.value(QStringLiteral("model.started"));
             QCOMPARE(started.value(QStringLiteral("workspaceIntent")).toString(), QStringLiteral("layout"));
             QCOMPARE(started.value(QStringLiteral("workspaceFollowUp")).toBool(), step.followUp);
-            // One tool call, two model calls (the call and the reply).
-            QCOMPARE(turn.payloads.value(QStringLiteral("model.completed")).value(QStringLiteral("toolCallCount")).toInt(), 1);
-            QCOMPARE(openai.requests.size() - requestsBefore, 2);
-            // The model already knows the workspace; it doesn't look first.
-            const QJsonObject first = openai.requests.at(requestsBefore);
-            QVERIFY(first.value(QStringLiteral("instructions")).toString().contains(QStringLiteral("Layouts: Development, Research.")));
-            QVERIFY(toolNames(first).contains(QStringLiteral("workspace_compose")));
-            QVERIFY(!toolNames(first).contains(QStringLiteral("search_library")));
+            // One workspace call; built-in commands need no model call, the
+            // rest one (no second round just to confirm).
+            QCOMPARE(completed.value(QStringLiteral("toolCallCount")).toInt(), 1);
+            QCOMPARE(completed.value(QStringLiteral("workspaceApplied")).toInt(), 1);
+            QCOMPARE(int(openai.requests.size() - requestsBefore), step.tool.isEmpty() ? 0 : 1);
+            QCOMPARE(completed.value(QStringLiteral("providerRoundCount")).toInt(), step.tool.isEmpty() ? 0 : 1);
+            QCOMPARE(completed.value(QStringLiteral("workspaceNative")).toBool(), step.tool.isEmpty());
+            if (!step.tool.isEmpty()) {
+                // The model already knows the workspace; it doesn't look first.
+                const QJsonObject first = openai.requests.at(requestsBefore);
+                QVERIFY(first.value(QStringLiteral("instructions")).toString().contains(QStringLiteral("Layouts: Development, Research.")));
+                QVERIFY(toolNames(first).contains(QStringLiteral("workspace_compose")));
+                QVERIFY(!toolNames(first).contains(QStringLiteral("search_library")));
+            }
             // The person asked, so the workspace may apply it now.
             const QVariantMap request = workspace.last();
             QVERIFY(request.value(QStringLiteral("explicit")).toBool());
             QVERIFY(request.value(QStringLiteral("asked")).toBool());
-            // A true report is left alone.
+            // The reply says what the workspace reported, briefly.
             QCOMPARE(turn.streamed, step.reply);
         }
+        QVERIFY(openai.responses.isEmpty());
         QCOMPARE(workspace.actions().count(QStringLiteral("describe")), 3); // one per turn
         QCOMPARE(workspace.actions().count(QStringLiteral("layout")), 2);
         QCOMPARE(workspace.actions().count(QStringLiteral("restore")), 1);
+    }
+
+    // "Make chat dominant and show three images stacked on the right": one
+    // model call that composes, and a short reply grounded in the result.
+    void composeRepliesFromTheResult()
+    {
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        FakeWorkspace workspace;
+        workspace.install();
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        openai.responses.append(toolTurn(QStringLiteral("d1"), QStringLiteral("workspace_compose"), QStringLiteral(
+            R"({"template":"none","strategy":"focus_with_sidebar","slots":[{"name":"Chat","holds":["chat"],"weight":10,"items":[{"kind":"chat","reference":"","library":""}]},)"
+            R"({"name":"Image A","holds":["preview"],"weight":0,"items":[]},{"name":"Image B","holds":["preview"],"weight":0,"items":[]},{"name":"Image C","holds":["preview"],"weight":0,"items":[]}],"focus":"","save_as":""})")));
+        const Turn turn = runTurn(runtime, QStringLiteral("Make chat dominant and show three images stacked on the right"));
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        const QVariantMap completed = turn.payloads.value(QStringLiteral("model.completed"));
+        qInfo().noquote() << QStringLiteral("[timing] compose: %1 ms end to end, %2 model call(s)").arg(turn.elapsedMs).arg(openai.requests.size());
+        QCOMPARE(openai.requests.size(), 1);
+        QCOMPARE(completed.value(QStringLiteral("providerRoundCount")).toInt(), 1);
+        QVERIFY(completed.value(QStringLiteral("workspaceAcknowledged")).toBool());
+        QCOMPARE(workspace.actions().count(QStringLiteral("compose")), 1);
+        QCOMPARE(turn.streamed, QStringLiteral("Done: Chat (64% wide), Image A (36% wide), Image B (36% wide), Image C (36% wide). “ghost.png” isn't open or in the Library."));
     }
 
     // The reply never claims a change the workspace didn't make.
@@ -469,7 +517,7 @@ private slots:
         // No tool call at all, yet it claims a switch.
         workspace.failure.clear();
         openai.responses.append(textTurn(QStringLiteral("c3"), QStringLiteral("Switched to Research.")));
-        turn = runTurn(runtime, QStringLiteral("Switch to Research"));
+        turn = runTurn(runtime, QStringLiteral("I want the Research layout with the chat wider"));
         QVERIFY(turn.streamed.contains(QStringLiteral("The workspace didn't change in this reply.")));
 
         CoreDatabase database;

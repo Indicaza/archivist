@@ -4,6 +4,7 @@
 
 #include <QJsonObject>
 #include <QList>
+#include <QSizeF>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -25,7 +26,13 @@
 //
 // With a template, slots fill the template's panels by name (or by what
 // they hold); slots the template doesn't have go in a column at the side.
-// Weights are relative (0 keeps the default). Panels that exist and already
+// Weights are relative (0 keeps the default; 2 is about twice as much
+// room, but no panel gets more than kMaximumWeightRatio times a sibling,
+// so "dominant" stays usable: about 64% beside a column).
+// Native code solves the geometry for the real viewport: every panel keeps
+// at least kMinimumPanelWidth x kMinimumPanelHeight, and when that can't
+// fit, the least important neighbours share one panel as tabs instead of
+// being squeezed. Panels that exist and already
 // show a slot's content are reused, so their editors and terminals are not
 // rebuilt and the change animates instead of popping.
 //
@@ -66,7 +73,16 @@ struct Spec
     QString strategy;
     QList<Slot> panels;
     QString focus;
+    // The main window's panel area in pixels (after the sidebar and the
+    // bottom panel). Invalid: a typical 1440 x 900.
+    QSizeF viewport;
 };
+
+// The smallest panel that is still usable, in pixels.
+inline constexpr double kMinimumPanelWidth = 300;
+inline constexpr double kMinimumPanelHeight = 180;
+// No panel gets more than this many times the room of a sibling.
+inline constexpr double kMaximumWeightRatio = 1.8;
 
 struct Plan
 {
@@ -75,6 +91,8 @@ struct Plan
     QString message;
     QVariantMap request; // the Intents compose request
     QStringList slotNames;
+    // What the solver had to change to fit ("“Skull” is a tab in “Resume”").
+    QStringList adjustments;
 };
 
 // Checks the spec and builds the request against the current model (for

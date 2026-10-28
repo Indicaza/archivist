@@ -182,8 +182,27 @@ workspace should look like instead of how to get there:
   (Put back), unless `save_as` keeps it as a named layout. Layout and
   content locks refuse the whole change. Views nobody placed stay open in a
   panel of their type. Floating windows join the main window.
-- **Result.** It's compact: the panels with what they show, plus any items
-  that couldn't be found (`unresolved`) instead of failing.
+- **Geometry is solved natively** for the real panel area (after the
+  sidebar and the bottom panel), not by the model. Weights are relative and
+  capped at 1.8x a sibling, so "chat dominant with three images stacked on
+  the right" gives chat about 64% and a 36% column. Every panel keeps at
+  least 300 x 180 pixels; when that can't fit, the lightest neighbouring
+  panels share one panel as tabs, and each merge is reported (`adjusted`).
+- **Resources are resolved in order:** views already open (by name, path or
+  title, in the chat's worktree first), then the Library catalog. Each item
+  is reported as `reused`, `opened`, `not_found`, `ambiguous` (with the
+  candidates) or `unsupported`. A missing or unclear file is never replaced
+  by another one.
+- **Verified before it's reported.** After applying, the store checks every
+  panel exists, is usable size, holds its items, focus is where it was
+  asked, and no view was lost. If not, the change is undone and the result
+  says so (`VERIFY_FAILED`).
+- **Follow-ups** ("give the images a little more room") compose again from
+  the last arrangement, which describe reports as `lastArrangement` while
+  its panels still exist. Same names keep the same panels, so views stay
+  put and the change animates.
+- **Result.** It's compact: the panels with their sizes and what they show,
+  `resources` and `adjusted`.
 - **Background chats** get a staged suggestion, as with every other tool.
 
 ### How a turn is routed
@@ -209,9 +228,16 @@ workspace should look like instead of how to get there:
 - **Results are checked against the committed model.** Compose results are
   verified before they're reported, and so is the current layout after a
   switch.
+- **Built-in commands skip the model.** "Switch to Research", "put
+  everything back" and "undo that" run natively (`workspaceCommand`); the
+  model is only asked if the workspace refuses.
+- **No round just to confirm.** When a layout-only turn's tool calls all
+  applied (or were staged), the reply is built from their results
+  (`workspaceAcknowledgement`) instead of another model round.
 - **Timings.** `model.started` carries `workspaceIntent`, `retrievalSkipped`
   and `prepareMs`; `model.completed` carries the tool and round counts plus
-  `workspaceApplied`, `workspaceStaged` and `workspaceFailed`.
+  `workspaceApplied`, `workspaceStaged`, `workspaceFailed`,
+  `workspaceAcknowledged` and `workspaceNative`.
 
 Each model round trip takes seconds, so a request should take as few as
 possible. The runtime puts a description of the workspace (panels and

@@ -118,6 +118,11 @@ double share(const WorkspaceModel &model, const QString &anchorId, const QSizeF 
     return rect.width() * rect.height() / (size.width() * size.height());
 }
 
+QRectF rectOf(const WorkspaceModel &model, const QString &anchorId, const QSizeF &size)
+{
+    return model.computeGeometry(model.surfaceOfAnchor(anchorId), size, {}).anchors.value(anchorId);
+}
+
 Compose::Slot panel(const QString &name, const QStringList &holds, double weight, const QVariantList &items = {})
 {
     Compose::Slot slot;
@@ -166,6 +171,20 @@ private:
         return d;
     }
 
+    // "Make chat dominant and show three images stacked on the right."
+    Compose::Spec chatAndThreeImages(const Desk &d, double chatWeight, double imageWeight, const QSizeF &viewport) const
+    {
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("focus_with_sidebar");
+        spec.viewport = viewport;
+        spec.panels = {panel(QStringLiteral("Chat"), {QStringLiteral("chat")}, chatWeight, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}})};
+        for (const QString &name : {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")}) {
+            spec.panels.append(panel(QStringLiteral("Image ") + name.toUpper(), {QStringLiteral("preview")}, imageWeight,
+                {fileItem(QStringLiteral("images/") + name + QStringLiteral(".png"))}));
+        }
+        return spec;
+    }
+
 private slots:
     // "Code on the left with main.cpp and a.cpp, the guide beside it, chat on
     // the right": one plan, one change, and the panels that already showed
@@ -197,9 +216,9 @@ private slots:
         QCOMPARE(d.model.anchor(d.editors)->views.size(), 2);
         QCOMPARE(d.model.anchorDisplayName(d.editors), QStringLiteral("Code"));
         QCOMPARE(outcome.opened.size(), 2);
-        // Code gets half the width, the others a quarter each.
-        QVERIFY(std::abs(share(d.model, d.editors) - 0.5) < 0.03);
-        QVERIFY(std::abs(share(d.model, d.chat) - 0.25) < 0.03);
+        // Code gets about twice the width of the others (capped at 1.8x).
+        QVERIFY(std::abs(share(d.model, d.editors) - 1.8 / 3.8) < 0.03);
+        QVERIFY(std::abs(share(d.model, d.chat) - 1 / 3.8) < 0.03);
         // Keyboard focus stays where the person had it.
         QCOMPARE(d.model.focusedAnchorId(), d.editors);
     }
@@ -281,6 +300,111 @@ private slots:
         QVERIFY(!outcome.ok);
         QCOMPARE(outcome.code, QStringLiteral("CONTENT_LOCKED"));
         QCOMPARE(bytes(d.model), before);
+    }
+
+    void chatDominantWithThreeImagesStacked()
+    {
+        // The model asked for an extreme weight (10); the result stays usable.
+        for (const double chatWeight : {0.0, 3.0, 10.0}) {
+            Desk d = desk();
+            const QSizeF viewport(1440, 900);
+            const Compose::Plan plan = Compose::plan(chatAndThreeImages(d, chatWeight, 0, viewport), d.model);
+            QVERIFY2(plan.ok, qPrintable(plan.message));
+            QVERIFY(plan.adjustments.isEmpty());
+            const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(outcome.message));
+            QCOMPARE(d.model.anchorIds().size(), 4);
+            QCOMPARE(d.model.anchorOfView(d.chatViewId), d.chat); // the chat panel is reused
+
+            const QRectF chat = rectOf(d.model, d.chat, viewport);
+            const double chatShare = chat.width() / viewport.width();
+            QVERIFY2(chatShare >= 0.60 && chatShare <= 0.66, qPrintable(QString::number(chatShare)));
+            QList<QRectF> images;
+            for (const QString &anchorId : d.model.anchorIds()) {
+                if (anchorId != d.chat) {
+                    images.append(rectOf(d.model, anchorId, viewport));
+                }
+            }
+            QCOMPARE(images.size(), 3);
+            std::sort(images.begin(), images.end(), [](const QRectF &a, const QRectF &b) { return a.y() < b.y(); });
+            for (qsizetype i = 0; i < images.size(); ++i) {
+                QVERIFY(images.at(i).x() > chat.right() - 1); // on the right
+                QCOMPARE(qRound(images.at(i).width()), qRound(images.first().width())); // one column
+                QVERIFY(images.at(i).height() >= Compose::kMinimumPanelHeight);
+                QVERIFY(i == 0 || images.at(i).y() >= images.at(i - 1).bottom() - 1); // stacked
+            }
+            const double columnShare = images.first().width() / viewport.width();
+            QVERIFY2(columnShare >= 0.34 && columnShare <= 0.40, qPrintable(QString::number(columnShare)));
+        }
+    }
+
+    // Smaller windows (or a tall bottom panel): panels keep a usable size,
+    // the least important become tabs, and nothing asked for is dropped.
+    void smallViewportsFallBackToTabs()
+    {
+        const QList<QSizeF> viewports{{1440, 900}, {1440, 640}, {1280, 480}, {900, 400}, {560, 700}};
+        for (const QSizeF &viewport : viewports) {
+            Desk d = desk();
+            const Compose::Plan plan = Compose::plan(chatAndThreeImages(d, 3, 0, viewport), d.model);
+            QVERIFY2(plan.ok, qPrintable(plan.message));
+            const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(outcome.message));
+            const qsizetype panels = d.model.anchorIds().size();
+            QCOMPARE(plan.adjustments.size(), 4 - panels); // every merge is reported
+            for (const QString &anchorId : d.model.anchorIds()) {
+                const QRectF rect = rectOf(d.model, anchorId, viewport);
+                QVERIFY2(rect.width() + 1 >= Compose::kMinimumPanelWidth && rect.height() + 1 >= Compose::kMinimumPanelHeight,
+                         qPrintable(QStringLiteral("%1x%2 in %3x%4").arg(rect.width()).arg(rect.height()).arg(viewport.width()).arg(viewport.height())));
+            }
+            QCOMPARE(d.model.viewIds().size(), 5); // main.cpp, chat and three images
+        }
+        // 1440 x 900 fits all four; 1280 x 480 can't stack three.
+        Desk roomy = desk();
+        QCOMPARE(Compose::plan(chatAndThreeImages(roomy, 3, 0, {1440, 900}), roomy.model).adjustments.size(), 0);
+        Desk low = desk();
+        QVERIFY(!Compose::plan(chatAndThreeImages(low, 3, 0, {1280, 480}), low.model).adjustments.isEmpty());
+    }
+
+    // Weights are relative: 2:1:1 and 8:4:4 are the same arrangement.
+    void weightsAreNormalized()
+    {
+        QList<double> shares;
+        for (const double scale : {1.0, 4.0}) {
+            Desk d = desk();
+            Compose::Spec spec;
+            spec.strategy = QStringLiteral("columns");
+            spec.panels = {
+                panel(QStringLiteral("Code"), {}, 2 * scale, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}}),
+                panel(QStringLiteral("Docs"), {}, 1 * scale),
+                panel(QStringLiteral("Chat"), {}, 1 * scale, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+            };
+            QVERIFY(Intents::perform(d.model, Compose::plan(spec, d.model).request, environment()).ok);
+            shares.append(share(d.model, d.editors));
+        }
+        QVERIFY(std::abs(shares.first() - shares.last()) < 0.01);
+    }
+
+    // "Give the images a little more room": composed again with the same
+    // names, the same panels move instead of being rebuilt.
+    void followUpsKeepThePanels()
+    {
+        Desk d = desk();
+        const QSizeF viewport(1440, 900);
+        QVERIFY(Intents::perform(d.model, Compose::plan(chatAndThreeImages(d, 10, 0, viewport), d.model).request, environment()).ok);
+        const QStringList anchors = d.model.anchorIds();
+        QHash<QString, QString> homes;
+        for (const QString &viewId : d.model.viewIds()) {
+            homes.insert(viewId, d.model.anchorOfView(viewId));
+        }
+        const double before = rectOf(d.model, d.chat, viewport).width();
+
+        QVERIFY(Intents::perform(d.model, Compose::plan(chatAndThreeImages(d, 1.3, 1, viewport), d.model).request, environment()).ok);
+        QCOMPARE(d.model.anchorIds(), anchors);
+        for (auto it = homes.cbegin(); it != homes.cend(); ++it) {
+            QCOMPARE(d.model.anchorOfView(it.key()), it.value());
+        }
+        const double after = rectOf(d.model, d.chat, viewport).width();
+        QVERIFY2(after < before - 50 && after / viewport.width() > 0.5, qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(after)));
     }
 
     void templatesAreVersionedRecipes()

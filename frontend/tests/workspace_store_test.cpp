@@ -1494,7 +1494,13 @@ private slots:
         QCOMPARE(agentAreas(store).size(), 2);
         QCOMPARE(store.revision(), published + 1); // published once
         QCOMPARE(result.value("panels").toList().size(), 2);
-        QCOMPARE(result.value("unresolved").toStringList().size(), 1);
+        {
+            QStringList statuses;
+            for (const QVariant &resource : result.value("resources").toList()) {
+                statuses.append(resource.toMap().value("status").toString());
+            }
+            QVERIFY2(statuses.contains("not_found"), qPrintable(statuses.join(",")));
+        }
         QVERIFY(!store.temporaryArrangement().isEmpty());
         QVERIFY(store.undoAgentChange());
         QCOMPARE(agentAreas(store).size(), 1);
@@ -1506,6 +1512,72 @@ private slots:
         QCOMPARE(store.savedLayouts().size(), 1);
         QCOMPARE(store.currentLayoutName(), QStringLiteral("Review"));
         QVERIFY(store.temporaryArrangement().isEmpty());
+    }
+
+    // Files the model names that are open (from anywhere) are used as they
+    // are; unclear or missing names are reported, never swapped for others.
+    void composeFindsOpenFilesFirst()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("compose-open-files"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        auto pathResource = [](const QString &path) {
+            QVariantMap resource = documentResource(path);
+            resource.insert("details", QVariantMap{{"fileId", path}, {"relativePath", path}, {"name", path.section('/', -1)}});
+            return resource;
+        };
+        store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        store.openView(QStringLiteral("archivist.preview"), pathResource("art/skull.png"), "skull.png");
+        store.openView(QStringLiteral("archivist.editor"), pathResource("a/notes.md"), "notes.md");
+        store.openView(QStringLiteral("archivist.editor"), pathResource("b/notes.md"), "notes.md");
+        const qsizetype viewsBefore = agentViews(store).size();
+        auto named = [](const QString &reference, const QString &lookup) {
+            return QVariantMap{{"kind", "file"}, {"reference", reference}, {"libraryId", "lib-main"}, {"lookup", lookup}};
+        };
+        const QVariantMap request{
+            {"action", "compose"},
+            {"template", ""},
+            {"strategy", "focus_with_sidebar"},
+            {"slots", QVariantList{
+                QVariantMap{{"name", "Code"}, {"holds", QStringList{"code"}}, {"weight", 10}, {"items", QVariantList{named("main.cpp", "not_found")}}},
+                QVariantMap{{"name", "Art"}, {"holds", QStringList{"preview"}}, {"weight", 0}, {"items", QVariantList{named("skull.png", "not_found")}}},
+                QVariantMap{{"name", "Notes"}, {"holds", QStringList{"docs"}}, {"weight", 0}, {"items", QVariantList{named("notes.md", "not_found"), named("ghost.png", "not_found")}}},
+            }},
+            {"focus", ""},
+            {"saveAs", ""},
+            {"explicit", true},
+            {"chatId", "chat-1"},
+        };
+        const int revision = store.revision();
+        const QVariantMap result = store.runAgentRequest(request, true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(store.revision(), revision + 1); // one change
+        QHash<QString, QString> statuses;
+        for (const QVariant &value : result.value("resources").toList()) {
+            const QVariantMap resource = value.toMap();
+            statuses.insert(resource.value("reference").toString(), resource.value("status").toString());
+        }
+        QCOMPARE(statuses.value("main.cpp"), QStringLiteral("reused"));
+        QCOMPARE(statuses.value("skull.png"), QStringLiteral("reused"));
+        QCOMPARE(statuses.value("notes.md"), QStringLiteral("ambiguous"));
+        QCOMPARE(statuses.value("ghost.png"), QStringLiteral("not_found"));
+        QCOMPARE(agentViews(store).size(), viewsBefore); // nothing opened in their place, nothing lost
+        // The open image is the one in "Art".
+        bool artHoldsSkull = false;
+        for (const QVariant &value : result.value("panels").toList()) {
+            const QVariantMap panel = value.toMap();
+            if (panel.value("name").toString() == QStringLiteral("Art")) {
+                artHoldsSkull = panel.value("shows").toString().contains(QStringLiteral("skull.png"));
+            }
+        }
+        QVERIFY2(artHoldsSkull, qPrintable(QJsonDocument::fromVariant(result.value("panels")).toJson()));
+        // One undo puts it all back.
+        QVERIFY(store.undoAgentChange());
+        QVERIFY(!store.canUndoAgentChange());
+        QCOMPARE(agentViews(store).size(), viewsBefore);
     }
 
     // Authorisation is the workspace's: a request from the person in the

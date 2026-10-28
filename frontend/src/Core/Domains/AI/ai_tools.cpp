@@ -946,20 +946,51 @@ QVariantMap resolveShowItem(const QVariantMap &item, Context &context)
 
     if (kind == QStringLiteral("file")) {
         if (JsCompat::isBlank(reference)) {
-            throw ToolError(QStringLiteral("invalid_input"), QStringLiteral("A file needs its Library path or file id."));
+            throw ToolError(QStringLiteral("invalid_input"), QStringLiteral("A file needs its Library path, file name or file id."));
         }
+        // Looked up in the catalog here; the workspace then prefers a view
+        // that already shows it (it may be open from elsewhere), so the
+        // lookup's verdict travels along instead of failing the call.
         const QVariantMap library = resolveLibrary(*context.database, context, item.value(QStringLiteral("library")).toString());
         const QString libraryId = library.value(QStringLiteral("id")).toString();
-        const QString fileId = resolveLibraryFileId(*context.database, libraryId, reference);
-        const auto file = LibraryFileRepository::fileById(*context.database, libraryId, fileId);
-        if (!file) {
-            throw ToolError(QStringLiteral("invalid_input"), QStringLiteral("Library file \"%1\" was not found.").arg(reference));
-        }
-        return {
+        QVariantMap resolved{
             {QStringLiteral("kind"), kind},
+            {QStringLiteral("reference"), reference},
             {QStringLiteral("libraryId"), libraryId},
-            {QStringLiteral("file"), *file},
         };
+        const QString wanted = QString(reference).replace(QLatin1Char('\\'), QLatin1Char('/')).trimmed();
+        const QString lowered = wanted.toLower();
+        QVariantList exact;
+        QVariantList byName;
+        for (const QVariant &value : LibraryFileRepository::files(*context.database, libraryId)) {
+            const QVariantMap file = value.toMap();
+            const QString path = file.value(QStringLiteral("relativePath")).toString();
+            if (file.value(QStringLiteral("id")).toString() == wanted || path == wanted) {
+                exact.append(file);
+            } else if (path.toLower() == lowered || path.toLower().endsWith(QLatin1Char('/') + lowered)
+                       || file.value(QStringLiteral("name")).toString().toLower() == lowered) {
+                byName.append(file);
+            }
+        }
+        const QVariantList &matches = exact.isEmpty() ? byName : exact;
+        if (matches.size() == 1) {
+            const QString fileId = matches.first().toMap().value(QStringLiteral("id")).toString();
+            const auto file = LibraryFileRepository::fileById(*context.database, libraryId, fileId);
+            resolved.insert(QStringLiteral("lookup"), file ? QStringLiteral("found") : QStringLiteral("not_found"));
+            if (file) {
+                resolved.insert(QStringLiteral("file"), *file);
+            }
+        } else if (matches.size() > 1) {
+            QStringList candidates;
+            for (const QVariant &match : matches.mid(0, 5)) {
+                candidates.append(match.toMap().value(QStringLiteral("relativePath")).toString());
+            }
+            resolved.insert(QStringLiteral("lookup"), QStringLiteral("ambiguous"));
+            resolved.insert(QStringLiteral("candidates"), candidates);
+        } else {
+            resolved.insert(QStringLiteral("lookup"), QStringLiteral("not_found"));
+        }
+        return resolved;
     }
 
     QVariantMap resolved{{QStringLiteral("kind"), kind}, {QStringLiteral("reference"), reference}};
@@ -1570,7 +1601,7 @@ const QList<Definition> &definitions()
             {
                 {QStringLiteral("name"), stringSchema(1, 40, QStringLiteral("What the panel is called: \"Code\", \"Docs\", \"Chat\"."))},
                 {QStringLiteral("holds"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), enumSchema(Workspace::Compose::holdWords())}, {QStringLiteral("maxItems"), 4}, {QStringLiteral("description"), QStringLiteral("What kind of content belongs there; can be empty when items say it.")}}},
-                {QStringLiteral("weight"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 10}, {QStringLiteral("description"), QStringLiteral("Relative size: 2 is twice as big as 1. 0 keeps the default.")}}},
+                {QStringLiteral("weight"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 10}, {QStringLiteral("description"), QStringLiteral("Relative room: 1 normal, 2 about twice; 0 keeps the default.")}}},
                 {QStringLiteral("items"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), showItem}, {QStringLiteral("maxItems"), Workspace::Compose::kMaximumItemsPerSlot}}},
             },
             slotFields
@@ -1589,7 +1620,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_compose"),
             QStringLiteral("Compose Workspace"),
-            QStringLiteral("Describe how the whole workspace should look, in one call: Archivist rebuilds the panels, puts each item in its panel, and applies it as one change the person can undo. Use this for any request about the arrangement as a whole (\"set up a layout for…\", \"code on the left and docs on the right\", \"make a review layout\"). Pick a template and fill its panels by name, or give panels with a strategy (columns: side by side; rows: stacked; focus_with_sidebar: the first panel large, the rest stacked beside it). Open things nobody placed stay open in a panel of their type; nothing closes. Templates: %1. save_as also saves it as a named layout (\"\" to keep it temporary, so the person can put it back). focus: a panel name to bring forward, only when the person asked to go there.").arg(templateLines.join(QStringLiteral("; "))),
+            QStringLiteral("Describe how the whole workspace should look, in one call: Archivist rebuilds the panels, puts each item in its panel, and applies it as one change the person can undo. Use this for any request about the arrangement as a whole (\"set up a layout for…\", \"code on the left and docs on the right\", \"make a review layout\"). Pick a template and fill its panels by name, or give panels with a strategy (columns: side by side; rows: stacked; focus_with_sidebar: the first panel large, the rest stacked beside it). Archivist solves the sizes: weights are relative (1 normal, 2 about twice the room, capped), every panel keeps a usable size, and panels that don't fit become tabs. \"Chat dominant with three images stacked on the right\" is strategy focus_with_sidebar with the chat first. To change an arrangement you composed (\"stack them\", \"give the images more room\"), compose again from the last arrangement in your instructions with the same panel names and items, changing only what was asked: panels keep their identity and only move. Files can be named by file name, path or an open tab's title; things already open are reused. Open things nobody placed stay open in a panel of their type; nothing closes. Templates: %1. save_as also saves it as a named layout (\"\" to keep it temporary, so the person can put it back). focus: a panel name to bring forward, only when the person asked to go there.").arg(templateLines.join(QStringLiteral("; "))),
             mutation, workspaceMode,
             objectSchema(
                 {
