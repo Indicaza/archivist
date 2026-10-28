@@ -421,6 +421,9 @@ private:
     };
     [[nodiscard]] Workspace::Intents::Environment agentEnvironment(bool mayMoveFocus) const;
     [[nodiscard]] QVariantMap agentIntent(const QVariantMap &request, QVariantMap *failure) const;
+    [[nodiscard]] QVariantMap composeIntent(const QVariantMap &request, QVariantMap *failure) const;
+    // Compact: each panel's name, position and what it shows.
+    [[nodiscard]] QVariantList panelsForAgent() const;
     QVariantMap applyAgentIntent(const QVariantMap &intent, const QString &chatId, bool mayMoveFocus);
     QVariantMap suggestAgentIntent(const QVariantMap &intent, const QString &chatId, const QString &reason);
     QVariantMap restoreForAgent(const QVariantMap &request);

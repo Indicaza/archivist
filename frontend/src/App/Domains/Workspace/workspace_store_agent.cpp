@@ -10,6 +10,7 @@
 #include "App/Domains/Documents/document_store.h"
 #include "Core/Domains/Workspace/workspace_arrangements.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
+#include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_presets.h"
 #include "Core/Domains/Workspace/workspace_resources.h"
 
@@ -169,6 +170,25 @@ QVariantMap WorkspaceStore::describeForAgent() const
     return description;
 }
 
+QVariantList WorkspaceStore::panelsForAgent() const
+{
+    QVariantList panels;
+    for (const QVariant &value : Intents::describe(m_model, agentEnvironment(false)).value(QStringLiteral("areas")).toList()) {
+        const QVariantMap area = value.toMap();
+        QStringList shows;
+        for (const QVariant &entry : area.value(QStringLiteral("shows")).toList()) {
+            shows.append(entry.toMap().value(QStringLiteral("title")).toString());
+        }
+        panels.append(QVariantMap{
+            {QStringLiteral("name"), area.value(QStringLiteral("area"))},
+            {QStringLiteral("position"), area.value(QStringLiteral("position"))},
+            {QStringLiteral("sizePercent"), area.value(QStringLiteral("sizePercent"))},
+            {QStringLiteral("shows"), shows},
+        });
+    }
+    return panels;
+}
+
 // Tool vocabulary (files, chats, terminals, open views) -> intent items
 // (view types and resources).
 QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap *failed) const
@@ -179,6 +199,10 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
     intent.remove(QStringLiteral("chatId"));
     intent.remove(QStringLiteral("explicit"));
     intent.remove(QStringLiteral("saveAs"));
+
+    if (action == QStringLiteral("compose")) {
+        return composeIntent(request, failed);
+    }
 
     if (action != QStringLiteral("show")) {
         return intent;
@@ -329,6 +353,49 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
     }
 
     intent.insert(QStringLiteral("items"), items);
+    return intent;
+}
+
+// workspace_compose: the description of a whole workspace becomes one
+// Intents compose request. Items that can't be found are reported, not fatal.
+QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMap *failed) const
+{
+    const QString chatId = request.value(QStringLiteral("chatId")).toString();
+    Compose::Spec spec;
+    spec.templateId = request.value(QStringLiteral("template")).toString();
+    spec.strategy = request.value(QStringLiteral("strategy")).toString();
+    spec.focus = request.value(QStringLiteral("focus")).toString();
+    QStringList unresolved = request.value(QStringLiteral("unresolved")).toStringList();
+
+    for (const QVariant &value : request.value(QStringLiteral("slots")).toList()) {
+        const QVariantMap given = value.toMap();
+        Compose::Slot slot;
+        slot.name = given.value(QStringLiteral("name")).toString();
+        slot.holds = given.value(QStringLiteral("holds")).toStringList();
+        slot.weight = given.value(QStringLiteral("weight")).toDouble();
+        for (const QVariant &item : given.value(QStringLiteral("items")).toList()) {
+            QVariantMap problem;
+            const QVariantMap shaped = agentIntent({
+                {QStringLiteral("action"), QStringLiteral("show")},
+                {QStringLiteral("chatId"), chatId},
+                {QStringLiteral("items"), QVariantList{item}},
+            }, &problem);
+            if (!problem.isEmpty()) {
+                unresolved.append(problem.value(QStringLiteral("error")).toString());
+                continue;
+            }
+            slot.items.append(shaped.value(QStringLiteral("items")).toList());
+        }
+        spec.panels.append(slot);
+    }
+
+    const Compose::Plan plan = Compose::plan(spec, m_model);
+    if (!plan.ok) {
+        *failed = failure(plan.code, plan.message);
+        return {};
+    }
+    QVariantMap intent = plan.request;
+    intent.insert(QStringLiteral("unresolved"), unresolved);
     return intent;
 }
 
@@ -517,14 +584,24 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
 
     if (!holdBack.isEmpty()) {
         QVariantMap suggested = suggestAgentIntent(intent, chatId, holdBack);
+        if (action == QStringLiteral("compose") && !intent.value(QStringLiteral("unresolved")).toStringList().isEmpty()) {
+            suggested.insert(QStringLiteral("unresolved"), intent.value(QStringLiteral("unresolved")));
+        }
         if (!saveAs.isEmpty() && suggested.value(QStringLiteral("ok")).toBool()) {
             suggested.insert(QStringLiteral("layout"), QStringLiteral("Not saved as “%1”: the change wasn't applied.").arg(saveAs));
         }
         return suggested;
     }
 
-    const bool focusWanted = request.value(QStringLiteral("focus")).toBool() || action == QStringLiteral("focus");
+    const bool focusWanted = request.value(QStringLiteral("focus")).toBool() || action == QStringLiteral("focus")
+        || (action == QStringLiteral("compose") && !intent.value(QStringLiteral("focusAnchor")).toString().isEmpty());
     QVariantMap result = applyAgentIntent(intent, chatId, focusWanted && !userBusy());
+    if (action == QStringLiteral("compose") && result.value(QStringLiteral("ok")).toBool()) {
+        result.insert(QStringLiteral("panels"), panelsForAgent());
+        if (!intent.value(QStringLiteral("unresolved")).toStringList().isEmpty()) {
+            result.insert(QStringLiteral("unresolved"), intent.value(QStringLiteral("unresolved")));
+        }
+    }
 
     // "…and save it as Review": arranging and saving in one request.
     if (!saveAs.isEmpty() && result.value(QStringLiteral("ok")).toBool()) {

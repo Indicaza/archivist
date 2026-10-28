@@ -1453,6 +1453,61 @@ private slots:
         QCOMPARE(agentAreas(store).size(), 3);
     }
 
+    // "Set me up to review: code on the left, the guide on the right, and keep
+    // it as Review". One request, one change, one undo step.
+    void composeByConversation()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("compose-by-chat"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        const int published = store.revision();
+        auto compose = [](bool asked, const QString &saveAs = {}) {
+            return QVariantMap{
+                {"action", "compose"},
+                {"template", "focus_references"},
+                {"strategy", ""},
+                {"slots", QVariantList{
+                    QVariantMap{{"name", "Focus"}, {"holds", QStringList{}}, {"weight", 0}, {"items", QVariantList{agentFile("main.cpp"), agentFile("util.cpp")}}},
+                    QVariantMap{{"name", "Docs"}, {"holds", QStringList{"docs"}}, {"weight", 0}, {"items", QVariantList{agentFile("guide.md"), QVariantMap{{"kind", "open_view"}, {"reference", "nothing-like-this"}}}}},
+                }},
+                {"focus", ""},
+                {"saveAs", saveAs},
+                {"explicit", asked},
+                {"chatId", "chat-1"},
+            };
+        };
+
+        // A background conversation only stages it.
+        QVariantMap result = store.runAgentRequest(compose(true), false);
+        QCOMPARE(result.value("status").toString(), QStringLiteral("suggested"));
+        QCOMPARE(agentAreas(store).size(), 1);
+        QVERIFY(!store.agentSuggestion().isEmpty());
+        store.dismissAgentSuggestion();
+
+        // Temporary: one undo puts the old arrangement back.
+        result = store.runAgentRequest(compose(true), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(agentAreas(store).size(), 2);
+        QCOMPARE(store.revision(), published + 1); // published once
+        QCOMPARE(result.value("panels").toList().size(), 2);
+        QCOMPARE(result.value("unresolved").toStringList().size(), 1);
+        QVERIFY(!store.temporaryArrangement().isEmpty());
+        QVERIFY(store.undoAgentChange());
+        QCOMPARE(agentAreas(store).size(), 1);
+        QVERIFY(!store.canUndoAgentChange());
+
+        // Kept: saved as a layout, and it becomes the normal arrangement.
+        result = store.runAgentRequest(compose(true, "Review"), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(store.savedLayouts().size(), 1);
+        QCOMPARE(store.currentLayoutName(), QStringLiteral("Review"));
+        QVERIFY(store.temporaryArrangement().isEmpty());
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

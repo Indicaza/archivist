@@ -4,6 +4,7 @@
 #include "Core/Domains/Workspace/view_type_registry.h"
 #include "Core/Domains/Workspace/workspace_arrangements.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
+#include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 #include "Core/Domains/Workspace/workspace_placement.h"
@@ -116,6 +117,16 @@ double share(const WorkspaceModel &model, const QString &anchorId, const QSizeF 
     const QRectF rect = model.computeGeometry(model.surfaceOfAnchor(anchorId), size, {}).anchors.value(anchorId);
     return rect.width() * rect.height() / (size.width() * size.height());
 }
+
+Compose::Slot panel(const QString &name, const QStringList &holds, double weight, const QVariantList &items = {})
+{
+    Compose::Slot slot;
+    slot.name = name;
+    slot.holds = holds;
+    slot.weight = weight;
+    slot.items = items;
+    return slot;
+}
 } // namespace
 
 class CoreWorkspaceAgentTest final : public QObject
@@ -156,6 +167,140 @@ private:
     }
 
 private slots:
+    // "Code on the left with main.cpp and a.cpp, the guide beside it, chat on
+    // the right": one plan, one change, and the panels that already showed
+    // things are the same panels afterwards (their editors aren't rebuilt).
+    void composesAWholeArrangementAtOnce()
+    {
+        Desk d = desk();
+        const int revision = d.model.revision();
+        Compose::Spec spec;
+        spec.strategy = QStringLiteral("columns");
+        spec.panels = {
+            panel(QStringLiteral("Code"), {QStringLiteral("code")}, 2, {QVariantMap{{QStringLiteral("viewId"), d.mainView}}, fileItem(QStringLiteral("src/a.cpp"))}),
+            panel(QStringLiteral("Docs"), {QStringLiteral("docs")}, 1, {fileItem(QStringLiteral("docs/guide.md"))}),
+            panel(QStringLiteral("Chat"), {QStringLiteral("chat")}, 1, {QVariantMap{{QStringLiteral("viewId"), d.chatViewId}}}),
+        };
+        const Compose::Plan plan = Compose::plan(spec, d.model);
+        QVERIFY2(plan.ok, qPrintable(plan.message));
+
+        const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment());
+        QVERIFY2(outcome.ok, qPrintable(outcome.message));
+        QVERIFY(d.model.validate().isEmpty());
+        QCOMPARE(d.model.revision() > revision, true);
+        QCOMPARE(d.model.anchorIds().size(), 3);
+        // Reused, not rebuilt.
+        QVERIFY(d.model.anchor(d.editors));
+        QVERIFY(d.model.anchor(d.chat));
+        QCOMPARE(d.model.anchorOfView(d.mainView), d.editors);
+        QCOMPARE(d.model.anchorOfView(d.chatViewId), d.chat);
+        QCOMPARE(d.model.anchor(d.editors)->views.size(), 2);
+        QCOMPARE(d.model.anchorDisplayName(d.editors), QStringLiteral("Code"));
+        QCOMPARE(outcome.opened.size(), 2);
+        // Code gets half the width, the others a quarter each.
+        QVERIFY(std::abs(share(d.model, d.editors) - 0.5) < 0.03);
+        QVERIFY(std::abs(share(d.model, d.chat) - 0.25) < 0.03);
+        // Keyboard focus stays where the person had it.
+        QCOMPARE(d.model.focusedAnchorId(), d.editors);
+    }
+
+    void composesFromATemplate()
+    {
+        Desk d = desk();
+        const ViewRecord terminal = terminalView(QStringLiteral("t-1"));
+        const QString terminalId = d.model.openView(terminal, d.chat).createdId;
+        Compose::Spec spec;
+        spec.templateId = QStringLiteral("research_desk");
+        spec.panels = {panel(QStringLiteral("sources"), {}, 0, {fileItem(QStringLiteral("docs/paper.pdf"))})};
+        spec.focus = QStringLiteral("Sources");
+        const Compose::Plan plan = Compose::plan(spec, d.model);
+        QVERIFY2(plan.ok, qPrintable(plan.message));
+        QCOMPARE(plan.slotNames, (QStringList{QStringLiteral("Sources"), QStringLiteral("Notes"), QStringLiteral("Reference")}));
+
+        const Intents::Outcome outcome = Intents::perform(d.model, plan.request, environment(true));
+        QVERIFY2(outcome.ok, qPrintable(outcome.message));
+        QCOMPARE(d.model.anchorIds().size(), 3);
+        // Nothing closes: what no panel names stays open.
+        QVERIFY(d.model.view(terminalId));
+        QVERIFY(d.model.view(d.chatViewId));
+        QVERIFY(d.model.view(d.mainView));
+        // Focus moves only because it was asked for.
+        QCOMPARE(d.model.anchorDisplayName(d.model.focusedAnchorId()), QStringLiteral("Sources"));
+    }
+
+    void composeChecksTheSpecFirst()
+    {
+        Desk d = desk();
+        const QByteArray before = bytes(d.model);
+        Compose::Spec tooMany;
+        for (int index = 0; index < Compose::kMaximumSlots + 1; ++index) {
+            tooMany.panels.append(panel(QStringLiteral("P%1").arg(index), {}, 0));
+        }
+        QCOMPARE(Compose::plan(tooMany, d.model).code, QStringLiteral("INVALID_ARGUMENT"));
+
+        Compose::Spec unknown;
+        unknown.templateId = QStringLiteral("spaceship");
+        QVERIFY(Compose::plan(unknown, d.model).message.contains(QStringLiteral("focus_references")));
+
+        Compose::Spec twice;
+        twice.panels = {panel(QStringLiteral("Code"), {}, 0), panel(QStringLiteral("code"), {}, 0)};
+        QVERIFY(!Compose::plan(twice, d.model).ok);
+
+        Compose::Spec badFocus;
+        badFocus.panels = {panel(QStringLiteral("Code"), {}, 0)};
+        badFocus.focus = QStringLiteral("Elsewhere");
+        QVERIFY(!Compose::plan(badFocus, d.model).ok);
+
+        Compose::Spec crowded;
+        QVariantList items;
+        for (int index = 0; index < Compose::kMaximumItemsPerSlot + 1; ++index) {
+            items.append(fileItem(QStringLiteral("f%1.cpp").arg(index)));
+        }
+        crowded.panels = {panel(QStringLiteral("Code"), {}, 0, items)};
+        QVERIFY(!Compose::plan(crowded, d.model).ok);
+        QCOMPARE(bytes(d.model), before);
+    }
+
+    void composeRespectsLocks()
+    {
+        Desk d = desk();
+        Compose::Spec spec;
+        spec.templateId = QStringLiteral("code_diff");
+
+        d.model.setAnchorLayoutLocked(d.chat, true);
+        QByteArray before = bytes(d.model);
+        Intents::Outcome outcome = Intents::perform(d.model, Compose::plan(spec, d.model).request, environment());
+        QVERIFY(!outcome.ok);
+        QCOMPARE(outcome.code, QStringLiteral("LAYOUT_LOCKED"));
+        QCOMPARE(bytes(d.model), before);
+
+        d.model.setAnchorLayoutLocked(d.chat, false);
+        d.model.setAnchorContentLocked(d.chat, true);
+        before = bytes(d.model);
+        outcome = Intents::perform(d.model, Compose::plan(spec, d.model).request, environment());
+        QVERIFY(!outcome.ok);
+        QCOMPARE(outcome.code, QStringLiteral("CONTENT_LOCKED"));
+        QCOMPARE(bytes(d.model), before);
+    }
+
+    void templatesAreVersionedRecipes()
+    {
+        QCOMPARE(Compose::templates().size(), 5);
+        WorkspaceModel model(counter());
+        for (const Compose::Template &recipe : Compose::templates()) {
+            QVERIFY(recipe.version >= 1);
+            QVERIFY(!recipe.name.isEmpty());
+            Compose::Spec spec;
+            spec.templateId = recipe.id;
+            WorkspaceModel copy = model;
+            const Compose::Plan plan = Compose::plan(spec, copy);
+            QVERIFY2(plan.ok, qPrintable(recipe.id + QStringLiteral(": ") + plan.message));
+            const Intents::Outcome outcome = Intents::perform(copy, plan.request, environment());
+            QVERIFY2(outcome.ok, qPrintable(recipe.id + QStringLiteral(": ") + outcome.message));
+            QCOMPARE(copy.anchorIds().size(), plan.slotNames.size());
+        }
+    }
+
     // 1. "Open these three files beside our conversation."
     void opensThreeFilesBesideTheChat()
     {

@@ -154,8 +154,40 @@ defaults.
 ## Agents and the workspace
 
 People ask for arrangements in plain words ("open these files beside our
-conversation", "make the code bigger", "put everything back"). Six AI tools
+conversation", "make the code bigger", "put everything back"). Seven AI tools
 carry those requests; none of them mention anchors or ids.
+
+### Composing a workspace
+
+`workspace_compose` (`workspace_compose.h`) lets the model say what the
+workspace should look like instead of how to get there:
+
+- **Spec.** A template (`focus_references`, `chat_code`, `code_diff`,
+  `research_desk`, `agent_overview`) or a strategy (`columns`, `rows`,
+  `focus_with_sidebar`), up to 6 named panels with what they hold (`code`,
+  `docs`, `chat`, `terminal`, `diff`, ...), relative weights and up to 8
+  items each (16 in all), a panel to focus, and `save_as`.
+- **Templates** are versioned JSON recipes inside `workspace_compose.cpp`.
+  They're starting points: the model fills their panels by name, may change
+  weights, and extra panels go in a column at the side.
+- **Planning** checks the whole spec first and refuses it with a plain
+  message if it's too big or inconsistent. It turns the spec into an
+  ordinary layout document. Panels that already show a slot's content keep
+  their ids, so their editors and terminals aren't rebuilt and the change
+  animates (springs on the panels, a short staggered fade for new ones,
+  nothing with reduced motion).
+- **Applying** is the Intents `compose` action: the layout and every slot's
+  content go into one working copy, which is checked and committed once.
+  That's one publish to QML, one undo step, and one temporary arrangement
+  (Put back), unless `save_as` keeps it as a named layout. Layout and
+  content locks refuse the whole change. Views nobody placed stay open in a
+  panel of their type. Floating windows join the main window.
+- **Result.** It's compact: the panels with what they show, plus any items
+  that couldn't be found (`unresolved`) instead of failing.
+- **Background chats** get a staged suggestion, as with every other tool.
+
+The tools are offered on every turn. Only a message that reads as a
+workspace request applies changes right away; anything else is staged.
 
 Each model round trip takes seconds, so a request should take as few as
 possible. The runtime puts a description of the workspace (panels and
@@ -169,6 +201,7 @@ failing.
 |---|---|
 | `workspace_view` | Describes the workspace in words: areas, what each shows, where it sits, its size and locks. |
 | `workspace_show` | Shows files, a chat, a terminal or an open view, reusing what is already open. |
+| `workspace_compose` | Describes the whole workspace at once: named panels with what they hold, their relative weights and their files, arranged by a template or a strategy. Native code builds it and applies it as one change (see below). |
 | `workspace_arrange` | Runs a list of steps as one change (all or nothing, one undo): focus, resize, move, keep (lock in place), label, add (an empty named panel) or remove (tabs move elsewhere). `save_as` saves the result as a named layout in the same call. |
 | `workspace_restore` | Puts back the arrangement before the last change, before the whole task, or a saved layout by name. |
 | `workspace_preference` | Remembers, forgets or lists how the person likes the workspace. |

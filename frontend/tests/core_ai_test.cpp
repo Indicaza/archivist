@@ -364,11 +364,11 @@ private slots:
 
     void workspaceToolsTalkInPlainTerms()
     {
-        // Offered only when the person asked for a workspace change.
+        // Offered with the workspace; library-only runs don't see them.
         AITools::Availability plain;
         AITools::Availability workspace;
         workspace.workspace = true;
-        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 6);
+        QCOMPARE(AITools::providerTools(workspace).size() - AITools::providerTools(plain).size(), 7);
         for (const QVariant &definition : AITools::providerTools(plain)) {
             QVERIFY(!AITools::isWorkspaceTool(definition.toMap().value(QStringLiteral("name")).toString()));
         }
@@ -465,6 +465,32 @@ private slots:
         QCOMPARE(requests.last().value(QStringLiteral("steps")).toList().size(), 2);
         QCOMPARE(requests.last().value(QStringLiteral("steps")).toList().last().toMap().value(QStringLiteral("target")).toString(), QStringLiteral("Docs"));
         QCOMPARE(requests.last().value(QStringLiteral("saveAs")).toString(), QStringLiteral("Review"));
+
+        // A whole arrangement in one call: found files go in, missing ones are reported.
+        const auto composeItem = [](const QString &kind, const QString &reference) {
+            return QVariantMap{{QStringLiteral("kind"), kind}, {QStringLiteral("reference"), reference}, {QStringLiteral("library"), QString()}};
+        };
+        AITools::execute(context, QStringLiteral("workspace_compose"),
+            QVariantMap{
+                {QStringLiteral("template"), QStringLiteral("focus_references")},
+                {QStringLiteral("strategy"), QStringLiteral("auto")},
+                {QStringLiteral("slots"), QVariantList{
+                    QVariantMap{{QStringLiteral("name"), QStringLiteral("Focus")}, {QStringLiteral("holds"), QVariantList{}}, {QStringLiteral("weight"), 0},
+                                {QStringLiteral("items"), QVariantList{composeItem(QStringLiteral("file"), QStringLiteral("notes.md"))}}},
+                    QVariantMap{{QStringLiteral("name"), QStringLiteral("References")}, {QStringLiteral("holds"), QVariantList{QStringLiteral("docs")}}, {QStringLiteral("weight"), 1},
+                                {QStringLiteral("items"), QVariantList{composeItem(QStringLiteral("file"), QStringLiteral("missing.md"))}}},
+                }},
+                {QStringLiteral("focus"), QString()},
+                {QStringLiteral("save_as"), QString()},
+            });
+        QCOMPARE(requests.last().value(QStringLiteral("action")).toString(), QStringLiteral("compose"));
+        QCOMPARE(requests.last().value(QStringLiteral("template")).toString(), QStringLiteral("focus_references"));
+        QVERIFY(requests.last().value(QStringLiteral("strategy")).toString().isEmpty());
+        const QVariantList composedSlots = requests.last().value(QStringLiteral("slots")).toList();
+        QCOMPARE(composedSlots.size(), 2);
+        QCOMPARE(composedSlots.first().toMap().value(QStringLiteral("items")).toList().size(), 1);
+        QVERIFY(composedSlots.last().toMap().value(QStringLiteral("items")).toList().isEmpty());
+        QCOMPARE(requests.last().value(QStringLiteral("unresolved")).toStringList().size(), 1);
 
         // A preference lasts only when the message stated one.
         answer = {{QStringLiteral("ok"), true}, {QStringLiteral("status"), QStringLiteral("applied")}};

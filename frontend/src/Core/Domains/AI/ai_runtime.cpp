@@ -103,6 +103,9 @@ const QRegularExpression &workspaceRequestPattern()
             "maximi[sz]e|enlarge|shrink|resize|widen|focus|switch\\s+to)\\b[\\s\\S]{0,120}"
             "\\b(?:files?|tabs?|panels?|panes?|areas?|editors?|code|terminals?|diffs?|chats?|conversation|docs?|documentation|references?|"
             "previews?|side|left|right|top|bottom|beside|next\\s+to|window|workspace|layout|here|there)\\b"
+            "|\\b(?:set\\s*up|organi[sz]e|make|create|build|give\\s+me|change|swap|switch|clean\\s+up|tidy|split)\\b[\\s\\S]{0,80}"
+            "\\b(?:files?|tabs?|panels?|panes?|code|terminals?|chats?|docs?|documentation|workspace|layouts?|screen|views?|side\\s+by\\s+side|columns?|rows?|sidebar)\\b"
+            "|\\bside\\s+by\\s+side\\b|\\bsplit\\s+(?:screen|view)\\b"
             "|\\b(?:bigger|larger|smaller|wider|narrower|taller|shorter)\\b"
             "|\\b(?:restore|reset)\\s+(?:my\\s+|the\\s+)?(?:workspace|layout|windows?|panels?)\\b"
             "|\\b(?:put|set)\\s+(?:everything|it\\s+all|things|it)\\s+back\\b"
@@ -159,6 +162,7 @@ struct InstructionFlags
     bool mutationProposalRequested = false;
     bool toolTestingRequested = false;
     bool workspaceToolsAvailable = false;
+    bool workspaceRequested = false;
     QString workspaceSnapshot; // compact JSON of the workspace as the turn began
 };
 
@@ -187,7 +191,7 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
     if (input.workspaceToolsAvailable) {
         lines << QStringLiteral("You can show and arrange things in the person's workspace with the workspace_* tools. Use them only for what the person asked to see, open, arrange, resize or restore in this message.")
               << QStringLiteral("What the workspace can do: panels (areas) hold tabs of files, chats, terminals and previews, side by side or in floating windows. The bottom panel holds this chat, the terminal and problems. You can open files into a named or described panel, move tabs and panels, resize or maximize a panel, add an empty named panel on any side, remove a panel (its tabs move elsewhere), name panels, lock one in place, switch to a named layout, save the current arrangement as a new layout, rename or delete the person's layouts, undo your last change, put everything back, and remember preferences. The person can also make a panel a shelf, lock its content and bind it to a worktree from its menu; you can't unlock anything.")
-              << QStringLiteral("Each tool call takes the person's time, so do a request in as few calls as possible: usually one. Put every arrange step for a request in a single workspace_arrange call. To build a new layout, add, name and size its panels in one workspace_arrange call with save_as set to the layout's name; if it also needs files in panels, call workspace_show after and then save with workspace_layout. To switch layouts, call workspace_layout apply once.")
+              << QStringLiteral("Each tool call takes the person's time, so do a request in one call whenever you can. For the arrangement as a whole (setting up, building or changing a layout, \"code on the left and docs on the right\", \"set me up for reviewing\"), describe the result you want in one workspace_compose call, with the files in their panels and save_as when the person wants it kept as a named layout. For one small change (make the code bigger, move the chat), use one workspace_arrange call. To switch to an existing layout, call workspace_layout apply once. Never describe how the person could rearrange things themselves when you can do it.")
               << (input.workspaceSnapshot.isEmpty()
                       ? QStringLiteral("Call workspace_view first unless you already know the areas. Refer to areas by the names it returns, or describe them plainly (\"the code\", \"the right panel\").")
                       : QStringLiteral("The workspace as this message began is below; don't call workspace_view unless something changed since. Refer to areas by these names, or describe them plainly (\"the code\", \"the right panel\").\n<workspace>%1</workspace>").arg(input.workspaceSnapshot))
@@ -196,6 +200,9 @@ QString toolAwareInstructions(const QString &base, const InstructionFlags &input
               << QStringLiteral("\"Put everything back\" or \"restore my workspace\" means workspace_restore with before_task; \"undo that\" means last_change.")
               << QStringLiteral("Talk about areas and panels in the person's words; never mention anchors, view ids or tool names.")
               << QStringLiteral("When a workspace result says suggested, the change was prepared but not applied: say it is ready to apply from the notice. When it fails, say why in one sentence and do not retry the same change.")
+              << (input.workspaceRequested
+                      ? QStringLiteral("This message asks for a workspace change: make it now with the tools.")
+                      : QStringLiteral("This message may not be about the workspace. Leave it alone unless the person clearly asked to see or arrange something; a change you make is shown to them to apply."))
               << QStringLiteral("When the person states how they like their workspace (\"I like my chat at the bottom\", \"use the right panel for documentation\"), record it with workspace_preference; never turn a one-off request into a preference. Say whether it is kept for this session or always, and that they can forget it from the Layouts menu.");
     }
 
@@ -494,7 +501,8 @@ private:
     QVariantList m_retrievalOutcomes;
     bool m_retrievalContextIncluded = false;
     bool m_mutationProposalRequested = false;
-    bool m_workspaceRequested = false;
+    bool m_workspaceRequested = false;   // the message asked for a workspace change
+    bool m_workspaceToolsOffered = false; // the tools are there either way
     bool m_workspaceLastingPreference = false;
     QString m_instructions;
     QJsonArray m_initialInput;
@@ -747,7 +755,11 @@ void ChatRunJob::prepare()
     const bool toolTestingRequested = explicitToolTestingPattern().match(userContent).hasMatch();
     const bool verificationRequested = explicitToolRequestPattern().match(userContent).hasMatch() || toolTestingRequested;
     const bool verificationToolsAvailable = initialRetrievalAvailable && verificationRequested;
-    m_workspaceRequested = Workspace::Gateway::installed() && workspaceRequestPattern().match(userContent).hasMatch();
+    // The workspace tools are always offered, so a request phrased in
+    // unexpected words still gets acted on. Only a recognised request
+    // applies changes right away; anything else is staged for the person.
+    m_workspaceToolsOffered = Workspace::Gateway::installed();
+    m_workspaceRequested = m_workspaceToolsOffered && workspaceRequestPattern().match(userContent).hasMatch();
     m_workspaceLastingPreference = m_workspaceRequested && lastingPreferencePattern().match(userContent).hasMatch();
     // "Save this layout" or "create a new layout" is about the workspace, not files.
     static const QRegularExpression layoutVerbs(
@@ -773,7 +785,7 @@ void ChatRunJob::prepare()
         providerTools = AITools::providerTools(availability);
     }
 
-    if (m_workspaceRequested) {
+    if (m_workspaceToolsOffered) {
         // Looking at the workspace, then showing or arranging, takes a few
         // rounds even when retrieval already found the files.
         AITools::Availability workspaceOnly;
@@ -782,7 +794,7 @@ void ChatRunJob::prepare()
         workspaceOnly.verification = false;
         workspaceOnly.workspace = true;
         providerTools.append(AITools::providerTools(workspaceOnly));
-        m_maximumToolRounds = std::max(m_maximumToolRounds, 8);
+        m_maximumToolRounds = std::max(m_maximumToolRounds, m_workspaceRequested ? 8 : 3);
     }
 
     QVariantList toolIds;
@@ -806,8 +818,9 @@ void ChatRunJob::prepare()
     flags.verificationToolsAvailable = verificationToolsAvailable;
     flags.mutationProposalRequested = m_mutationProposalRequested;
     flags.toolTestingRequested = toolTestingRequested;
-    flags.workspaceToolsAvailable = m_workspaceRequested;
-    if (m_workspaceRequested) {
+    flags.workspaceToolsAvailable = m_workspaceToolsOffered;
+    flags.workspaceRequested = m_workspaceRequested;
+    if (m_workspaceToolsOffered) {
         // Saves a round trip: the model starts out knowing the panels and layouts.
         QVariantMap described = Workspace::Gateway::call({
             {QStringLiteral("action"), QStringLiteral("describe")},
@@ -844,6 +857,7 @@ void ChatRunJob::prepare()
         {QStringLiteral("mutationProposalRequested"), m_mutationProposalRequested},
         {QStringLiteral("toolTestingRequested"), toolTestingRequested},
         {QStringLiteral("workspaceRequested"), m_workspaceRequested},
+        {QStringLiteral("workspaceToolsOffered"), m_workspaceToolsOffered},
         {QStringLiteral("discoveryToolsSuppressed"), discoveryToolsSuppressed},
         {QStringLiteral("fullFileReadSuppressed"), fullFileReadSuppressed},
         {QStringLiteral("focusedHistory"), focused},
