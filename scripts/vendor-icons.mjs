@@ -25,7 +25,7 @@ const tones = {
 
 // Drawn by hand in Assets/ui/<tone>/ because no vendored match fits;
 // vendoring leaves them alone.
-const handDrawnUiIcons = new Set(["git-branch", "lock"]);
+const handDrawnUiIcons = new Set(["git-branch", "lock", "home"]);
 
 const uiIcons = {
   workspace: ["layout-dashboard", "dashboard", "grid-layout", "module-four"],
@@ -91,6 +91,7 @@ const uiIcons = {
   info: ["information-circle", "info-circle", "information"],
   "git-branch": ["branch-line", "git-branch", "hierarchy"],
   lock: ["lock-1", "padlock", "lock"],
+  home: ["house-1", "home", "house"],
   "arrow-left-right": ["arrow-left-right", "synchronize-arrows", "move-horizontal"],
   "actual-size": ["expand-6", "focus-frame", "frame"],
   "context-memory": ["brain", "memory-chip", "database"],

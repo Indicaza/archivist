@@ -127,6 +127,10 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_preferences.h
     src/Core/Domains/Workspace/workspace_compose.cpp
     src/Core/Domains/Workspace/workspace_compose.h
+    src/Core/Domains/Shell/shell_navigation.cpp
+    src/Core/Domains/Shell/shell_navigation.h
+    src/Core/Domains/Shell/recent_items.cpp
+    src/Core/Domains/Shell/recent_items.h
     src/Core/Domains/Documents/document_buffers.cpp
     src/Core/Domains/Documents/document_buffers.h
     src/Core/Support/core_values.h
@@ -224,6 +228,8 @@ qt_add_executable(archivist-qt
     src/App/Domains/Documents/unsaved_recovery.h
     src/App/Domains/Workspace/keyed_list_model.cpp
     src/App/Domains/Workspace/keyed_list_model.h
+    src/App/Domains/Shell/shell_store.cpp
+    src/App/Domains/Shell/shell_store.h
     src/App/Domains/Workspace/workspace_store.cpp
     src/App/Domains/Workspace/workspace_store.h
     src/App/Domains/Workspace/workspace_store_agent.cpp
@@ -286,6 +292,11 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionMembershipCard.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
+        qml/App/Workbench/Home/HomeView.qml
+        qml/App/Workbench/Home/HomeComposer.qml
+        qml/App/Workbench/Home/HomeSection.qml
+        qml/App/Workbench/Home/HomeRow.qml
+        qml/App/Workbench/Home/RecentActivityTracker.qml
         qml/App/Workbench/Workspace/Workspace.qml
         qml/App/Workbench/Workspace/ChatViewportPolicy.js
         qml/App/Workbench/Workspace/EditorTabs/EditorTabStrip.qml
@@ -468,6 +479,16 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-ide-test PRIVATE archivist-core Qt6::Network Qt6::Test)
     set_target_properties(core-ide-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-ide-test COMMAND core-ide-test)
+
+    qt_add_executable(core-shell-test
+        tests/core_shell_test.cpp
+        src/App/Domains/Shell/shell_store.cpp
+        src/App/Domains/Shell/shell_store.h
+    )
+    target_include_directories(core-shell-test PRIVATE src)
+    target_link_libraries(core-shell-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-shell-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-shell-test COMMAND core-shell-test)
 
     qt_add_executable(core-workspace-test tests/core_workspace_test.cpp)
     target_link_libraries(core-workspace-test PRIVATE archivist-core Qt6::Test)

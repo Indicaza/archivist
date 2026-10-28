@@ -1076,6 +1076,10 @@ Item {
 
     // ---- keyboard --------------------------------------------------------
 
+    // Workspace shortcuts sleep while Home is in front, so Cmd+W there
+    // never closes a tab nobody can see. Saving still works.
+    readonly property bool keyboardActive: !Shell.homeActive
+
 
     Shortcut {
         sequence: "Escape"
@@ -1086,16 +1090,19 @@ Item {
     Shortcut {
         sequences: ["Ctrl+\\"]
         context: Qt.ApplicationShortcut
+        enabled: root.keyboardActive
         onActivated: root.splitAnchor(Docking.focusedAnchorId, "right")
     }
     Shortcut {
         sequences: ["Ctrl+Shift+\\"]
         context: Qt.ApplicationShortcut
+        enabled: root.keyboardActive
         onActivated: root.splitAnchor(Docking.focusedAnchorId, "bottom")
     }
     Shortcut {
         sequences: ["Ctrl+W"]
         context: Qt.ApplicationShortcut
+        enabled: root.keyboardActive
         onActivated: {
             if (Docking.focusedViewId.length > 0) {
                 root.closeView(Docking.focusedViewId)
@@ -1105,21 +1112,23 @@ Item {
     Shortcut {
         sequences: ["Ctrl+Shift+Return"]
         context: Qt.ApplicationShortcut
+        enabled: root.keyboardActive
         onActivated: Docking.toggleMaximize(Docking.focusedAnchorId)
     }
-    Shortcut { sequences: ["Ctrl+Alt+Left"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("left") } }
-    Shortcut { sequences: ["Ctrl+Alt+Right"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("right") } }
-    Shortcut { sequences: ["Ctrl+Alt+Up"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("top") } }
-    Shortcut { sequences: ["Ctrl+Alt+Down"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("bottom") } }
-    Shortcut { sequences: ["Ctrl+Alt+]"]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(1) } }
-    Shortcut { sequences: ["Ctrl+Alt+["]; context: Qt.ApplicationShortcut; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(-1) } }
+    Shortcut { sequences: ["Ctrl+Alt+Left"]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("left") } }
+    Shortcut { sequences: ["Ctrl+Alt+Right"]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("right") } }
+    Shortcut { sequences: ["Ctrl+Alt+Up"]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("top") } }
+    Shortcut { sequences: ["Ctrl+Alt+Down"]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: { root.noteKeyboardFocus(); Docking.focusNeighbor("bottom") } }
+    Shortcut { sequences: ["Ctrl+Alt+]"]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(1) } }
+    Shortcut { sequences: ["Ctrl+Alt+["]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: { root.noteKeyboardFocus(); Docking.cycleFocus(-1) } }
     // Next/previous tab, or next/previous item on a shelf.
-    Shortcut { sequences: ["Ctrl+PgDown", "Ctrl+Alt+Shift+]"]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(1) }
-    Shortcut { sequences: ["Ctrl+PgUp", "Ctrl+Alt+Shift+["]; context: Qt.ApplicationShortcut; onActivated: Docking.cycleView(-1) }
+    Shortcut { sequences: ["Ctrl+PgDown", "Ctrl+Alt+Shift+]"]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: Docking.cycleView(1) }
+    Shortcut { sequences: ["Ctrl+PgUp", "Ctrl+Alt+Shift+["]; context: Qt.ApplicationShortcut; enabled: root.keyboardActive; onActivated: Docking.cycleView(-1) }
     // Rename the focused panel.
     Shortcut {
         sequences: ["F2"]
         context: Qt.ApplicationShortcut
+        enabled: root.keyboardActive
         onActivated: {
             var item = root.anchorItems[Docking.focusedAnchorId]
             if (item) {
@@ -1131,6 +1140,7 @@ Item {
     Shortcut {
         sequences: ["Ctrl+Alt+P"]
         context: Qt.ApplicationShortcut
+        enabled: root.keyboardActive
         onActivated: {
             var item = root.anchorItems[Docking.focusedAnchorId]
             if (item && item.switchable) {
