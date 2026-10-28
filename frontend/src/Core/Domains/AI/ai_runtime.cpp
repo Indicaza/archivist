@@ -106,6 +106,9 @@ const QRegularExpression &workspaceRequestPattern()
             "|\\b(?:set\\s*up|organi[sz]e|make|create|build|give\\s+me|change|swap|switch|clean\\s+up|tidy|split)\\b[\\s\\S]{0,80}"
             "\\b(?:files?|tabs?|panels?|panes?|code|terminals?|chats?|docs?|documentation|workspace|layouts?|screen|views?|side\\s+by\\s+side|columns?|rows?|sidebar)\\b"
             "|\\bside\\s+by\\s+side\\b|\\bsplit\\s+(?:screen|view)\\b"
+            // "4 panes, chat bottom-left", "a 2x2 grid", "three columns"
+            "|\\b(?:two|three|four|five|six|[2-6])\\s+(?:panes|panels|columns|rows)\\b"
+            "|\\b[1-3]\\s*[x\\x{00D7}]\\s*[1-3]\\s+(?:grid|layout|panes|panels)\\b|\\bgrid\\s+(?:layout|of\\s+(?:panes|panels))\\b"
             "|\\b(?:bigger|larger|smaller|wider|narrower|taller|shorter)\\b"
             "|\\b(?:restore|reset)\\s+(?:my\\s+|the\\s+)?(?:workspace|layout|windows?|panels?)\\b"
             "|\\b(?:put|set)\\s+(?:everything|it\\s+all|things|it)\\s+back\\b"
@@ -260,16 +263,20 @@ QString workspaceSnapshotText(const QVariantMap &described)
         QStringList panels;
         for (const QVariant &value : last.value(QStringLiteral("panels")).toList()) {
             const QVariantMap panel = value.toMap();
-            panels.append(QStringLiteral("%1 [weight %2; holds %3; items %4]").arg(
+            panels.append(QStringLiteral("%1 [%2weight %3; holds %4; items %5]").arg(
                 panel.value(QStringLiteral("name")).toString(),
+                panel.value(QStringLiteral("position")).toString().isEmpty() ? QString() : panel.value(QStringLiteral("position")).toString() + QStringLiteral("; "),
                 QString::number(panel.value(QStringLiteral("weight")).toDouble()),
                 panel.value(QStringLiteral("holds")).toStringList().join(QLatin1Char('/')),
                 panel.value(QStringLiteral("items")).toStringList().join(QStringLiteral(", "))
             ));
         }
-        lines.append(QStringLiteral("Last composed (template %1, strategy %2): %3.").arg(
+        const QString grid = last.value(QStringLiteral("rows")).toInt() > 0 || last.value(QStringLiteral("columns")).toInt() > 0
+            ? QStringLiteral(" %1x%2").arg(last.value(QStringLiteral("rows")).toInt()).arg(last.value(QStringLiteral("columns")).toInt())
+            : QString();
+        lines.append(QStringLiteral("Last composed (template %1, arrangement %2): %3.").arg(
             last.value(QStringLiteral("template")).toString().isEmpty() ? QStringLiteral("none") : last.value(QStringLiteral("template")).toString(),
-            last.value(QStringLiteral("strategy")).toString().isEmpty() ? QStringLiteral("auto") : last.value(QStringLiteral("strategy")).toString(),
+            (last.value(QStringLiteral("strategy")).toString().isEmpty() ? QStringLiteral("auto") : last.value(QStringLiteral("strategy")).toString()) + grid,
             panels.join(QStringLiteral("; "))
         ));
     }
@@ -324,6 +331,65 @@ QVariantMap workspaceCommand(const QString &message, const QStringList &layoutNa
         }
         return {};
     }
+    // "4 panes, chat bottom-left", "2x2 grid", "three columns": a grid.
+    static const QRegularExpression panes(
+        QStringLiteral("^(?:(?:give\\s+me|make\\s+(?:it|me)?|set\\s+up|i\\s+want|use|show)\\s+)?(?:a\\s+|an\\s+)?"
+                       "(?:(?:(two|three|four|six|[2346])\\s+(panes?|panels?|windows?|columns|rows))|(?:([1-3])\\s*[x\\x{00D7}]\\s*([1-3])\\s*(?:grid|layout|panes|panels)?)|(?:(?:a\\s+)?grid\\s+of\\s+(four|six|[46])))"
+                       "(?:\\s+layout)?"
+                       "(?:\\s*[,;:]?\\s*(?:with\\s+|and\\s+)?(?:the\\s+)?chat\\s+(?:(?:on|in|at)\\s+)?(?:the\\s+)?((?:top|bottom|upper|lower)?[\\s-]*(?:left|right|center|centre)?)(?:\\s+(?:corner|one|panel|pane))?)?$"),
+        QRegularExpression::CaseInsensitiveOption
+    );
+    const QRegularExpressionMatch grid = panes.match(text);
+    if (grid.hasMatch()) {
+        const auto number = [](const QString &word) {
+            static const QHash<QString, int> words{{QStringLiteral("two"), 2}, {QStringLiteral("three"), 3}, {QStringLiteral("four"), 4}, {QStringLiteral("six"), 6}};
+            return words.value(word.toLower(), word.toInt());
+        };
+        int rows = 0;
+        int columns = 0;
+        QString arrangement = QStringLiteral("grid");
+        if (!grid.captured(1).isEmpty()) {
+            const int count = number(grid.captured(1));
+            const QString unit = grid.captured(2).toLower();
+            if (unit == QStringLiteral("columns")) {
+                rows = 1;
+                columns = count;
+            } else if (unit == QStringLiteral("rows")) {
+                rows = count;
+                columns = 1;
+            } else {
+                rows = count >= 4 ? 2 : 1;
+                columns = count / rows;
+            }
+        } else if (!grid.captured(3).isEmpty()) {
+            rows = grid.captured(3).toInt();
+            columns = grid.captured(4).toInt();
+        } else {
+            rows = 2;
+            columns = number(grid.captured(5)) / 2;
+        }
+        if (rows * columns < 2 || rows * columns > 6 || rows > 3 || columns > 3) {
+            return {};
+        }
+        QVariantList panelList;
+        const QString chatAt = grid.captured(6).simplified();
+        if (!grid.captured(6).isNull() && !chatAt.isEmpty()) {
+            panelList.append(QVariantMap{
+                {QStringLiteral("name"), QStringLiteral("Chat")},
+                {QStringLiteral("holds"), QStringList{QStringLiteral("chat")}},
+                {QStringLiteral("weight"), 0},
+                {QStringLiteral("position"), chatAt.toLower().replace(QLatin1Char(' '), QLatin1Char('-'))},
+                {QStringLiteral("items"), QVariantList{QVariantMap{{QStringLiteral("kind"), QStringLiteral("chat")}, {QStringLiteral("reference"), QString()}, {QStringLiteral("library"), QString()}}}},
+            });
+        }
+        return {
+            {QStringLiteral("name"), QStringLiteral("workspace_compose")},
+            {QStringLiteral("arguments"), JsonValues::toJsonString(QVariantMap{
+                {QStringLiteral("template"), QStringLiteral("none")}, {QStringLiteral("arrangement"), arrangement},
+                {QStringLiteral("rows"), rows}, {QStringLiteral("columns"), columns}, {QStringLiteral("slots"), panelList},
+                {QStringLiteral("focus"), QString()}, {QStringLiteral("save_as"), QString()}})},
+        };
+    }
     static const QRegularExpression putBack(
         QStringLiteral("^(?:put|set)\\s+(?:it|everything|things|the\\s+workspace|my\\s+workspace|it\\s+all)\\s+back(?:\\s+(?:how|the\\s+way|as)\\s+it\\s+was)?$|^restore\\s+(?:my\\s+|the\\s+)?workspace$"),
         QRegularExpression::CaseInsensitiveOption
@@ -366,6 +432,9 @@ QString workspaceAcknowledgement(const QList<QPair<QString, QVariantMap>> &resul
                                   : name);
             }
             sentences.append(panels.isEmpty() ? QStringLiteral("Arranged the workspace.") : QStringLiteral("Done: %1.").arg(panels.join(QStringLiteral(", "))));
+            if (result.contains(QStringLiteral("bottomPanel"))) {
+                sentences.append(result.value(QStringLiteral("bottomPanel")).toString());
+            }
             for (const QString &adjusted : result.value(QStringLiteral("adjusted")).toStringList()) {
                 sentences.append(adjusted + QLatin1Char('.'));
             }

@@ -20,8 +20,13 @@
 // model in one transaction (one publish, one undo step).
 //
 //   template  "" | focus_references | chat_code | code_diff | research_desk | agent_overview
-//   strategy  "" | columns | rows | focus_with_sidebar   (used without a template)
-//   slots     [{name, holds: ["code", "docs", ...], weight, items}]
+//   strategy  "" | grid | columns | rows | split | stack   (used without a template)
+//   rows, columns   the grid's size (0: from the panel count)
+//   slots     [{name, holds: ["code", "docs", ...], weight, position, items}]
+//
+// The caller never builds a split tree: it picks a primitive and names a
+// position for each panel ("bottom-left"), and the tree, the sizes and the
+// fallbacks come from here.
 //   focus     a slot name to bring forward, or ""
 //
 // With a template, slots fill the template's panels by name (or by what
@@ -64,13 +69,20 @@ struct Slot
     QString name;
     QStringList holds;
     double weight = 0;   // 0: default
+    // Where it goes: "top-left", "bottom-right", "r2c1" in a grid; "left",
+    // "right" in columns; "top", "bottom" in rows; "primary" (or the side
+    // of the rest) in a split. "": the next free place.
+    QString position;
     QVariantList items;  // Intents show items: {typeId, resource, title} | {viewId} | {surface}
+    bool placeholder = false; // made up to fill a grid; a reused panel keeps its own name
 };
 
 struct Spec
 {
     QString templateId;
-    QString strategy;
+    QString strategy;    // the primitive: grid, columns, rows, split, stack
+    int rows = 0;        // grid only; 0: from the panel count
+    int columns = 0;
     QList<Slot> panels;
     QString focus;
     // The main window's panel area in pixels (after the sidebar and the

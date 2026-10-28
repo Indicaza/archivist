@@ -1580,6 +1580,57 @@ private slots:
         QCOMPARE(agentViews(store).size(), viewsBefore);
     }
 
+    // A 2 x 2 grid with this chat in a panel: the bottom chat (the same
+    // conversation) folds away, and undo brings it back. A refused
+    // arrangement changes and announces nothing.
+    void gridWithChatHidesTheBottomChat()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/docking/layouts"));
+        settings.remove(QStringLiteral("workspace/preferences"));
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("grid-bottom-chat"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1440, 900);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("main.cpp"), "main.cpp");
+        store.setCommandSurfaceState(false, QStringLiteral("chat"));
+        QSignalSpy surface(&store, &WorkspaceStore::commandSurfaceRequested);
+        QSignalSpy arranged(&store, &WorkspaceStore::agentArranged);
+        auto grid = [](int rows, int columns) {
+            return QVariantMap{
+                {"action", "compose"}, {"template", ""}, {"strategy", "grid"}, {"rows", rows}, {"columns", columns},
+                {"slots", QVariantList{QVariantMap{{"name", "Chat"}, {"holds", QStringList{"chat"}}, {"weight", 0}, {"position", "bottom-left"},
+                                                   {"items", QVariantList{QVariantMap{{"kind", "chat"}, {"reference", ""}}}}}}},
+                {"focus", ""}, {"saveAs", ""}, {"explicit", true}, {"chatId", "chat-1"},
+            };
+        };
+
+        // Refused before anything shows (a 3 x 3 grid is more than six panels).
+        int revision = store.revision();
+        QVariantMap result = store.runAgentRequest(grid(3, 3), true);
+        QVERIFY(!result.value("ok").toBool());
+        QCOMPARE(store.revision(), revision);
+        QCOMPARE(arranged.count(), 0);
+        QCOMPARE(surface.count(), 0);
+
+        revision = store.revision();
+        result = store.runAgentRequest(grid(2, 2), true);
+        QVERIFY2(result.value("ok").toBool(), qPrintable(result.value("error").toString()));
+        QCOMPARE(store.revision(), revision + 1);
+        QCOMPARE(arranged.count(), 1);
+        QCOMPARE(agentAreas(store).size(), 4);
+        QVERIFY(store.commandSurface().value("collapsed").toBool());
+        QCOMPARE(surface.count(), 1);
+        QCOMPARE(surface.last().at(1).toBool(), false);
+        QVERIFY(result.contains("bottomPanel"));
+        // The editor kept its content in a cell.
+        QVERIFY(agentViews(store).size() >= 2);
+
+        // One undo: the panels and the bottom chat come back.
+        QVERIFY(store.undoAgentChange());
+        QCOMPARE(surface.last().at(0).toString(), QStringLiteral("chat"));
+        QCOMPARE(surface.last().at(1).toBool(), true);
+    }
+
     // Authorisation is the workspace's: a request from the person in the
     // conversation in front applies, however it was phrased. Only the
     // "unless I ask" preference looks at whether it read as a request.

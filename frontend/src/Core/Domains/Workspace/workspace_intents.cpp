@@ -1533,9 +1533,20 @@ Outcome perform(WorkspaceModel &model, const QVariantMap &request, const Environ
                 );
             }
         }
+        // Panels that survive keep what they showed (identity, not type,
+        // decides where a view lives); only views of removed panels move.
+        QHash<QString, QString> homes;
+        for (const QString &viewId : work.viewIds()) {
+            homes.insert(viewId, work.anchorOfView(viewId));
+        }
         const Codec::LoadReport report = Codec::applyLayout(QJsonObject::fromVariantMap(request.value(QStringLiteral("layout")).toMap()), work);
         if (!report.ok) {
             return Outcome::failure(QStringLiteral("LAYOUT_LOCKED"), report.error);
+        }
+        for (auto it = homes.cbegin(); it != homes.cend(); ++it) {
+            if (!it.value().isEmpty() && work.anchor(it.value()) && work.view(it.key()) && work.anchorOfView(it.key()) != it.value()) {
+                work.moveView(it.key(), it.value(), -1, Origin::Agent);
+            }
         }
         ok = true;
         QStringList names;

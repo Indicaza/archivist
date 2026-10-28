@@ -163,10 +163,30 @@ carry those requests; none of them mention anchors or ids.
 workspace should look like instead of how to get there:
 
 - **Spec.** A template (`focus_references`, `chat_code`, `code_diff`,
-  `research_desk`, `agent_overview`) or a strategy (`columns`, `rows`,
-  `focus_with_sidebar`), up to 6 named panels with what they hold (`code`,
-  `docs`, `chat`, `terminal`, `diff`, ...), relative weights and up to 8
-  items each (16 in all), a panel to focus, and `save_as`.
+  `research_desk`, `agent_overview`) or a spatial primitive, up to 6 named
+  panels with what they hold (`code`, `docs`, `chat`, `terminal`, `diff`,
+  ...), a position for each, relative weights and up to 8 items each (16 in
+  all), a panel to focus, and `save_as`.
+- **Primitives, not trees.** The model never builds a split tree. It picks
+  one primitive and names positions; the tree comes from native code:
+  - `grid` (rows x columns, up to 3 x 3 and 6 cells): positions such as
+    `top-left`, `bottom-right`, `r2c1`. Cells nobody names become empty
+    panels, which take over existing panels (or one tab each from the
+    busiest one) so what was open stays in view. Columns line up from row
+    to row. "4 panes, chat bottom-left" is `grid 2 x 2` with the chat at
+    `bottom-left`.
+  - `columns` (`left`, `center`, `right`) and `rows` (`top`, `middle`,
+    `bottom`) are one-row and one-column grids.
+  - `split`: the `primary` panel large (about 62%), the rest stacked on one
+    side of it (the first other panel's `right`/`left`/`top`/`bottom`).
+  - `stack`: everything as tabs in one panel.
+  - No primitive: a grid for rows/columns or four or more panels, a split
+    when one panel asks for more room, otherwise columns.
+- **Built-in grid commands.** "4 panes, chat on bottom left", "2x2 grid",
+  "three columns" and "6 panels" are parsed natively and composed without
+  a model call.
+- **The bottom chat.** When a composition gives this conversation a panel,
+  the bottom chat (the same conversation) folds away; undo brings it back.
 - **Templates** are versioned JSON recipes inside `workspace_compose.cpp`.
   They're starting points: the model fills their panels by name, may change
   weights, and extra panels go in a column at the side.
@@ -193,10 +213,14 @@ workspace should look like instead of how to get there:
   is reported as `reused`, `opened`, `not_found`, `ambiguous` (with the
   candidates) or `unsupported`. A missing or unclear file is never replaced
   by another one.
-- **Verified before it's reported.** After applying, the store checks every
-  panel exists, is usable size, holds its items, focus is where it was
-  asked, and no view was lost. If not, the change is undone and the result
-  says so (`VERIFY_FAILED`).
+- **Verified before it's shown.** The composition is tried on a copy of the
+  model first; the store checks every panel exists, is a usable size, holds
+  its items, focus is where it was asked, and no view was lost. Only then
+  is it applied (one publish, one undo step, one notice). A failed check
+  changes and announces nothing (`VERIFY_FAILED`), so the workspace and the
+  reply can't disagree.
+- **Panels keep what they show.** A reused panel keeps its views; only views
+  of removed panels move (to a panel of their type, never a chat's).
 - **Follow-ups** ("give the images a little more room") compose again from
   the last arrangement, which describe reports as `lastArrangement` while
   its panels still exist. Same names keep the same panels, so views stay

@@ -102,11 +102,11 @@ Result restore(
         placed.insert(it.key(), home);
     }
 
-    // Panel configuration follows the person's latest choices.
+    // Panel configuration follows the person's latest choices (names come
+    // back with the arrangement: agents name panels too).
     for (auto it = out.anchors.begin(); it != out.anchors.end(); ++it) {
         const auto now = current.anchors.constFind(it.key());
         if (now != current.anchors.cend()) {
-            it->name = now->name;
             it->layoutLocked = now->layoutLocked;
             it->contentLocked = now->contentLocked;
             it->switchable = now->switchable;

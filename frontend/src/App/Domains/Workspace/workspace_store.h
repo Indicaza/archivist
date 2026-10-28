@@ -428,7 +428,7 @@ private:
     // Compact: each panel's name, position and what it shows.
     [[nodiscard]] QVariantList panelsForAgent() const;
     [[nodiscard]] QStringList openViewsNamed(const QString &reference, const QString &libraryId) const;
-    [[nodiscard]] QString verifyComposition(const QVariantMap &intent, qsizetype viewsBefore) const;
+    [[nodiscard]] QString verifyComposition(const Workspace::WorkspaceModel &model, const QVariantMap &intent, qsizetype viewsBefore, bool focusMoved) const;
     QVariantMap applyAgentIntent(const QVariantMap &intent, const QString &chatId, bool mayMoveFocus);
     QVariantMap suggestAgentIntent(const QVariantMap &intent, const QString &chatId, const QString &reason);
     QVariantMap restoreForAgent(const QVariantMap &request);

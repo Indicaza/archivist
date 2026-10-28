@@ -210,28 +210,28 @@ QStringList WorkspaceStore::openViewsNamed(const QString &reference, const QStri
 // After a compose: the panels exist, hold what was put in them, are big
 // enough to use, focus went where it was asked (or stayed), and nothing
 // that was open is gone. Empty when all is well.
-QString WorkspaceStore::verifyComposition(const QVariantMap &intent, qsizetype viewsBefore) const
+QString WorkspaceStore::verifyComposition(const WorkspaceModel &model, const QVariantMap &intent, qsizetype viewsBefore, bool focusMoved) const
 {
     const QString surfaceId = primarySurfaceId();
-    const LayoutGeometry geometry = m_model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
+    const LayoutGeometry geometry = model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
     for (const QVariant &value : intent.value(QStringLiteral("slots")).toList()) {
         const QVariantMap slot = value.toMap();
         const QString anchorId = slot.value(QStringLiteral("anchorId")).toString();
-        const AnchorRecord *anchor = m_model.anchor(anchorId);
+        const AnchorRecord *anchor = model.anchor(anchorId);
         if (!anchor) {
             return QStringLiteral("A panel of the new arrangement went missing.");
         }
         const QRectF rect = geometry.anchors.value(anchorId);
         // A little slack for splitters and rounding.
         if (rect.width() + 12 < Compose::kMinimumPanelWidth || rect.height() + 12 < Compose::kMinimumPanelHeight) {
-            return QStringLiteral("“%1” would only get %2 x %3 pixels.").arg(m_model.anchorDisplayName(anchorId)).arg(qRound(rect.width())).arg(qRound(rect.height()));
+            return QStringLiteral("“%1” would only get %2 x %3 pixels.").arg(model.anchorDisplayName(anchorId)).arg(qRound(rect.width())).arg(qRound(rect.height()));
         }
         for (const QVariant &itemValue : slot.value(QStringLiteral("items")).toList()) {
             const QVariantMap item = itemValue.toMap();
             QString viewId = item.value(QStringLiteral("viewId")).toString();
             if (viewId.isEmpty() && item.contains(QStringLiteral("resource"))) {
                 const QVariantMap resource = item.value(QStringLiteral("resource")).toMap();
-                const QStringList views = m_model.viewsForResource(resource.value(QStringLiteral("kind")).toString(), resource.value(QStringLiteral("id")).toString());
+                const QStringList views = model.viewsForResource(resource.value(QStringLiteral("kind")).toString(), resource.value(QStringLiteral("id")).toString());
                 for (const QString &candidate : views) {
                     if (anchor->views.contains(candidate)) {
                         viewId = candidate;
@@ -245,16 +245,16 @@ QString WorkspaceStore::verifyComposition(const QVariantMap &intent, qsizetype v
                 }
             }
             // A view a locked panel kept is reported, not an error.
-            if (!viewId.isEmpty() && !m_model.view(viewId)) {
+            if (!viewId.isEmpty() && !model.view(viewId)) {
                 return QStringLiteral("A view disappeared while arranging.");
             }
         }
     }
     const QString focus = intent.value(QStringLiteral("focusAnchor")).toString();
-    if (!focus.isEmpty() && m_model.focusedAnchorId() != focus && !userBusy()) {
+    if (!focus.isEmpty() && focusMoved && model.focusedAnchorId() != focus) {
         return QStringLiteral("Focus didn't move to the panel that was asked for.");
     }
-    if (m_model.viewIds().size() < viewsBefore) {
+    if (model.viewIds().size() < viewsBefore) {
         return QStringLiteral("Something that was open would have closed.");
     }
     return {};
@@ -378,8 +378,9 @@ QVariantMap WorkspaceStore::agentIntent(const QVariantMap &request, QVariantMap 
             const bool keepAtBottom = wanted == chatId && preferenceEffects().chatAtBottom;
             if (!docked.isEmpty() && !keepAtBottom) {
                 items.append(QVariantMap{{QStringLiteral("viewId"), docked}});
-            } else if (wanted == chatId) {
-                // This conversation lives in the bottom workbench.
+            } else if (wanted == chatId && (keepAtBottom || !request.value(QStringLiteral("composing")).toBool())) {
+                // This conversation lives in the bottom workbench (a
+                // composed arrangement that names it gives it a panel).
                 items.append(QVariantMap{{QStringLiteral("surface"), QStringLiteral("chat")}});
             } else {
                 items.append(QVariantMap{
@@ -485,6 +486,8 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
     spec.strategy = request.value(QStringLiteral("strategy")).toString();
     spec.focus = request.value(QStringLiteral("focus")).toString();
     spec.viewport = surfaceSize(primarySurfaceId());
+    spec.rows = request.value(QStringLiteral("rows")).toInt();
+    spec.columns = request.value(QStringLiteral("columns")).toInt();
 
     // What happened to each thing asked for: reused (already open), opened,
     // not_found, ambiguous or unsupported.
@@ -500,6 +503,7 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
         slot.name = given.value(QStringLiteral("name")).toString();
         slot.holds = given.value(QStringLiteral("holds")).toStringList();
         slot.weight = given.value(QStringLiteral("weight")).toDouble();
+        slot.position = given.value(QStringLiteral("position")).toString();
         QStringList references;
         for (const QVariant &value : given.value(QStringLiteral("items")).toList()) {
             const QVariantMap item = value.toMap();
@@ -517,6 +521,7 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
             QVariantMap problem;
             const QVariantMap shaped = agentIntent({
                 {QStringLiteral("action"), QStringLiteral("show")},
+                {QStringLiteral("composing"), true},
                 {QStringLiteral("chatId"), chatId},
                 {QStringLiteral("items"), QVariantList{item}},
             }, &problem);
@@ -552,6 +557,7 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
             {QStringLiteral("name"), slot.name},
             {QStringLiteral("holds"), slot.holds},
             {QStringLiteral("weight"), slot.weight},
+            {QStringLiteral("position"), slot.position},
             {QStringLiteral("items"), references},
         });
     }
@@ -567,6 +573,8 @@ QVariantMap WorkspaceStore::composeIntent(const QVariantMap &request, QVariantMa
     intent.insert(QStringLiteral("composition"), QVariantMap{
         {QStringLiteral("template"), spec.templateId},
         {QStringLiteral("strategy"), spec.strategy},
+        {QStringLiteral("rows"), spec.rows},
+        {QStringLiteral("columns"), spec.columns},
         {QStringLiteral("panels"), composition},
     });
     return intent;
@@ -770,19 +778,44 @@ QVariantMap WorkspaceStore::runAgentRequest(const QVariantMap &request, bool for
     const bool focusWanted = request.value(QStringLiteral("focus")).toBool() || action == QStringLiteral("focus")
         || (action == QStringLiteral("compose") && !intent.value(QStringLiteral("focusAnchor")).toString().isEmpty());
     const qsizetype viewsBefore = m_model.viewIds().size();
-    QVariantMap result = applyAgentIntent(intent, chatId, focusWanted && !userBusy());
-    if (action == QStringLiteral("compose") && result.value(QStringLiteral("ok")).toBool()) {
-        // Check what was committed before anyone says it happened.
-        const QString problem = verifyComposition(intent, viewsBefore);
+    const bool mayMoveFocus = focusWanted && !userBusy();
+    if (action == QStringLiteral("compose")) {
+        // Tried on a copy and checked first, so nothing is shown or
+        // reported as applied unless it holds.
+        WorkspaceModel trial = m_model;
+        const Intents::Outcome outcome = Intents::perform(trial, intent, agentEnvironment(mayMoveFocus));
+        if (!outcome.ok) {
+            logAgent(outcome.message, QStringLiteral("refused"), chatId);
+            return failure(outcome.code, outcome.message);
+        }
+        const QString problem = verifyComposition(trial, intent, viewsBefore, mayMoveFocus);
         if (!problem.isEmpty()) {
-            QString code;
-            QString error;
-            if (result.value(QStringLiteral("status")).toString() == QStringLiteral("applied")) {
-                restoreAgentSteps(1, &code, &error);
-            }
+            logAgent(problem, QStringLiteral("refused"), chatId);
             return failure(QStringLiteral("VERIFY_FAILED"), QStringLiteral("%1 Nothing was changed.").arg(problem));
         }
+    }
+    QVariantMap result = applyAgentIntent(intent, chatId, mayMoveFocus);
+    if (action == QStringLiteral("compose") && result.value(QStringLiteral("ok")).toBool()) {
         m_lastComposition = intent.value(QStringLiteral("composition")).toMap();
+        // This chat now has a panel of its own: the same chat in the bottom
+        // panel would only be a duplicate, so it folds away (undo brings
+        // it back).
+        bool chatInPanel = false;
+        for (const QString &viewId : m_model.viewsForResource(QStringLiteral("chat"), chatId)) {
+            const ViewRecord *view = m_model.view(viewId);
+            chatInPanel = chatInPanel || (view && view->typeId == ViewTypes::Chat && m_model.surfaceOfAnchor(m_model.anchorOfView(viewId)) == primarySurfaceId());
+        }
+        if (chatInPanel && !chatId.isEmpty() && !m_commandSurfaceCollapsed && m_commandSurfaceView == QStringLiteral("chat")
+            && result.value(QStringLiteral("status")).toString() == QStringLiteral("applied") && !m_agentUndo.isEmpty()) {
+            AgentStep &step = m_agentUndo.last();
+            step.surfaceTouched = true;
+            step.surfaceCollapsedBefore = false;
+            step.surfaceViewBefore = m_commandSurfaceView;
+            m_commandSurfaceCollapsed = true;
+            emit commandSurfaceRequested(QStringLiteral("chat"), false);
+            emit commandSurfaceChanged();
+            result.insert(QStringLiteral("bottomPanel"), QStringLiteral("The bottom chat is hidden while the chat has a panel."));
+        }
         result.remove(QStringLiteral("notes"));
         result.insert(QStringLiteral("panels"), panelsForAgent());
         result.insert(QStringLiteral("resources"), intent.value(QStringLiteral("resources")));

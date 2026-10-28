@@ -478,7 +478,7 @@ private slots:
         AITools::execute(context, QStringLiteral("workspace_compose"),
             QVariantMap{
                 {QStringLiteral("template"), QStringLiteral("focus_references")},
-                {QStringLiteral("strategy"), QStringLiteral("auto")},
+                {QStringLiteral("arrangement"), QStringLiteral("auto")},
                 {QStringLiteral("slots"), QVariantList{
                     QVariantMap{{QStringLiteral("name"), QStringLiteral("Focus")}, {QStringLiteral("holds"), QVariantList{}}, {QStringLiteral("weight"), 0},
                                 {QStringLiteral("items"), QVariantList{composeItem(QStringLiteral("file"), QStringLiteral("notes.md"))}}},

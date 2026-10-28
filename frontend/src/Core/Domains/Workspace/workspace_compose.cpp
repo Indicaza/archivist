@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSet>
 
 #include <algorithm>
@@ -108,6 +109,9 @@ struct Node
     // Room relative to siblings, around 1. 0 on a split: as much as its
     // largest child asks for.
     double weight = 1;
+    // Exactly `weight`, whatever the children ask (grid rows and cells,
+    // so columns stay lined up from row to row).
+    bool fixed = false;
     QList<double> sizes;     // solved shares of the children
 };
 
@@ -141,6 +145,9 @@ struct Limits
 
 double effectiveWeight(const Node &node, const QHash<QString, double> &asked)
 {
+    if (node.fixed) {
+        return node.weight > 0 ? node.weight : 1;
+    }
     if (node.orientation.isEmpty()) {
         const double given = asked.value(node.slot);
         return given > 0 ? given : (node.weight > 0 ? node.weight : 1);
@@ -267,8 +274,10 @@ void collapse(Node &node)
     }
     if (!node.orientation.isEmpty() && node.children.size() == 1) {
         const double weight = node.weight;
+        const bool fixed = node.fixed;
         Node only = node.children.first();
         only.weight = weight > 0 ? weight : only.weight;
+        only.fixed = only.fixed || fixed;
         node = only;
     }
 }
@@ -288,6 +297,213 @@ Node split(const QString &orientation, const QList<Node> &children, double weigh
     node.children = children;
     node.weight = weight;
     return node;
+}
+
+// ---- spatial primitives -----------------------------------------------------
+//
+// The caller picks one primitive and names a position for each panel; the
+// tree comes from here, never from the caller.
+
+struct Cell
+{
+    int row = -1;    // -1: not said
+    int column = -1;
+};
+
+// "bottom-left", "top", "right", "center", "r2c1", "row 2 column 1",
+// "primary". False when the words don't name a place in this grid.
+bool cellOf(const QString &position, int rows, int columns, Cell *cell)
+{
+    QString text = position.toLower();
+    text.replace(QLatin1Char('-'), QLatin1Char(' ')).replace(QLatin1Char('_'), QLatin1Char(' '));
+    text = text.simplified();
+    *cell = {};
+    if (text.isEmpty()) {
+        return true;
+    }
+    static const QRegularExpression numbered(QStringLiteral("^(?:r|row\\s*)(\\d)(?:\\s*,?\\s*(?:c|col|column\\s*)(\\d))?$|^(?:c|col|column\\s*)(\\d)$"));
+    const QRegularExpressionMatch match = numbered.match(text);
+    if (match.hasMatch()) {
+        if (!match.captured(1).isEmpty()) {
+            cell->row = match.captured(1).toInt() - 1;
+        }
+        if (!match.captured(2).isEmpty()) {
+            cell->column = match.captured(2).toInt() - 1;
+        }
+        if (!match.captured(3).isEmpty()) {
+            cell->column = match.captured(3).toInt() - 1;
+        }
+    } else {
+        for (const QString &word : text.split(QLatin1Char(' '))) {
+            if (word == QStringLiteral("top") || word == QStringLiteral("upper")) {
+                cell->row = 0;
+            } else if (word == QStringLiteral("bottom") || word == QStringLiteral("lower")) {
+                cell->row = rows - 1;
+            } else if (word == QStringLiteral("middle") && rows == 3) {
+                cell->row = 1;
+            } else if (word == QStringLiteral("left")) {
+                cell->column = 0;
+            } else if (word == QStringLiteral("right")) {
+                cell->column = columns - 1;
+            } else if ((word == QStringLiteral("center") || word == QStringLiteral("centre") || word == QStringLiteral("middle")) && columns == 3) {
+                cell->column = 1;
+            } else if (word != QStringLiteral("the") && word != QStringLiteral("corner") && word != QStringLiteral("side")) {
+                return false;
+            }
+        }
+    }
+    return cell->row < rows && cell->column < columns;
+}
+
+// rows x columns cells, filled by position, then in reading order; cells
+// nobody asked for become empty panels ("Panel 3"). Weights line up: a
+// column is as wide as its heaviest panel asks, a row as tall.
+bool gridTree(int rows, int columns, QList<Slot> &panelSlots, Node *root, QString *error)
+{
+    if (rows < 1 || columns < 1 || rows > 3 || columns > 3 || rows * columns > kMaximumSlots) {
+        *error = QStringLiteral("A grid has 1 to 3 rows and 1 to 3 columns, %1 panels at most.").arg(kMaximumSlots);
+        return false;
+    }
+    if (panelSlots.size() > rows * columns) {
+        *error = QStringLiteral("A %1 x %2 grid has %3 places, but %4 panels were given.").arg(rows).arg(columns).arg(rows * columns).arg(panelSlots.size());
+        return false;
+    }
+    QList<QList<qsizetype>> cells(rows, QList<qsizetype>(columns, -1));
+    QList<qsizetype> unplaced;
+    // Exact places first, then half-named ones ("bottom"), then the rest.
+    for (int pass = 0; pass < 2; ++pass) {
+        for (qsizetype index = 0; index < panelSlots.size(); ++index) {
+            Cell cell;
+            if (!cellOf(panelSlots.at(index).position, rows, columns, &cell)) {
+                *error = QStringLiteral("“%1” isn't a place in a %2 x %3 grid (try top-left, bottom-right, r2c1).")
+                             .arg(panelSlots.at(index).position).arg(rows).arg(columns);
+                return false;
+            }
+            const bool exact = cell.row >= 0 && cell.column >= 0;
+            if (pass == 0 && exact) {
+                if (cells[cell.row][cell.column] >= 0) {
+                    *error = QStringLiteral("“%1” and “%2” both asked for %3.")
+                                 .arg(panelSlots.at(cells[cell.row][cell.column]).name, panelSlots.at(index).name, panelSlots.at(index).position);
+                    return false;
+                }
+                cells[cell.row][cell.column] = index;
+            } else if (pass == 1 && !exact) {
+                bool placed = false;
+                for (int r = 0; r < rows && !placed && (cell.row >= 0 || cell.column >= 0); ++r) {
+                    for (int c = 0; c < columns && !placed; ++c) {
+                        if ((cell.row < 0 || cell.row == r) && (cell.column < 0 || cell.column == c) && cells[r][c] < 0) {
+                            cells[r][c] = index;
+                            placed = true;
+                        }
+                    }
+                }
+                if (!placed) {
+                    unplaced.append(index);
+                }
+            }
+        }
+    }
+    for (qsizetype index : std::as_const(unplaced)) {
+        bool placed = false;
+        for (int r = 0; r < rows && !placed; ++r) {
+            for (int c = 0; c < columns && !placed; ++c) {
+                if (cells[r][c] < 0) {
+                    cells[r][c] = index;
+                    placed = true;
+                }
+            }
+        }
+    }
+    QSet<QString> names;
+    for (const Slot &slot : std::as_const(panelSlots)) {
+        names.insert(slot.name.toLower());
+    }
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < columns; ++c) {
+            if (cells[r][c] < 0) {
+                Slot empty;
+                for (int n = r * columns + c + 1; empty.name.isEmpty() || names.contains(empty.name.toLower()); ++n) {
+                    empty.name = QStringLiteral("Panel %1").arg(n);
+                }
+                names.insert(empty.name.toLower());
+                empty.placeholder = true;
+                cells[r][c] = panelSlots.size();
+                panelSlots.append(empty);
+            }
+        }
+    }
+
+    QList<double> columnWeights(columns, 0);
+    QList<double> rowWeights(rows, 0);
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < columns; ++c) {
+            const double weight = panelSlots.at(cells[r][c]).weight;
+            columnWeights[c] = std::max(columnWeights.at(c), weight);
+            rowWeights[r] = std::max(rowWeights.at(r), weight);
+        }
+    }
+    QList<Node> rowNodes;
+    for (int r = 0; r < rows; ++r) {
+        QList<Node> cellNodes;
+        for (int c = 0; c < columns; ++c) {
+            Node cell = leaf(panelSlots.at(cells[r][c]).name, columnWeights.at(c) > 0 ? columnWeights.at(c) : 1);
+            cell.fixed = true;
+            cellNodes.append(cell);
+        }
+        Node rowNode = split(QStringLiteral("row"), cellNodes, rowWeights.at(r) > 0 ? rowWeights.at(r) : 1);
+        rowNode.fixed = true;
+        rowNodes.append(rowNode);
+    }
+    *root = split(QStringLiteral("column"), rowNodes);
+    collapse(*root);
+    // The grid carries the weights; the panels' own would undo the lining up.
+    for (Slot &slot : panelSlots) {
+        slot.weight = 0;
+    }
+    return true;
+}
+
+// One large panel (position "primary", else the first) and the rest
+// stacked on one side of it (the first other panel's position: right,
+// left, top or bottom; right by default).
+bool splitTree(QList<Slot> &panelSlots, Node *root, QString *error)
+{
+    qsizetype primary = 0;
+    for (qsizetype index = 0; index < panelSlots.size(); ++index) {
+        const QString position = panelSlots.at(index).position.trimmed().toLower();
+        if (position == QStringLiteral("primary") || position == QStringLiteral("main") || position == QStringLiteral("center")) {
+            primary = index;
+            break;
+        }
+    }
+    if (panelSlots.size() == 1) {
+        *root = leaf(panelSlots.first().name);
+        return true;
+    }
+    QString side = QStringLiteral("right");
+    QList<Node> others;
+    for (qsizetype index = 0; index < panelSlots.size(); ++index) {
+        if (index == primary) {
+            continue;
+        }
+        const QString position = panelSlots.at(index).position.trimmed().toLower();
+        if (others.isEmpty() && !position.isEmpty()) {
+            static const QStringList sides{QStringLiteral("right"), QStringLiteral("left"), QStringLiteral("top"), QStringLiteral("bottom")};
+            if (!sides.contains(position) && position != QStringLiteral("secondary") && position != QStringLiteral("side")) {
+                *error = QStringLiteral("In a split, “%1” should be primary, or right, left, top or bottom of it.").arg(panelSlots.at(index).position);
+                return false;
+            }
+            side = sides.contains(position) ? position : side;
+        }
+        others.append(leaf(panelSlots.at(index).name));
+    }
+    const bool across = side == QStringLiteral("right") || side == QStringLiteral("left");
+    // About 62/38 unless the panels ask otherwise.
+    const Node main = leaf(panelSlots.at(primary).name, 1.65);
+    const Node rest = others.size() == 1 ? leaf(others.first().slot, 1) : split(across ? QStringLiteral("column") : QStringLiteral("row"), others, 0);
+    const bool mainFirst = side == QStringLiteral("right") || side == QStringLiteral("bottom");
+    *root = split(across ? QStringLiteral("row") : QStringLiteral("column"), mainFirst ? QList<Node>{main, rest} : QList<Node>{rest, main});
+    return true;
 }
 
 QString itemKey(const QVariantMap &item, const WorkspaceModel &model)
@@ -345,7 +561,7 @@ QStringList templateIds()
 
 QStringList strategies()
 {
-    return {QStringLiteral("columns"), QStringLiteral("rows"), QStringLiteral("focus_with_sidebar")};
+    return {QStringLiteral("grid"), QStringLiteral("columns"), QStringLiteral("rows"), QStringLiteral("split"), QStringLiteral("stack")};
 }
 
 QStringList holdWords()
@@ -370,10 +586,10 @@ Plan plan(const Spec &spec, const WorkspaceModel &model)
             return refuse(QStringLiteral("There's no “%1” template. Templates: %2.").arg(spec.templateId, templateIds().join(QStringLiteral(", "))));
         }
     }
-    if (!spec.strategy.isEmpty() && !strategies().contains(spec.strategy)) {
+    if (!spec.strategy.isEmpty() && !strategies().contains(spec.strategy) && spec.strategy != QStringLiteral("focus_with_sidebar")) {
         return refuse(QStringLiteral("“%1” isn't a strategy. Strategies: %2.").arg(spec.strategy, strategies().join(QStringLiteral(", "))));
     }
-    if (!recipe && spec.panels.isEmpty()) {
+    if (!recipe && spec.panels.isEmpty() && (spec.rows <= 0 || spec.columns <= 0)) {
         return refuse(QStringLiteral("Describe at least one panel, or pick a template."));
     }
 
@@ -487,25 +703,70 @@ Plan plan(const Spec &spec, const WorkspaceModel &model)
             slot.name = slot.name.simplified();
             panelSlots.append(slot);
         }
-        QString strategy = spec.strategy;
-        if (strategy.isEmpty()) {
-            strategy = panelSlots.size() <= 3 ? QStringLiteral("columns") : QStringLiteral("focus_with_sidebar");
-        }
-        if (panelSlots.size() == 1) {
-            root = leaf(panelSlots.first().name);
-        } else if (strategy == QStringLiteral("focus_with_sidebar")) {
-            QList<Node> side;
-            for (qsizetype index = 1; index < panelSlots.size(); ++index) {
-                side.append(leaf(panelSlots.at(index).name));
-            }
-            // About 62/38 unless the panels ask otherwise.
-            root = split(QStringLiteral("row"), {leaf(panelSlots.first().name, 1.65), side.size() == 1 ? leaf(panelSlots.at(1).name, 1) : split(QStringLiteral("column"), side, 0)});
-        } else {
-            QList<Node> children;
+        QString primitive = spec.strategy == QStringLiteral("focus_with_sidebar") ? QStringLiteral("split") : spec.strategy;
+        if (primitive.isEmpty()) {
+            // Rows or columns given: a grid. One panel asking for more room
+            // than the rest: a split. Otherwise side by side, or a grid.
+            double heaviest = 0;
+            int heavy = 0;
             for (const Slot &slot : std::as_const(panelSlots)) {
-                children.append(leaf(slot.name));
+                if (slot.weight > heaviest + 0.01) {
+                    heaviest = slot.weight;
+                    heavy = 1;
+                } else if (std::abs(slot.weight - heaviest) <= 0.01) {
+                    ++heavy;
+                }
             }
-            root = split(strategy == QStringLiteral("rows") ? QStringLiteral("column") : QStringLiteral("row"), children);
+            primitive = spec.rows > 0 || spec.columns > 0 ? QStringLiteral("grid")
+                      : heaviest > 1 && heavy == 1 && panelSlots.size() > 2 ? QStringLiteral("split")
+                      : panelSlots.size() <= 3 ? QStringLiteral("columns")
+                      : QStringLiteral("grid");
+        }
+        QString error;
+        bool built = true;
+        if (panelSlots.isEmpty() && primitive != QStringLiteral("grid")) {
+            return refuse(QStringLiteral("Describe at least one panel."));
+        }
+        if (primitive == QStringLiteral("stack")) {
+            // One panel, everything as its tabs.
+            Slot &first = panelSlots.first();
+            for (qsizetype index = 1; index < panelSlots.size(); ++index) {
+                first.items.append(panelSlots.at(index).items);
+                for (const QString &hold : panelSlots.at(index).holds) {
+                    if (!first.holds.contains(hold)) {
+                        first.holds.append(hold);
+                    }
+                }
+            }
+            if (first.items.size() > kMaximumItemsPerSlot * 2) {
+                return refuse(QStringLiteral("That's too many tabs for one panel."));
+            }
+            panelSlots = {first};
+            root = leaf(first.name);
+        } else if (primitive == QStringLiteral("split")) {
+            built = splitTree(panelSlots, &root, &error);
+        } else {
+            const int count = int(panelSlots.size());
+            int rows = spec.rows;
+            int columns = spec.columns;
+            if (primitive == QStringLiteral("columns")) {
+                rows = 1;
+                columns = std::max(count, columns);
+            } else if (primitive == QStringLiteral("rows")) {
+                columns = 1;
+                rows = std::max(count, rows);
+            } else if (rows <= 0 && columns <= 0) {
+                rows = count <= 3 ? 1 : 2;
+                columns = (count + rows - 1) / rows;
+            } else if (rows <= 0) {
+                rows = std::max(1, (count + columns - 1) / columns);
+            } else if (columns <= 0) {
+                columns = std::max(1, (count + rows - 1) / rows);
+            }
+            built = gridTree(rows, columns, panelSlots, &root, &error);
+        }
+        if (!built) {
+            return refuse(error);
         }
     }
 
@@ -624,7 +885,8 @@ Plan plan(const Spec &spec, const WorkspaceModel &model)
             }
         }
         for (const QVariant &value : slot.items) {
-            const QString type = value.toMap().value(QStringLiteral("typeId")).toString();
+            const ViewRecord *view = model.view(value.toMap().value(QStringLiteral("viewId")).toString());
+            const QString type = view ? view->typeId : value.toMap().value(QStringLiteral("typeId")).toString();
             if (!type.isEmpty() && !types.contains(type)) {
                 types.append(type);
             }
@@ -684,6 +946,24 @@ Plan plan(const Spec &spec, const WorkspaceModel &model)
             usedAnchors.insert(pair.anchorId);
         }
     }
+    // Empty panels take over the panels nobody claimed, in order, so what
+    // they show stays in view (and they keep their identity).
+    {
+        QStringList unclaimed;
+        for (const QString &anchorId : model.anchorIds(surfaceId)) {
+            const AnchorRecord *anchor = model.anchor(anchorId);
+            if (!usedAnchors.contains(anchorId) && anchor && !anchor->views.isEmpty()) {
+                unclaimed.append(anchorId);
+            }
+        }
+        for (qsizetype index = 0; index < panelSlots.size() && !unclaimed.isEmpty(); ++index) {
+            if (!anchorOfSlot.contains(index) && panelSlots.at(index).items.isEmpty() && panelSlots.at(index).holds.isEmpty()) {
+                const QString anchorId = unclaimed.takeFirst();
+                anchorOfSlot.insert(index, anchorId);
+                usedAnchors.insert(anchorId);
+            }
+        }
+    }
     const QStringList existingAnchors = model.anchorIds();
     for (qsizetype index = 0; index < panelSlots.size(); ++index) {
         if (anchorOfSlot.contains(index)) {
@@ -697,14 +977,62 @@ Plan plan(const Spec &spec, const WorkspaceModel &model)
         usedAnchors.insert(id);
     }
 
-    // Leftover views land with the code, else in the first panel.
-    qsizetype targetSlot = 0;
-    for (qsizetype index = 0; index < panelSlots.size(); ++index) {
-        if (slotTypes.at(index).contains(ViewTypes::Editor)) {
-            targetSlot = index;
-            break;
+    // Empty panels ("4 panes") get one tab each from the busiest panel, so
+    // the arrangement shows several things at once. Chats stay put.
+    {
+        QSet<QString> named;
+        for (const Slot &slot : std::as_const(panelSlots)) {
+            for (const QVariant &value : slot.items) {
+                named.insert(value.toMap().value(QStringLiteral("viewId")).toString());
+            }
+        }
+        QHash<QString, QStringList> spare; // anchor -> views it can give
+        for (qsizetype index = 0; index < panelSlots.size(); ++index) {
+            const AnchorRecord *anchor = model.anchor(anchorOfSlot.value(index));
+            if (!anchor) {
+                continue;
+            }
+            QStringList views;
+            for (const QString &viewId : anchor->views) {
+                const ViewRecord *view = model.view(viewId);
+                if (view && !named.contains(viewId) && view->typeId != ViewTypes::Chat && viewId != anchor->activeViewId) {
+                    views.append(viewId);
+                }
+            }
+            spare.insert(anchor->id, views);
+        }
+        for (qsizetype index = 0; index < panelSlots.size(); ++index) {
+            Slot &slot = panelSlots[index];
+            if (!slot.items.isEmpty() || !slot.holds.isEmpty() || model.anchor(anchorOfSlot.value(index))) {
+                continue;
+            }
+            QString donor;
+            for (auto it = spare.cbegin(); it != spare.cend(); ++it) {
+                if (!it.value().isEmpty() && (donor.isEmpty() || it.value().size() > spare.value(donor).size())) {
+                    donor = it.key();
+                }
+            }
+            if (donor.isEmpty()) {
+                break;
+            }
+            slot.items.append(QVariantMap{{QStringLiteral("viewId"), spare[donor].takeFirst()}});
         }
     }
+
+    // Leftover views land with the code, else in the first panel.
+    // Never a chat's panel when there's another.
+    qsizetype targetSlot = -1;
+    for (qsizetype index = 0; index < panelSlots.size() && targetSlot < 0; ++index) {
+        if (slotTypes.at(index).contains(ViewTypes::Editor)) {
+            targetSlot = index;
+        }
+    }
+    for (qsizetype index = 0; index < panelSlots.size() && targetSlot < 0; ++index) {
+        if (!slotTypes.at(index).contains(ViewTypes::Chat)) {
+            targetSlot = index;
+        }
+    }
+    targetSlot = std::max<qsizetype>(0, targetSlot);
 
     // ---- the layout document ----
     QSet<QString> placedSlots;
@@ -719,11 +1047,12 @@ Plan plan(const Spec &spec, const WorkspaceModel &model)
             if (index == targetSlot && !roles.contains(ViewTypes::Welcome)) {
                 roles.append(ViewTypes::Welcome);
             }
+            const AnchorRecord *reused = model.anchor(anchorOfSlot.value(index));
             QJsonObject anchor{
                 {QStringLiteral("id"), anchorOfSlot.value(index)},
                 {QStringLiteral("pinned"), true},
                 {QStringLiteral("roles"), QJsonArray::fromStringList(roles)},
-                {QStringLiteral("name"), panelSlots.at(index).name},
+                {QStringLiteral("name"), panelSlots.at(index).placeholder && reused && !reused->name.isEmpty() ? reused->name : panelSlots.at(index).name},
             };
             // What the person set on a reused panel stays.
             if (const AnchorRecord *existing = model.anchor(anchorOfSlot.value(index))) {

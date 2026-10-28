@@ -1058,11 +1058,13 @@ QVariantMap workspaceComposeTool(const QVariantMap &input, Context &context)
     }
 
     const QString templateId = input.value(QStringLiteral("template")).toString();
-    const QString strategy = input.value(QStringLiteral("strategy")).toString();
+    const QString strategy = input.value(QStringLiteral("arrangement")).toString();
     return callWorkspace(context, {
         {QStringLiteral("action"), QStringLiteral("compose")},
         {QStringLiteral("template"), templateId == QStringLiteral("none") ? QString() : templateId},
         {QStringLiteral("strategy"), strategy == QStringLiteral("auto") ? QString() : strategy},
+        {QStringLiteral("rows"), input.value(QStringLiteral("rows"))},
+        {QStringLiteral("columns"), input.value(QStringLiteral("columns"))},
         {QStringLiteral("slots"), panelSlots},
         {QStringLiteral("focus"), input.value(QStringLiteral("focus"))},
         {QStringLiteral("saveAs"), input.value(QStringLiteral("save_as"))},
@@ -1550,7 +1552,7 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_arrange"),
             QStringLiteral("Arrange Workspace"),
-            QStringLiteral("Change the workspace in one call: steps run in order as one change (later steps can use areas added or named by earlier ones), and nothing applies unless every step works. Put a whole request, even a whole new layout, in one call. Step actions: focus (bring an area forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). save_as: after the steps, save the result as a new named layout (\"\" to not save). Locked areas refuse changes; never try to unlock one."),
+            QStringLiteral("Small edits to the panels that exist: steps run in order as one change, and nothing applies unless every step works. For any arrangement of several panels (grids, columns, \"4 panes\", a new layout) use workspace_compose instead; at most one add per call. Step actions: focus (bring an area forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). save_as: after the steps, save the result as a new named layout (\"\" to not save). Locked areas refuse changes; never try to unlock one."),
             mutation, workspaceMode,
             objectSchema(
                 {
@@ -1580,6 +1582,15 @@ const QList<Definition> &definitions()
                         {QStringLiteral("name"), stringField(step, QStringLiteral("name"), 0, 80, true, QString())},
                     });
                 }
+                // Building an arrangement from adds and moves is what
+                // produced stacks of strips; that's workspace_compose's job.
+                qsizetype adds = 0;
+                for (const QVariant &step : std::as_const(steps)) {
+                    adds += step.toMap().value(QStringLiteral("action")).toString() == QStringLiteral("add") ? 1 : 0;
+                }
+                if (adds > 1) {
+                    invalid(QStringLiteral("steps"), QStringLiteral("Use workspace_compose (for example arrangement grid) to set up several panels; arrange adds at most one."));
+                }
                 return QVariantMap{
                     {QStringLiteral("steps"), steps},
                     {QStringLiteral("save_as"), stringField(map, QStringLiteral("save_as"), 0, 80, true, QString())},
@@ -1596,12 +1607,13 @@ const QList<Definition> &definitions()
             workspaceOutputSummary,
         });
 
-        const QStringList slotFields{QStringLiteral("name"), QStringLiteral("holds"), QStringLiteral("weight"), QStringLiteral("items")};
+        const QStringList slotFields{QStringLiteral("name"), QStringLiteral("holds"), QStringLiteral("weight"), QStringLiteral("position"), QStringLiteral("items")};
         const QVariantMap composeSlot = objectSchema(
             {
                 {QStringLiteral("name"), stringSchema(1, 40, QStringLiteral("What the panel is called: \"Code\", \"Docs\", \"Chat\"."))},
                 {QStringLiteral("holds"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), enumSchema(Workspace::Compose::holdWords())}, {QStringLiteral("maxItems"), 4}, {QStringLiteral("description"), QStringLiteral("What kind of content belongs there; can be empty when items say it.")}}},
                 {QStringLiteral("weight"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 10}, {QStringLiteral("description"), QStringLiteral("Relative room: 1 normal, 2 about twice; 0 keeps the default.")}}},
+                {QStringLiteral("position"), stringSchema(0, 24, QStringLiteral("Where it goes. grid: top-left, top-right, bottom-left, bottom-right, top, bottom-center, r2c1. columns: left, center, right. rows: top, middle, bottom. split: primary for the large one; the first other panel's right/left/top/bottom says the side. "": the next free place."))},
                 {QStringLiteral("items"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), showItem}, {QStringLiteral("maxItems"), Workspace::Compose::kMaximumItemsPerSlot}}},
             },
             slotFields
@@ -1620,20 +1632,22 @@ const QList<Definition> &definitions()
         tools.append({
             QStringLiteral("workspace_compose"),
             QStringLiteral("Compose Workspace"),
-            QStringLiteral("Describe how the whole workspace should look, in one call: Archivist rebuilds the panels, puts each item in its panel, and applies it as one change the person can undo. Use this for any request about the arrangement as a whole (\"set up a layout for…\", \"code on the left and docs on the right\", \"make a review layout\"). Pick a template and fill its panels by name, or give panels with a strategy (columns: side by side; rows: stacked; focus_with_sidebar: the first panel large, the rest stacked beside it). Archivist solves the sizes: weights are relative (1 normal, 2 about twice the room, capped), every panel keeps a usable size, and panels that don't fit become tabs. \"Chat dominant with three images stacked on the right\" is strategy focus_with_sidebar with the chat first. To change an arrangement you composed (\"stack them\", \"give the images more room\"), compose again from the last arrangement in your instructions with the same panel names and items, changing only what was asked: panels keep their identity and only move. Files can be named by file name, path or an open tab's title; things already open are reused. Open things nobody placed stay open in a panel of their type; nothing closes. Templates: %1. save_as also saves it as a named layout (\"\" to keep it temporary, so the person can put it back). focus: a panel name to bring forward, only when the person asked to go there.").arg(templateLines.join(QStringLiteral("; "))),
+            QStringLiteral("Arrange the whole workspace in one call. Pick an arrangement and say where each panel goes; Archivist builds the panels, sizes them for the window, puts each item in its panel and applies it as one change the person can undo. Never build it from moves or splits. Arrangements: grid (rows x columns; \"4 panes, chat bottom-left\" is grid, rows 2, columns 2, chat at bottom-left; places nobody fills become empty panels showing what was open), columns (side by side: left, center, right), rows (stacked: top, middle, bottom), split (one large panel, position primary, the rest stacked on one side: \"chat dominant, three images stacked on the right\" is split with chat primary and the images right), stack (everything as tabs in one panel). Weights are relative (1 normal, 2 about twice, capped); every panel keeps a usable size and panels that don't fit become tabs. To change your last arrangement (\"give the images more room\"), compose again from it with the same names, positions and items, changing only what was asked. Files can be named by file name, path or an open tab's title; things already open are reused, and nothing closes. Or fill a template's panels by name: %1. save_as also saves it as a named layout (\"\" keeps it temporary). focus: a panel name to bring forward, only when asked.").arg(templateLines.join(QStringLiteral("; "))),
             mutation, workspaceMode,
             objectSchema(
                 {
                     {QStringLiteral("template"), enumSchema(templateChoices)},
-                    {QStringLiteral("strategy"), enumSchema(QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
+                    {QStringLiteral("arrangement"), enumSchema(QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
+                    {QStringLiteral("rows"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 3}, {QStringLiteral("description"), QStringLiteral("grid only, else 0.")}}},
+                    {QStringLiteral("columns"), QVariantMap{{QStringLiteral("type"), QStringLiteral("integer")}, {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), 3}, {QStringLiteral("description"), QStringLiteral("grid only, else 0.")}}},
                     {QStringLiteral("slots"), QVariantMap{{QStringLiteral("type"), QStringLiteral("array")}, {QStringLiteral("items"), composeSlot}, {QStringLiteral("maxItems"), Workspace::Compose::kMaximumSlots}}},
                     {QStringLiteral("focus"), stringSchema(0, 40, QStringLiteral("A panel name, or \"\"."))},
                     {QStringLiteral("save_as"), stringSchema(0, 80, QStringLiteral("A new layout name, or \"\"."))},
                 },
-                {QStringLiteral("template"), QStringLiteral("strategy"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")}
+                {QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")}
             ),
             [slotFields, templateChoices](const QVariant &input) {
-                const QVariantMap map = strictObject(input, {QStringLiteral("template"), QStringLiteral("strategy"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")});
+                const QVariantMap map = strictObject(input, {QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")});
                 const QVariant slotsValue = map.value(QStringLiteral("slots"));
                 if (slotsValue.typeId() != QMetaType::QVariantList) {
                     invalid(QStringLiteral("slots"), QStringLiteral("Expected array."));
@@ -1674,12 +1688,15 @@ const QList<Definition> &definitions()
                         {QStringLiteral("name"), stringField(slot, QStringLiteral("name"), 1, 40, true)},
                         {QStringLiteral("holds"), holds},
                         {QStringLiteral("weight"), intField(slot, QStringLiteral("weight"), 0, 10, 0)},
+                        {QStringLiteral("position"), slot.contains(QStringLiteral("position")) ? stringField(slot, QStringLiteral("position"), 0, 24, true, QString()) : QString()},
                         {QStringLiteral("items"), items},
                     });
                 }
                 return QVariantMap{
                     {QStringLiteral("template"), enumField(map, QStringLiteral("template"), templateChoices)},
-                    {QStringLiteral("strategy"), enumField(map, QStringLiteral("strategy"), QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
+                    {QStringLiteral("arrangement"), enumField(map, QStringLiteral("arrangement"), QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
+                    {QStringLiteral("rows"), map.contains(QStringLiteral("rows")) ? intField(map, QStringLiteral("rows"), 0, 3, 0) : 0},
+                    {QStringLiteral("columns"), map.contains(QStringLiteral("columns")) ? intField(map, QStringLiteral("columns"), 0, 3, 0) : 0},
                     {QStringLiteral("slots"), panelSlots},
                     {QStringLiteral("focus"), stringField(map, QStringLiteral("focus"), 0, 40, true, QString())},
                     {QStringLiteral("save_as"), stringField(map, QStringLiteral("save_as"), 0, 80, true, QString())},

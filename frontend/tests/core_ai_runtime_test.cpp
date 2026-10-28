@@ -480,7 +480,7 @@ private slots:
         QVERIFY(runtime.start(m_databasePath));
 
         openai.responses.append(toolTurn(QStringLiteral("d1"), QStringLiteral("workspace_compose"), QStringLiteral(
-            R"({"template":"none","strategy":"focus_with_sidebar","slots":[{"name":"Chat","holds":["chat"],"weight":10,"items":[{"kind":"chat","reference":"","library":""}]},)"
+            R"({"template":"none","arrangement":"split","rows":0,"columns":0,"slots":[{"name":"Chat","holds":["chat"],"weight":10,"items":[{"kind":"chat","reference":"","library":""}]},)"
             R"({"name":"Image A","holds":["preview"],"weight":0,"items":[]},{"name":"Image B","holds":["preview"],"weight":0,"items":[]},{"name":"Image C","holds":["preview"],"weight":0,"items":[]}],"focus":"","save_as":""})")));
         const Turn turn = runTurn(runtime, QStringLiteral("Make chat dominant and show three images stacked on the right"));
         QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
@@ -491,6 +491,58 @@ private slots:
         QVERIFY(completed.value(QStringLiteral("workspaceAcknowledged")).toBool());
         QCOMPARE(workspace.actions().count(QStringLiteral("compose")), 1);
         QCOMPARE(turn.streamed, QStringLiteral("Done: Chat (64% wide), Image A (36% wide), Image B (36% wide), Image C (36% wide). “ghost.png” isn't open or in the Library."));
+    }
+
+    // "4 panes, chat on bottom left" is a grid the app builds itself: no
+    // model call, one compose, and the same answer every time.
+    void panesAreANativeGrid()
+    {
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        FakeWorkspace workspace;
+        workspace.install();
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        struct Case
+        {
+            QString message;
+            int rows;
+            int columns;
+            QString chatAt;
+        };
+        const QList<Case> cases{
+            {QStringLiteral("4 panes, chat on bottom left"), 2, 2, QStringLiteral("bottom-left")},
+            {QStringLiteral("Four panes with chat bottom-left please"), 2, 2, QStringLiteral("bottom-left")},
+            {QStringLiteral("2x2 grid, chat in the top right"), 2, 2, QStringLiteral("top-right")},
+            {QStringLiteral("give me three columns"), 1, 3, QString()},
+            {QStringLiteral("6 panels"), 2, 3, QString()},
+        };
+        for (const Case &test : cases) {
+            const qsizetype requestsBefore = openai.requests.size();
+            const Turn turn = runTurn(runtime, test.message);
+            QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(test.message + QStringLiteral(": ") + turn.events.join(QLatin1Char(','))));
+            const QVariantMap completed = turn.payloads.value(QStringLiteral("model.completed"));
+            qInfo().noquote() << QStringLiteral("[timing] \"%1\": %2 ms end to end, %3 model calls, prepare %4 ms")
+                                     .arg(test.message).arg(turn.elapsedMs).arg(openai.requests.size() - requestsBefore)
+                                     .arg(turn.payloads.value(QStringLiteral("model.started")).value(QStringLiteral("prepareMs")).toDouble());
+            QCOMPARE(int(openai.requests.size() - requestsBefore), 0);
+            QVERIFY(completed.value(QStringLiteral("workspaceNative")).toBool());
+            QVERIFY(turn.payloads.value(QStringLiteral("retrieval.completed")).value(QStringLiteral("skipped")).toBool());
+            const QVariantMap request = workspace.last();
+            QCOMPARE(request.value(QStringLiteral("action")).toString(), QStringLiteral("compose"));
+            QCOMPARE(request.value(QStringLiteral("strategy")).toString(), QStringLiteral("grid"));
+            QCOMPARE(request.value(QStringLiteral("rows")).toInt(), test.rows);
+            QCOMPARE(request.value(QStringLiteral("columns")).toInt(), test.columns);
+            const QVariantList panels = request.value(QStringLiteral("slots")).toList();
+            QCOMPARE(panels.size(), test.chatAt.isEmpty() ? 0 : 1);
+            if (!test.chatAt.isEmpty()) {
+                QCOMPARE(panels.first().toMap().value(QStringLiteral("position")).toString(), test.chatAt);
+                QCOMPARE(panels.first().toMap().value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("kind")).toString(), QStringLiteral("chat"));
+            }
+            QVERIFY(!turn.streamed.isEmpty());
+        }
     }
 
     // The reply never claims a change the workspace didn't make.
@@ -507,7 +559,7 @@ private slots:
         // The change failed, but the model says it worked.
         workspace.failure = {{QStringLiteral("ok"), false}, {QStringLiteral("code"), QStringLiteral("LAYOUT_LOCKED")}, {QStringLiteral("error"), QStringLiteral("“Editor” is locked in place.")}};
         openai.responses.append(toolTurn(QStringLiteral("c1"), QStringLiteral("workspace_compose"), QStringLiteral(
-            R"({"template":"none","strategy":"columns","slots":[{"name":"Left","holds":["code"],"weight":0,"items":[]},{"name":"Right","holds":["code"],"weight":0,"items":[]}],"focus":"","save_as":"Pair Programming"})")));
+            R"({"template":"none","arrangement":"columns","rows":0,"columns":0,"slots":[{"name":"Left","holds":["code"],"weight":0,"items":[]},{"name":"Right","holds":["code"],"weight":0,"items":[]}],"focus":"","save_as":"Pair Programming"})")));
         openai.responses.append(textTurn(QStringLiteral("c2"), QStringLiteral("Done — I created and saved a Pair Programming layout.")));
         Turn turn = runTurn(runtime, QStringLiteral("Make me a pair programming layout"));
         QVERIFY(turn.events.contains(QStringLiteral("run.completed")));
