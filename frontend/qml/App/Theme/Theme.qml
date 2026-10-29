@@ -270,9 +270,16 @@ QtObject {
     // Shadow under a carried panel: how dark, and how far it drops.
     readonly property real magnetLiftShadow: 0.56
     readonly property real magnetLiftOffset: 23
-    // Neighbours making room (and the content following them).
+    // Neighbours making room (and the content following them). The panels
+    // nearest the change move first and the far ones follow, a ripple out
+    // from the pointer: the farthest spring is magnetRippleSpread softer.
     readonly property real magnetReflowSpring: motionSpring * 1.4
-    readonly property real magnetReflowDamping: motionDamping + 0.12
+    readonly property real magnetReflowDamping: motionDamping + 0.06
+    readonly property real magnetRippleSpread: 0.35
+    // A floating panel opening on its own (not dropped) pops in from this
+    // share of its size, with a little overshoot.
+    readonly property real magnetAppearScale: 0.9
+    readonly property int magnetAppearDuration: 240
     // The landing area easing to where a drop would go.
     readonly property real magnetLandingSpring: 4.2
     readonly property real magnetLandingDamping: 0.36
@@ -306,11 +313,24 @@ QtObject {
     // its header) always stays in reach.
     readonly property real magnetKeepVisible: 96
     readonly property real magnetKeepHeader: 40
-    // Momentum: what is carried leans into the way it moves (degrees per
-    // px/ms, at most magnetTiltMax), and a flick on release glides on for
-    // magnetThrowTime ms of its speed (at most magnetThrowMax px).
-    readonly property real magnetTiltPerSpeed: 2.2
-    readonly property real magnetTiltMax: 3.5
+    // Picked up, a panel is held by its top-left corner, this far from the
+    // pointer's tip, wherever it was grabbed.
+    readonly property real magnetHoldOffset: 8
+    // Momentum: what is carried hangs from that corner and swings back
+    // against the way it moves (degrees per px/ms, at most magnetTiltMax),
+    // on a loose spring so it rocks past level when the pointer stops. A
+    // flick on release glides on for magnetThrowTime ms of its speed (at
+    // most magnetThrowMax px).
+    readonly property real magnetTiltPerSpeed: 3.0
+    readonly property real magnetTiltMax: 6
+    readonly property real magnetSwingSpring: 2.6
+    readonly property real magnetSwingDamping: 0.16
+    function magnetSwingAngle(velocity) {
+        // Moving right the hanging body trails left (clockwise); moving
+        // down it trails up a little.
+        var angle = (velocity.x - 0.4 * velocity.y) * magnetTiltPerSpeed
+        return Math.max(-magnetTiltMax, Math.min(magnetTiltMax, angle))
+    }
     readonly property real magnetThrowTime: 90
     readonly property real magnetThrowMax: 140
 
