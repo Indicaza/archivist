@@ -18,6 +18,7 @@ Item {
     readonly property alias overlay: overlay
     property bool resizingSplit: false
     property bool resizingSurface: false
+    property bool coalesceResize: false
     readonly property bool animateLayout: !theme.reducedMotion && !resizingSplit && !resizingSurface
     // New panels ease in once the workspace is up (see DockAnchor).
     readonly property bool animateArrivals: animateLayout && root.workspace.startupSettled === true
@@ -89,11 +90,28 @@ Item {
         return local.x >= 0 && local.y >= 0 && local.x <= width && local.y <= height
     }
 
+    function flushResize() {
+        resizePublish.stop()
+        if (root.surfaceId.length > 0) {
+            Docking.setSurfaceSize(root.surfaceId, root.width, root.height)
+        }
+    }
+
     function noteResize() {
         root.resizingSurface = true
         resizeSettle.restart()
-        if (root.surfaceId.length > 0) {
-            Docking.setSurfaceSize(root.surfaceId, width, height)
+        if (root.coalesceResize) {
+            if (!resizePublish.running) {
+                resizePublish.start()
+            }
+        } else {
+            root.flushResize()
+        }
+    }
+
+    onCoalesceResizeChanged: {
+        if (!root.coalesceResize && resizePublish.running) {
+            root.flushResize()
         }
     }
 
@@ -108,6 +126,13 @@ Item {
         })
     }
     Component.onDestruction: workspace.unregisterSurfaceArea(surfaceId, root)
+
+    Timer {
+        id: resizePublish
+        interval: 48
+        repeat: false
+        onTriggered: root.flushResize()
+    }
 
     Timer {
         id: resizeSettle
