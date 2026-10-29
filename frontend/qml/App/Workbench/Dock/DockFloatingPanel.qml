@@ -18,7 +18,7 @@ Item {
         Docking.revision
         return Docking.surface(root.surfaceId)
     }
-    readonly property real barHeight: 26
+    readonly property real barHeight: 30
     readonly property real minimumWidth: 280
     readonly property real minimumHeight: 180
 
@@ -75,10 +75,23 @@ Item {
         root.interacting = false
     }
 
+    // Its only panel is carried away as a picture: the whole floating
+    // panel lifts out with it (still alive, it holds the pointer).
+    readonly property bool lifted: {
+        var anchorId = root.workspace.liftedAnchorId || ""
+        if (anchorId.length === 0) {
+            return false
+        }
+        var item = root.workspace.anchorItems[anchorId]
+        return item !== undefined && item !== null && item.surfaceId === root.surfaceId
+            && Number(root.info.anchorCount || 0) === 1
+    }
+
     x: frame.x
     y: frame.y
     width: frame.width
     height: frame.height
+    opacity: lifted ? 0 : 1
     objectName: "dock.floatingPanel"
 
     // Lifted off the layout.
@@ -122,9 +135,36 @@ Item {
             height: root.barHeight
             color: root.theme.controlSurfaceBg
 
-            Text {
+            // Grip dots: grab the bar anywhere to move the panel.
+            Grid {
+                id: barGrip
+
                 anchors.left: parent.left
                 anchors.leftMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                columns: 2
+                rowSpacing: 2.5
+                columnSpacing: 2.5
+                opacity: moveHandler.active ? 0.95 : root.focusedHere ? 0.65 : 0.45
+
+                Repeater {
+                    model: 6
+                    Rectangle {
+                        width: 3.5
+                        height: 3.5
+                        radius: 1.75
+                        color: moveHandler.active ? root.theme.accentBright : root.theme.mutedText
+                    }
+                }
+            }
+
+            HoverHandler {
+                cursorShape: moveHandler.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            }
+
+            Text {
+                anchors.left: barGrip.right
+                anchors.leftMargin: 9
                 anchors.right: closeButton.left
                 anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter
@@ -141,6 +181,11 @@ Item {
 
                 target: null
                 dragThreshold: 2
+                // Once it moves the panel, nothing underneath (a file in the
+                // sidebar, a tab) may take the drag over.
+                grabPermissions: PointerHandler.CanTakeOverFromItems
+                    | PointerHandler.CanTakeOverFromHandlersOfDifferentType
+                    | PointerHandler.CanTakeOverFromHandlersOfSameType
                 property point pressAt: Qt.point(0, 0)
                 property rect startFrame: Qt.rect(0, 0, 0, 0)
 
@@ -164,6 +209,9 @@ Item {
             }
 
             TapHandler {
+                // Takes the press itself, so a click or drag on the bar never
+                // reaches what lies under the panel (the sidebar's files).
+                gesturePolicy: TapHandler.WithinBounds
                 onTapped: root.workspace.raisePanel(root.surfaceId)
                 onDoubleTapped: root.workspace.closeFloatingWindow(root.surfaceId)
             }

@@ -1,4 +1,5 @@
 import QtQuick
+import Archivist.Services 1.0
 import QtQuick.Controls
 
 Item {
@@ -142,10 +143,12 @@ Item {
     DragHandler {
         id: fileDrag
 
+        // Never while a tab or panel is being dragged over the sidebar.
         enabled: root.dragEnabled
             && !root.folder
             && !root.muted
             && root.fileId.length > 0
+            && !Docking.dragActive
         target: root.dragProxy
 
         onActiveChanged: {

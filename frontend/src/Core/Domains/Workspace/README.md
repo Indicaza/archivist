@@ -140,6 +140,13 @@ whole group). It is never a copy; resources are never touched by a drag.
   `from` -> proposed rect `to`; a panel the drop creates has a provisional
   id), and `previewSerial`, which bumps on every target change. Motion and
   physics read this; nothing in it is committed.
+- **One drag, one copy.** `beginDrag` refuses while a drag is on, so nothing
+  under the pointer can start a second one. What is carried is lifted out of
+  its place (drawn at opacity 0, never hidden or rebuilt, since it holds the
+  pointer) while its picture travels. If it loses the pointer anyway, the
+  workspace's drag shield takes the pointer over and carries the same drag
+  to the release (`DockDragShield`); a floating panel's bar never hands its
+  drag to anything underneath.
 - **One commit.** `finishDrag` checks the target again if the layout
   changed during the drag, applies it as one operation and records one
   undo step. `dragFinished(outcome, details)` reports `committed`,
@@ -173,6 +180,8 @@ and a spot already taken (`SLOT_TAKEN`).
   (restored from an older save, or by undo) floats instead. Nothing is
   closed.
 - **The bottom spot** keeps its height as the surface's geometry.
+- **Layouts** arrange the windows, not the sidebar: applying one keeps what
+  is docked there.
 
 ## Anchors as workstations
 

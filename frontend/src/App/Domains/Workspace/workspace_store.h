@@ -314,6 +314,9 @@ public:
     // it is now) as one workspace step: undo puts everything back.
     Q_INVOKABLE bool finishDrag();
     Q_INVOKABLE void cancelDrag();
+    // Whether a mouse button is held now (a drag whose source lost the
+    // pointer ends when it is released).
+    [[nodiscard]] Q_INVOKABLE bool pointerButtonDown() const;
     // Puts a view ("view") or panel ("anchor") back where it was before it
     // was last dragged. One workspace step. {ok, code, error}.
     Q_INVOKABLE QVariantMap returnToPrevious(const QString &kind, const QString &id);

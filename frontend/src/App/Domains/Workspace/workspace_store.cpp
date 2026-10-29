@@ -1428,8 +1428,19 @@ void WorkspaceStore::setResizing(bool resizing)
 
 // ---- drags ---------------------------------------------------------------
 
+bool WorkspaceStore::pointerButtonDown() const
+{
+    return QGuiApplication::mouseButtons() != Qt::NoButton;
+}
+
 bool WorkspaceStore::beginDrag(const QString &kind, const QString &id)
 {
+    // One drag at a time: something else under the pointer can't start a
+    // second one while a magnet is carried.
+    if (m_drag.kind != DragSource::Kind::None) {
+        return false;
+    }
+
     DragSource source;
 
     if (kind == QStringLiteral("view") && m_model.view(id)) {
@@ -1562,10 +1573,14 @@ void WorkspaceStore::updateDragOverSlot(const QString &slot)
     }
     setDropTarget({});
     m_slotTarget = slot;
-    const bool free = m_model.surfaceInSidebarSlot(slot).isEmpty();
+    const QString holder = m_model.surfaceInSidebarSlot(slot);
+    const QString sourceAnchor = m_drag.kind == DragSource::Kind::View ? m_model.anchorOfView(m_drag.id) : m_drag.id;
+    const bool own = !holder.isEmpty() && holder == m_model.surfaceOfAnchor(sourceAnchor);
+    const bool free = holder.isEmpty();
     m_dropAllowed = free && floatAllowed();
-    m_dropRefusal = !free ? OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something is already docked there."))
-                          : m_floatRefusal;
+    m_dropRefusal = own ? OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."))
+        : !free ? OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something is already docked there."))
+                : m_floatRefusal;
     m_dragPhase = m_dropAllowed ? Magnets::Phase::Preview : Magnets::Phase::Invalid;
     ++m_dragPreviewSerial;
     emit dragChanged();
@@ -1962,6 +1977,10 @@ void WorkspaceStore::setSidebarSlots(const QStringList &slotIds)
 {
     m_sidebarSlots = slotIds;
     m_sidebarSlotsKnown = true;
+    // A tab deleted while a drag is over it: the drag lets go of it.
+    if (!m_slotTarget.isEmpty() && m_slotTarget != QStringLiteral("sidebar.bottom") && !slotIds.contains(m_slotTarget)) {
+        leaveSlot();
+    }
     adoptOrphanSidebarSurfaces();
 }
 

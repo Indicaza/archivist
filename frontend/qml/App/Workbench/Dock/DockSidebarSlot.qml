@@ -52,9 +52,11 @@ Item {
         }
     }
 
-    onWorkspaceChanged: register()
+    onWorkspaceChanged: {
+        register()
+        syncShown()
+    }
     onSlotChanged: register()
-    Component.onCompleted: register()
     Component.onDestruction: {
         if (root.registeredWith && root.registeredWith.unregisterSlotZone) {
             root.registeredWith.unregisterSlotZone(root.registeredSlot, root)
@@ -63,20 +65,38 @@ Item {
 
     objectName: "dock.sidebarSlot"
 
-    // What is docked here. A new surface gets a fresh area.
+    // What is docked here. The area is made once per surface and never
+    // rebuilt while it shows: a rebuild in the middle of a drag would drop
+    // the pointer of whatever is being dragged out of it. A different
+    // surface gets a fresh area.
+    property string shownSurfaceId: ""
+    function syncShown() {
+        var wanted = root.workspace ? root.slotSurfaceId : ""
+        if (wanted === root.shownSurfaceId) {
+            return
+        }
+        // Empty first, so the old area goes before the new one comes.
+        root.shownSurfaceId = ""
+        root.shownSurfaceId = wanted
+    }
+    onSlotSurfaceIdChanged: syncShown()
+    Component.onCompleted: {
+        register()
+        syncShown()
+    }
+
     Repeater {
-        model: root.workspace && root.slotSurfaceId.length > 0 ? [root.slotSurfaceId] : []
+        model: root.shownSurfaceId.length > 0 ? 1 : 0
 
         delegate: DockSurfaceArea {
-            required property string modelData
-
             x: 0
             y: 0
             width: root.width
             height: root.height
             theme: root.theme
             workspace: root.workspace
-            surfaceId: modelData
+            // Set once, not bound: the area keeps its surface until it goes.
+            Component.onCompleted: surfaceId = root.shownSurfaceId
         }
     }
 

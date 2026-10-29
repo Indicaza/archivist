@@ -793,8 +793,18 @@ Item {
         // After the drop: "dropped" (it lands, the picture fades) or
         // "returning" (cancelled or refused: it flies back).
         property string ending: ""
+        // The picture is the whole panel (a panel, or its only tab).
+        property bool whole: false
     }
     readonly property alias carry: carryState
+
+    // What is lifted out while its picture is carried: it is not drawn in
+    // its old place (one of it, never two). It stays alive and keeps the
+    // pointer; only its opacity changes. It shows again as the picture
+    // lands, or once the picture has flown back.
+    readonly property bool lifting: carryState.active && !carryState.live && carryState.ending !== "dropped"
+    readonly property string liftedAnchorId: lifting && carryState.whole ? carryState.anchorId : ""
+    readonly property string liftedViewId: lifting && carryState.kind === "view" ? carryState.id : ""
 
     function startCarry(kind, id, title, sourceItem) {
         carryState.token += 1
@@ -807,6 +817,7 @@ Item {
         carryState.image = ""
         carryState.live = false
         carryState.startRect = Qt.rect(0, 0, 0, 0)
+        carryState.whole = false
         carryState.active = true
         carryEndTimer.stop()
         if (!sourceItem) {
@@ -816,6 +827,7 @@ Item {
             return
         }
         var area = surfaceAreas[sourceItem.surfaceId] || null
+        carryState.whole = kind === "anchor" || (Docking.anchor(sourceItem.anchorId).views || []).length <= 1
         carryState.anchorId = sourceItem.anchorId
         carryState.surfaceId = sourceItem.surfaceId
         if (!area) {
@@ -1074,11 +1086,13 @@ Item {
     }
 
     function endDrag() {
+        root.sourceOrphaned = false
         clearDragHere()
         Docking.finishDrag()
     }
 
     function cancelDrag() {
+        root.sourceOrphaned = false
         clearDragHere()
         if (root.liveSurfaceId.length > 0) {
             root.liveMoveCancelled = true
@@ -1683,14 +1697,44 @@ Item {
 
     }
 
+    // Windows and panels are kept by id: one opening or closing never
+    // rebuilds the others (their editors and pages stay as they are).
+    ListModel { id: windowModel }
+    ListModel { id: panelModel }
+
+    function syncIdModel(model, ids) {
+        for (var index = model.count - 1; index >= 0; index -= 1) {
+            if (ids.indexOf(model.get(index).sid) < 0) {
+                model.remove(index)
+            }
+        }
+        for (var next = 0; next < ids.length; next += 1) {
+            var found = false
+            for (var row = 0; row < model.count; row += 1) {
+                if (model.get(row).sid === ids[next]) {
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                model.append({ sid: ids[next] })
+            }
+        }
+    }
+
+    function syncSurfaceModels() {
+        syncIdModel(windowModel, Docking.floatingSurfaceIds)
+        syncIdModel(panelModel, Docking.panelSurfaceIds)
+    }
+
     // Floating windows, one per surface besides the main window.
     Instantiator {
-        model: Docking.floatingSurfaceIds
+        model: windowModel
 
         delegate: DockFloatingWindow {
-            required property string modelData
+            required property string sid
 
-            surfaceId: modelData
+            surfaceId: sid
             theme: root.theme
             workspace: root
             transientParent: root.Window.window
@@ -1708,20 +1752,48 @@ Item {
         height: parent ? parent.height : 0
         z: 5
 
-        Component.onCompleted: root.syncPanelOrder()
+        Component.onCompleted: {
+            root.syncSurfaceModels()
+            root.syncPanelOrder()
+        }
 
         Repeater {
-            model: Docking.panelSurfaceIds
+            model: panelModel
 
             delegate: DockFloatingPanel {
-                required property string modelData
+                required property string sid
 
-                surfaceId: modelData
+                surfaceId: sid
                 theme: root.theme
                 workspace: root
-                z: 1 + root.panelOrder.indexOf(modelData)
+                z: 1 + root.panelOrder.indexOf(sid)
             }
         }
+    }
+
+    // ---- keeping hold of the pointer ----------------------------------------
+    //
+    // The tab or panel being dragged holds the pointer. If it lets go before
+    // the button is released (its row rebuilt, a parent stealing the grab),
+    // the drag must not end, and nothing else under the pointer may pick it
+    // up: this shield, above everything, takes the pointer over and carries
+    // the same drag on to the release.
+    property bool sourceOrphaned: false
+
+    function sourceLost() {
+        if (!Docking.dragActive || root.liveSurfaceId.length > 0) {
+            cancelDrag()
+            return
+        }
+        root.sourceOrphaned = true
+        dragShield.watch()
+    }
+
+    DockDragShield {
+        id: dragShield
+
+        parent: root.overlayHost || root
+        workspace: root
     }
 
     // New panels go to the front; gone ones leave the order.
@@ -1742,6 +1814,7 @@ Item {
         target: Docking
 
         function onSurfacesChanged() {
+            root.syncSurfaceModels()
             root.syncPanelOrder()
         }
     }

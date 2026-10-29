@@ -52,6 +52,10 @@ Item {
     function moveDrag(globalPoint) { workspace.moveDrag(globalPoint) }
     function endDrag() { workspace.endDrag() }
     function cancelDrag() { workspace.cancelDrag() }
+    // The dragged item lost the pointer: the workspace carries the drag on.
+    function sourceLost() { workspace.sourceLost() }
+    readonly property string liftedAnchorId: workspace.liftedAnchorId || ""
+    readonly property string liftedViewId: workspace.liftedViewId || ""
     function detachView(viewId) { workspace.detachView(viewId, root) }
     function detachAnchor(anchorId) { workspace.detachAnchor(anchorId, root) }
     function floatView(viewId) { workspace.floatView(viewId) }

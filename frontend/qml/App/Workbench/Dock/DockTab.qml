@@ -145,6 +145,8 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+        // Once it is a magnet, the tab strip can't flick it away.
+        preventStealing: dragging
 
         onPressed: function(mouse) {
             pressPoint = Qt.point(mouse.x, mouse.y)
@@ -178,7 +180,7 @@ Item {
         }
         onCanceled: {
             if (dragging) {
-                root.workspace.cancelDrag()
+                root.workspace.sourceLost()
             }
             dragging = false
         }

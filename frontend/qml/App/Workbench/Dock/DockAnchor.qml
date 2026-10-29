@@ -99,7 +99,9 @@ Item {
     width: Math.max(0, rectWidth)
     height: Math.max(0, rectHeight)
     visible: !isHidden && width > 1 && height > 1
-    opacity: (isVacating ? 0 : isDragSource ? 0.45 : 1) * arrival
+    // Carried as a picture: lifted out of its place (see DockWorkspace).
+    readonly property bool lifted: root.workspace.liftedAnchorId === root.anchorId
+    opacity: (isVacating || lifted ? 0 : isDragSource ? 0.45 : 1) * arrival
 
     // A panel that appears in a running workspace eases in (fade and a
     // slight settle) instead of popping; with reduced motion it just appears.
@@ -210,7 +212,8 @@ Item {
             readonly property real nameRoom: Math.max(36, root.width * (root.compactHeader ? 0.38 : 0.3))
 
             x: 3
-            width: labelRow.implicitWidth + 8
+            // A handle worth grabbing, however short the name.
+            width: Math.max(labelRow.implicitWidth + 14, root.compactHeader ? 64 : 92)
             height: parent.height
             Accessible.role: Accessible.Button
             Accessible.name: "Panel " + root.displayName
@@ -218,8 +221,8 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                anchors.topMargin: 4
-                anchors.bottomMargin: 4
+                anchors.topMargin: 3
+                anchors.bottomMargin: 3
                 radius: root.theme.radiusSmall
                 color: labelArea.pressed || panelMenu.visible ? root.theme.activeBg
                     : labelArea.containsMouse ? root.theme.hoverBg : "transparent"
@@ -230,25 +233,25 @@ Item {
             Row {
                 id: labelRow
 
-                x: 4
+                x: 7
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 6
+                spacing: 7
                 opacity: root.renaming ? 0 : 1
 
                 // Grip dots: the panel's handle.
                 Grid {
                     anchors.verticalCenter: parent.verticalCenter
                     columns: 2
-                    rowSpacing: 2
-                    columnSpacing: 2
-                    opacity: root.layoutLocked ? 0.25 : label.active ? 0.9 : root.isFocused ? 0.55 : 0.35
+                    rowSpacing: 2.5
+                    columnSpacing: 2.5
+                    opacity: root.layoutLocked ? 0.25 : label.active ? 0.95 : root.isFocused ? 0.65 : 0.45
 
                     Repeater {
                         model: 6
                         Rectangle {
-                            width: 2.5
-                            height: 2.5
-                            radius: 1.25
+                            width: 3.5
+                            height: 3.5
+                            radius: 1.75
                             color: label.active && !root.layoutLocked ? root.theme.accentBright : root.theme.mutedText
                         }
                     }
@@ -313,7 +316,8 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
-                cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                preventStealing: dragging
                 ToolTip.visible: containsMouse && !pressed && !panelMenu.visible && !root.renaming
                 ToolTip.delay: 700
                 ToolTip.text: (root.lockSummary.length > 0 ? root.lockSummary + "\n" : "")
@@ -354,7 +358,7 @@ Item {
                 }
                 onCanceled: {
                     if (dragging) {
-                        root.workspace.cancelDrag()
+                        root.workspace.sourceLost()
                     }
                     dragging = false
                 }
@@ -449,6 +453,7 @@ Item {
                 z: -1
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                preventStealing: dragging
                 onPressed: function(mouse) {
                     root.workspace.notePointerFocus()
                     Docking.focusAnchor(root.anchorId)
@@ -478,7 +483,7 @@ Item {
                 }
                 onCanceled: {
                     if (dragging) {
-                        root.workspace.cancelDrag()
+                        root.workspace.sourceLost()
                     }
                     dragging = false
                 }
@@ -950,6 +955,8 @@ Item {
         height: Math.max(0, parent.height - root.headerHeight - 1)
         active: root.editorHostWanted
         visible: root.activeTypeId === "archivist.editor"
+        // Its tab is carried away: the editor isn't drawn here meanwhile.
+        opacity: root.workspace.liftedViewId.length > 0 && root.workspace.liftedViewId === root.activeViewId ? 0 : 1
 
         sourceComponent: DockEditorHost {
             theme: root.theme
