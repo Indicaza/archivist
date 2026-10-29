@@ -261,6 +261,171 @@ private slots:
         QCOMPARE(store.view(a).value("anchorId").toString(), first);
     }
 
+    // The drag publishes one state for the visual layer: its phase, the
+    // target and whether it's valid (and why not), where it lands and how
+    // the other panels would move. Nothing is committed before the drop,
+    // and the drop is one undo step.
+    void dragStateWalksThePhases()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("magnet-phases"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("idle"));
+        QVERIFY(!store.canUndo());
+
+        QSignalSpy finished(&store, &WorkspaceStore::dragFinished);
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        QVariantMap state = store.dragState();
+        QCOMPARE(state.value("phase").toString(), QStringLiteral("pickup"));
+        QCOMPARE(state.value("id").toString(), b);
+        QCOMPARE(state.value("origin").toMap().value("anchorId").toString(), first);
+        QCOMPARE(state.value("origin").toMap().value("rect").toMap().value("width").toDouble(), 1000.0);
+
+        // Over nothing (a splitter or off the panels): free.
+        store.updateDrag(surface, -50, -50);
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("free"));
+
+        // Over its own place: refused, with a reason.
+        store.updateDragOverTabs(surface, first, 1);
+        state = store.dragState();
+        QCOMPARE(state.value("phase").toString(), QStringLiteral("invalid"));
+        QCOMPARE(state.value("reasonCode").toString(), QStringLiteral("NO_CHANGE"));
+        QVERIFY(!store.dropRefusal().isEmpty());
+        QVERIFY(!state.value("valid").toBool());
+
+        // The right edge: a valid preview, the panel making room is in the
+        // reflow, and the preview counter moves on.
+        const int serial = state.value("previewSerial").toInt();
+        const int revision = store.model().revision();
+        store.updateDrag(surface, 950, 300);
+        state = store.dragState();
+        QCOMPARE(state.value("phase").toString(), QStringLiteral("preview"));
+        QVERIFY(state.value("valid").toBool());
+        QVERIFY(store.dropRefusal().isEmpty());
+        QVERIFY(state.value("previewSerial").toInt() > serial);
+        QVERIFY(state.value("landingRect").toMap().value("x").toDouble() > 400);
+        bool firstShrinks = false;
+        for (const QVariant &entry : state.value("reflow").toList()) {
+            const QVariantMap move = entry.toMap();
+            if (move.value("anchorId").toString() == first) {
+                firstShrinks = move.value("to").toMap().value("width").toDouble() < move.value("from").toMap().value("width").toDouble();
+            }
+        }
+        QVERIFY(firstShrinks);
+        QCOMPARE(store.model().revision(), revision);
+        QVERIFY(!store.canUndo());
+
+        // Drop: one step, and undo puts it back.
+        QVERIFY(store.finishDrag());
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.last().at(0).toString(), QStringLiteral("committed"));
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("idle"));
+        QCOMPARE(anchors->rowCount(), 2);
+        QVERIFY(store.canUndo());
+        QVERIFY(store.undoSummary().contains(QStringLiteral("b")));
+        QVERIFY(store.undo());
+        QCOMPARE(anchors->rowCount(), 1);
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
+
+        // Escape: cancelled, nothing recorded.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDrag(surface, 950, 300);
+        store.cancelDrag();
+        QCOMPARE(finished.last().at(0).toString(), QStringLiteral("cancelled"));
+        QCOMPARE(anchors->rowCount(), 1);
+        QVERIFY(!store.canUndo());
+
+        // Released on a refused target: refused, with the reason.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverTabs(surface, first, 1);
+        QVERIFY(!store.finishDrag());
+        QCOMPARE(finished.last().at(0).toString(), QStringLiteral("refused"));
+        QCOMPARE(finished.last().at(1).toMap().value("code").toString(), QStringLiteral("NO_CHANGE"));
+    }
+
+    // A split that would leave a panel unusably small is refused instead of
+    // squeezing everything.
+    void crampedSplitsAreRefused()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("magnet-cramped"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 420, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QVERIFY(!store.splitView(b, first, QStringLiteral("right")).isEmpty());
+
+        QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+        store.updateDrag(surface, 405, 300);
+        QVERIFY(!store.dropAllowed());
+        QCOMPARE(store.dragState().value("reasonCode").toString(), QStringLiteral("TOO_SMALL"));
+        QVERIFY(!store.finishDrag());
+        QCOMPARE(anchors->rowCount(), 2);
+    }
+
+    // Return to previous position: a tab goes back into its panel, a
+    // panel back beside its neighbour; each is one step, and doing it
+    // again goes back to where it was moved.
+    void magnetsReturnToTheirPreviousPlace()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("magnet-return"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1200, 700);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString chat = store.openView(QStringLiteral("archivist.chat"), {{"kind", "chat"}, {"id", "c1"}}, "Chat");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QVERIFY(!store.splitView(chat, first, QStringLiteral("right")).isEmpty());
+        const QString chatAnchor = store.view(chat).value("anchorId").toString();
+        QVERIFY(!store.canReturnToPrevious(QStringLiteral("view"), b));
+        QCOMPARE(store.returnToPrevious(QStringLiteral("view"), b).value("code").toString(), QStringLiteral("NO_PLACE"));
+
+        // Drag b into the chat's panel.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverTabs(surface, chatAnchor, -1);
+        QVERIFY(store.finishDrag());
+        QCOMPARE(store.view(b).value("anchorId").toString(), chatAnchor);
+
+        QVERIFY(store.canReturnToPrevious(QStringLiteral("view"), b));
+        QVariantMap back = store.returnToPrevious(QStringLiteral("view"), b);
+        QVERIFY2(back.value("ok").toBool(), qPrintable(back.value("error").toString()));
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
+        QCOMPARE(store.anchor(first).value("views").toStringList(), (QStringList{a, b}));
+        QVERIFY(store.undoSummary().startsWith(QStringLiteral("Put")));
+
+        // Again: back to the chat's panel.
+        QVERIFY(store.returnToPrevious(QStringLiteral("view"), b).value("ok").toBool());
+        QCOMPARE(store.view(b).value("anchorId").toString(), chatAnchor);
+
+        // Undo walks the same steps.
+        QVERIFY(store.undo());
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
+
+        // A whole panel moved to the other side goes back.
+        const double chatX = anchors->row(chatAnchor).value("rectX").toDouble();
+        QVERIFY(store.beginDrag(QStringLiteral("anchor"), chatAnchor));
+        store.updateDrag(surface, 30, 350);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QVERIFY(anchors->row(chatAnchor).value("rectX").toDouble() < chatX);
+        QVERIFY(store.returnToPrevious(QStringLiteral("anchor"), chatAnchor).value("ok").toBool());
+        QCOMPARE(anchors->row(chatAnchor).value("rectX").toDouble(), chatX);
+
+        // Another project starts with no memory of these.
+        store.setCollection(QStringLiteral("magnet-return-other"));
+        QVERIFY(!store.canReturnToPrevious(QStringLiteral("anchor"), chatAnchor));
+    }
+
     void draggedFromPanelStaysAliveWhileItFolds()
     {
         WorkspaceStore store;

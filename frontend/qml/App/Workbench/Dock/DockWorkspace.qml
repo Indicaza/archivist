@@ -849,6 +849,15 @@ Item {
         Docking.cancelDrag()
     }
 
+    // Puts a tab ("view") or panel ("anchor") back where it was before its
+    // last drag. One undo step.
+    function returnToPrevious(kind, id) {
+        var result = Docking.returnToPrevious(kind, id)
+        if (!result.ok) {
+            toast.show(String(result.error || "Couldn't put it back"))
+        }
+    }
+
     function clearDragHere() {
         for (var key in surfaceAreas) {
             surfaceAreas[key].dragHere = false

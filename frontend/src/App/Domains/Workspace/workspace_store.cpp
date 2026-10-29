@@ -634,6 +634,7 @@ void WorkspaceStore::setCollection(const QString &collectionId)
     m_publishedModelRevision = m_model.revision();
     m_history.clear();
     m_redo.clear();
+    m_previousPlaces.clear();
     loadArrangement();
     loadComposer();
     m_suggestion.clear();
@@ -1435,6 +1436,15 @@ bool WorkspaceStore::beginDrag(const QString &kind, const QString &id)
     m_landingRect = {};
     m_preview = {};
     m_previewSurfaceId.clear();
+    m_dropRefusal = {};
+    m_landingAnchorId.clear();
+    // Where it came from: drawn under the pickup, and where Return puts it.
+    m_dragOrigin = Magnets::placeOf(m_model, source);
+    const QString sourceAnchor = source.kind == DragSource::Kind::View ? m_model.anchorOfView(source.id) : source.id;
+    m_dragSourceRect = m_model.computeGeometry(m_dragOrigin.surfaceId, surfaceSize(m_dragOrigin.surfaceId), m_metrics)
+                           .anchors.value(sourceAnchor);
+    m_dragTargetRevision = m_model.revision();
+    m_dragPhase = Magnets::Phase::Pickup;
     publish();
     emit dragChanged();
     return true;
@@ -1508,6 +1518,13 @@ void WorkspaceStore::updateDragDetached(double x, double y, double width, double
         return;
     }
 
+    m_dropRefusal = allowed ? OpResult::success()
+                            : OpResult::failure(QStringLiteral("ALREADY_ALONE"),
+                                                QStringLiteral("It's already alone in its own window: move the window instead."));
+    m_landingAnchorId.clear();
+    m_dragPhase = allowed ? Magnets::Phase::Detached : Magnets::Phase::Invalid;
+    ++m_dragPreviewSerial;
+
     const bool hadTarget = m_dropTarget.isValid();
     m_dropTarget = {};
     m_landingRect = {};
@@ -1542,19 +1559,39 @@ void WorkspaceStore::setDropTarget(const DropTarget &target)
 {
     if (target.surfaceId == m_dropTarget.surfaceId && target.anchorId == m_dropTarget.anchorId
         && target.edge == m_dropTarget.edge && target.index == m_dropTarget.index) {
+        // First move over nothing: picked up becomes free dragging.
+        if (!target.isValid() && m_dragPhase == Magnets::Phase::Pickup) {
+            m_dragPhase = Magnets::Phase::Free;
+            emit dragChanged();
+        }
         return;
     }
 
     m_dragDetached = false;
     m_dropTarget = target;
-    m_dropAllowed = target.isValid() && m_model.canDrop(m_drag, target).ok;
+    m_dropAllowed = false;
+    m_dropRefusal = {};
     m_landingRect = {};
+    m_landingAnchorId.clear();
     m_preview = {};
     m_previewSurfaceId.clear();
+    m_dragTargetRevision = m_model.revision();
+    ++m_dragPreviewSerial;
 
-    if (m_dropAllowed) {
-        m_preview = m_model.previewDrop(m_drag, target, surfaceSize(target.surfaceId), m_metrics, &m_landingRect);
-        m_previewSurfaceId = target.surfaceId;
+    if (target.isValid()) {
+        // Worked out on a copy of the layout: nothing is committed.
+        const Magnets::Preview preview = Magnets::preview(m_model, m_drag, target, surfaceSize(target.surfaceId), m_metrics);
+        m_dropAllowed = preview.result.ok;
+        m_dropRefusal = preview.result;
+        if (m_dropAllowed) {
+            m_preview = preview.geometry;
+            m_previewSurfaceId = target.surfaceId;
+            m_landingRect = preview.landingRect;
+            m_landingAnchorId = preview.landingAnchorId;
+        }
+        m_dragPhase = m_dropAllowed ? Magnets::Phase::Preview : Magnets::Phase::Invalid;
+    } else if (m_drag.kind != DragSource::Kind::None) {
+        m_dragPhase = Magnets::Phase::Free;
     }
 
     publish();
@@ -1572,6 +1609,12 @@ void WorkspaceStore::resetDrag()
     m_landingRect = {};
     m_preview = {};
     m_previewSurfaceId.clear();
+    m_dropRefusal = {};
+    m_landingAnchorId.clear();
+    m_dragOrigin = {};
+    m_dragSourceRect = {};
+    m_dragTargetRevision = -1;
+    m_dragPhase = Magnets::Phase::Idle;
 }
 
 bool WorkspaceStore::finishDrag()
@@ -1582,14 +1625,34 @@ bool WorkspaceStore::finishDrag()
 
     const DragSource source = m_drag;
     const DropTarget target = m_dropTarget;
-    const bool allowed = m_dropAllowed;
+    bool allowed = m_dropAllowed;
+    OpResult refusal = m_dropRefusal;
     const bool detached = m_dragDetached;
     const QRectF detachRect = m_detachRect;
     const QString detachScreen = m_detachScreen;
+    const Magnets::Place origin = m_dragOrigin;
+
+    // The layout changed under the drag (an agent, a window closing):
+    // judge the target again against the layout as it is now.
+    if (allowed && !detached && m_model.revision() != m_dragTargetRevision) {
+        const Magnets::Preview fresh = Magnets::preview(m_model, source, target, surfaceSize(target.surfaceId), m_metrics);
+        allowed = fresh.result.ok;
+        refusal = fresh.result;
+    }
 
     resetDrag();
 
+    QVariantMap details{
+        {QStringLiteral("kind"), source.kind == DragSource::Kind::View ? QStringLiteral("view") : QStringLiteral("anchor")},
+        {QStringLiteral("id"), source.id},
+        {QStringLiteral("target"), detached ? QVariantMap{{QStringLiteral("detached"), true}} : Magnets::targetMap(target)},
+    };
+
     bool ok = false;
+    // One drop, one workspace step.
+    HistoryStep step = historyStep(detached
+        ? QStringLiteral("Opened %1 in a new window").arg(dragSourceTitle(source))
+        : QStringLiteral("Moved %1").arg(dragSourceTitle(source)));
 
     if (allowed && detached) {
         const OpResult result = source.kind == DragSource::Kind::View
@@ -1597,6 +1660,7 @@ bool WorkspaceStore::finishDrag()
             : m_model.detachAnchor(source.id, detachRect, detachScreen);
         ok = result.ok;
         if (!ok) {
+            refusal = result;
             emit operationFailed(result.message);
         }
     } else if (allowed) {
@@ -1611,13 +1675,29 @@ bool WorkspaceStore::finishDrag()
                 m_model.activateView(source.id);
             }
             m_model.focusAnchor(anchorId);
+            details.insert(QStringLiteral("landingAnchorId"), anchorId);
         } else {
+            refusal = result;
             emit operationFailed(result.message);
         }
     }
 
+    if (ok) {
+        recordStep(std::move(step));
+        m_previousPlaces.insert(dragKey(source), origin);
+    }
+
     publish();
     emit dragChanged();
+    if (ok) {
+        emit dragFinished(QStringLiteral("committed"), details);
+    } else if (target.isValid() || detached) {
+        details.insert(QStringLiteral("code"), refusal.code);
+        details.insert(QStringLiteral("reason"), refusal.message);
+        emit dragFinished(QStringLiteral("refused"), details);
+    } else {
+        emit dragFinished(QStringLiteral("cancelled"), details);
+    }
     return ok;
 }
 
@@ -1627,9 +1707,14 @@ void WorkspaceStore::cancelDrag()
         return;
     }
 
+    const QVariantMap details{
+        {QStringLiteral("kind"), dragKind()},
+        {QStringLiteral("id"), m_drag.id},
+    };
     resetDrag();
     publish();
     emit dragChanged();
+    emit dragFinished(QStringLiteral("cancelled"), details);
 }
 
 // ---- surfaces ------------------------------------------------------------
