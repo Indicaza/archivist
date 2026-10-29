@@ -174,8 +174,22 @@ everything with no history entry.
 
 - **Pickup** (`DockCarry`): the picture lifts to `magnetPickupScale` (96%)
   around the point it is held by, so the pointer stays on the same spot of
-  it, with a deeper two-layer shadow and an accent edge. The pointer always
-  drives its position directly (no smoothing), so it never lags.
+  it, with a deeper two-layer shadow and an accent edge. It is carried
+  small (at most `magnetCarryMaxWidth` x `magnetCarryMaxHeight`) so it is
+  easy to aim; over open space a full-size outline shows where it would
+  float, and on release it grows into it. The pointer always drives its
+  position directly (no smoothing), so it never lags.
+- **Momentum**: the picture leans into the way it moves (a rotation about
+  the held point, `magnetTiltPerSpeed`, at most `magnetTiltMax`), and a
+  flick on release glides a floating drop on (`magnetThrowTime` of its
+  speed, at most `magnetThrowMax`). The glide goes into the frame the drop
+  commits, so what lands is exactly what is stored.
+- **Floating panels** (`DockFloatingPanel`): holding one panel, a floating
+  panel has no bar of its own; the panel's header is its one handle and
+  close. Holding a split, a slim bar moves the group, shrinking it to
+  `magnetPanelMoveScale` while it moves. A floating panel may hang off the
+  window's sides and bottom; `magnetKeepVisible` px of it and its header
+  (`magnetKeepHeader`) always stay in reach.
 - **Magnetic pull** (`DockDropOverlay`, `magnet.pull`): while free, the
   nearest edge of the panel or window border under the pointer glows,
   stronger the closer it is (reach: `magnetProximityReach` times the dock

@@ -602,13 +602,14 @@ private slots:
             QVERIFY(store.redo());
             QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
 
-            // Dragged again into open space: the same panel moves.
+            // Dragged again into open space: the same panel moves, and it
+            // may hang partly off the window's left side.
             QVERIFY(store.beginDrag(QStringLiteral("view"), b));
-            store.updateDragFloat(100, 60, 420, 300);
+            store.updateDragFloat(-150, 60, 420, 300);
             store.updateDrag(surface, 300, 200);
             QVERIFY(store.finishDrag());
             QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
-            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+            QCOMPARE(store.surface(panel).value("x").toDouble(), -150.0);
 
             // Many at once.
             for (int index = 0; index < 10; index += 1) {
@@ -632,7 +633,7 @@ private slots:
             QVERIFY(store.floatingSurfaceIds().isEmpty());
             QCOMPARE(store.view(b).value("surfaceId").toString(), panel);
             QVERIFY(!store.recoverSurfaces().contains(panel));
-            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+            QCOMPARE(store.surface(panel).value("x").toDouble(), -150.0);
         }
     }
 

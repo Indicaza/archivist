@@ -954,6 +954,7 @@ Item {
         var sourceItem = anchorItems[sourceAnchor]
         root.dragSourceSurfaceId = sourceItem ? sourceItem.surfaceId : Docking.primarySurfaceId
         root.floatSize = floatSizeFor(kind, sourceItem)
+        resetVelocity()
         startCarry(kind, id, title, sourceItem)
         root.forceActiveFocus()
         return true
@@ -1086,10 +1087,84 @@ Item {
         var grabX = source.width > 0 && carryState.grab.x >= 0 ? carryState.grab.x * width / source.width : 60
         var grabY = carryState.grab.y >= 0 ? Math.min(carryState.grab.y, 40) : 14
         var local = panelLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
-        var x = Math.max(8, Math.min(local.x - grabX, panelLayer.width - width - 8))
-        var y = Math.max(8, Math.min(local.y - grabY, panelLayer.height - height - 8))
-        root.floatFrame = Qt.rect(Math.round(x), Math.round(y), width, height)
+        root.floatFrame = keepInReach(Qt.rect(local.x - grabX, local.y - grabY, width, height))
         Docking.updateDragFloat(root.floatFrame.x, root.floatFrame.y, width, height)
+    }
+
+    // A floating panel may hang off the window's sides and bottom, but
+    // enough of it (and its header) stays in reach to grab it again.
+    function keepInReach(frame) {
+        var keep = Math.min(frame.width, theme.magnetKeepVisible)
+        var x = Math.max(keep - frame.width, Math.min(frame.x, panelLayer.width - keep))
+        var y = Math.max(0, Math.min(frame.y, panelLayer.height - theme.magnetKeepHeader))
+        return Qt.rect(Math.round(x), Math.round(y), frame.width, frame.height)
+    }
+
+    // ---- momentum ----------------------------------------------------------
+    //
+    // How fast the pointer moves while dragging (px/ms, smoothed). What is
+    // carried leans with it, and a flick on release glides the floating
+    // panel on a little (into the committed frame, so what lands is what
+    // is stored).
+    property point dragVelocity: Qt.point(0, 0)
+    property real lastMoveAt: 0
+    property point lastMovePoint: Qt.point(0, 0)
+
+    function resetVelocity() {
+        root.dragVelocity = Qt.point(0, 0)
+        root.lastMoveAt = 0
+    }
+
+    function noteVelocity(globalPoint) {
+        var now = Date.now()
+        if (root.lastMoveAt > 0 && now > root.lastMoveAt) {
+            var dt = Math.max(8, now - root.lastMoveAt)
+            var vx = (globalPoint.x - root.lastMovePoint.x) / dt
+            var vy = (globalPoint.y - root.lastMovePoint.y) / dt
+            root.dragVelocity = Qt.point(root.dragVelocity.x * 0.55 + vx * 0.45, root.dragVelocity.y * 0.55 + vy * 0.45)
+        }
+        root.lastMoveAt = now
+        root.lastMovePoint = Qt.point(globalPoint.x, globalPoint.y)
+    }
+
+    // The pointer stopped: the lean settles.
+    Timer {
+        interval: 32
+        repeat: true
+        running: Docking.dragActive && (root.dragVelocity.x !== 0 || root.dragVelocity.y !== 0)
+        onTriggered: {
+            if (Date.now() - root.lastMoveAt < 48) {
+                return
+            }
+            var v = root.dragVelocity
+            root.dragVelocity = Math.abs(v.x) + Math.abs(v.y) < 0.02 ? Qt.point(0, 0) : Qt.point(v.x * 0.5, v.y * 0.5)
+        }
+    }
+
+    // How far a flick carries a frame on release (none if the pointer had
+    // stopped, or with reduced motion).
+    function throwOffset() {
+        if (theme.reducedMotion || Date.now() - root.lastMoveAt > 60) {
+            return Qt.point(0, 0)
+        }
+        var limit = theme.magnetThrowMax
+        var dx = Math.max(-limit, Math.min(limit, root.dragVelocity.x * theme.magnetThrowTime))
+        var dy = Math.max(-limit, Math.min(limit, root.dragVelocity.y * theme.magnetThrowTime))
+        return Math.abs(dx) < 3 && Math.abs(dy) < 3 ? Qt.point(0, 0) : Qt.point(dx, dy)
+    }
+
+    // A drop that floats: glide on by the flick before it commits.
+    function throwFloat() {
+        if (!Docking.dragActive || !Docking.dropFloats || root.floatFrame.width <= 0) {
+            return
+        }
+        var glide = throwOffset()
+        if (glide.x === 0 && glide.y === 0) {
+            return
+        }
+        var f = root.floatFrame
+        root.floatFrame = keepInReach(Qt.rect(f.x + glide.x, f.y + glide.y, f.width, f.height))
+        Docking.updateDragFloat(root.floatFrame.x, root.floatFrame.y, root.floatFrame.width, root.floatFrame.height)
     }
 
     // The pointer during a drag (global), for the magnetic pull.
@@ -1097,6 +1172,7 @@ Item {
 
     function moveDrag(globalPoint) {
         root.dragPointer = Qt.point(globalPoint.x, globalPoint.y)
+        noteVelocity(globalPoint)
         var target = surfaceAreaAt(globalPoint)
         for (var key in surfaceAreas) {
             surfaceAreas[key].dragHere = surfaceAreas[key] === target
@@ -1136,6 +1212,9 @@ Item {
     function endDrag() {
         root.sourceOrphaned = false
         clearDragHere()
+        if (root.liveSurfaceId.length === 0) {
+            throwFloat()
+        }
         Docking.finishDrag()
     }
 
@@ -1189,6 +1268,7 @@ Item {
         }
         root.dragGhostTitle = anchorTitle(anchors[0])
         root.dragSourceSurfaceId = surfaceId
+        resetVelocity()
         carryState.token += 1
         carryState.active = true
         carryState.live = true
@@ -1219,6 +1299,9 @@ Item {
         if (cancelled) {
             return
         }
+        // A flick glides it on (the panel springs there from where it was let go).
+        var glide = Docking.dragActive && Docking.dropFloats ? throwOffset() : Qt.point(0, 0)
+        frame = keepInReach(Qt.rect(frame.x + glide.x, frame.y + glide.y, frame.width, frame.height))
         if (Docking.dragActive) {
             Docking.updateDragFloat(frame.x, frame.y, frame.width, frame.height)
             endDrag()
@@ -1881,6 +1964,7 @@ Item {
         theme: root.theme
         carry: carryState
         floatFrame: root.floatFrame
+        velocity: root.dragVelocity
         title: root.dragGhostTitle
         icon: root.dragGhostIcon
     }

@@ -35,9 +35,21 @@ Item {
     readonly property bool docking: Docking.dragActive && Docking.dropAllowed
     readonly property bool refused: Docking.dragActive && !Docking.dropAllowed && !Docking.dropFloats
         && Docking.dropRefusal.length > 0
+    // Held small, so it is easy to aim: never more than the carry size in
+    // the theme, whatever size the panel is.
     readonly property real heldScale: source.width > 0 && width > 0
-        ? Math.min(0.9, 0.55 * width / source.width, 0.6 * height / Math.max(1, source.height))
+        ? Math.max(0.18, Math.min(0.9, 0.55 * width / source.width, 0.6 * height / Math.max(1, source.height),
+            root.theme.magnetCarryMaxWidth / source.width, root.theme.magnetCarryMaxHeight / Math.max(1, source.height)))
         : 0.9
+    // How fast the pointer moves (px/ms), for the lean.
+    property point velocity: Qt.point(0, 0)
+    readonly property real wantedTilt: !root.carrying || root.landing || root.theme.reducedMotion || root.carry.ending.length > 0 ? 0
+        : Math.max(-root.theme.magnetTiltMax, Math.min(root.theme.magnetTiltMax, root.velocity.x * root.theme.magnetTiltPerSpeed))
+    property real tilt: wantedTilt
+    Behavior on tilt {
+        enabled: !root.theme.reducedMotion
+        SpringAnimation { spring: 3.2; damping: 0.32; epsilon: 0.05 }
+    }
     readonly property point grab: carrying && carry.grab.x >= 0 ? carry.grab : Qt.point(60, 14)
 
     // 0 sits where it was lifted from, 1 is carried.
@@ -97,8 +109,9 @@ Item {
     // 0 held small at the pointer (docking), 1 full size where it floats.
     property real spread: 1
 
-    // Full size unless it is aimed at a dock (or refused there).
-    readonly property real wantedSpread: root.floats || (!root.docking && !root.refused) ? 1 : 0
+    // Always held small while carried: where it would float is outlined
+    // at full size instead (floatGhost), and it grows into it on release.
+    readonly property real wantedSpread: 0
 
     function updateSpread() {
         if (!root.carrying || root.carry.ending.length > 0) {
@@ -165,6 +178,29 @@ Item {
         easing.type: Easing.OutCubic
     }
 
+    // Where a drop would float it, at full size: an outline only.
+    Rectangle {
+        id: floatGhost
+
+        objectName: "magnet.floatGhost"
+        readonly property bool shown: root.carrying && Docking.dragActive && root.floats && root.floatFrame.width > 0
+            && root.pointerHere
+        x: root.floatFrame.x
+        y: root.floatFrame.y
+        width: root.floatFrame.width
+        height: root.floatFrame.height
+        radius: root.theme.radiusPanel
+        color: Qt.rgba(root.theme.accent.r, root.theme.accent.g, root.theme.accent.b, 0.05)
+        border.width: 1
+        border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.4)
+        opacity: shown ? 1 : 0
+        visible: opacity > 0
+
+        Behavior on x { enabled: floatGhost.shown && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+        Behavior on y { enabled: floatGhost.shown && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 120 } }
+    }
+
     Item {
         id: carried
 
@@ -208,12 +244,23 @@ Item {
             NumberAnimation { duration: root.theme.reducedMotion ? 0 : 140 }
         }
 
-        transform: Scale {
-            origin.x: root.landing ? carried.width / 2 : Math.min(carried.width, root.grab.x * carried.width / Math.max(1, root.source.width))
-            origin.y: root.landing ? carried.height / 2 : Math.min(carried.height, root.grab.y * carried.height / Math.max(1, root.source.height))
-            xScale: 1 - carried.shrink
-            yScale: 1 - carried.shrink
-        }
+        readonly property real holdX: root.landing ? carried.width / 2 : Math.min(carried.width, root.grab.x * carried.width / Math.max(1, root.source.width))
+        readonly property real holdY: root.landing ? carried.height / 2 : Math.min(carried.height, root.grab.y * carried.height / Math.max(1, root.source.height))
+        transform: [
+            Scale {
+                origin.x: carried.holdX
+                origin.y: carried.holdY
+                xScale: 1 - carried.shrink
+                yScale: 1 - carried.shrink
+            },
+            // Momentum: it leans into the way it moves, pivoting on the
+            // spot it is held by (so that spot stays under the pointer).
+            Rotation {
+                origin.x: carried.holdX
+                origin.y: carried.holdY
+                angle: root.tilt
+            }
+        ]
 
         // Lifted: a deep, soft shadow under it (two layers, no blur pass).
         Rectangle {

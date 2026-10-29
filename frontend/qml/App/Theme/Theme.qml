@@ -295,6 +295,22 @@ QtObject {
     // A tab held over a tab strip: the tabs after the insertion point
     // step aside this far.
     readonly property real magnetTabGap: 14
+    // Carried, a panel is held small so it is easy to aim (at most this
+    // big); a floating panel moved by its bar shrinks to this share.
+    readonly property real magnetCarryMaxWidth: 340
+    readonly property real magnetCarryMaxHeight: 240
+    readonly property real magnetPanelMoveScale: 0.72
+    // A floating panel may hang off the window, but this much of it (and
+    // its header) always stays in reach.
+    readonly property real magnetKeepVisible: 96
+    readonly property real magnetKeepHeader: 40
+    // Momentum: what is carried leans into the way it moves (degrees per
+    // px/ms, at most magnetTiltMax), and a flick on release glides on for
+    // magnetThrowTime ms of its speed (at most magnetThrowMax px).
+    readonly property real magnetTiltPerSpeed: 2.2
+    readonly property real magnetTiltMax: 3.5
+    readonly property real magnetThrowTime: 90
+    readonly property real magnetThrowMax: 140
 
     // Each agent speaks in its own hue: its rail, glyph, list bullets, small
     // headings and composer chip. The id picks a hue, so it stays the same
