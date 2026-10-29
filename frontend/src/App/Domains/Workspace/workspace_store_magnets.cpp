@@ -192,6 +192,7 @@ QString WorkspaceStore::floatView(const QString &viewId, double x, double y, dou
         return {};
     }
     const Magnets::Place here = Magnets::placeOf(m_model, source);
+    const QString previous = m_model.focusedAnchorId();
     HistoryStep step = historyStep(QStringLiteral("Floated %1").arg(dragSourceTitle(source)));
     const OpResult result = m_model.detachView(viewId, QRectF(x, y, width, height), {}, Origin::User, true);
     if (!result.ok) {
@@ -203,6 +204,7 @@ QString WorkspaceStore::floatView(const QString &viewId, double x, double y, dou
     recordStep(std::move(step));
     m_previousPlaces.insert(dragKey(source), here);
     publish();
+    tuckAwayFloatingPanels(previous);
     return result.createdId;
 }
 
@@ -216,6 +218,7 @@ QString WorkspaceStore::floatAnchor(const QString &anchorId, double x, double y,
         return {};
     }
     const Magnets::Place here = Magnets::placeOf(m_model, source);
+    const QString previous = m_model.focusedAnchorId();
     HistoryStep step = historyStep(QStringLiteral("Floated %1").arg(dragSourceTitle(source)));
     const OpResult result = m_model.detachAnchor(anchorId, QRectF(x, y, width, height), {}, true);
     if (!result.ok) {
@@ -226,5 +229,6 @@ QString WorkspaceStore::floatAnchor(const QString &anchorId, double x, double y,
     recordStep(std::move(step));
     m_previousPlaces.insert(dragKey(source), here);
     publish();
+    tuckAwayFloatingPanels(previous);
     return result.createdId;
 }

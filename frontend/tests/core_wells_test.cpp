@@ -546,6 +546,160 @@ private slots:
         QCOMPARE(s.model.anchor(s.main)->views, tabs);
         QVERIFY(s.model.validate().isEmpty());
     }
+
+    // ---- whole panels ------------------------------------------------------
+
+    void aWholePanelGoesAwayAsOneAndComesBackTheSame()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(s.model.splitView(b, s.main, Edge::Right).ok);
+        const QString panel = s.model.anchorOfView(b);
+        const QString c = s.open(terminalView(QStringLiteral("t1")), panel);
+        const QString d = s.open(chatView(QStringLiteral("c1")), panel);
+        QVERIFY(s.model.activateView(c).ok);
+        QVERIFY(s.model.renameAnchor(panel, QStringLiteral("Reference")).ok);
+        QVERIFY(s.model.setAnchorSwitchable(panel, true).ok);
+        const QStringList tabs = s.model.anchor(panel)->views;
+        const QRectF frame = rectOf(s.model, panel);
+
+        const OpResult put = Wells::minimizeAnchor(s.model, panel);
+        QVERIFY2(put.ok, qPrintable(put.message));
+        QVERIFY(!s.model.anchor(panel));
+        QCOMPARE(s.model.anchorIds().size(), 1);
+        const WellEntry *entry = onlyEntry(s.model);
+        QVERIFY(entry && entry->panel && !entry->pinned);
+        QCOMPARE(entry->title, QStringLiteral("Reference"));
+        QCOMPARE(entry->minimized.size(), 3);
+        for (const QString &id : tabs) {
+            QVERIFY(s.model.isMinimized(id));
+            QVERIFY(s.model.view(id)); // still the same views
+        }
+        QVERIFY(s.model.validate().isEmpty());
+
+        // Clicking any of it brings the whole panel back where it was.
+        const Wells::Restored back = Wells::activate(s.model, entry->id);
+        QVERIFY2(back.result.ok, qPrintable(back.result.message));
+        QCOMPARE(back.how, QStringLiteral("returned"));
+        const QString again = back.anchorId;
+        QCOMPARE(s.model.anchor(again)->views, tabs);
+        QCOMPARE(s.model.anchor(again)->activeViewId, c);
+        QCOMPARE(s.model.anchor(again)->name, QStringLiteral("Reference"));
+        QVERIFY(s.model.anchor(again)->switchable);
+        QCOMPARE(rectOf(s.model, again), frame);
+        QCOMPARE(s.model.focusedAnchorId(), again);
+        QVERIFY(s.model.well(WorkspaceModel::kMainWellId)->entries.isEmpty());
+        QVERIFY(s.model.validate().isEmpty());
+        Q_UNUSED(d);
+    }
+
+    void aFloatingPanelGoesAwayAndFloatsBackWithItsTabs()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        const QRectF frame(120, 80, 420, 300);
+        QVERIFY(s.model.detachView(b, frame, {}, Origin::User, true).ok);
+        const QString panel = s.model.anchorOfView(b);
+        const QString c = s.open(editorView(QStringLiteral("c")), panel);
+
+        QVERIFY(Wells::minimizeAnchor(s.model, panel).ok);
+        QCOMPARE(s.model.surfaceIds().size(), 1);
+
+        // Asking for one of its tabs brings the panel.
+        const Wells::Restored back = Wells::restore(s.model, c);
+        QVERIFY2(back.result.ok, qPrintable(back.result.message));
+        const SurfaceRecord *surface = s.model.surface(s.model.surfaceOfAnchor(back.anchorId));
+        QVERIFY(surface && surface->inMainWindow);
+        QCOMPARE(surface->geometry, frame);
+        QCOMPARE(s.model.anchor(back.anchorId)->views, (QStringList{b, c}));
+        QVERIFY(s.model.validate().isEmpty());
+    }
+
+    void theMainWindowsLastPanelStaysToTakeItsTabsBack()
+    {
+        Setup s;
+        const QString a = s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(Wells::minimizeAnchor(s.model, s.main).ok);
+        QVERIFY(s.model.anchor(s.main));
+        QVERIFY(s.model.anchor(s.main)->views.isEmpty());
+        QVERIFY(s.model.validate().isEmpty());
+
+        const Wells::Restored back = Wells::restore(s.model, a);
+        QVERIFY(back.result.ok);
+        QCOMPARE(back.how, QStringLiteral("original"));
+        QCOMPARE(s.model.anchor(s.main)->views, (QStringList{a, b}));
+        QCOMPARE(s.model.anchor(s.main)->activeViewId, b);
+    }
+
+    void lockedPanelsStayPut()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(s.model.splitView(b, s.main, Edge::Right).ok);
+        const QString panel = s.model.anchorOfView(b);
+        QVERIFY(s.model.setAnchorLayoutLocked(panel, true).ok);
+        QCOMPARE(Wells::minimizeAnchor(s.model, panel).code, QStringLiteral("LAYOUT_LOCKED"));
+        QVERIFY(s.model.setAnchorLayoutLocked(panel, false).ok);
+        QVERIFY(s.model.setAnchorContentLocked(panel, true).ok);
+        QVERIFY(!Wells::minimizeAnchor(s.model, panel, {}, Origin::Agent).ok);
+        QVERIFY(Wells::minimizeAnchor(s.model, panel).ok); // the person still can
+        const WellEntry *entry = onlyEntry(s.model);
+        QVERIFY(entry->panelInfo.contentLocked);
+        QVERIFY(s.model.setWellEntryPinned(entry->id, true).code == QStringLiteral("NOT_PINNABLE"));
+    }
+
+    void aPanelPutAwaySurvivesSaveLoadAndUndo()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(s.model.splitView(b, s.main, Edge::Right).ok);
+        const QString panel = s.model.anchorOfView(b);
+        const QString c = s.open(editorView(QStringLiteral("c")), panel);
+        QVERIFY(s.model.renameAnchor(panel, QStringLiteral("Notes")).ok);
+        const WorkspaceModel::Data before = s.model.data();
+        QVERIFY(Wells::minimizeAnchor(s.model, panel).ok);
+
+        const QJsonObject snapshot = Codec::encodeSnapshot(s.model);
+        WorkspaceModel loaded(counter());
+        const Codec::LoadReport report = Codec::decodeSnapshot(snapshot, ViewTypeRegistry::withBuiltIns(), loaded);
+        QVERIFY2(report.ok, qPrintable(report.error));
+        QVERIFY(loaded.validate().isEmpty());
+        QVERIFY(loaded.isMinimized(b) && loaded.isMinimized(c));
+        const WellEntry *entry = onlyEntry(loaded);
+        QVERIFY(entry && entry->panel);
+        QCOMPARE(entry->panelInfo.name, QStringLiteral("Notes"));
+        const Wells::Restored back = Wells::restore(loaded, b);
+        QVERIFY(back.result.ok);
+        QCOMPARE(loaded.anchor(back.anchorId)->views, (QStringList{b, c}));
+        QCOMPARE(loaded.anchor(back.anchorId)->name, QStringLiteral("Notes"));
+
+        // Undo puts the panel itself back, same id.
+        QVERIFY(s.model.setData(before).isEmpty());
+        QCOMPARE(s.model.anchor(panel)->views, (QStringList{b, c}));
+        QVERIFY(s.model.well(WorkspaceModel::kMainWellId)->entries.isEmpty());
+    }
+
+    void leaveOnTopIsSaved()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(s.model.detachView(b, QRectF(50, 50, 300, 200), {}, Origin::User, true).ok);
+        const QString surfaceId = s.model.surfaceOfAnchor(s.model.anchorOfView(b));
+        QVERIFY(!s.model.surface(surfaceId)->leaveOnTop);
+        QVERIFY(s.model.setSurfaceLeaveOnTop(surfaceId, true).ok);
+        QVERIFY(!s.model.setSurfaceLeaveOnTop(QStringLiteral("nope"), true).ok);
+
+        WorkspaceModel loaded(counter());
+        QVERIFY(Codec::decodeSnapshot(Codec::encodeSnapshot(s.model), ViewTypeRegistry::withBuiltIns(), loaded).ok);
+        const SurfaceRecord *surface = loaded.surface(loaded.surfaceOfAnchor(loaded.anchorOfView(b)));
+        QVERIFY(surface && surface->leaveOnTop);
+    }
 };
 
 QTEST_GUILESS_MAIN(CoreWellsTest)

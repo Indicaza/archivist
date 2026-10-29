@@ -199,6 +199,9 @@ struct SurfaceRecord
     // a person's own tab), or "sidebar.bottom" under whichever tab shows.
     // At most one surface per slot. Its geometry only keeps a size.
     QString sidebarSlot;
+    // A floating panel in the main window normally tucks itself into the
+    // Well when the person works somewhere else; this keeps it out.
+    bool leaveOnTop = false;
 };
 
 struct OpResult
@@ -295,6 +298,21 @@ struct MinimizedView
     Place place;
 };
 
+// A whole panel put away as one entry: what it was, so it comes back the
+// same (tab order and the active tab come from the entry's views).
+struct MinimizedPanel
+{
+    QString anchorId; // the panel it was (it may be gone by the time it's back)
+    QString name;     // the name the user gave it, if any
+    QString displayName; // what it was called when put away
+    QString activeViewId;
+    QStringList roles;
+    QString libraryId;
+    bool pinned = false;
+    bool contentLocked = false;
+    bool switchable = false;
+};
+
 struct WellEntry
 {
     QString id;
@@ -308,6 +326,10 @@ struct WellEntry
     // Its views put away here, oldest first. An entry that is not pinned
     // always has at least one.
     QList<MinimizedView> minimized;
+    // A whole panel: its views (in tab order, any resources) come back
+    // together, into one panel where it was. Never pinned, no resource.
+    bool panel = false;
+    MinimizedPanel panelInfo;
 };
 
 // How a Well lays out its entries. Only Linear is drawn today; the rest are

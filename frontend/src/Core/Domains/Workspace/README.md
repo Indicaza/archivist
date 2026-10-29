@@ -306,8 +306,21 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   spreading apart, the trip into and out of the Well) is a transform on top,
   so the slot under the pointer never moves. A tab's menu has Minimize to
   Well and Keep in Well; an icon's menu restores, pins, unpins or closes.
-  The Well moves from its grip or edge after the usual drag threshold, snaps
-  to the centre line and edges, and keeps clear of the compact composer.
+  The Well floats above floating panels (below the drag picture) and moves
+  anywhere in the window from its grip or edge after the usual drag
+  threshold, snapping to the centre line and edges.
+- **Whole panels.** A panel's menu or its header button puts the whole panel
+  away as one entry (`Wells::minimizeAnchor`): its name, flags, active tab and
+  views in tab order. A click brings it back as it was, at its old place
+  (`Wells::restore` dispatches to the panel path). The main window's last
+  panel stays, empty, to take its tabs back. Locked panels stay put.
+- **Dropping on the Well.** While dragging a tab or panel, a pointer over the
+  Well aims at it (`WorkspaceStore::updateDragOverWell`); letting go puts it
+  away in one step, the same as the menu.
+- **Tucking away.** A floating panel in the main window goes back into the
+  Well when focus moves elsewhere, as one history step, unless it is marked
+  Leave on Top (`SurfaceRecord::leaveOnTop`, saved with the surface, not a
+  history step). Sidebar panels and separate windows never tuck.
 
 ## The sidebar
 

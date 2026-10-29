@@ -9,6 +9,8 @@ import "../../Files/FileIdentity.js" as FileIdentity
 Item {
     id: root
 
+    objectName: "dock.tab"
+
     required property var theme
     required property var workspace
     required property string anchorId

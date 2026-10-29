@@ -556,6 +556,8 @@ private slots:
         {
             WorkspaceStore store;
             store.setCollection(QStringLiteral("float-default"));
+            // Several floating panels side by side (none tucks into the Well).
+            store.setFloatingPanelsTuckAway(false);
             const QString surface = store.primarySurfaceId();
             store.setSurfaceSize(surface, 1000, 600);
             KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
@@ -774,6 +776,8 @@ private slots:
         const QString bottom = QStringLiteral("sidebar.bottom");
         WorkspaceStore store;
         store.setCollection(QStringLiteral("sidebar-edges"));
+        // Several floating panels side by side (none tucks into the Well).
+        store.setFloatingPanelsTuckAway(false);
         store.setSidebarSlots({tab, other});
         const QString surface = store.primarySurfaceId();
         store.setSurfaceSize(surface, 1000, 600);
@@ -1125,6 +1129,8 @@ private slots:
     {
         WorkspaceStore store;
         store.setCollection(QStringLiteral("float-menu"));
+        // Several floating panels side by side (none tucks into the Well).
+        store.setFloatingPanelsTuckAway(false);
         const QString surface = store.primarySurfaceId();
         store.setSurfaceSize(surface, 1000, 600);
         KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
@@ -2835,6 +2841,118 @@ private slots:
 
         QVERIFY(store.setWellEntryPinned(entryId, false).value("ok").toBool());
         QVERIFY(store.wells().first().toMap().value("entries").toList().isEmpty());
+    }
+
+    // ---- Gravity Wells: panels, drops and floating panels -----------------
+
+    void aWholePanelGoesIntoTheWellAndUndoes()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-panel"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        const QString panel = store.splitView(b, store.view(b).value("anchorId").toString(), QStringLiteral("right"));
+        QVERIFY(!panel.isEmpty());
+        const QVariantMap put = store.minimizeAnchor(panel);
+        QVERIFY2(put.value("ok").toBool(), qPrintable(put.value("error").toString()));
+        QVERIFY(store.isViewMinimized(b));
+        const QVariantMap entry = store.wells().first().toMap().value("entries").toList().first().toMap();
+        QVERIFY(entry.value("panel").toBool());
+        QCOMPARE(entry.value("viewTitles").toStringList(), QStringList{QStringLiteral("b.cpp")});
+
+        QVERIFY(store.undo());
+        QVERIFY(!store.isViewMinimized(b));
+        QCOMPARE(store.view(b).value("anchorId").toString(), panel);
+        QVERIFY(store.redo());
+        QVERIFY(store.isViewMinimized(b));
+        QVERIFY(store.activateWellEntry(entry.value("entryId").toString()).value("ok").toBool());
+        QVERIFY(!store.isViewMinimized(b));
+    }
+
+    void droppingOnTheWellPutsItAway()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-drop"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c.cpp");
+        const QString panel = store.splitView(c, store.view(c).value("anchorId").toString(), QStringLiteral("right"));
+
+        // A tab: over the Well, then away again, nothing changes...
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverWell(QStringLiteral("well.main"));
+        QCOMPARE(store.dragWellId(), QStringLiteral("well.main"));
+        QVERIFY(!store.dropFloats());
+        QVERIFY(!store.isViewMinimized(b)); // nothing happens before the drop
+        store.updateDrag(store.primarySurfaceId(), 5, 5);
+        QVERIFY(store.dragWellId().isEmpty());
+        store.cancelDrag();
+        QVERIFY(!store.isViewMinimized(b));
+
+        // ...let go over it, and it's put away, one step.
+        QSignalSpy finished(&store, &WorkspaceStore::dragFinished);
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverWell(QStringLiteral("well.main"));
+        QVERIFY(store.finishDrag());
+        QVERIFY(store.isViewMinimized(b));
+        QVERIFY(!store.dragActive());
+        QCOMPARE(finished.last().at(0).toString(), QStringLiteral("committed"));
+        QCOMPARE(store.undoSummary(), QStringLiteral("Minimized “b.cpp”"));
+
+        // A panel goes as one.
+        QVERIFY(store.beginDrag(QStringLiteral("anchor"), panel));
+        store.updateDragOverWell(QStringLiteral("well.main"));
+        QVERIFY(store.finishDrag());
+        QVERIFY(store.isViewMinimized(c));
+        QCOMPARE(store.wells().first().toMap().value("entries").toList().size(), 2);
+
+        QVERIFY(store.undo());
+        QVERIFY(!store.isViewMinimized(c));
+        QVERIFY(store.undo());
+        QVERIFY(!store.isViewMinimized(b));
+    }
+
+    void floatingPanelsTuckAwayUnlessLeftOnTop()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-tuck"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString main = store.view(a).value("anchorId").toString();
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c.cpp");
+        QVERIFY(!store.floatView(b, 100, 100, 400, 300).isEmpty());
+        const QString bPanel = store.view(b).value("anchorId").toString();
+        QVERIFY(store.focusAnchor(bPanel));
+
+        // Working somewhere else: it goes into the Well, one undoable step.
+        QVERIFY(store.focusAnchor(main));
+        QVERIFY(store.isViewMinimized(b));
+        QVERIFY(store.panelSurfaceIds().isEmpty());
+        QVERIFY(store.undoSummary().startsWith(QStringLiteral("Tucked")));
+
+        // Clicking it brings it back floating where it was.
+        const QString entryId = store.wells().first().toMap().value("entries").toList().first().toMap().value("entryId").toString();
+        QVERIFY(store.activateWellEntry(entryId).value("ok").toBool());
+        QVERIFY(!store.isViewMinimized(b));
+        QCOMPARE(store.panelSurfaceIds().size(), 1);
+        const QString bSurface = store.panelSurfaceIds().first();
+        QCOMPARE(store.surface(bSurface).value("x").toDouble(), 100.0);
+
+        // A second floating panel brought out sends the first one back.
+        QVERIFY(!store.floatView(c, 600, 100, 400, 300).isEmpty());
+        QVERIFY(store.focusAnchor(store.view(c).value("anchorId").toString()));
+        QVERIFY(store.isViewMinimized(b));
+
+        // Left on top, it stays out.
+        const QString cSurface = store.panelSurfaceIds().first();
+        QVERIFY(store.setSurfaceLeaveOnTop(cSurface, true));
+        QVERIFY(store.surface(cSurface).value("leaveOnTop").toBool());
+        QVERIFY(store.focusAnchor(main));
+        QVERIFY(!store.isViewMinimized(c));
+        QVERIFY(store.view(c).value("anchorId").toString() != main);
     }
 
     // What the Well bar and the tab menu read.

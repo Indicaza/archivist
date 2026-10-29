@@ -71,6 +71,96 @@ QVariantMap WorkspaceStore::minimizeView(const QString &viewId)
     return {{QStringLiteral("ok"), true}, {QStringLiteral("entryId"), result.createdId}};
 }
 
+QVariantMap WorkspaceStore::minimizeAnchor(const QString &anchorId)
+{
+    if (!m_model.anchor(anchorId)) {
+        return failed(OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("That panel is gone.")));
+    }
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+    HistoryStep step = historyStep(QStringLiteral("Minimized “%1”").arg(m_model.anchorDisplayName(anchorId)));
+    const OpResult result = Wells::minimizeAnchor(m_model, anchorId);
+    if (!result.ok) {
+        return failed(result);
+    }
+    recordStep(std::move(step));
+    publish();
+    return {{QStringLiteral("ok"), true}, {QStringLiteral("entryId"), result.createdId}};
+}
+
+bool WorkspaceStore::setSurfaceLeaveOnTop(const QString &surfaceId, bool leaveOnTop)
+{
+    const int before = m_model.revision();
+    if (!m_model.setSurfaceLeaveOnTop(surfaceId, leaveOnTop).ok) {
+        return false;
+    }
+    if (m_model.revision() != before) {
+        publish();
+    }
+    return true;
+}
+
+bool WorkspaceStore::tucksAway(const QString &surfaceId) const
+{
+    const SurfaceRecord *surface = m_model.surface(surfaceId);
+    return surface && !surface->primary && surface->inMainWindow && surface->sidebarSlot.isEmpty() && !surface->leaveOnTop;
+}
+
+void WorkspaceStore::tuckAwayFloatingPanels(const QString &previousFocus)
+{
+    const QString surfaceId = m_model.surfaceOfAnchor(previousFocus);
+    if (!m_tuckFloatingPanels || m_drag.kind != DragSource::Kind::None || !tucksAway(surfaceId)
+        || m_model.surfaceOfAnchor(m_model.focusedAnchorId()) == surfaceId) {
+        return;
+    }
+    const QStringList anchors = m_model.anchorIds(surfaceId);
+    QStringList names;
+    for (const QString &anchorId : anchors) {
+        names.append(m_model.anchorDisplayName(anchorId));
+    }
+    HistoryStep step = historyStep(QStringLiteral("Tucked “%1” into the Well").arg(names.join(QStringLiteral(", "))));
+    bool changed = false;
+    for (const QString &anchorId : anchors) {
+        changed = Wells::minimizeAnchor(m_model, anchorId).ok || changed;
+    }
+    if (changed) {
+        recordStep(std::move(step));
+        publish();
+    }
+}
+
+bool WorkspaceStore::dropIntoWell(const DragSource &source, const QString &wellId, bool allowed)
+{
+    QVariantMap details{
+        {QStringLiteral("kind"), source.kind == DragSource::Kind::View ? QStringLiteral("view") : QStringLiteral("anchor")},
+        {QStringLiteral("id"), source.id},
+        {QStringLiteral("target"), QVariantMap{{QStringLiteral("well"), wellId}}},
+    };
+    OpResult result = allowed ? OpResult::success()
+                              : OpResult::failure(QStringLiteral("LAYOUT_LOCKED"), QStringLiteral("It's locked in place."));
+    if (result.ok) {
+        HistoryStep step = historyStep(QStringLiteral("Minimized %1").arg(dragSourceTitle(source)));
+        result = source.kind == DragSource::Kind::View ? Wells::minimize(m_model, source.id, wellId)
+                                                       : Wells::minimizeAnchor(m_model, source.id, wellId);
+        if (result.ok) {
+            recordStep(std::move(step));
+            details.insert(QStringLiteral("entryId"), result.createdId);
+        }
+    }
+    publish();
+    emit dragChanged();
+    if (result.ok) {
+        emit dragFinished(QStringLiteral("committed"), details);
+    } else {
+        details.insert(QStringLiteral("code"), result.code);
+        details.insert(QStringLiteral("reason"), result.message);
+        emit operationFailed(result.message);
+        emit dragFinished(QStringLiteral("refused"), details);
+    }
+    return result.ok;
+}
+
 QVariantMap WorkspaceStore::restoreMinimizedView(const QString &viewId)
 {
     if (!m_model.isMinimized(viewId)) {
@@ -80,14 +170,19 @@ QVariantMap WorkspaceStore::restoreMinimizedView(const QString &viewId)
         cancelDrag();
     }
     const ViewRecord *view = m_model.view(viewId);
-    const QString title = view->title.isEmpty() ? QStringLiteral("a tab") : QStringLiteral("“%1”").arg(view->title);
+    const WellEntry *entry = m_model.wellEntry(m_model.entryOfMinimizedView(viewId));
+    const QString name = entry && entry->panel ? entry->title : view->title;
+    const QString title = name.isEmpty() ? QStringLiteral("a tab") : QStringLiteral("“%1”").arg(name);
     HistoryStep step = historyStep(QStringLiteral("Restored %1").arg(title));
+    const QString previous = m_model.focusedAnchorId();
     const Wells::Restored restored = Wells::restore(m_model, viewId);
     if (!restored.result.ok) {
         return failed(restored.result);
     }
     recordStep(std::move(step));
     publish();
+    // One floating panel out at a time: the one it replaces goes back.
+    tuckAwayFloatingPanels(previous);
     emit viewFocused(viewId);
     return wellResult(restored);
 }
@@ -110,6 +205,7 @@ QVariantMap WorkspaceStore::activateWellEntry(const QString &entryId)
     const QString typeId = entry->typeId;
     // Opening it again is a step; bringing it forward is only focus.
     HistoryStep step = historyStep(QStringLiteral("Opened %1").arg(title));
+    const QString previous = m_model.focusedAnchorId();
     const Wells::Restored activated = Wells::activate(m_model, entryId);
     if (!activated.result.ok) {
         return failed(activated.result);
@@ -124,6 +220,7 @@ QVariantMap WorkspaceStore::activateWellEntry(const QString &entryId)
     } else {
         publish();
     }
+    tuckAwayFloatingPanels(previous);
     emit viewFocused(activated.viewId);
     return wellResult(activated);
 }

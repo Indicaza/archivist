@@ -20,8 +20,10 @@ Item {
     required property var workspace
     // One row of Docking.wells().
     required property var well
-    // Room kept free at the bottom (the compact chat composer floats there).
-    property real bottomClearance: 0
+    // A tab or panel is being dragged, and over this Well: letting go puts
+    // it away here.
+    readonly property bool dragging: Docking.dragActive
+    readonly property bool dropHere: dragging && Docking.dragWellId === wellId
 
     readonly property string wellId: String(well.wellId || "")
     readonly property var entries: {
@@ -69,8 +71,24 @@ Item {
         { x: Number(well.x), y: Number(well.y) },
         width, height,
         parent ? parent.width : 0, parent ? parent.height : 0,
-        margin, bottomClearance
+        margin, 0
     )
+
+    // Leans in when something is held over it.
+    scale: dropHere && !theme.reducedMotion ? 1.08 : 1
+    transformOrigin: Item.Bottom
+    Behavior on scale {
+        enabled: !root.theme.reducedMotion
+        SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.005 }
+    }
+
+    // Where something dropped here lands, in `item`'s coordinates: the end
+    // of the row, where its icon appears.
+    function landingRect(item) {
+        var size = theme.px(40)
+        var corner = mapToItem(item, Math.max(0, width - size - theme.px(6)), Math.max(0, (height - size) / 2))
+        return Qt.rect(corner.x, corner.y, size, size)
+    }
 
     x: moving ? moveX : rest.x
     y: moving ? moveY : rest.y
@@ -110,9 +128,11 @@ Item {
         anchors.fill: parent
         radius: root.empty ? height / 2 : root.theme.radiusLarge
         color: Qt.rgba(root.theme.compactComposerBg.r, root.theme.compactComposerBg.g, root.theme.compactComposerBg.b, root.empty ? 0.72 : 0.9)
-        border.width: 1
-        border.color: root.moving || backgroundArea.containsMouse ? root.theme.compactComposerBorderHover : root.theme.compactComposerBorder
-        opacity: root.empty && !backgroundArea.containsMouse && !root.moving ? 0.7 : 1
+        border.width: root.dropHere ? 2 : 1
+        border.color: root.dropHere ? root.theme.accentBright
+            : root.dragging ? Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.45)
+            : root.moving || backgroundArea.containsMouse ? root.theme.compactComposerBorderHover : root.theme.compactComposerBorder
+        opacity: root.empty && !backgroundArea.containsMouse && !root.moving && !root.dragging ? 0.7 : 1
 
         Behavior on border.color { ColorAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.motionFast } }
         Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.motionHover } }
@@ -170,7 +190,7 @@ Item {
             var areaWidth = root.parent ? root.parent.width : 0
             var areaHeight = root.parent ? root.parent.height : 0
             root.moveX = Math.max(root.margin, Math.min(areaWidth - root.width - root.margin, startX + dx))
-            root.moveY = Math.max(root.margin, Math.min(areaHeight - root.height - root.margin - root.bottomClearance, startY + dy))
+            root.moveY = Math.max(root.margin, Math.min(areaHeight - root.height - root.margin, startY + dy))
         }
         onReleased: {
             if (!root.moving) {
@@ -179,7 +199,7 @@ Item {
             var position = WellGeometry.position(
                 root.moveX, root.moveY, root.width, root.height,
                 root.parent ? root.parent.width : 0, root.parent ? root.parent.height : 0,
-                root.margin, root.bottomClearance, root.theme.px(18)
+                root.margin, 0, root.theme.px(18)
             )
             Docking.setWellPosition(root.wellId, position.x, position.y)
             root.moving = false
@@ -232,7 +252,7 @@ Item {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: "Minimized tabs land here"
+            text: root.dropHere ? "Let go to put it away" : root.dragging ? "Drop here to minimize" : "Minimized tabs land here"
             color: root.theme.mutedText
             font.family: root.theme.bodyFontFamily
             font.pixelSize: root.theme.textCaptionSize
@@ -257,8 +277,8 @@ Item {
 
             theme: root.theme
             workspace: root.workspace
-            entry: root.entries[index]
-            slot: root.geometry.slots[index]
+            entry: root.entries[index] || ({})
+            slot: root.geometry.slots[index] || ({ x: 0, y: 0, size: 0 })
             onMenuRequested: function(entry, source, x, y) {
                 entryMenu.entry = entry
                 entryMenu.popup(source, x, y)
@@ -280,17 +300,18 @@ Item {
             text: entryMenu.entryState === "minimized" ? "Restore" : entryMenu.entryState === "pinnedOpen" ? "Show" : "Open"
             onTriggered: Docking.activateWellEntry(String(entryMenu.entry.entryId || ""))
         }
-        DockMenuSeparator { theme: root.theme }
+        DockMenuSeparator { theme: root.theme; visible: !entryMenu.entry.panel }
         DockMenuItem {
             theme: root.theme
             text: entryMenu.entry.pinned ? "Unpin from Well" : "Keep in Well"
+            visible: !entryMenu.entry.panel
             onTriggered: Docking.setWellEntryPinned(String(entryMenu.entry.entryId || ""), !entryMenu.entry.pinned)
         }
         DockMenuItem {
             theme: root.theme
             text: "Close"
             // One at a time, so each can ask about unsaved changes.
-            visible: entryMenu.minimizedIds.length === 1
+            visible: entryMenu.minimizedIds.length === 1 && !entryMenu.entry.panel
             onTriggered: root.workspace.closeView(String(entryMenu.minimizedIds[0] || ""))
         }
     }

@@ -9,6 +9,8 @@ import "../../Icons"
 Item {
     id: root
 
+    objectName: "dock.well.icon"
+
     required property var theme
     required property var workspace
     required property var entry
@@ -39,10 +41,16 @@ Item {
     })
     readonly property string title: {
         ChatStore.chats
+        if (panel && String(entry.title || "").length > 0) {
+            return String(entry.title)
+        }
         var name = root.workspace.viewTitle(info)
         return name.length > 0 ? name : "Untitled"
     }
     readonly property bool minimized: minimizedIds.length > 0
+    // A whole panel put away: its tabs come back together.
+    readonly property bool panel: entry.panel === true
+    readonly property var tabTitles: entry.viewTitles || []
     readonly property bool open: openIds.length > 0
     readonly property bool focusedHere: {
         Docking.revision
@@ -52,7 +60,9 @@ Item {
         Documents.revision
         return resource.kind === "document" && Documents.isDirty(String(resource.id || ""))
     }
-    readonly property string stateText: entryState === "minimized"
+    readonly property string stateText: panel
+        ? "Panel" + (tabTitles.length > 1 ? " · " + tabTitles.length + " tabs" : "") + " · click to restore"
+        : entryState === "minimized"
         ? (minimizedIds.length > 1 ? minimizedIds.length + " minimized · click to restore" : "Minimized · click to restore")
         : entryState === "pinnedOpen"
             ? "Pinned · open"
@@ -102,6 +112,30 @@ Item {
             accessibleLabel: root.title
         }
 
+        // A panel of several tabs: how many, in the corner.
+        Rectangle {
+            visible: root.panel && root.tabTitles.length > 1
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: root.theme.px(3)
+            width: Math.max(height, countText.implicitWidth + root.theme.px(6))
+            height: root.theme.px(13)
+            radius: height / 2
+            color: root.theme.activeBg
+            border.width: 1
+            border.color: root.theme.panelBorder
+
+            Text {
+                id: countText
+
+                anchors.centerIn: parent
+                text: String(root.tabTitles.length)
+                color: root.theme.appText
+                font.family: root.theme.bodyFontFamily
+                font.pixelSize: root.theme.px(9)
+            }
+        }
+
         // Unsaved changes: a small mark in the corner, as on its tab.
         Rectangle {
             visible: root.dirty
@@ -149,4 +183,5 @@ Item {
     ToolTip.visible: hit.containsMouse && !hit.pressed
     ToolTip.delay: 350
     ToolTip.text: root.title + "\n" + root.stateText
+        + (root.panel && root.tabTitles.length > 1 ? "\n" + root.tabTitles.join(", ") : "")
 }

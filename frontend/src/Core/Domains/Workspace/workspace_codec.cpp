@@ -163,6 +163,9 @@ QJsonArray encodeSurfaces(const WorkspaceModel &model, bool withHistory)
         if (!surface->sidebarSlot.isEmpty()) {
             object.insert(QStringLiteral("sidebarSlot"), surface->sidebarSlot);
         }
+        if (surface->leaveOnTop) {
+            object.insert(QStringLiteral("leaveOnTop"), true);
+        }
         if (!surface->maximizedAnchorId.isEmpty()) {
             object.insert(QStringLiteral("maximizedAnchor"), surface->maximizedAnchorId);
         }
@@ -211,6 +214,7 @@ public:
             if (!surface.sidebarSlot.isEmpty()) {
                 surface.inMainWindow = false;
             }
+            surface.leaveOnTop = !surface.primary && object.value(QStringLiteral("leaveOnTop")).toBool();
             surface.maximizedAnchorId = object.value(QStringLiteral("maximizedAnchor")).toString();
             m_currentSurface = surface.id;
             surface.rootNodeId = readNode(object.value(QStringLiteral("root")).toObject(), QString());
@@ -592,6 +596,19 @@ QJsonArray encodeWells(const WorkspaceModel &model)
             if (!entry.title.isEmpty()) object.insert(QStringLiteral("title"), entry.title);
             if (entry.pinned) object.insert(QStringLiteral("pinned"), true);
             if (!minimized.isEmpty()) object.insert(QStringLiteral("minimized"), minimized);
+            if (entry.panel) {
+                const MinimizedPanel &panel = entry.panelInfo;
+                QJsonObject info{{QStringLiteral("anchor"), panel.anchorId}};
+                if (!panel.name.isEmpty()) info.insert(QStringLiteral("name"), panel.name);
+                if (!panel.displayName.isEmpty()) info.insert(QStringLiteral("displayName"), panel.displayName);
+                if (!panel.activeViewId.isEmpty()) info.insert(QStringLiteral("activeView"), panel.activeViewId);
+                if (!panel.roles.isEmpty()) info.insert(QStringLiteral("roles"), QJsonArray::fromStringList(panel.roles));
+                if (!panel.libraryId.isEmpty()) info.insert(QStringLiteral("library"), panel.libraryId);
+                if (panel.pinned) info.insert(QStringLiteral("pinned"), true);
+                if (panel.contentLocked) info.insert(QStringLiteral("contentLocked"), true);
+                if (panel.switchable) info.insert(QStringLiteral("switchable"), true);
+                object.insert(QStringLiteral("panel"), info);
+            }
             entries.append(object);
         }
         QJsonObject object{
@@ -656,6 +673,23 @@ QList<WellRecord> decodeWells(
             entry.typeId = entryObject.value(QStringLiteral("type")).toString();
             entry.title = entryObject.value(QStringLiteral("title")).toString();
             entry.pinned = entryObject.value(QStringLiteral("pinned")).toBool() && !entry.resource.isEmpty();
+            if (entryObject.value(QStringLiteral("panel")).isObject()) {
+                const QJsonObject info = entryObject.value(QStringLiteral("panel")).toObject();
+                entry.panel = true;
+                entry.pinned = false;
+                entry.resource = {};
+                entry.panelInfo.anchorId = info.value(QStringLiteral("anchor")).toString();
+                entry.panelInfo.name = info.value(QStringLiteral("name")).toString();
+                entry.panelInfo.displayName = info.value(QStringLiteral("displayName")).toString();
+                entry.panelInfo.activeViewId = info.value(QStringLiteral("activeView")).toString();
+                for (const QJsonValue &role : info.value(QStringLiteral("roles")).toArray()) {
+                    entry.panelInfo.roles.append(role.toString());
+                }
+                entry.panelInfo.libraryId = info.value(QStringLiteral("library")).toString();
+                entry.panelInfo.pinned = info.value(QStringLiteral("pinned")).toBool();
+                entry.panelInfo.contentLocked = info.value(QStringLiteral("contentLocked")).toBool();
+                entry.panelInfo.switchable = info.value(QStringLiteral("switchable")).toBool();
+            }
             for (const QJsonValue &minimizedValue : entryObject.value(QStringLiteral("minimized")).toArray()) {
                 const QJsonObject minimizedObject = minimizedValue.toObject();
                 const QString viewId = minimizedObject.value(QStringLiteral("view")).toString();

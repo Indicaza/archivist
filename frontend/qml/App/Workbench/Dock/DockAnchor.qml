@@ -243,6 +243,8 @@ Item {
         Item {
             id: label
 
+            objectName: "dock.anchor.label"
+
             readonly property bool active: labelArea.containsMouse || labelArea.pressed || panelMenu.visible
             readonly property real nameRoom: Math.max(36, root.width * (root.compactHeader ? 0.38 : 0.3))
 
@@ -751,6 +753,40 @@ Item {
                 }
             }
 
+            // Minimize: the whole panel goes into the Gravity Well.
+            Button {
+                id: minimizeButton
+
+                objectName: "well.minimizeButton"
+                visible: !root.layoutLocked && root.viewIds.length > 0
+                width: 24
+                height: 24
+                padding: 0
+                hoverEnabled: true
+                focusPolicy: Qt.NoFocus
+                ToolTip.visible: hovered
+                ToolTip.delay: 350
+                ToolTip.text: "Minimize to Well"
+                Accessible.name: "Minimize to Well"
+                onClicked: root.workspace.minimizeAnchor(root.anchorId)
+
+                contentItem: Item {
+                    Rectangle {
+                        anchors.centerIn: parent
+                        anchors.verticalCenterOffset: 3
+                        width: 10
+                        height: 1.5
+                        radius: 0.75
+                        color: minimizeButton.hovered ? root.theme.appText : root.theme.mutedText
+                    }
+                }
+
+                background: Rectangle {
+                    radius: root.theme.radiusSmall
+                    color: minimizeButton.down ? root.theme.activeBg : minimizeButton.hovered ? root.theme.hoverBg : "transparent"
+                }
+            }
+
             IconButton {
                 visible: !root.compactHeader
                 theme: root.theme
@@ -782,9 +818,15 @@ Item {
 
         // Worked out as the menu opens, not on every layout change.
         property bool canReturn: false
+        property bool tabPinned: false
+        property bool leftOnTop: false
 
         theme: root.theme
-        onAboutToShow: canReturn = Docking.canReturnToPrevious("anchor", root.anchorId)
+        onAboutToShow: {
+            canReturn = Docking.canReturnToPrevious("anchor", root.anchorId)
+            tabPinned = root.activeViewId.length > 0 && Docking.isViewPinned(root.activeViewId)
+            leftOnTop = Docking.surface(root.surfaceId).leaveOnTop === true
+        }
 
         DockMenuItem {
             theme: root.theme
@@ -820,6 +862,34 @@ Item {
             text: "Return to Previous Position"
             visible: panelMenu.canReturn
             onTriggered: root.workspace.returnToPrevious("anchor", root.anchorId)
+        }
+        DockMenuSeparator { theme: root.theme }
+        // Gravity Well: put the panel away, keep its tab handy, or keep a
+        // floating panel out when you work elsewhere.
+        DockMenuItem {
+            objectName: "well.minimizePanel"
+            theme: root.theme
+            text: "Minimize to Well"
+            visible: root.viewIds.length > 0
+            enabled: !root.layoutLocked
+            onTriggered: root.workspace.minimizeAnchor(root.anchorId)
+        }
+        DockMenuItem {
+            objectName: "well.pinTab"
+            theme: root.theme
+            text: panelMenu.tabPinned ? "Unpin Tab from Well" : "Keep Tab in Well"
+            visible: root.activeViewId.length > 0 && String((root.activeInfo.resource || {}).kind || "").length > 0
+            onTriggered: Docking.setViewPinned(root.activeViewId, !panelMenu.tabPinned)
+        }
+        DockMenuItem {
+            objectName: "well.leaveOnTop"
+            theme: root.theme
+            text: "Leave on Top"
+            shortcutText: "stays out"
+            checkable: true
+            checked: panelMenu.leftOnTop
+            visible: root.workspace.isPanel && !root.workspace.isInSidebar
+            onTriggered: Docking.setSurfaceLeaveOnTop(root.surfaceId, !panelMenu.leftOnTop)
         }
         DockMenuSeparator { theme: root.theme }
 

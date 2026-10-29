@@ -55,6 +55,8 @@ Item {
     function closeAnchor(anchorId) { workspace.closeAnchor(anchorId) }
     function closeView(viewId) { workspace.closeView(viewId) }
     function closeOtherViews(viewId) { workspace.closeOtherViews(viewId) }
+    function minimizeView(viewId) { workspace.minimizeView(viewId) }
+    function minimizeAnchor(anchorId) { workspace.minimizeAnchor(anchorId) }
     function revealView(viewId) { workspace.revealView(viewId) }
     function openChat(anchorId) { workspace.openChat(anchorId) }
     function openTerminal(anchorId) { workspace.openTerminal(anchorId) }
