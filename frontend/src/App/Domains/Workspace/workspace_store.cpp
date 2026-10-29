@@ -1380,19 +1380,42 @@ QString WorkspaceStore::preferredAnchorFor(const QString &typeId) const
 
 QVariantMap WorkspaceStore::tabStripAt(const QString &surfaceId, double x, double y, double stripHeight) const
 {
+    if (stripHeight <= 0) {
+        return {};
+    }
+
     const LayoutGeometry geometry = m_model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
+    // A header near a horizontal split should claim the pointer before the
+    // split zone does. Hit-test the committed geometry so animated previews
+    // cannot move the target from under the cursor.
+    const double above = qMin(22.0, stripHeight * 0.75);
+    const double below = qMin(12.0, stripHeight * 0.375);
+    QString closest;
+    double bestDistance = stripHeight + above + below;
 
     for (auto it = geometry.anchors.cbegin(); it != geometry.anchors.cend(); ++it) {
-        const QRectF strip(it.value().left(), it.value().top(), it.value().width(), stripHeight);
-        if (strip.contains(QPointF(x, y))) {
-            return {
-                {QStringLiteral("anchorId"), it.key()},
-                {QStringLiteral("localX"), x - it.value().left()},
-            };
+        const QRectF &rect = it.value();
+        if (rect.isEmpty() || x < rect.left() || x >= rect.right()
+            || y < rect.top() - above || y >= rect.top() + stripHeight + below) {
+            continue;
+        }
+        const double distance = y < rect.top() ? rect.top() - y
+            : y > rect.top() + stripHeight ? y - rect.top() - stripHeight : 0.0;
+        if (closest.isEmpty() || distance < bestDistance
+            || (distance == bestDistance && it.key() < closest)) {
+            bestDistance = distance;
+            closest = it.key();
         }
     }
 
-    return {};
+    if (closest.isEmpty()) {
+        return {};
+    }
+    const QRectF selected = geometry.anchors.value(closest);
+    return {
+        {QStringLiteral("anchorId"), closest},
+        {QStringLiteral("localX"), x - selected.left()},
+    };
 }
 
 // ---- splits --------------------------------------------------------------
