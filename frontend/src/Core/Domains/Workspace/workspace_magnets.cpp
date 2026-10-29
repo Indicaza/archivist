@@ -1,5 +1,6 @@
 #include "Core/Domains/Workspace/workspace_magnets.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace Workspace::Magnets
@@ -121,6 +122,7 @@ QString phaseName(Phase phase)
     case Phase::Idle: return QStringLiteral("idle");
     case Phase::Pickup: return QStringLiteral("pickup");
     case Phase::Free: return QStringLiteral("free");
+    case Phase::Aiming: return QStringLiteral("aiming");
     case Phase::Invalid: return QStringLiteral("invalid");
     case Phase::Preview: return QStringLiteral("preview");
     case Phase::Detached: return QStringLiteral("detached");
@@ -168,6 +170,81 @@ Preview preview(const WorkspaceModel &model, const DragSource &source, const Dro
     return out;
 }
 
+DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
+                        const QSizeF &surfaceSize, const LayoutMetrics &metrics, const DockZones &zones)
+{
+    if (!model.surface(surfaceId) || !QRectF(QPointF(0, 0), surfaceSize).contains(point)) {
+        return {};
+    }
+
+    DropTarget target;
+    target.surfaceId = surfaceId;
+
+    const double left = point.x();
+    const double right = surfaceSize.width() - point.x();
+    const double top = point.y();
+    const double bottom = surfaceSize.height() - point.y();
+    const double nearest = std::min({left, right, top, bottom});
+    if (model.anchorIds(surfaceId).size() > 1 && nearest <= zones.windowBand) {
+        target.edge = nearest == left ? Edge::Left : nearest == right ? Edge::Right : nearest == top ? Edge::Top : Edge::Bottom;
+        return target;
+    }
+
+    const LayoutGeometry geometry = model.computeGeometry(surfaceId, surfaceSize, metrics);
+    for (auto it = geometry.anchors.cbegin(); it != geometry.anchors.cend(); ++it) {
+        const QRectF &rect = it.value();
+        if (!rect.contains(point)) {
+            continue;
+        }
+        target.anchorId = it.key();
+        const AnchorRecord *anchor = model.anchor(it.key());
+        if (anchor && anchor->views.isEmpty()) {
+            // An empty panel is asking to be filled.
+            target.edge = Edge::Center;
+            return target;
+        }
+
+        const auto band = [&zones](double length) {
+            return std::clamp(length * zones.edgeShare, zones.edgeMinimum, std::max(zones.edgeMinimum, zones.edgeMaximum));
+        };
+        const double bandX = std::min(band(rect.width()), rect.width() / 2);
+        const double bandY = std::min(band(rect.height()), rect.height() / 2);
+        // How far into its band the point is, 0 at the edge: the deepest
+        // claim wins at the corners.
+        struct Candidate { Edge edge; double depth; };
+        const Candidate candidates[] = {
+            {Edge::Left, (point.x() - rect.left()) / bandX},
+            {Edge::Right, (rect.right() - point.x()) / bandX},
+            {Edge::Top, (point.y() - rect.top()) / bandY},
+            {Edge::Bottom, (rect.bottom() - point.y()) / bandY},
+        };
+        const Candidate *best = nullptr;
+        for (const Candidate &candidate : candidates) {
+            if (candidate.depth <= 1 && (!best || candidate.depth < best->depth)) {
+                best = &candidate;
+            }
+        }
+        if (!best) {
+            return {}; // open space in the middle of a panel
+        }
+        target.edge = best->edge;
+        return target;
+    }
+    return {}; // over a splitter
+}
+
+OpResult canFloat(const WorkspaceModel &model, const DragSource &source)
+{
+    if (!sourceExists(model, source)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("It's no longer open."));
+    }
+    WorkspaceModel copy = model;
+    const QRectF probe(40, 40, 480, 320);
+    return source.kind == DragSource::Kind::View
+        ? copy.detachView(source.id, probe, {}, Origin::User, true)
+        : copy.detachAnchor(source.id, probe, {}, true);
+}
+
 Place placeOf(const WorkspaceModel &model, const DragSource &source)
 {
     Place place;
@@ -198,6 +275,7 @@ Place placeOf(const WorkspaceModel &model, const DragSource &source)
     const bool anchorLeaves = source.kind == DragSource::Kind::Anchor || anchor->views.size() == 1;
     if (surface && !surface->primary && anchorLeaves && model.anchorIds(place.surfaceId).size() == 1) {
         place.aloneInFloatingWindow = true;
+        place.inMainWindow = surface->inMainWindow;
         place.windowGeometry = surface->geometry;
         place.screenName = surface->screenName;
     }
@@ -235,11 +313,14 @@ ReturnPlan planReturn(const WorkspaceModel &model, const Place &place)
 
     // It had a floating window to itself: it gets one again.
     if (place.aloneInFloatingWindow) {
-        if (now.aloneInFloatingWindow) {
-            plan.result = OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already in its own window."));
+        const SurfaceRecord *nowSurface = model.surface(now.surfaceId);
+        if (now.aloneInFloatingWindow && nowSurface && nowSurface->geometry == place.windowGeometry
+            && nowSurface->inMainWindow == place.inMainWindow) {
+            plan.result = OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."));
             return plan;
         }
         plan.detach = true;
+        plan.inMainWindow = place.inMainWindow;
         plan.geometry = place.windowGeometry;
         plan.screenName = place.screenName;
         plan.result = OpResult::success();

@@ -67,13 +67,22 @@ QVariantList WorkspaceStore::dragReflow() const
     return list;
 }
 
+Workspace::OpResult WorkspaceStore::currentRefusal() const
+{
+    if (m_drag.kind != DragSource::Kind::None && !m_dropTarget.isValid() && !m_dragDetached && m_floatAllowed == 0) {
+        return m_floatRefusal;
+    }
+    return m_dropRefusal;
+}
+
 QVariantMap WorkspaceStore::dragState() const
 {
     if (m_drag.kind == DragSource::Kind::None) {
         return {{QStringLiteral("phase"), Magnets::phaseName(Magnets::Phase::Idle)}, {QStringLiteral("active"), false}};
     }
     return {
-        {QStringLiteral("phase"), Magnets::phaseName(m_dragPhase)},
+        {QStringLiteral("phase"), Magnets::phaseName(
+            m_dragPhase == Magnets::Phase::Free && m_floatAllowed == 0 ? Magnets::Phase::Invalid : m_dragPhase)},
         {QStringLiteral("active"), true},
         {QStringLiteral("kind"), dragKind()},
         {QStringLiteral("id"), m_drag.id},
@@ -85,12 +94,20 @@ QVariantMap WorkspaceStore::dragState() const
             {QStringLiteral("rect"), Magnets::rectMap(m_dragSourceRect)},
         }},
         {QStringLiteral("target"), Magnets::targetMap(m_dropTarget)},
-        {QStringLiteral("valid"), m_dropAllowed},
-        {QStringLiteral("reasonCode"), m_dropRefusal.ok ? QString() : m_dropRefusal.code},
+        {QStringLiteral("valid"), m_dropAllowed || dropFloats()},
+        {QStringLiteral("reasonCode"), currentRefusal().ok ? QString() : currentRefusal().code},
         {QStringLiteral("reason"), dropRefusal()},
         {QStringLiteral("landingAnchorId"), m_landingAnchorId},
         {QStringLiteral("landingRect"), m_dropAllowed ? Magnets::rectMap(m_landingRect) : QVariantMap()},
         {QStringLiteral("detachRect"), detachRect()},
+        // No dock target: a drop floats it here (main window coordinates).
+        {QStringLiteral("floats"), dropFloats()},
+        {QStringLiteral("floatRect"), Magnets::rectMap(m_floatRect)},
+        // Held at a dock zone: it docks there after `dwellMs` (PR 2 can
+        // draw the pull from this).
+        {QStringLiteral("aim"), Magnets::targetMap(m_aimTarget)},
+        {QStringLiteral("aimSerial"), m_aimSerial},
+        {QStringLiteral("dwellMs"), m_dockDwellMs},
         {QStringLiteral("reflow"), dragReflow()},
         // Bumps on every target change: "preview updated".
         {QStringLiteral("previewSerial"), m_dragPreviewSerial},
@@ -138,8 +155,8 @@ QVariantMap WorkspaceStore::returnToPrevious(const QString &kind, const QString 
     HistoryStep step = historyStep(QStringLiteral("Put %1 back").arg(dragSourceTitle(source)));
     const OpResult result = plan.detach
         ? (source.kind == DragSource::Kind::View
-               ? m_model.detachView(source.id, plan.geometry, plan.screenName)
-               : m_model.detachAnchor(source.id, plan.geometry, plan.screenName))
+               ? m_model.detachView(source.id, plan.geometry, plan.screenName, Origin::User, plan.inMainWindow)
+               : m_model.detachAnchor(source.id, plan.geometry, plan.screenName, plan.inMainWindow))
         : m_model.applyDrop(source, plan.target);
     if (!result.ok) {
         return failure(result);
@@ -158,4 +175,51 @@ QVariantMap WorkspaceStore::returnToPrevious(const QString &kind, const QString 
     m_previousPlaces.insert(dragKey(source), here);
     publish();
     return {{QStringLiteral("ok"), true}, {QStringLiteral("anchorId"), anchorId}};
+}
+
+QString WorkspaceStore::floatView(const QString &viewId, double x, double y, double width, double height)
+{
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+    const DragSource source = dragSourceFor(QStringLiteral("view"), viewId);
+    if (source.kind == DragSource::Kind::None) {
+        return {};
+    }
+    const Magnets::Place here = Magnets::placeOf(m_model, source);
+    HistoryStep step = historyStep(QStringLiteral("Floated %1").arg(dragSourceTitle(source)));
+    const OpResult result = m_model.detachView(viewId, QRectF(x, y, width, height), {}, Origin::User, true);
+    if (!result.ok) {
+        emit operationFailed(result.message.isEmpty() ? result.code : result.message);
+        return {};
+    }
+    m_model.activateView(viewId);
+    m_model.focusAnchor(m_model.anchorOfView(viewId));
+    recordStep(std::move(step));
+    m_previousPlaces.insert(dragKey(source), here);
+    publish();
+    return result.createdId;
+}
+
+QString WorkspaceStore::floatAnchor(const QString &anchorId, double x, double y, double width, double height)
+{
+    if (m_drag.kind != DragSource::Kind::None) {
+        cancelDrag();
+    }
+    const DragSource source = dragSourceFor(QStringLiteral("anchor"), anchorId);
+    if (source.kind == DragSource::Kind::None) {
+        return {};
+    }
+    const Magnets::Place here = Magnets::placeOf(m_model, source);
+    HistoryStep step = historyStep(QStringLiteral("Floated %1").arg(dragSourceTitle(source)));
+    const OpResult result = m_model.detachAnchor(anchorId, QRectF(x, y, width, height), {}, true);
+    if (!result.ok) {
+        emit operationFailed(result.message.isEmpty() ? result.code : result.message);
+        return {};
+    }
+    m_model.focusAnchor(anchorId);
+    recordStep(std::move(step));
+    m_previousPlaces.insert(dragKey(source), here);
+    publish();
+    return result.createdId;
 }

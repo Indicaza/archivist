@@ -367,17 +367,28 @@ QString WorkspaceModel::createLeaf(const QString &anchorId)
     return leaf.id;
 }
 
-QString WorkspaceModel::createSurface(const QRectF &geometry, const QString &screenName)
+QString WorkspaceModel::createSurface(const QRectF &geometry, const QString &screenName, bool inMainWindow)
 {
     SurfaceRecord record;
     record.id = newId(QStringLiteral("w"));
-    record.geometry = geometry;
-    record.screenName = screenName;
-    record.preferredGeometry = geometry;
-    record.preferredScreenName = screenName;
     m_surfaces.insert(record.id, record);
     m_surfaceOrder.append(record.id);
+    placeSurface(record.id, geometry, screenName, inMainWindow);
     return record.id;
+}
+
+void WorkspaceModel::placeSurface(const QString &surfaceId, const QRectF &geometry, const QString &screenName, bool inMainWindow)
+{
+    SurfaceRecord &record = m_surfaces[surfaceId];
+    const QString screen = inMainWindow ? QString() : screenName;
+    record.inMainWindow = inMainWindow;
+    record.geometry = geometry;
+    record.screenName = screen;
+    record.preferredGeometry = geometry;
+    record.preferredScreenName = screen;
+    if (inMainWindow) {
+        record.windowMaximized = false;
+    }
 }
 
 void WorkspaceModel::replaceChild(const QString &parentId, const QString &oldId, const QString &newId)
@@ -1092,7 +1103,7 @@ OpResult WorkspaceModel::dockViewAtSurfaceEdge(QString viewId, QString surfaceId
     });
 }
 
-OpResult WorkspaceModel::detachView(QString viewId, const QRectF &geometry, QString screenName, Origin origin)
+OpResult WorkspaceModel::detachView(QString viewId, const QRectF &geometry, QString screenName, Origin origin, bool inMainWindow)
 {
     return transact([&]() {
         if (!m_views.contains(viewId)) {
@@ -1104,7 +1115,18 @@ OpResult WorkspaceModel::detachView(QString viewId, const QRectF &geometry, QStr
         if (const OpResult locked = contentLockFailure(sourceAnchor, origin); !locked.ok) {
             return locked;
         }
-        const QString surfaceId = createSurface(geometry, screenName);
+
+        // Already alone in a floating surface: that is just moving it.
+        const QString sourceSurface = surfaceOfAnchor(sourceAnchor);
+        if (!m_surfaces.value(sourceSurface).primary && anchorIds(sourceSurface).size() == 1
+            && m_anchors.value(sourceAnchor).views.size() == 1) {
+            placeSurface(sourceSurface, geometry, screenName, inMainWindow);
+            m_focusedAnchorId = sourceAnchor;
+            bump();
+            return OpResult::success(sourceSurface);
+        }
+
+        const QString surfaceId = createSurface(geometry, screenName, inMainWindow);
         AnchorRecord created;
         created.id = newId(QStringLiteral("a"));
         m_anchors.insert(created.id, created);
@@ -1314,7 +1336,7 @@ OpResult WorkspaceModel::dockAnchorAtSurfaceEdge(QString anchorId, QString surfa
     });
 }
 
-OpResult WorkspaceModel::detachAnchor(QString anchorId, const QRectF &geometry, QString screenName)
+OpResult WorkspaceModel::detachAnchor(QString anchorId, const QRectF &geometry, QString screenName, bool inMainWindow)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId)) {
@@ -1329,18 +1351,14 @@ OpResult WorkspaceModel::detachAnchor(QString anchorId, const QRectF &geometry, 
 
         // Already alone in a floating window: that is just moving the window.
         if (!m_surfaces.value(sourceSurface).primary && anchorIds(sourceSurface).size() == 1) {
-            SurfaceRecord &record = m_surfaces[sourceSurface];
-            record.geometry = geometry;
-            record.screenName = screenName;
-            record.preferredGeometry = geometry;
-            record.preferredScreenName = screenName;
+            placeSurface(sourceSurface, geometry, screenName, inMainWindow);
             bump();
             return OpResult::success(sourceSurface);
         }
 
         const QString leafId = leafOfAnchor(anchorId);
         detachNode(leafId);
-        const QString surfaceId = createSurface(geometry, screenName);
+        const QString surfaceId = createSurface(geometry, screenName, inMainWindow);
         m_surfaces[surfaceId].rootNodeId = leafId;
         ensurePrimaryHasAnchor();
         m_focusedAnchorId = anchorId;
@@ -1945,7 +1963,8 @@ QStringList WorkspaceModel::recoverSurfaces(const QList<ScreenInfo> &screens)
     for (const QString &surfaceId : m_surfaceOrder) {
         SurfaceRecord &record = m_surfaces[surfaceId];
 
-        if (!record.geometry.isValid()) {
+        // Panels inside the main window go wherever it goes.
+        if (!record.geometry.isValid() || record.inMainWindow) {
             continue;
         }
 

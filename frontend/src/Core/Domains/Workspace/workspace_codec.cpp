@@ -154,6 +154,9 @@ QJsonArray encodeSurfaces(const WorkspaceModel &model, bool withHistory)
         if (surface->windowMaximized) {
             object.insert(QStringLiteral("windowMaximized"), true);
         }
+        if (surface->inMainWindow) {
+            object.insert(QStringLiteral("inMainWindow"), true);
+        }
         if (!surface->maximizedAnchorId.isEmpty()) {
             object.insert(QStringLiteral("maximizedAnchor"), surface->maximizedAnchorId);
         }
@@ -197,6 +200,7 @@ public:
             surface.preferredGeometry = decodeRect(object.value(QStringLiteral("preferredGeometry")));
             surface.preferredScreenName = object.value(QStringLiteral("preferredScreen")).toString();
             surface.windowMaximized = object.value(QStringLiteral("windowMaximized")).toBool();
+            surface.inMainWindow = !surface.primary && object.value(QStringLiteral("inMainWindow")).toBool();
             surface.maximizedAnchorId = object.value(QStringLiteral("maximizedAnchor")).toString();
             m_currentSurface = surface.id;
             surface.rootNodeId = readNode(object.value(QStringLiteral("root")).toObject(), QString());

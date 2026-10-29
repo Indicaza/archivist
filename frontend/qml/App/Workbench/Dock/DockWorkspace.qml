@@ -771,8 +771,15 @@ Item {
         property string surfaceId: ""
         property string title: ""
         property string icon: "file"
-        // The panel's rect in its window, and that window's size.
+        // The panel's rect in its window, and that window's size (to cut
+        // its picture from the window's grab).
         property rect sourceRect: Qt.rect(0, 0, 0, 0)
+        // Where it was lifted from in the main window's workspace area
+        // (empty when it came from a window of its own).
+        property rect startRect: Qt.rect(0, 0, 0, 0)
+        // A floating panel moved by its bar: the panel itself moves, so no
+        // picture is carried.
+        property bool live: false
         property size areaSize: Qt.size(0, 0)
         // The whole window, grabbed once at pickup (empty until it arrives).
         property url image: ""
@@ -793,6 +800,8 @@ Item {
         carryState.icon = root.dragGhostIcon
         carryState.grab = Qt.point(-1, -1)
         carryState.image = ""
+        carryState.live = false
+        carryState.startRect = Qt.rect(0, 0, 0, 0)
         carryState.active = true
         carryEndTimer.stop()
         if (!sourceItem) {
@@ -810,6 +819,10 @@ Item {
         }
         var corner = sourceItem.mapToItem(area, 0, 0)
         carryState.sourceRect = Qt.rect(corner.x, corner.y, sourceItem.width, sourceItem.height)
+        if (sourceItem.Window.window === root.Window.window) {
+            var start = sourceItem.mapToItem(carryLayer, 0, 0)
+            carryState.startRect = Qt.rect(start.x, start.y, sourceItem.width, sourceItem.height)
+        }
         carryState.areaSize = Qt.size(area.width, area.height)
         // One picture of the window, sized so the panel is at most ~900px
         // wide: enough to read, cheap to carry.
@@ -879,17 +892,25 @@ Item {
         var sourceAnchor = kind === "view" ? String(view.anchorId || "") : id
         var sourceItem = anchorItems[sourceAnchor]
         root.dragSourceSurfaceId = sourceItem ? sourceItem.surfaceId : Docking.primarySurfaceId
-        tearGhost.sourceSize = sourceItem
-            ? Qt.size(Math.max(480, sourceItem.width), Math.max(320, sourceItem.height))
-            : Qt.size(720, 480)
+        root.floatSize = floatSizeFor(kind, sourceItem)
         startCarry(kind, id, title, sourceItem)
         root.forceActiveFocus()
         return true
     }
 
-    // The surface under a global point: floating windows first (they sit
-    // above the main window), then the main window.
+    // The surface under a global point: floating panels first, front to
+    // back, then windows of their own (they sit above the main window), then
+    // the main window. A panel being moved by its bar is not a target.
     function surfaceAreaAt(globalPoint) {
+        for (var p = panelOrder.length - 1; p >= 0; p -= 1) {
+            if (panelOrder[p] === root.liveSurfaceId) {
+                continue
+            }
+            var panel = surfaceAreas[panelOrder[p]]
+            if (panel && panel.containsGlobal(globalPoint)) {
+                return panel
+            }
+        }
         var floating = Docking.floatingSurfaceIds
         for (var index = floating.length - 1; index >= 0; index -= 1) {
             var candidate = surfaceAreas[floating[index]]
@@ -912,40 +933,71 @@ Item {
         return null
     }
 
+    // ---- floating by default ----------------------------------------------
+    //
+    // A drag that isn't aimed at a dock zone floats: let go and it becomes
+    // a panel inside the main window, where the picture was. Never a new
+    // window (those open from the tab menu).
+
+    // The size a panel floats at: the size it had, but never most of the
+    // window, and never less than a usable panel.
+    property size floatSize: Qt.size(560, 380)
+    // Where a drop would float it now, in the workspace area.
+    property rect floatFrame: Qt.rect(0, 0, 0, 0)
+    // The floating panel being moved by its bar, if any.
+    property string liveSurfaceId: ""
+    property bool liveMoveCancelled: false
+    // Floating panels, back to front.
+    property var panelOrder: []
+
+    function floatSizeFor(kind, sourceItem) {
+        var surface = sourceItem ? Docking.surface(sourceItem.surfaceId) : ({})
+        if (surface.inMainWindow && Number(surface.anchorCount || 0) === 1
+            && (kind === "anchor" || Number(surface.viewCount || 0) === 1)) {
+            // Moving a panel that floats on its own: it keeps its size.
+            return Qt.size(Number(surface.width), Number(surface.height))
+        }
+        var width = sourceItem ? sourceItem.width : 560
+        var height = sourceItem ? sourceItem.height : 380
+        width = Math.max(320, Math.min(width, area.width * 0.6))
+        height = Math.max(220, Math.min(height, area.height * 0.7))
+        return Qt.size(Math.round(width), Math.round(height))
+    }
+
+    function updateFloatFrame(globalPoint) {
+        var size = root.floatSize
+        var width = Math.min(size.width, Math.max(240, area.width - 16))
+        var height = Math.min(size.height, Math.max(160, area.height - 16))
+        var source = carryState.sourceRect
+        // Held at the same spot it was picked up by.
+        var grabX = source.width > 0 && carryState.grab.x >= 0 ? carryState.grab.x * width / source.width : 60
+        var grabY = carryState.grab.y >= 0 ? Math.min(carryState.grab.y, 40) : 14
+        var local = area.mapFromGlobal(globalPoint.x, globalPoint.y)
+        var x = Math.max(8, Math.min(local.x - grabX, area.width - width - 8))
+        var y = Math.max(8, Math.min(local.y - grabY, area.height - height - 8))
+        root.floatFrame = Qt.rect(Math.round(x), Math.round(y), width, height)
+        Docking.updateDragFloat(root.floatFrame.x, root.floatFrame.y, width, height)
+    }
+
     function moveDrag(globalPoint) {
         var target = surfaceAreaAt(globalPoint)
         for (var key in surfaceAreas) {
             surfaceAreas[key].dragHere = surfaceAreas[key] === target
         }
-        tearGhost.pointer = globalPoint
         noteCarryGrab(globalPoint)
+        carryLayer.pointer = carryLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
+        carryLayer.pointerHere = area.containsGlobal(globalPoint)
+        if (root.liveSurfaceId.length === 0) {
+            updateFloatFrame(globalPoint)
+        }
 
         if (!target) {
-            // Out on the desktop: a drop opens a new window under the
-            // pointer, held at the same spot it was picked up by.
-            var screen = screenAt(globalPoint)
-            var size = tearGhost.sourceSize
-            var source = carryState.sourceRect
-            var grabX = source.width > 0 ? carryState.grab.x * size.width / source.width : 60
-            var grabY = source.height > 0 ? carryState.grab.y * size.height / source.height : 14
-            var frameX = globalPoint.x - grabX
-            var frameY = globalPoint.y - grabY
-            if (screen) {
-                // Keep the new window on the monitor under the pointer.
-                var width = Math.min(size.width, screen.width - 40)
-                var height = Math.min(size.height, screen.height - 60)
-                size = Qt.size(width, height)
-                frameX = Math.max(screen.virtualX + 8, Math.min(frameX, screen.virtualX + screen.width - width - 8))
-                frameY = Math.max(screen.virtualY + 24, Math.min(frameY, screen.virtualY + screen.height - height - 8))
-            }
-            tearGhost.frame = Qt.rect(frameX, frameY, size.width, size.height)
-            tearGhost.grab = Qt.point(globalPoint.x - frameX, globalPoint.y - frameY)
-            Docking.updateDragDetached(frameX, frameY, size.width, size.height, screen ? screen.name : "")
+            // Outside every window: it still floats, inside the main one.
+            Docking.updateDrag("", 0, 0)
             return
         }
 
         var point = target.mapFromGlobal(globalPoint.x, globalPoint.y)
-        target.dragPointer = point
         var strip = Docking.tabStripAt(target.surfaceId, point.x, point.y, theme.editorTabHeight)
         if (strip.anchorId) {
             var item = anchorItems[strip.anchorId]
@@ -956,16 +1008,15 @@ Item {
     }
 
     function endDrag() {
-        var detached = Docking.dragDetached && Docking.dropAllowed
-        var title = root.dragGhostTitle
         clearDragHere()
-        if (Docking.finishDrag() && detached) {
-            toast.show("Opened " + (title.length > 0 ? "“" + title + "”" : "panel") + " in a new window")
-        }
+        Docking.finishDrag()
     }
 
     function cancelDrag() {
         clearDragHere()
+        if (root.liveSurfaceId.length > 0) {
+            root.liveMoveCancelled = true
+        }
         Docking.cancelDrag()
     }
 
@@ -976,6 +1027,75 @@ Item {
         if (!result.ok) {
             toast.show(String(result.error || "Couldn't put it back"))
         }
+    }
+
+    // ---- floating panels ---------------------------------------------------
+
+    function raisePanel(surfaceId) {
+        var order = panelOrder.filter(function(id) { return id !== surfaceId })
+        order.push(surfaceId)
+        if (order.join("|") !== panelOrder.join("|")) {
+            panelOrder = order
+        }
+    }
+
+    function panelAnchors(surfaceId) {
+        var ids = []
+        for (var key in anchorItems) {
+            if (anchorItems[key].surfaceId === surfaceId) {
+                ids.push(key)
+            }
+        }
+        return ids
+    }
+
+    // Moving a panel by its bar. A panel with one anchor is a magnet like
+    // any other: held at a dock zone it docks there. Let go anywhere else
+    // and it just stays where it was put.
+    function beginPanelMove(surfaceId) {
+        root.liveSurfaceId = surfaceId
+        root.liveMoveCancelled = false
+        var anchors = panelAnchors(surfaceId)
+        if (anchors.length !== 1 || !Docking.beginDrag("anchor", anchors[0])) {
+            return
+        }
+        root.dragGhostTitle = anchorTitle(anchors[0])
+        root.dragSourceSurfaceId = surfaceId
+        carryState.token += 1
+        carryState.active = true
+        carryState.live = true
+        carryState.ending = ""
+        carryState.kind = "anchor"
+        carryState.id = anchors[0]
+        carryState.anchorId = anchors[0]
+        carryState.surfaceId = surfaceId
+        carryState.image = ""
+        carryState.startRect = Qt.rect(0, 0, 0, 0)
+        carryEndTimer.stop()
+    }
+
+    function movePanel(surfaceId, globalPoint, frame) {
+        if (surfaceId !== root.liveSurfaceId || !Docking.dragActive || root.liveMoveCancelled) {
+            return
+        }
+        root.floatFrame = frame
+        Docking.updateDragFloat(frame.x, frame.y, frame.width, frame.height)
+        moveDrag(globalPoint)
+    }
+
+    function endPanelMove(surfaceId, frame) {
+        var cancelled = root.liveMoveCancelled
+        root.liveSurfaceId = ""
+        root.liveMoveCancelled = false
+        if (cancelled) {
+            return
+        }
+        if (Docking.dragActive) {
+            Docking.updateDragFloat(frame.x, frame.y, frame.width, frame.height)
+            endDrag()
+            return
+        }
+        Docking.setSurfaceGeometry(surfaceId, frame.x, frame.y, frame.width, frame.height, "", false)
     }
 
     function clearDragHere() {
@@ -1014,6 +1134,27 @@ Item {
         var frame = frameBeside(anchorId)
         var screen = screenAt(Qt.point(frame.x, frame.y))
         Docking.detachAnchor(anchorId, frame.x, frame.y, frame.width, frame.height, screen ? screen.name : "")
+    }
+
+    // Floats a tab or a panel inside the main window, a little in from
+    // where it was.
+    function floatFrameBeside(anchorId) {
+        var item = anchorItems[anchorId]
+        var size = floatSizeFor("view", item || null)
+        var corner = item && item.Window.window === root.Window.window ? item.mapToItem(area, 0, 0) : Qt.point(40, 40)
+        var x = Math.max(8, Math.min(corner.x + 36, area.width - size.width - 8))
+        var y = Math.max(8, Math.min(corner.y + 36, area.height - size.height - 8))
+        return Qt.rect(Math.round(x), Math.round(y), size.width, size.height)
+    }
+
+    function floatView(viewId) {
+        var frame = floatFrameBeside(String(Docking.view(viewId).anchorId || ""))
+        Docking.floatView(viewId, frame.x, frame.y, frame.width, frame.height)
+    }
+
+    function floatAnchor(anchorId) {
+        var frame = floatFrameBeside(anchorId)
+        Docking.floatAnchor(anchorId, frame.x, frame.y, frame.width, frame.height)
     }
 
     // A panel in the main window to receive tabs: the focused or target one
@@ -1488,19 +1629,68 @@ Item {
         }
     }
 
-    // Follows the pointer outside every window while a drop would open one.
-    DockTearGhost {
-        id: tearGhost
+    // Floating panels, drawn over the main layout in the order last used.
+    Item {
+        id: panelLayer
 
+        x: area.x
+        y: area.y
+        width: area.width
+        height: area.height
+        z: 5
+
+        Component.onCompleted: root.syncPanelOrder()
+
+        Repeater {
+            model: Docking.panelSurfaceIds
+
+            delegate: DockFloatingPanel {
+                required property string modelData
+
+                surfaceId: modelData
+                theme: root.theme
+                workspace: root
+                z: 1 + root.panelOrder.indexOf(modelData)
+            }
+        }
+    }
+
+    // New panels go to the front; gone ones leave the order.
+    function syncPanelOrder() {
+        var ids = Docking.panelSurfaceIds
+        var order = root.panelOrder.filter(function(id) { return ids.indexOf(id) >= 0 })
+        for (var index = 0; index < ids.length; index += 1) {
+            if (order.indexOf(ids[index]) < 0) {
+                order.push(ids[index])
+            }
+        }
+        if (order.join("|") !== root.panelOrder.join("|")) {
+            root.panelOrder = order
+        }
+    }
+
+    Connections {
+        target: Docking
+
+        function onSurfacesChanged() {
+            root.syncPanelOrder()
+        }
+    }
+
+    // What a drag carries: the panel's picture, over everything.
+    DockCarry {
+        id: carryLayer
+
+        x: area.x
+        y: area.y
+        width: area.width
+        height: area.height
+        z: 6
         theme: root.theme
+        carry: carryState
+        floatFrame: root.floatFrame
         title: root.dragGhostTitle
         icon: root.dragGhostIcon
-        shown: Docking.dragActive && Docking.dragDetached
-        allowed: Docking.dropAllowed
-        reason: Docking.dropRefusal
-        image: carryState.image
-        imageRect: carryState.sourceRect
-        imageAreaSize: carryState.areaSize
     }
 
     // Short confirmations, optionally with one action (Undo).

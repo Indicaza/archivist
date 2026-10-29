@@ -219,6 +219,8 @@ private slots:
     void dragPreviewsCommitsAndCancels()
     {
         WorkspaceStore store;
+        // Docks at once: these are about what a dock does, not the dwell.
+        store.setDockDwellMs(0);
         store.setCollection(QStringLiteral("drag"));
         const QString surface = store.primarySurfaceId();
         store.setSurfaceSize(surface, 1000, 600);
@@ -268,6 +270,8 @@ private slots:
     void dragStateWalksThePhases()
     {
         WorkspaceStore store;
+        // Docks at once: these are about what a dock does, not the dwell.
+        store.setDockDwellMs(0);
         store.setCollection(QStringLiteral("magnet-phases"));
         const QString surface = store.primarySurfaceId();
         store.setSurfaceSize(surface, 1000, 600);
@@ -353,6 +357,8 @@ private slots:
     void crampedSplitsAreRefused()
     {
         WorkspaceStore store;
+        // Docks at once: these are about what a dock does, not the dwell.
+        store.setDockDwellMs(0);
         store.setCollection(QStringLiteral("magnet-cramped"));
         const QString surface = store.primarySurfaceId();
         store.setSurfaceSize(surface, 420, 600);
@@ -377,6 +383,8 @@ private slots:
     void magnetsReturnToTheirPreviousPlace()
     {
         WorkspaceStore store;
+        // Docks at once: these are about what a dock does, not the dwell.
+        store.setDockDwellMs(0);
         store.setCollection(QStringLiteral("magnet-return"));
         const QString surface = store.primarySurfaceId();
         store.setSurfaceSize(surface, 1200, 700);
@@ -467,6 +475,8 @@ private slots:
     void tearOffOpensAFloatingWindowAndClosingBringsTabsBack()
     {
         WorkspaceStore store;
+        // Docks at once: these are about what a dock does, not the dwell.
+        store.setDockDwellMs(0);
         store.setScreensForTesting({{QStringLiteral("Main"), QRectF(0, 0, 1920, 1080), QRectF(0, 25, 1920, 1055), 2.0, true}});
         store.setCollection(QStringLiteral("float"));
         const QString surface = store.primarySurfaceId();
@@ -528,6 +538,135 @@ private slots:
         QVERIFY(store.floatingSurfaceIds().isEmpty());
         QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
         QVERIFY(!store.closeSurface(surface));
+    }
+
+    // A drag floats by default; it docks only where it is aimed: a tab
+    // strip at once, a panel edge once held there.
+    void draggingFloatsUnlessAimed()
+    {
+        QString panel;
+        QString b;
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("float-default"));
+            const QString surface = store.primarySurfaceId();
+            store.setSurfaceSize(surface, 1000, 600);
+            KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+            b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+            const QString first = anchors->get(0).value("anchorId").toString();
+            const int revision = store.model().revision();
+
+            QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+            store.updateDragFloat(300, 200, 420, 300);
+            store.updateDrag(surface, 500, 300);
+            QVariantMap state = store.dragState();
+            QCOMPARE(state.value("phase").toString(), QStringLiteral("free"));
+            QVERIFY(store.dropFloats());
+            QVERIFY(state.value("valid").toBool());
+            QCOMPARE(state.value("floatRect").toMap().value("x").toDouble(), 300.0);
+
+            // At the right edge: aiming, not docking yet...
+            store.updateDrag(surface, 960, 300);
+            state = store.dragState();
+            QCOMPARE(state.value("phase").toString(), QStringLiteral("aiming"));
+            QCOMPARE(state.value("aim").toMap().value("edge").toString(), QStringLiteral("right"));
+            QVERIFY(!store.dropAllowed());
+            // ...until it is held there.
+            QTRY_COMPARE_WITH_TIMEOUT(store.dragState().value("phase").toString(), QStringLiteral("preview"), 2000);
+            QVERIFY(store.dropAllowed());
+            QVERIFY(!store.dropFloats());
+
+            // Away from the edge: floating again. A tab strip docks at once.
+            store.updateDrag(surface, 500, 300);
+            QVERIFY(store.dropFloats());
+            store.updateDragOverTabs(surface, first, 0);
+            QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("preview"));
+            store.updateDrag(surface, 500, 300);
+            QCOMPARE(store.model().revision(), revision);
+
+            // Let go in open space: a panel inside the main window, one step.
+            QSignalSpy finished(&store, &WorkspaceStore::dragFinished);
+            QVERIFY(store.finishDrag());
+            QCOMPARE(finished.first().at(0).toString(), QStringLiteral("committed"));
+            QVERIFY(store.floatingSurfaceIds().isEmpty());
+            QCOMPARE(store.panelSurfaceIds().size(), 1);
+            panel = store.panelSurfaceIds().first();
+            QCOMPARE(store.view(b).value("surfaceId").toString(), panel);
+            QVERIFY(store.surface(panel).value("inMainWindow").toBool());
+            QCOMPARE(store.surface(panel).value("x").toDouble(), 300.0);
+            QCOMPARE(store.undoSummary(), QStringLiteral("Floated “b”"));
+
+            QVERIFY(store.undo());
+            QVERIFY(store.panelSurfaceIds().isEmpty());
+            QVERIFY(store.redo());
+            QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
+
+            // Dragged again into open space: the same panel moves.
+            QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+            store.updateDragFloat(100, 60, 420, 300);
+            store.updateDrag(surface, 300, 200);
+            QVERIFY(store.finishDrag());
+            QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
+            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+
+            // Many at once.
+            for (int index = 0; index < 10; index += 1) {
+                const QString view = store.openView(QStringLiteral("archivist.editor"),
+                    documentResource(QStringLiteral("n%1.cpp").arg(index)), QStringLiteral("n%1").arg(index));
+                QVERIFY(store.beginDrag(QStringLiteral("view"), view));
+                store.updateDragFloat(20 + index * 30, 20 + index * 20, 360, 240);
+                QVERIFY(store.finishDrag());
+            }
+            QCOMPARE(store.panelSurfaceIds().size(), 11);
+            store.saveNow();
+        }
+        {
+            // Restarted: still panels in the main window, untouched by
+            // monitors coming and going.
+            WorkspaceStore store;
+            store.setScreensForTesting({{QStringLiteral("Tiny"), QRectF(5000, 5000, 100, 100), QRectF(5000, 5000, 100, 100), 1.0, true}});
+            store.setCollection(QStringLiteral("float-default"));
+            QCOMPARE(store.panelSurfaceIds().size(), 11);
+            QVERIFY(store.panelSurfaceIds().contains(panel));
+            QVERIFY(store.floatingSurfaceIds().isEmpty());
+            QCOMPARE(store.view(b).value("surfaceId").toString(), panel);
+            QVERIFY(!store.recoverSurfaces().contains(panel));
+            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+        }
+    }
+
+    // The tab and panel menus float without a drag, one undo step each.
+    void menusFloatTabsAndPanels()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("float-menu"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        const QString split = store.splitView(c, first, QStringLiteral("right"));
+        QVERIFY(!split.isEmpty());
+
+        const QString tabPanel = store.floatView(b, 80, 60, 480, 320);
+        QVERIFY(!tabPanel.isEmpty());
+        QCOMPARE(store.view(b).value("surfaceId").toString(), tabPanel);
+        QVERIFY(store.surface(tabPanel).value("inMainWindow").toBool());
+
+        const QString anchorPanel = store.floatAnchor(split, 140, 90, 480, 320);
+        QVERIFY(!anchorPanel.isEmpty());
+        QCOMPARE(store.panelSurfaceIds(), (QStringList{tabPanel, anchorPanel}));
+        QCOMPARE(store.view(c).value("surfaceId").toString(), anchorPanel);
+
+        // Back again, step by step; and Return puts the tab back.
+        QVERIFY(store.undo());
+        QCOMPARE(store.panelSurfaceIds(), QStringList{tabPanel});
+        QVERIFY(store.returnToPrevious(QStringLiteral("view"), b).value("ok").toBool());
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
+        QVERIFY(store.panelSurfaceIds().isEmpty());
     }
 
     void floatingWindowsSurviveRestartAndLostMonitors()

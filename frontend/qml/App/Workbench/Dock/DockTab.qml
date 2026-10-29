@@ -247,14 +247,21 @@ Item {
         DockMenuItem { theme: root.theme; text: "Split Right"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "right") }
         DockMenuItem { theme: root.theme; text: "Split Down"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "bottom") }
         DockMenuItem {
+            objectName: "magnet.floatView"
+            theme: root.theme
+            text: "Float"
+            visible: !root.workspace.isPanel || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+            onTriggered: root.workspace.floatView(root.viewId)
+        }
+        DockMenuItem {
             theme: root.theme
             text: "Move to New Window"
-            visible: !root.workspace.isFloating || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+            visible: !root.workspace.isFloating || root.workspace.isPanel || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
             onTriggered: root.workspace.detachView(root.viewId)
         }
         DockMenuItem {
             theme: root.theme
-            text: "Return to Main Window"
+            text: root.workspace.isPanel ? "Dock in Main Layout" : "Return to Main Window"
             visible: root.workspace.isFloating
             onTriggered: root.workspace.returnToMainWindow("view", root.viewId)
         }
