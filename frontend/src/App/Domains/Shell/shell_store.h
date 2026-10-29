@@ -26,7 +26,9 @@ class ShellStore final : public QObject
     Q_PROPERTY(int panelIndex READ panelIndex NOTIFY navigationChanged)
     Q_PROPERTY(bool panelOpen READ panelOpen NOTIFY navigationChanged)
     Q_PROPERTY(bool panelShown READ panelShown NOTIFY navigationChanged)
-    Q_PROPERTY(QVariantList railItems READ railItems CONSTANT)
+    Q_PROPERTY(QVariantList railItems READ railItems NOTIFY railItemsChanged)
+    // Ids of every side panel tab, built-in and the person's own.
+    Q_PROPERTY(QStringList panelIds READ panelIds NOTIFY railItemsChanged)
     Q_PROPERTY(QVariantList recentItems READ recentItems NOTIFY recentItemsChanged)
     Q_PROPERTY(QString homeDraft READ homeDraft WRITE setHomeDraft NOTIFY homeDraftChanged)
 
@@ -41,7 +43,8 @@ public:
     [[nodiscard]] int panelIndex() const { return Shell::legacyIndexForPanel(m_state.panelId); }
     [[nodiscard]] bool panelOpen() const { return m_state.panelOpen; }
     [[nodiscard]] bool panelShown() const { return m_state.panelShown(); }
-    [[nodiscard]] QVariantList railItems() const { return Shell::railItemsVariant(); }
+    [[nodiscard]] QVariantList railItems() const { return Shell::railItemsVariant(m_customTabs); }
+    [[nodiscard]] QStringList panelIds() const;
     [[nodiscard]] QVariantList recentItems() const { return m_recents.toVariant(); }
     [[nodiscard]] QString homeDraft() const { return m_homeDraft; }
     void setHomeDraft(const QString &draft);
@@ -60,6 +63,12 @@ public:
     Q_INVOKABLE void restorePanelIndex(int legacyIndex, bool open);
     [[nodiscard]] Q_INVOKABLE QVariantMap railItem(const QString &railId) const;
 
+    // A person's own side panel tabs. Adding one opens it. Removing one only
+    // removes the tab: whoever calls it first moves what is docked there.
+    Q_INVOKABLE QString addRailTab(const QString &label = {});
+    Q_INVOKABLE bool removeRailTab(const QString &railId);
+    Q_INVOKABLE bool renameRailTab(const QString &railId, const QString &label);
+
     // item: { kind, id, collectionId, libraryId, title, subtitle, details }
     Q_INVOKABLE bool noteRecent(const QVariantMap &item);
     Q_INVOKABLE bool forgetRecent(const QString &kind, const QString &id);
@@ -70,15 +79,18 @@ signals:
     void navigationChanged();
     void recentItemsChanged();
     void homeDraftChanged();
+    void railItemsChanged();
 
 private:
     void apply(const Shell::NavigationState &next);
     void saveNavigation();
     void saveRecents();
+    void saveCustomTabs();
 
     QSettings *m_settings = nullptr;
     std::unique_ptr<QSettings> m_ownedSettings;
     Shell::NavigationState m_state;
+    QList<Shell::RailItem> m_customTabs;
     Shell::RecentItems m_recents;
     QString m_homeDraft;
 };

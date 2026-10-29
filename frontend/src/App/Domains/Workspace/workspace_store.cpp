@@ -410,7 +410,8 @@ void WorkspaceStore::publish()
     ++m_revision;
     emit revisionChanged();
 
-    const QStringList floating = floatingSurfaceIds() + QStringList{QStringLiteral("|")} + panelSurfaceIds();
+    const QStringList floating = floatingSurfaceIds() + QStringList{QStringLiteral("|")} + panelSurfaceIds()
+        + QStringList{QStringLiteral("|")} + sidebarSurfaceIds();
     if (floating != m_publishedSurfaces) {
         m_publishedSurfaces = floating;
         emit surfacesChanged();
@@ -657,6 +658,7 @@ void WorkspaceStore::setCollection(const QString &collectionId)
     emit collectionIdChanged();
     m_model.recoverSurfaces(currentScreens());
     publish();
+    adoptOrphanSidebarSurfaces();
     emit workspaceRestored(collectionId, fromSnapshot);
 }
 
@@ -1467,6 +1469,7 @@ void WorkspaceStore::updateDrag(const QString &surfaceId, double x, double y)
     // Hit-test against the committed layout, never the preview, so the
     // target does not jump as panels ease aside. Only the dock zones count:
     // anywhere else the drop floats.
+    leaveSlot();
     if (m_dragDetached) {
         m_dragDetached = false;
         emit dragChanged();
@@ -1535,9 +1538,42 @@ bool WorkspaceStore::floatAllowed()
     return m_floatAllowed == 1;
 }
 
+void WorkspaceStore::leaveSlot()
+{
+    if (!m_slotTarget.isEmpty()) {
+        m_slotTarget.clear();
+        m_dropAllowed = false;
+        m_dragPhase = Magnets::Phase::Free;
+        emit dragChanged();
+    }
+}
+
+void WorkspaceStore::updateDragOverSlot(const QString &slot)
+{
+    if (m_drag.kind == DragSource::Kind::None) {
+        return;
+    }
+    if (slot == m_slotTarget) {
+        return;
+    }
+    stopAiming();
+    if (m_dragDetached) {
+        m_dragDetached = false;
+    }
+    setDropTarget({});
+    m_slotTarget = slot;
+    const bool free = m_model.surfaceInSidebarSlot(slot).isEmpty();
+    m_dropAllowed = free && floatAllowed();
+    m_dropRefusal = !free ? OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something is already docked there."))
+                          : m_floatRefusal;
+    m_dragPhase = m_dropAllowed ? Magnets::Phase::Preview : Magnets::Phase::Invalid;
+    ++m_dragPreviewSerial;
+    emit dragChanged();
+}
+
 bool WorkspaceStore::dropFloats() const
 {
-    return m_drag.kind != DragSource::Kind::None && !m_dropTarget.isValid() && !m_dragDetached
+    return m_drag.kind != DragSource::Kind::None && !m_dropTarget.isValid() && !m_dragDetached && m_slotTarget.isEmpty()
         && m_floatRect.isValid() && m_floatAllowed == 1;
 }
 
@@ -1569,6 +1605,7 @@ void WorkspaceStore::updateDragOverTabs(const QString &surfaceId, const QString 
     target.index = index;
     // A tab strip is aimed at on purpose: no dwell.
     stopAiming();
+    leaveSlot();
     setDropTarget(target);
 }
 
@@ -1612,6 +1649,7 @@ void WorkspaceStore::updateDragDetached(double x, double y, double width, double
     const QRectF rect(x, y, std::max(320.0, width), std::max(220.0, height));
     const bool allowed = canDetach(m_drag);
     stopAiming();
+    leaveSlot();
 
     if (m_dragDetached && m_detachRect == rect && m_detachScreen == screenName && m_dropAllowed == allowed) {
         return;
@@ -1719,6 +1757,7 @@ void WorkspaceStore::resetDrag()
     m_floatRefusal = {};
     m_aimTimer.stop();
     m_aimTarget = {};
+    m_slotTarget.clear();
 }
 
 bool WorkspaceStore::finishDrag()
@@ -1735,8 +1774,10 @@ bool WorkspaceStore::finishDrag()
     const QRectF detachRect = m_detachRect;
     const QString detachScreen = m_detachScreen;
     const Magnets::Place origin = m_dragOrigin;
+    // Over an empty sidebar slot: it docks there.
+    const QString slot = m_slotTarget;
     // No dock target: it floats as a panel where it was let go.
-    const bool floating = !detached && !target.isValid() && m_floatRect.isValid();
+    const bool floating = !detached && !target.isValid() && slot.isEmpty() && m_floatRect.isValid();
     const QRectF floatRect = m_floatRect;
     if (floating) {
         allowed = floatAllowed();
@@ -1745,7 +1786,7 @@ bool WorkspaceStore::finishDrag()
 
     // The layout changed under the drag (an agent, a window closing):
     // judge the target again against the layout as it is now.
-    if (allowed && !detached && !floating && m_model.revision() != m_dragTargetRevision) {
+    if (allowed && !detached && !floating && slot.isEmpty() && m_model.revision() != m_dragTargetRevision) {
         const Magnets::Preview fresh = Magnets::preview(m_model, source, target, surfaceSize(target.surfaceId), m_metrics);
         allowed = fresh.result.ok;
         refusal = fresh.result;
@@ -1757,6 +1798,7 @@ bool WorkspaceStore::finishDrag()
         {QStringLiteral("kind"), source.kind == DragSource::Kind::View ? QStringLiteral("view") : QStringLiteral("anchor")},
         {QStringLiteral("id"), source.id},
         {QStringLiteral("target"), detached ? QVariantMap{{QStringLiteral("detached"), true}}
+                                   : !slot.isEmpty() ? QVariantMap{{QStringLiteral("sidebarSlot"), slot}}
                                    : floating ? QVariantMap{{QStringLiteral("floating"), true}, {QStringLiteral("rect"), Magnets::rectMap(floatRect)}}
                                               : Magnets::targetMap(target)},
     };
@@ -1765,10 +1807,35 @@ bool WorkspaceStore::finishDrag()
     // One drop, one workspace step.
     HistoryStep step = historyStep(detached
         ? QStringLiteral("Opened %1 in a new window").arg(dragSourceTitle(source))
+        : !slot.isEmpty() ? QStringLiteral("Docked %1 in the sidebar").arg(dragSourceTitle(source))
         : floating && !origin.aloneInFloatingWindow ? QStringLiteral("Floated %1").arg(dragSourceTitle(source))
         : QStringLiteral("Moved %1").arg(dragSourceTitle(source)));
 
-    if (allowed && floating) {
+    if (allowed && !slot.isEmpty()) {
+        // The sidebar keeps a size for it (the bottom slot's height).
+        const QRectF frame(0, 0, 280, 260);
+        OpResult result = m_model.surfaceInSidebarSlot(slot).isEmpty()
+            ? (source.kind == DragSource::Kind::View
+                   ? m_model.detachView(source.id, frame, {}, Origin::User, false)
+                   : m_model.detachAnchor(source.id, frame, {}, false))
+            : OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something is already docked there."));
+        if (result.ok) {
+            result = m_model.setSurfaceSidebarSlot(result.createdId, slot);
+        }
+        ok = result.ok;
+        if (ok) {
+            const QString anchorId = source.kind == DragSource::Kind::View ? m_model.anchorOfView(source.id) : source.id;
+            if (source.kind == DragSource::Kind::View) {
+                m_model.activateView(source.id);
+            }
+            m_model.focusAnchor(anchorId);
+            details.insert(QStringLiteral("landingAnchorId"), anchorId);
+            details.insert(QStringLiteral("surfaceId"), result.createdId);
+        } else {
+            refusal = result;
+            emit operationFailed(result.message);
+        }
+    } else if (allowed && floating) {
         const OpResult result = source.kind == DragSource::Kind::View
             ? m_model.detachView(source.id, floatRect, {}, Origin::User, true)
             : m_model.detachAnchor(source.id, floatRect, {}, true);
@@ -1822,7 +1889,7 @@ bool WorkspaceStore::finishDrag()
     emit dragChanged();
     if (ok) {
         emit dragFinished(QStringLiteral("committed"), details);
-    } else if (target.isValid() || detached || floating) {
+    } else if (target.isValid() || detached || floating || !slot.isEmpty()) {
         details.insert(QStringLiteral("code"), refusal.code);
         details.insert(QStringLiteral("reason"), refusal.message);
         emit dragFinished(QStringLiteral("refused"), details);
@@ -1855,7 +1922,7 @@ QStringList WorkspaceStore::floatingSurfaceIds() const
     QStringList ids;
     for (const QString &surfaceId : m_model.surfaceIds()) {
         const SurfaceRecord *surface = m_model.surface(surfaceId);
-        if (surface && !surface->primary && !surface->inMainWindow) {
+        if (surface && !surface->primary && !surface->inMainWindow && surface->sidebarSlot.isEmpty()) {
             ids.append(surfaceId);
         }
     }
@@ -1867,11 +1934,59 @@ QStringList WorkspaceStore::panelSurfaceIds() const
     QStringList ids;
     for (const QString &surfaceId : m_model.surfaceIds()) {
         const SurfaceRecord *surface = m_model.surface(surfaceId);
-        if (surface && surface->inMainWindow) {
+        if (surface && surface->inMainWindow && surface->sidebarSlot.isEmpty()) {
             ids.append(surfaceId);
         }
     }
     return ids;
+}
+
+QStringList WorkspaceStore::sidebarSurfaceIds() const
+{
+    QStringList ids;
+    for (const QString &surfaceId : m_model.surfaceIds()) {
+        const SurfaceRecord *surface = m_model.surface(surfaceId);
+        if (surface && !surface->sidebarSlot.isEmpty()) {
+            ids.append(surfaceId);
+        }
+    }
+    return ids;
+}
+
+QString WorkspaceStore::sidebarSurface(const QString &slot) const
+{
+    return m_model.surfaceInSidebarSlot(slot);
+}
+
+void WorkspaceStore::setSidebarSlots(const QStringList &slotIds)
+{
+    m_sidebarSlots = slotIds;
+    m_sidebarSlotsKnown = true;
+    adoptOrphanSidebarSurfaces();
+}
+
+void WorkspaceStore::adoptOrphanSidebarSurfaces()
+{
+    if (!m_sidebarSlotsKnown) {
+        return;
+    }
+    bool changed = false;
+    int offset = 0;
+    for (const QString &surfaceId : m_model.surfaceIds()) {
+        const SurfaceRecord *surface = m_model.surface(surfaceId);
+        if (!surface || surface->sidebarSlot.isEmpty() || surface->sidebarSlot == QStringLiteral("sidebar.bottom")
+            || m_sidebarSlots.contains(surface->sidebarSlot)) {
+            continue;
+        }
+        // Its tab is gone: it floats, a little apart from any others.
+        m_model.setSurfaceSidebarSlot(surfaceId, {});
+        m_model.setSurfaceGeometry(surfaceId, QRectF(120 + offset, 100 + offset, 520, 360), {}, true);
+        offset += 28;
+        changed = true;
+    }
+    if (changed) {
+        publish();
+    }
 }
 
 QVariantMap WorkspaceStore::surface(const QString &surfaceId) const
@@ -1900,6 +2015,7 @@ QVariantMap WorkspaceStore::surface(const QString &surfaceId) const
         {QStringLiteral("screen"), record->screenName},
         {QStringLiteral("windowMaximized"), record->windowMaximized},
         {QStringLiteral("inMainWindow"), record->inMainWindow},
+        {QStringLiteral("sidebarSlot"), record->sidebarSlot},
         {QStringLiteral("anchorCount"), int(anchorIds.size())},
         {QStringLiteral("viewCount"), viewCount},
     };

@@ -157,6 +157,9 @@ QJsonArray encodeSurfaces(const WorkspaceModel &model, bool withHistory)
         if (surface->inMainWindow) {
             object.insert(QStringLiteral("inMainWindow"), true);
         }
+        if (!surface->sidebarSlot.isEmpty()) {
+            object.insert(QStringLiteral("sidebarSlot"), surface->sidebarSlot);
+        }
         if (!surface->maximizedAnchorId.isEmpty()) {
             object.insert(QStringLiteral("maximizedAnchor"), surface->maximizedAnchorId);
         }
@@ -201,6 +204,10 @@ public:
             surface.preferredScreenName = object.value(QStringLiteral("preferredScreen")).toString();
             surface.windowMaximized = object.value(QStringLiteral("windowMaximized")).toBool();
             surface.inMainWindow = !surface.primary && object.value(QStringLiteral("inMainWindow")).toBool();
+            surface.sidebarSlot = surface.primary ? QString() : object.value(QStringLiteral("sidebarSlot")).toString();
+            if (!surface.sidebarSlot.isEmpty()) {
+                surface.inMainWindow = false;
+            }
             surface.maximizedAnchorId = object.value(QStringLiteral("maximizedAnchor")).toString();
             m_currentSurface = surface.id;
             surface.rootNodeId = readNode(object.value(QStringLiteral("root")).toObject(), QString());
@@ -217,6 +224,17 @@ public:
                 surface.maximizedAnchorId.clear();
             }
 
+            // One surface per sidebar slot: a second one floats instead.
+            if (!surface.sidebarSlot.isEmpty()) {
+                for (const SurfaceRecord &other : std::as_const(m_result.data.surfaces)) {
+                    if (other.sidebarSlot == surface.sidebarSlot) {
+                        surface.sidebarSlot.clear();
+                        surface.inMainWindow = true;
+                        break;
+                    }
+                }
+            }
+
             m_result.data.surfaces.insert(surface.id, surface);
             m_result.data.surfaceOrder.append(surface.id);
         }
@@ -227,7 +245,10 @@ public:
         }
 
         if (!sawPrimary) {
-            m_result.data.surfaces[m_result.data.surfaceOrder.first()].primary = true;
+            SurfaceRecord &first = m_result.data.surfaces[m_result.data.surfaceOrder.first()];
+            first.primary = true;
+            first.inMainWindow = false;
+            first.sidebarSlot.clear();
         }
 
         // Maximized anchors must live in their own window.

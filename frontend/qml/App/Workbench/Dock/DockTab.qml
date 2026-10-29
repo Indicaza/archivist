@@ -250,7 +250,7 @@ Item {
             objectName: "magnet.floatView"
             theme: root.theme
             text: "Float"
-            visible: !root.workspace.isPanel || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+            visible: !root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
             onTriggered: root.workspace.floatView(root.viewId)
         }
         DockMenuItem {

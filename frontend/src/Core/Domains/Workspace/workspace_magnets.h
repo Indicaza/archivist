@@ -97,6 +97,7 @@ struct Place
     // The anchor was alone in a floating window: going back reopens one.
     bool aloneInFloatingWindow = false;
     bool inMainWindow = false; // that floating surface was a panel in the main window
+    QString sidebarSlot;       // ...or docked in the sidebar
     QRectF windowGeometry;
     QString screenName;
 
@@ -112,6 +113,7 @@ struct ReturnPlan
     DropTarget target;
     bool detach = false;
     bool inMainWindow = false;
+    QString sidebarSlot; // detach into this sidebar slot
     QRectF geometry;
     QString screenName;
 };

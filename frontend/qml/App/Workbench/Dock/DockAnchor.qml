@@ -846,7 +846,7 @@ Item {
                 objectName: "magnet.floatAnchor"
                 theme: root.theme
                 text: "Float Panel"
-                visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.anchorCount > 1)
+                visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1)
                 enabled: !root.layoutLocked
                 onTriggered: root.workspace.floatAnchor(root.anchorId)
             }

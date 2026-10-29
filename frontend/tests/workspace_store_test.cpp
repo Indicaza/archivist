@@ -636,6 +636,98 @@ private slots:
         }
     }
 
+    // A tab or panel dropped on a sidebar tab (or its bottom) docks there:
+    // one surface per spot, one undo step, kept across a restart. When the
+    // tab is deleted, what was in it floats instead of disappearing.
+    void sidebarSlotsHoldPanels()
+    {
+        const QString tab = QStringLiteral("navigation.custom.1");
+        const QString bottom = QStringLiteral("sidebar.bottom");
+        QString b;
+        QString c;
+        QString inTab;
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("sidebar-slots"));
+            store.setSidebarSlots({QStringLiteral("navigation.archive"), tab});
+            const QString surface = store.primarySurfaceId();
+            store.setSurfaceSize(surface, 1000, 600);
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+            b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+            c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+            const int revision = store.model().revision();
+
+            QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+            store.updateDragFloat(300, 200, 420, 300);
+            store.updateDrag(surface, 500, 300);
+            QVERIFY(store.dropFloats());
+            store.updateDragOverSlot(tab);
+            QVariantMap state = store.dragState();
+            QCOMPARE(state.value("slot").toString(), tab);
+            QCOMPARE(state.value("phase").toString(), QStringLiteral("preview"));
+            QVERIFY(store.dropAllowed());
+            QVERIFY(!store.dropFloats());
+            QCOMPARE(store.model().revision(), revision);
+
+            QVERIFY(store.finishDrag());
+            inTab = store.sidebarSurface(tab);
+            QVERIFY(!inTab.isEmpty());
+            QCOMPARE(store.view(b).value("surfaceId").toString(), inTab);
+            QCOMPARE(store.surface(inTab).value("sidebarSlot").toString(), tab);
+            QVERIFY(store.sidebarSurfaceIds().contains(inTab));
+            QVERIFY(store.panelSurfaceIds().isEmpty());
+            QVERIFY(store.floatingSurfaceIds().isEmpty());
+            QCOMPARE(store.undoSummary(), QStringLiteral("Docked “b” in the sidebar"));
+
+            QVERIFY(store.undo());
+            QVERIFY(store.sidebarSurface(tab).isEmpty());
+            QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
+            QVERIFY(store.redo());
+            QCOMPARE(store.sidebarSurface(tab), inTab);
+
+            // That spot is taken now.
+            QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+            store.updateDragOverSlot(tab);
+            QVERIFY(!store.dropAllowed());
+            QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("invalid"));
+            // The bottom is free.
+            store.updateDragOverSlot(bottom);
+            QVERIFY(store.dropAllowed());
+            QVERIFY(store.finishDrag());
+            const QString inBottom = store.sidebarSurface(bottom);
+            QVERIFY(!inBottom.isEmpty());
+            QCOMPARE(store.view(c).value("surfaceId").toString(), inBottom);
+
+            // Out of the sidebar into open space: it floats, the spot frees.
+            QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+            store.updateDragFloat(200, 120, 420, 300);
+            store.updateDrag(surface, 500, 300);
+            QVERIFY(store.finishDrag());
+            QVERIFY(store.sidebarSurface(bottom).isEmpty());
+            QCOMPARE(store.panelSurfaceIds().size(), 1);
+            QCOMPARE(store.view(c).value("surfaceId").toString(), store.panelSurfaceIds().first());
+
+            // Return puts it back in the sidebar.
+            QVERIFY(store.returnToPrevious(QStringLiteral("view"), c).value("ok").toBool());
+            QCOMPARE(store.view(c).value("surfaceId").toString(), store.sidebarSurface(bottom));
+            store.saveNow();
+        }
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("sidebar-slots"));
+            QCOMPARE(store.sidebarSurface(tab), inTab);
+            QCOMPARE(store.view(b).value("surfaceId").toString(), inTab);
+            QVERIFY(!store.sidebarSurface(bottom).isEmpty());
+
+            // The tab is deleted: its panel floats, nothing is closed.
+            store.setSidebarSlots({QStringLiteral("navigation.archive")});
+            QVERIFY(store.sidebarSurface(tab).isEmpty());
+            QCOMPARE(store.panelSurfaceIds(), QStringList{inTab});
+            QCOMPARE(store.view(b).value("surfaceId").toString(), inTab);
+            QVERIFY(!store.sidebarSurface(bottom).isEmpty());
+        }
+    }
+
     // The tab and panel menus float without a drag, one undo step each.
     void menusFloatTabsAndPanels()
     {

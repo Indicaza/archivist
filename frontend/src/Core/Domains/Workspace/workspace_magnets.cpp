@@ -276,6 +276,7 @@ Place placeOf(const WorkspaceModel &model, const DragSource &source)
     if (surface && !surface->primary && anchorLeaves && model.anchorIds(place.surfaceId).size() == 1) {
         place.aloneInFloatingWindow = true;
         place.inMainWindow = surface->inMainWindow;
+        place.sidebarSlot = surface->sidebarSlot;
         place.windowGeometry = surface->geometry;
         place.screenName = surface->screenName;
     }
@@ -298,7 +299,9 @@ ReturnPlan planReturn(const WorkspaceModel &model, const Place &place)
     const bool isView = place.source.kind == DragSource::Kind::View;
 
     // A tab whose panel is still there goes back into it, at its old position.
-    if (isView && model.anchor(place.anchorId)) {
+    // (A tab alone in its panel moved the whole panel: that is put back below.)
+    const bool movedItsPanel = place.aloneInFloatingWindow && now.anchorId == place.anchorId;
+    if (isView && model.anchor(place.anchorId) && !movedItsPanel) {
         if (now.anchorId == place.anchorId && now.index == place.index) {
             plan.result = OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."));
             return plan;
@@ -314,13 +317,20 @@ ReturnPlan planReturn(const WorkspaceModel &model, const Place &place)
     // It had a floating window to itself: it gets one again.
     if (place.aloneInFloatingWindow) {
         const SurfaceRecord *nowSurface = model.surface(now.surfaceId);
-        if (now.aloneInFloatingWindow && nowSurface && nowSurface->geometry == place.windowGeometry
-            && nowSurface->inMainWindow == place.inMainWindow) {
+        if (now.aloneInFloatingWindow && nowSurface && nowSurface->inMainWindow == place.inMainWindow
+            && nowSurface->sidebarSlot == place.sidebarSlot
+            && (!place.sidebarSlot.isEmpty() || nowSurface->geometry == place.windowGeometry)) {
             plan.result = OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."));
+            return plan;
+        }
+        const QString holder = model.surfaceInSidebarSlot(place.sidebarSlot);
+        if (!holder.isEmpty() && holder != now.surfaceId) {
+            plan.result = OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something else is docked there now."));
             return plan;
         }
         plan.detach = true;
         plan.inMainWindow = place.inMainWindow;
+        plan.sidebarSlot = place.sidebarSlot;
         plan.geometry = place.windowGeometry;
         plan.screenName = place.screenName;
         plan.result = OpResult::success();

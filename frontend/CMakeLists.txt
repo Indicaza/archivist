@@ -361,6 +361,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockSurfaceArea.qml
         qml/App/Workbench/Dock/DockCarry.qml
         qml/App/Workbench/Dock/DockFloatingPanel.qml
+        qml/App/Workbench/Dock/DockSidebarSlot.qml
         qml/App/Workbench/Dock/DockFloatingWindow.qml
         qml/App/Workbench/Dock/DockDropOverlay.qml
         qml/App/Workbench/Dock/DockDialogButton.qml

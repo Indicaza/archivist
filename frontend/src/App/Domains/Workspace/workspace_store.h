@@ -69,6 +69,8 @@ class WorkspaceStore final : public QObject
     Q_PROPERTY(QStringList floatingSurfaceIds READ floatingSurfaceIds NOTIFY surfacesChanged)
     // Floating panels drawn inside the main window, oldest first.
     Q_PROPERTY(QStringList panelSurfaceIds READ panelSurfaceIds NOTIFY surfacesChanged)
+    // Surfaces docked in the sidebar (see sidebarSurface).
+    Q_PROPERTY(QStringList sidebarSurfaceIds READ sidebarSurfaceIds NOTIFY surfacesChanged)
     // Dropping now floats the dragged content as a panel (no dock target).
     Q_PROPERTY(bool dropFloats READ dropFloats NOTIFY dragChanged)
     // How long a drag is held at a dock zone before it docks there (ms).
@@ -142,6 +144,14 @@ public:
     [[nodiscard]] QVariantMap detachRect() const;
     [[nodiscard]] QStringList floatingSurfaceIds() const;
     [[nodiscard]] QStringList panelSurfaceIds() const;
+    [[nodiscard]] QStringList sidebarSurfaceIds() const;
+    // The surface docked in a sidebar slot (a rail tab's id, or
+    // "sidebar.bottom"), or empty.
+    [[nodiscard]] Q_INVOKABLE QString sidebarSurface(const QString &slot) const;
+    // The sidebar slots that exist (the rail's tabs; "sidebar.bottom" always
+    // does). Anything docked in a slot that is gone floats as a panel, so
+    // nothing is lost when a tab is deleted.
+    Q_INVOKABLE void setSidebarSlots(const QStringList &slotIds);
     [[nodiscard]] QVariantList presets() const;
     [[nodiscard]] double minimumAnchorWidth() const { return m_metrics.minimumAnchorWidth; }
     [[nodiscard]] double minimumAnchorHeight() const { return m_metrics.minimumAnchorHeight; }
@@ -297,6 +307,9 @@ public:
     // Where the dragged content would float if dropped with no dock target:
     // a rect in the main window's content.
     Q_INVOKABLE void updateDragFloat(double x, double y, double width, double height);
+    // Over an empty sidebar slot: a drop docks it there (no dwell: an empty
+    // spot is aimed at on purpose).
+    Q_INVOKABLE void updateDragOverSlot(const QString &slot);
     // Drops onto a validated target (checked again against the layout as
     // it is now) as one workspace step: undo puts everything back.
     Q_INVOKABLE bool finishDrag();
@@ -526,6 +539,11 @@ private:
     QTimer m_aimTimer;
     int m_dockDwellMs = 220;
     int m_aimSerial = 0;
+    QString m_slotTarget;
+    QStringList m_sidebarSlots;
+    bool m_sidebarSlotsKnown = false;
+    void adoptOrphanSidebarSurfaces();
+    void leaveSlot();
     void aimAt(const Workspace::DropTarget &target);
     void stopAiming();
     bool floatAllowed();

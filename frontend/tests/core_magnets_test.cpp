@@ -360,6 +360,37 @@ private slots:
         QVERIFY(!locked.ok);
         QVERIFY(!locked.message.isEmpty());
     }
+
+    // A sidebar spot holds one surface, never the main layout; moving a
+    // panel alone in a spot and putting it back returns it to that spot.
+    void sidebarSlotsHoldOneSurface()
+    {
+        Arranged s = arranged();
+        const QString slot = QStringLiteral("navigation.custom.1");
+        const OpResult primary = s.model.setSurfaceSidebarSlot(s.model.primarySurfaceId(), slot);
+        QCOMPARE(primary.code, QStringLiteral("PRIMARY_SURFACE"));
+
+        const OpResult panel = s.model.detachView(s.a, QRectF(0, 0, 280, 260), {}, Origin::User, false);
+        QVERIFY(panel.ok);
+        QVERIFY(s.model.setSurfaceSidebarSlot(panel.createdId, slot).ok);
+        QCOMPARE(s.model.surfaceInSidebarSlot(slot), panel.createdId);
+        QVERIFY(!s.model.surface(panel.createdId)->inMainWindow);
+
+        const OpResult other = s.model.detachAnchor(s.editors, QRectF(0, 0, 280, 260), {}, true);
+        QVERIFY(other.ok);
+        QCOMPARE(s.model.setSurfaceSidebarSlot(other.createdId, slot).code, QStringLiteral("SLOT_TAKEN"));
+
+        const Magnets::Place place = Magnets::placeOf(s.model, DragSource::view(s.a));
+        QCOMPARE(place.sidebarSlot, slot);
+        QVERIFY(Magnets::planReturn(s.model, place).result.code == QStringLiteral("NO_CHANGE"));
+
+        // Floated out: the same surface moves and leaves the spot.
+        QCOMPARE(s.model.detachView(s.a, QRectF(200, 100, 520, 360), {}, Origin::User, true).createdId, panel.createdId);
+        QVERIFY(s.model.surfaceInSidebarSlot(slot).isEmpty());
+        const Magnets::ReturnPlan plan = Magnets::planReturn(s.model, place);
+        QVERIFY2(plan.result.ok, qPrintable(plan.result.message));
+        QCOMPARE(plan.sidebarSlot, slot);
+    }
 };
 
 QTEST_GUILESS_MAIN(CoreMagnetsTest)

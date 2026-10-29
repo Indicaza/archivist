@@ -36,6 +36,8 @@ inline const QString Archive = QStringLiteral("navigation.archive");
 inline const QString Search = QStringLiteral("navigation.search");
 inline const QString Plugins = QStringLiteral("navigation.plugins");
 inline const QString Tools = QStringLiteral("navigation.tools");
+// A person's own tabs: "navigation.custom.1", "navigation.custom.2", ...
+inline const QString CustomPrefix = QStringLiteral("navigation.custom.");
 } // namespace RailIds
 
 struct RailItem
@@ -47,6 +49,7 @@ struct RailItem
     QString destination; // Home: "home"; panels: "workspace"
     int legacyIndex = -1; // panels only: the index saved before ids existed
     bool placeholder = false; // panel has no content yet
+    bool custom = false;      // a tab the person added (and can rename or delete)
 
     [[nodiscard]] bool isPanel() const { return destination == Destinations::Workspace; }
     [[nodiscard]] QVariantMap toVariant() const;
@@ -58,6 +61,25 @@ struct RailItem
 [[nodiscard]] QString panelIdForLegacyIndex(int index); // unknown: Navigator
 [[nodiscard]] int legacyIndexForPanel(const QString &panelId); // unknown: 0
 [[nodiscard]] QVariantList railItemsVariant();
+
+// ---- a person's own tabs ------------------------------------------------
+//
+// Added under the built-in panels. Each is an empty side panel that tabs
+// and panels can be docked into (the docking workspace keeps what is in
+// it, per project). Saved once for the app.
+[[nodiscard]] bool isCustomRailId(const QString &id);
+[[nodiscard]] RailItem customTab(const QString &id, const QString &label);
+// Built-in items, then the person's own.
+[[nodiscard]] QList<RailItem> railItemsWith(const QList<RailItem> &custom);
+[[nodiscard]] QVariantList railItemsVariant(const QList<RailItem> &custom);
+[[nodiscard]] const RailItem *railItem(const QString &id, const QList<RailItem> &custom);
+// A new tab with the next free id; an empty label becomes "Tab N".
+[[nodiscard]] QList<RailItem> addCustomTab(const QList<RailItem> &custom, const QString &label, QString *createdId = nullptr);
+[[nodiscard]] QList<RailItem> removeCustomTab(const QList<RailItem> &custom, const QString &id);
+[[nodiscard]] QList<RailItem> renameCustomTab(const QList<RailItem> &custom, const QString &id, const QString &label);
+[[nodiscard]] QVariantList customTabsToVariant(const QList<RailItem> &custom);
+// Forgiving: skips entries that aren't custom ids, and duplicates.
+[[nodiscard]] QList<RailItem> customTabsFromVariant(const QVariantList &value);
 
 struct NavigationState
 {
@@ -71,7 +93,7 @@ struct NavigationState
 
     [[nodiscard]] QVariantMap toVariant() const;
     // Forgiving: unknown destinations go Home, unknown panels to Navigator.
-    [[nodiscard]] static NavigationState fromVariant(const QVariantMap &value);
+    [[nodiscard]] static NavigationState fromVariant(const QVariantMap &value, const QList<RailItem> &custom = {});
 
     bool operator==(const NavigationState &other) const = default;
 };
@@ -82,12 +104,15 @@ struct NavigationState
 //   the open panel    closes the side panel
 //   another panel     opens it
 // Unknown ids change nothing.
-[[nodiscard]] NavigationState activate(const NavigationState &state, const QString &railId);
+[[nodiscard]] NavigationState activate(const NavigationState &state, const QString &railId, const QList<RailItem> &custom = {});
 [[nodiscard]] NavigationState goHome(const NavigationState &state);
 [[nodiscard]] NavigationState returnToWorkspace(const NavigationState &state);
 // Opens a panel in the workspace (revealing a file, say). Leaves Home.
-[[nodiscard]] NavigationState showPanel(const NavigationState &state, const QString &panelId);
+[[nodiscard]] NavigationState showPanel(const NavigationState &state, const QString &panelId, const QList<RailItem> &custom = {});
 // Per-project panel state coming back after a project switch. Doesn't
 // change the destination.
-[[nodiscard]] NavigationState restorePanel(const NavigationState &state, const QString &panelId, bool open);
+[[nodiscard]] NavigationState restorePanel(const NavigationState &state, const QString &panelId, bool open,
+                                           const QList<RailItem> &custom = {});
+// A tab was deleted: if it was showing, the Navigator shows instead.
+[[nodiscard]] NavigationState forgetPanel(const NavigationState &state, const QString &panelId);
 } // namespace Shell

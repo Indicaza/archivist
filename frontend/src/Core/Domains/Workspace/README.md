@@ -152,6 +152,28 @@ whole group). It is never a copy; resources are never touched by a drag.
   it is now, or refuses (`GONE`, `NO_CHANGE`). Returning again goes back.
   The memory is per project and per session.
 
+## The sidebar
+
+Tabs and panels dock into the sidebar too: into one of its tabs (any rail
+tab but the Navigator, including the person's own), or at its bottom, under
+every tab. Each spot holds one surface (`SurfaceRecord::sidebarSlot`: the
+rail tab's id, or `sidebar.bottom`), with its own tabs and splits like any
+other; `setSurfaceSidebarSlot` refuses the main layout (`PRIMARY_SURFACE`)
+and a spot already taken (`SLOT_TAKEN`).
+
+- **Dropping in.** Over an empty spot a drag docks there on release, with
+  no dwell (`updateDragOverSlot`; `dragState.slot` says which). One drop,
+  one undo step ("Docked … in the sidebar"). A spot that holds something is
+  an ordinary surface: drops dock into its panels as anywhere else.
+- **Taking out.** Dragged out (or Float from the menu), it floats; Return
+  puts it back in its spot if that is still free.
+- **A tab deleted.** The shell tells the store which spots exist
+  (`setSidebarSlots`). Deleting a tab from the rail sends what was in it
+  back to the main layout; anything left in a spot that no longer exists
+  (restored from an older save, or by undo) floats instead. Nothing is
+  closed.
+- **The bottom spot** keeps its height as the surface's geometry.
+
 ## Anchors as workstations
 
 An anchor can be configured, and the configuration belongs to the anchor, so

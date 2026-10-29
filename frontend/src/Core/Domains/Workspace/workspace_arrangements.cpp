@@ -137,6 +137,7 @@ Result restore(
             it->preferredScreenName = now->preferredScreenName;
             it->windowMaximized = now->windowMaximized;
             it->inMainWindow = now->inMainWindow;
+            it->sidebarSlot = now->sidebarSlot;
         }
         if (!it->maximizedAnchorId.isEmpty() && !out.anchors.contains(it->maximizedAnchorId)) {
             it->maximizedAnchorId.clear();

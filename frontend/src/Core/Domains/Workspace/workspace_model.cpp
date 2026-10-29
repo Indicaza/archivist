@@ -382,6 +382,7 @@ void WorkspaceModel::placeSurface(const QString &surfaceId, const QRectF &geomet
     SurfaceRecord &record = m_surfaces[surfaceId];
     const QString screen = inMainWindow ? QString() : screenName;
     record.inMainWindow = inMainWindow;
+    record.sidebarSlot.clear();
     record.geometry = geometry;
     record.screenName = screen;
     record.preferredGeometry = geometry;
@@ -1874,6 +1875,41 @@ OpResult WorkspaceModel::setSurfaceGeometry(QString surfaceId, const QRectF &geo
     return OpResult::success();
 }
 
+OpResult WorkspaceModel::setSurfaceSidebarSlot(QString surfaceId, QString slot)
+{
+    if (!m_surfaces.contains(surfaceId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such window: ") + surfaceId);
+    }
+    SurfaceRecord &record = m_surfaces[surfaceId];
+    if (record.primary) {
+        return OpResult::failure(QStringLiteral("PRIMARY_SURFACE"), QStringLiteral("The main window can't go in the sidebar."));
+    }
+    const QString holder = surfaceInSidebarSlot(slot);
+    if (!slot.isEmpty() && !holder.isEmpty() && holder != surfaceId) {
+        return OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something is already docked there."));
+    }
+    record.sidebarSlot = slot;
+    record.inMainWindow = slot.isEmpty();
+    record.screenName.clear();
+    record.preferredScreenName.clear();
+    record.windowMaximized = false;
+    bump();
+    return OpResult::success(surfaceId);
+}
+
+QString WorkspaceModel::surfaceInSidebarSlot(const QString &slot) const
+{
+    if (slot.isEmpty()) {
+        return {};
+    }
+    for (const QString &surfaceId : m_surfaceOrder) {
+        if (m_surfaces.value(surfaceId).sidebarSlot == slot) {
+            return surfaceId;
+        }
+    }
+    return {};
+}
+
 OpResult WorkspaceModel::setSurfaceWindowMaximized(QString surfaceId, bool maximized)
 {
     if (!m_surfaces.contains(surfaceId)) {
@@ -1963,8 +1999,8 @@ QStringList WorkspaceModel::recoverSurfaces(const QList<ScreenInfo> &screens)
     for (const QString &surfaceId : m_surfaceOrder) {
         SurfaceRecord &record = m_surfaces[surfaceId];
 
-        // Panels inside the main window go wherever it goes.
-        if (!record.geometry.isValid() || record.inMainWindow) {
+        // Panels inside the main window, and the sidebar, go wherever it goes.
+        if (!record.geometry.isValid() || record.inMainWindow || !record.sidebarSlot.isEmpty()) {
             continue;
         }
 

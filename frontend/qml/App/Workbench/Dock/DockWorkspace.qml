@@ -923,7 +923,59 @@ Item {
                 return candidate
             }
         }
+        var docked = Docking.sidebarSurfaceIds
+        for (var s = 0; s < docked.length; s += 1) {
+            var inSidebar = surfaceAreas[docked[s]]
+            if (inSidebar && inSidebar.containsGlobal(globalPoint)) {
+                return inSidebar
+            }
+        }
         return area.containsGlobal(globalPoint) ? area : null
+    }
+
+    // ---- the sidebar --------------------------------------------------------
+    //
+    // A sidebar tab (and the bottom of the sidebar) is a spot that holds one
+    // surface. Empty, it is a drop zone: drop a tab or panel on it and it
+    // docks there (DockSidebarSlot draws both).
+
+    property var slotZones: ({})
+
+    function registerSlotZone(slot, item) {
+        var zones = Object.assign({}, slotZones)
+        zones[slot] = item
+        slotZones = zones
+    }
+
+    function unregisterSlotZone(slot, item) {
+        if (slotZones[slot] === item) {
+            var zones = Object.assign({}, slotZones)
+            delete zones[slot]
+            slotZones = zones
+        }
+    }
+
+    // The empty sidebar spot under a global point, if any.
+    function slotZoneAt(globalPoint) {
+        for (var slot in slotZones) {
+            var zone = slotZones[slot]
+            if (zone && zone.acceptsDrop && zone.containsGlobal(globalPoint)) {
+                return zone
+            }
+        }
+        return null
+    }
+
+    function syncSidebarSlots() {
+        Docking.setSidebarSlots(Shell.panelIds)
+    }
+
+    Connections {
+        target: Shell
+
+        function onRailItemsChanged() {
+            root.syncSidebarSlots()
+        }
     }
 
     function screenAt(globalPoint) {
@@ -995,6 +1047,14 @@ Item {
         carryLayer.pointerHere = inLayer.x >= 0 && inLayer.y >= 0 && inLayer.x <= panelLayer.width && inLayer.y <= panelLayer.height
         if (root.liveSurfaceId.length === 0) {
             updateFloatFrame(globalPoint)
+        }
+
+        if (!target || target === area) {
+            var zone = slotZoneAt(globalPoint)
+            if (zone) {
+                Docking.updateDragOverSlot(zone.slot)
+                return
+            }
         }
 
         if (!target) {
@@ -1309,6 +1369,8 @@ Item {
             WorktreeStore.setDocumentDirty(dirty[index], String(Documents.snapshot(dirty[index]).libraryId || ""), true)
         }
         root.surfaceId = Docking.primarySurfaceId
+        // Which sidebar spots exist, before any project's layout comes in.
+        syncSidebarSlots()
         restoreCollection()
     }
     Component.onDestruction: Docking.saveNow()

@@ -65,10 +65,16 @@ Item {
     function notePointerFocus() { workspace.notePointerFocus() }
     readonly property bool keyboardFocusVisible: workspace.keyboardFocusVisible
     readonly property bool isFloating: surfaceId.length > 0 && surfaceId !== Docking.primarySurfaceId
-    // A floating panel inside the main window (not a window of its own).
+    // Docked in the sidebar (a tab of its own, or the bottom).
+    readonly property bool isInSidebar: {
+        Docking.revision
+        return isFloating && String(Docking.surface(surfaceId).sidebarSlot || "").length > 0
+    }
+    // Inside the main window (not a window of its own): a floating panel,
+    // or something docked in the sidebar.
     readonly property bool isPanel: {
         Docking.revision
-        return isFloating && Docking.surface(surfaceId).inMainWindow === true
+        return isFloating && (Docking.surface(surfaceId).inMainWindow === true || isInSidebar)
     }
 
     function containsGlobal(point) {

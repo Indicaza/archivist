@@ -106,6 +106,8 @@ QVariantMap WorkspaceStore::dragState() const
         // Held at a dock zone: it docks there after `dwellMs` (PR 2 can
         // draw the pull from this).
         {QStringLiteral("aim"), Magnets::targetMap(m_aimTarget)},
+        // Over an empty sidebar slot (a drop docks it there).
+        {QStringLiteral("slot"), m_slotTarget},
         {QStringLiteral("aimSerial"), m_aimSerial},
         {QStringLiteral("dwellMs"), m_dockDwellMs},
         {QStringLiteral("reflow"), dragReflow()},
@@ -163,6 +165,9 @@ QVariantMap WorkspaceStore::returnToPrevious(const QString &kind, const QString 
     }
 
     const QString anchorId = source.kind == DragSource::Kind::View ? m_model.anchorOfView(source.id) : source.id;
+    if (plan.detach && !plan.sidebarSlot.isEmpty()) {
+        m_model.setSurfaceSidebarSlot(m_model.surfaceOfAnchor(anchorId), plan.sidebarSlot);
+    }
     if (!plan.detach && plan.target.edge != Edge::Center) {
         // Recreated beside its neighbour: the same size as before.
         Magnets::restoreShare(m_model, anchorId, *it);
