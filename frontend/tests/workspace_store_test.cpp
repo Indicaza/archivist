@@ -2837,6 +2837,31 @@ private slots:
         QVERIFY(store.wells().first().toMap().value("entries").toList().isEmpty());
     }
 
+    // What the Well bar and the tab menu read.
+    void theWellShowsWhatItsIconsNeed()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-icons"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("notes.md"), "notes.md");
+        QVERIFY(!store.isViewPinned(b));
+        QVERIFY(store.setViewPinned(b, true).value("ok").toBool());
+        QVERIFY(store.isViewPinned(b));
+
+        QVERIFY(store.minimizeView(b).value("ok").toBool());
+        const QVariantMap entry = store.wells().first().toMap().value("entries").toList().first().toMap();
+        const QVariantMap resource = entry.value("resource").toMap();
+        QCOMPARE(resource.value("kind").toString(), QStringLiteral("document"));
+        QCOMPARE(resource.value("id").toString(), documentResource("notes.md").value("id").toString());
+        QCOMPARE(entry.value("minimizedViewIds").toStringList(), QStringList{b});
+
+        QVERIFY(store.setViewPinned(b, false).value("ok").toBool());
+        QVERIFY(!store.isViewPinned(b));
+        QVERIFY(store.isViewMinimized(b));
+        QVERIFY(!store.isViewPinned(QStringLiteral("no-such-view")));
+    }
+
     void theWellSurvivesARestart()
     {
         QSettings settings;

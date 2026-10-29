@@ -718,6 +718,14 @@ Item {
         }
     }
 
+    // Puts a tab away in the Gravity Well (it keeps running).
+    function minimizeView(viewId) {
+        var result = Docking.minimizeView(viewId)
+        if (!result.ok && result.error) {
+            toast.show(String(result.error))
+        }
+    }
+
     function closeOtherViews(viewId) {
         var result = Docking.closeOtherViews(viewId, false)
         if (result.needsConfirmation) {
@@ -1755,6 +1763,47 @@ Item {
         Behavior on x {
             enabled: !root.theme.reducedMotion
             SpringAnimation { spring: root.theme.motionSpring; damping: root.theme.motionDamping; epsilon: 0.2 }
+        }
+    }
+
+    // Gravity Wells over this window's layout (WorkspaceStore). The main
+    // Well has no surface of its own: it belongs to the main window.
+    readonly property var wellRows: {
+        Docking.revision
+        var all = Docking.wells()
+        var here = []
+        for (var index = 0; index < all.length; index += 1) {
+            var surfaceId = String(all[index].surfaceId || "")
+            if (surfaceId.length === 0 || surfaceId === root.surfaceId) {
+                here.push(all[index])
+            }
+        }
+        return here
+    }
+
+    Item {
+        id: wellLayer
+
+        objectName: "dock.wellLayer"
+        x: area.x
+        y: area.y
+        width: area.width
+        height: area.height
+        z: 4
+
+        // Counted, not keyed: a Well's item stays while its entries change.
+        Repeater {
+            model: root.wellRows.length
+
+            delegate: DockWell {
+                required property int index
+
+                theme: root.theme
+                workspace: root
+                well: root.wellRows[index] || ({})
+                // Clear of the compact composer when it floats at the bottom.
+                bottomClearance: root.composerAnchorFrame === null ? root.bottomOverlay : 0
+            }
         }
     }
 

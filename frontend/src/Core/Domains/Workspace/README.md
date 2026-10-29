@@ -299,6 +299,15 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   window (bottom centre by default) so it stays put as the window resizes.
   `WellForm` and `orientation` leave room for vertical, arc, circular and
   collapsed forms; only the linear one is drawn.
+- **Drawing it.** `DockWell.qml` draws a Well over the main window's layout
+  (never in it, so nothing reflows), pinned entries first, then a divider,
+  then what's only minimized. `WellGeometry.js` places the icons in fixed
+  slots that pointer input is tested against; anything visual (scale,
+  spreading apart, the trip into and out of the Well) is a transform on top,
+  so the slot under the pointer never moves. A tab's menu has Minimize to
+  Well and Keep in Well; an icon's menu restores, pins, unpins or closes.
+  The Well moves from its grip or edge after the usual drag threshold, snaps
+  to the centre line and edges, and keeps clear of the compact composer.
 
 ## The sidebar
 

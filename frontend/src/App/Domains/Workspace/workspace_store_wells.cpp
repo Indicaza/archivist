@@ -28,6 +28,16 @@ bool WorkspaceStore::isViewMinimized(const QString &viewId) const
     return m_model.isMinimized(viewId);
 }
 
+bool WorkspaceStore::isViewPinned(const QString &viewId) const
+{
+    const ViewRecord *view = m_model.view(viewId);
+    if (!view) {
+        return false;
+    }
+    const WellEntry *entry = m_model.wellEntry(m_model.wellEntryForResource(WorkspaceModel::kMainWellId, view->resource));
+    return entry && entry->pinned;
+}
+
 QVariantMap WorkspaceStore::wellResult(const Wells::Restored &restored) const
 {
     if (!restored.result.ok) {

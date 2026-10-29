@@ -1,5 +1,6 @@
 #include "Core/Domains/Workspace/workspace_wells.h"
 
+#include "Core/Domains/Workspace/workspace_commands.h"
 #include "Core/Domains/Workspace/workspace_magnets.h"
 
 namespace Workspace::Wells
@@ -181,6 +182,8 @@ QVariantList wellsList(const WorkspaceModel &model)
                 {QStringLiteral("title"), latest && !latest->title.isEmpty() ? latest->title : entry.title},
                 {QStringLiteral("resourceKind"), entry.resource.kind},
                 {QStringLiteral("resourceId"), entry.resource.id},
+                // For its icon and name (a file's extension, a chat's id).
+                {QStringLiteral("resource"), Commands::resourceToMap(latest ? latest->resource : entry.resource)},
             });
         }
         wells.append(QVariantMap{

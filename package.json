@@ -18,6 +18,7 @@
     "test:collections": "npm run check-node && npm run build -w backend && node scripts/test-collections.mjs",
     "test:ai-runtime": "npm run check-node && npm run build -w backend && node scripts/test-ai-runtime.mjs",
     "test:library-index": "npm run check-node && node scripts/test-library-index.mjs",
+    "test:gravity-wells": "npm run check-node && node scripts/test-gravity-wells.mjs",
     "dev": "./scripts/qt-dev-detached --follow",
     "dev:detached": "./scripts/qt-dev-detached",
     "dev:chat-trace": "./scripts/qt-dev-chat-trace",

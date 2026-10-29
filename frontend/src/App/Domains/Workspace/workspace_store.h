@@ -331,6 +331,8 @@ public:
     // Every Well and its entries, for QML (read it alongside `revision`).
     [[nodiscard]] Q_INVOKABLE QVariantList wells() const;
     [[nodiscard]] Q_INVOKABLE bool isViewMinimized(const QString &viewId) const;
+    // Whether the view's resource is pinned in the main Well.
+    [[nodiscard]] Q_INVOKABLE bool isViewPinned(const QString &viewId) const;
     // Puts a view away in the main Well. One workspace step.
     // {ok, code, error, entryId}.
     Q_INVOKABLE QVariantMap minimizeView(const QString &viewId);
