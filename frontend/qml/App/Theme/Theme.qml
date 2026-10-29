@@ -265,11 +265,11 @@ QtObject {
     // pointer is always authoritative: nothing here delays where a carried
     // panel is, only how it looks getting there. With reduced motion every
     // magnet animation jumps (springs, tremor and overshoot are skipped).
-    readonly property int magnetPickupDuration: 140
-    readonly property real magnetPickupScale: 0.96
+    readonly property int magnetPickupDuration: 185
+    readonly property real magnetPickupScale: 0.88
     // Shadow under a carried panel: how dark, and how far it drops.
-    readonly property real magnetLiftShadow: 0.42
-    readonly property real magnetLiftOffset: 14
+    readonly property real magnetLiftShadow: 0.56
+    readonly property real magnetLiftOffset: 23
     // Neighbours making room (and the content following them).
     readonly property real magnetReflowSpring: motionSpring * 1.4
     readonly property real magnetReflowDamping: motionDamping + 0.12
@@ -299,7 +299,9 @@ QtObject {
     // big); a floating panel moved by its bar shrinks to this share.
     readonly property real magnetCarryMaxWidth: 340
     readonly property real magnetCarryMaxHeight: 240
-    readonly property real magnetPanelMoveScale: 0.72
+    readonly property real magnetPanelMoveScale: 0.65
+    readonly property real magnetPanelMoveSpring: 5.2
+    readonly property real magnetPanelMoveDamping: 0.30
     // A floating panel may hang off the window, but this much of it (and
     // its header) always stays in reach.
     readonly property real magnetKeepVisible: 96
