@@ -107,7 +107,7 @@ Item {
     // easy to aim, and grows back when let go.
     readonly property real moveScale: moveHandler.active && !root.theme.reducedMotion ? root.theme.magnetPanelMoveScale : 1
     property real shownScale: moveScale
-    Behavior on shownScale { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.005 } }
+    Behavior on shownScale { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetPanelMoveSpring; damping: root.theme.magnetPanelMoveDamping; epsilon: 0.005 } }
     transform: Scale {
         origin.x: moveHandler.holdAt.x
         origin.y: moveHandler.holdAt.y
@@ -125,7 +125,8 @@ Item {
         anchors.bottomMargin: -12
         radius: root.theme.radiusPanel + 4
         color: "#000000"
-        opacity: root.focusedHere ? 0.36 : 0.24
+        opacity: moveHandler.active && !root.theme.reducedMotion ? 0.52 : root.focusedHere ? 0.36 : 0.24
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.magnetPickupDuration } }
     }
 
     Rectangle {
