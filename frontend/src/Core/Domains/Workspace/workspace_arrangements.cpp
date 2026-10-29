@@ -58,13 +58,66 @@ Result restore(
     const WorkspaceModel::Data current = model.data();
     WorkspaceModel::Data out = arrangement;
 
+    // Gravity Wells go back with the arrangement (undoing a minimize puts
+    // the view back in its panel), keeping only views that still exist. A
+    // view opened since and put away since stays put away.
+    out.wells = arrangement.wells;
+    for (WellRecord &well : out.wells) {
+        for (WellEntry &entry : well.entries) {
+            entry.minimized.removeIf([&](const MinimizedView &view) {
+                return !current.views.contains(view.viewId) || closable.contains(view.viewId);
+            });
+        }
+    }
+    for (const WellRecord &well : current.wells) {
+        for (const WellEntry &entry : well.entries) {
+            for (const MinimizedView &view : entry.minimized) {
+                if (arrangement.views.contains(view.viewId) || closable.contains(view.viewId)) {
+                    continue;
+                }
+                WellRecord *home = nullptr;
+                for (WellRecord &candidate : out.wells) {
+                    if (candidate.id == well.id || (!home && candidate.id == WorkspaceModel::kMainWellId)) {
+                        home = &candidate;
+                    }
+                }
+                if (!home) {
+                    out.wells.append(WellRecord{well.id, well.surfaceId, well.position, well.orientation, well.form, {}});
+                    home = &out.wells.last();
+                }
+                WellEntry *into = nullptr;
+                for (WellEntry &candidate : home->entries) {
+                    if (candidate.id == entry.id || (!entry.resource.isEmpty() && candidate.resource.key() == entry.resource.key())) {
+                        into = &candidate;
+                    }
+                }
+                if (!into) {
+                    WellEntry copy = entry;
+                    copy.minimized.clear();
+                    home->entries.append(copy);
+                    into = &home->entries.last();
+                }
+                into->minimized.append(view);
+            }
+        }
+    }
+    QSet<QString> minimized;
+    for (WellRecord &well : out.wells) {
+        well.entries.removeIf([](const WellEntry &entry) { return !entry.pinned && entry.minimized.isEmpty(); });
+        for (const WellEntry &entry : std::as_const(well.entries)) {
+            for (const MinimizedView &view : entry.minimized) {
+                minimized.insert(view.viewId);
+            }
+        }
+    }
+
     // Views: keep what still exists, drop what was closed since.
     QHash<QString, QString> placed; // view -> anchor in `out`
     for (auto it = out.anchors.begin(); it != out.anchors.end(); ++it) {
         QStringList kept;
         for (const QString &viewId : std::as_const(it->views)) {
             const bool reopened = !current.views.contains(viewId) && reopen.contains(viewId) && arrangement.views.contains(viewId);
-            if ((current.views.contains(viewId) && !closable.contains(viewId)) || reopened) {
+            if ((current.views.contains(viewId) && !closable.contains(viewId) && !minimized.contains(viewId)) || reopened) {
                 kept.append(viewId);
                 placed.insert(viewId, it.key());
             }
@@ -87,7 +140,7 @@ Result restore(
             continue;
         }
         out.views.insert(it.key(), it.value());
-        if (placed.contains(it.key())) {
+        if (placed.contains(it.key()) || minimized.contains(it.key())) {
             continue;
         }
         // Opened since: stay in its panel when that panel comes back.

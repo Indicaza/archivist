@@ -127,6 +127,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_arrangements.h
     src/Core/Domains/Workspace/workspace_magnets.cpp
     src/Core/Domains/Workspace/workspace_magnets.h
+    src/Core/Domains/Workspace/workspace_wells.cpp
+    src/Core/Domains/Workspace/workspace_wells.h
     src/Core/Domains/Workspace/workspace_gateway.cpp
     src/Core/Domains/Workspace/workspace_gateway.h
     src/Core/Domains/Workspace/workspace_preferences.cpp
@@ -249,6 +251,7 @@ qt_add_executable(archivist-qt
     src/App/Domains/Workspace/workspace_store_agent.cpp
     src/App/Domains/Workspace/workspace_store_composer.cpp
     src/App/Domains/Workspace/workspace_store_magnets.cpp
+    src/App/Domains/Workspace/workspace_store_wells.cpp
     src/App/Domains/Workspace/workspace_agent_bridge.cpp
     src/App/Domains/Workspace/workspace_agent_bridge.h
     src/App/Services/runtime_trace_store.cpp
@@ -558,6 +561,11 @@ if(ARCHIVIST_BUILD_TESTS)
     set_target_properties(core-magnets-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-magnets-test COMMAND core-magnets-test)
 
+    qt_add_executable(core-wells-test tests/core_wells_test.cpp)
+    target_link_libraries(core-wells-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-wells-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-wells-test COMMAND core-wells-test)
+
     qt_add_executable(core-workspace-agent-test tests/core_workspace_agent_test.cpp)
     target_link_libraries(core-workspace-agent-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-workspace-agent-test PROPERTIES MACOSX_BUNDLE FALSE)
@@ -581,6 +589,7 @@ if(ARCHIVIST_BUILD_TESTS)
         src/App/Domains/Workspace/workspace_store_agent.cpp
         src/App/Domains/Workspace/workspace_store_composer.cpp
         src/App/Domains/Workspace/workspace_store_magnets.cpp
+        src/App/Domains/Workspace/workspace_store_wells.cpp
         src/App/Domains/Workspace/workspace_agent_bridge.cpp
         src/App/Domains/Workspace/workspace_agent_bridge.h
     )

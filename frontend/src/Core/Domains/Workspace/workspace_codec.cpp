@@ -1,7 +1,10 @@
 #include "Core/Domains/Workspace/workspace_codec.h"
 
 #include <QJsonArray>
+#include <QPointF>
 #include <QSet>
+
+#include <algorithm>
 
 namespace Workspace::Codec
 {
@@ -509,6 +512,178 @@ ViewRecord decodeView(const QJsonObject &object)
     return view;
 }
 
+namespace
+{
+QJsonObject encodePlace(const Place &place)
+{
+    QJsonObject object{
+        {QStringLiteral("surface"), place.surfaceId},
+        {QStringLiteral("anchor"), place.anchorId},
+        {QStringLiteral("index"), place.index},
+    };
+    QJsonObject beside{{QStringLiteral("edge"), edgeName(place.beside.edge)}};
+    if (!place.beside.surfaceId.isEmpty()) beside.insert(QStringLiteral("surface"), place.beside.surfaceId);
+    if (!place.beside.anchorId.isEmpty()) beside.insert(QStringLiteral("anchor"), place.beside.anchorId);
+    object.insert(QStringLiteral("beside"), beside);
+    if (place.share > 0) {
+        object.insert(QStringLiteral("share"), place.share);
+        object.insert(QStringLiteral("orientation"), orientationName(place.splitOrientation));
+    }
+    if (place.aloneInFloatingWindow) {
+        QJsonObject window{{QStringLiteral("geometry"), encodeRect(place.windowGeometry)}};
+        if (place.inMainWindow) window.insert(QStringLiteral("inMainWindow"), true);
+        if (!place.sidebarSlot.isEmpty()) window.insert(QStringLiteral("sidebarSlot"), place.sidebarSlot);
+        if (!place.screenName.isEmpty()) window.insert(QStringLiteral("screen"), place.screenName);
+        object.insert(QStringLiteral("window"), window);
+    }
+    return object;
+}
+
+Place decodePlace(const QJsonObject &object, const QString &viewId)
+{
+    Place place;
+    place.source = DragSource::view(viewId);
+    place.surfaceId = object.value(QStringLiteral("surface")).toString();
+    place.anchorId = object.value(QStringLiteral("anchor")).toString();
+    place.index = object.value(QStringLiteral("index")).toInt(-1);
+    const QJsonObject beside = object.value(QStringLiteral("beside")).toObject();
+    place.beside.surfaceId = beside.value(QStringLiteral("surface")).toString();
+    place.beside.anchorId = beside.value(QStringLiteral("anchor")).toString();
+    Edge edge = Edge::Center;
+    if (parseEdge(beside.value(QStringLiteral("edge")).toString(), &edge)) {
+        place.beside.edge = edge;
+    }
+    place.share = std::clamp(object.value(QStringLiteral("share")).toDouble(0), 0.0, 1.0);
+    Orientation orientation = Orientation::Horizontal;
+    if (parseOrientation(object.value(QStringLiteral("orientation")).toString(), &orientation)) {
+        place.splitOrientation = orientation;
+    }
+    if (object.contains(QStringLiteral("window"))) {
+        const QJsonObject window = object.value(QStringLiteral("window")).toObject();
+        place.aloneInFloatingWindow = true;
+        place.windowGeometry = decodeRect(window.value(QStringLiteral("geometry")));
+        place.inMainWindow = window.value(QStringLiteral("inMainWindow")).toBool();
+        place.sidebarSlot = window.value(QStringLiteral("sidebarSlot")).toString();
+        place.screenName = window.value(QStringLiteral("screen")).toString();
+    }
+    return place;
+}
+
+// Wells and the views put away in them. The minimized views themselves are
+// written with the session's views (in no panel), so an older Archivist
+// that doesn't know Wells still opens them as tabs instead of losing them.
+QJsonArray encodeWells(const WorkspaceModel &model)
+{
+    QJsonArray wells;
+    for (const WellRecord &well : model.wells()) {
+        QJsonArray entries;
+        for (const WellEntry &entry : well.entries) {
+            QJsonArray minimized;
+            for (const MinimizedView &view : entry.minimized) {
+                minimized.append(QJsonObject{
+                    {QStringLiteral("view"), view.viewId},
+                    {QStringLiteral("place"), encodePlace(view.place)},
+                });
+            }
+            QJsonObject object{{QStringLiteral("id"), entry.id}};
+            const QJsonObject resource = encodeResource(entry.resource);
+            if (!resource.isEmpty()) object.insert(QStringLiteral("resource"), resource);
+            if (!entry.typeId.isEmpty()) object.insert(QStringLiteral("type"), entry.typeId);
+            if (!entry.title.isEmpty()) object.insert(QStringLiteral("title"), entry.title);
+            if (entry.pinned) object.insert(QStringLiteral("pinned"), true);
+            if (!minimized.isEmpty()) object.insert(QStringLiteral("minimized"), minimized);
+            entries.append(object);
+        }
+        QJsonObject object{
+            {QStringLiteral("id"), well.id},
+            {QStringLiteral("x"), well.position.x()},
+            {QStringLiteral("y"), well.position.y()},
+            {QStringLiteral("orientation"), orientationName(well.orientation)},
+            {QStringLiteral("form"), wellFormName(well.form)},
+            {QStringLiteral("entries"), entries},
+        };
+        if (!well.surfaceId.isEmpty()) object.insert(QStringLiteral("surface"), well.surfaceId);
+        wells.append(object);
+    }
+    return wells;
+}
+
+// Reads Wells, keeping only what still makes sense: minimized views that
+// exist in `views` (each once), pinned entries with a resource, Wells in a
+// window that exists (else the main window). Fills `minimizedIds`.
+QList<WellRecord> decodeWells(
+    const QJsonArray &array,
+    const QHash<QString, ViewRecord> &views,
+    const QHash<QString, SurfaceRecord> &surfaces,
+    QSet<QString> *minimizedIds,
+    QStringList *warnings
+)
+{
+    QList<WellRecord> wells;
+    QSet<QString> wellIds;
+    QSet<QString> entryIds;
+    for (const QJsonValue &wellValue : array) {
+        const QJsonObject object = wellValue.toObject();
+        WellRecord well;
+        well.id = object.value(QStringLiteral("id")).toString();
+        if (well.id.isEmpty() || wellIds.contains(well.id)) {
+            warnings->append(QStringLiteral("Skipped an unreadable Gravity Well."));
+            continue;
+        }
+        wellIds.insert(well.id);
+        well.surfaceId = object.value(QStringLiteral("surface")).toString();
+        if (!well.surfaceId.isEmpty() && !surfaces.contains(well.surfaceId)) {
+            well.surfaceId.clear();
+        }
+        well.position = QPointF(
+            std::clamp(object.value(QStringLiteral("x")).toDouble(0.5), 0.0, 1.0),
+            std::clamp(object.value(QStringLiteral("y")).toDouble(1.0), 0.0, 1.0)
+        );
+        Orientation orientation = Orientation::Horizontal;
+        if (parseOrientation(object.value(QStringLiteral("orientation")).toString(), &orientation)) {
+            well.orientation = orientation;
+        }
+        WellForm form = WellForm::Linear;
+        if (parseWellForm(object.value(QStringLiteral("form")).toString(), &form)) {
+            well.form = form;
+        }
+        QSet<QString> resources;
+        for (const QJsonValue &entryValue : object.value(QStringLiteral("entries")).toArray()) {
+            const QJsonObject entryObject = entryValue.toObject();
+            WellEntry entry;
+            entry.id = entryObject.value(QStringLiteral("id")).toString();
+            entry.resource = decodeResource(entryObject.value(QStringLiteral("resource")).toObject());
+            entry.typeId = entryObject.value(QStringLiteral("type")).toString();
+            entry.title = entryObject.value(QStringLiteral("title")).toString();
+            entry.pinned = entryObject.value(QStringLiteral("pinned")).toBool() && !entry.resource.isEmpty();
+            for (const QJsonValue &minimizedValue : entryObject.value(QStringLiteral("minimized")).toArray()) {
+                const QJsonObject minimizedObject = minimizedValue.toObject();
+                const QString viewId = minimizedObject.value(QStringLiteral("view")).toString();
+                if (!views.contains(viewId) || minimizedIds->contains(viewId)) {
+                    continue;
+                }
+                minimizedIds->insert(viewId);
+                entry.minimized.append(MinimizedView{viewId, decodePlace(minimizedObject.value(QStringLiteral("place")).toObject(), viewId)});
+            }
+            const bool duplicate = !entry.resource.isEmpty() && resources.contains(entry.resource.key());
+            if (entry.id.isEmpty() || entryIds.contains(entry.id) || duplicate || (!entry.pinned && entry.minimized.isEmpty())) {
+                for (const MinimizedView &view : std::as_const(entry.minimized)) {
+                    minimizedIds->remove(view.viewId); // it opens as a tab instead
+                }
+                continue;
+            }
+            entryIds.insert(entry.id);
+            if (!entry.resource.isEmpty()) {
+                resources.insert(entry.resource.key());
+            }
+            well.entries.append(entry);
+        }
+        wells.append(well);
+    }
+    return wells;
+}
+} // namespace
+
 QJsonObject encodeSnapshot(const WorkspaceModel &model)
 {
     QJsonArray views;
@@ -526,10 +701,14 @@ QJsonObject encodeSnapshot(const WorkspaceModel &model)
             views.append(encodeView(*model.view(viewId)));
         }
     }
+    for (const QString &viewId : model.minimizedViewIds()) {
+        views.append(encodeView(*model.view(viewId)));
+    }
 
     QJsonObject session{
         {QStringLiteral("views"), views},
         {QStringLiteral("anchors"), anchors},
+        {QStringLiteral("wells"), encodeWells(model)},
     };
     if (!model.focusedAnchorId().isEmpty()) session.insert(QStringLiteral("focusedAnchor"), model.focusedAnchorId());
     if (!model.explicitTargetAnchorId().isEmpty()) session.insert(QStringLiteral("targetAnchor"), model.explicitTargetAnchorId());
@@ -596,6 +775,12 @@ LoadReport decodeSnapshot(const QJsonObject &snapshot, const ViewTypeRegistry &r
         layout.data.views.insert(view.id, view);
     }
 
+    // Views put away in a Well stay there (not placed in a panel).
+    QSet<QString> minimizedIds;
+    layout.data.wells = decodeWells(
+        session.value(QStringLiteral("wells")).toArray(), layout.data.views, layout.data.surfaces, &minimizedIds, &report.warnings
+    );
+
     QHash<QString, QString> requestedAnchor;
     QHash<QString, QString> requestedActive;
     // Keep each anchor's saved tab order by visiting anchors in session order.
@@ -608,7 +793,7 @@ LoadReport decodeSnapshot(const QJsonObject &snapshot, const ViewTypeRegistry &r
         requestedActive.insert(anchorId, anchor.value(QStringLiteral("active")).toString());
 
         for (const QString &viewId : toStringList(anchor.value(QStringLiteral("views")))) {
-            if (viewIds.contains(viewId) && !orderedIds.contains(viewId)) {
+            if (viewIds.contains(viewId) && !orderedIds.contains(viewId) && !minimizedIds.contains(viewId)) {
                 requestedAnchor.insert(viewId, anchorId);
                 ordered.append(layout.data.views.value(viewId));
                 orderedIds.insert(viewId);
@@ -617,7 +802,7 @@ LoadReport decodeSnapshot(const QJsonObject &snapshot, const ViewTypeRegistry &r
     }
 
     for (const ViewRecord &view : views) {
-        if (!orderedIds.contains(view.id)) {
+        if (!orderedIds.contains(view.id) && !minimizedIds.contains(view.id)) {
             requestedAnchor.insert(view.id, QString()); // was nowhere: target anchor
             ordered.append(view);
         }
@@ -764,6 +949,16 @@ LoadReport applyLayout(const QJsonObject &layoutObject, WorkspaceModel &model)
         layout.data.views.insert(viewId, *model.view(viewId));
         if (!keptViews.contains(viewId)) {
             views.append(*model.view(viewId));
+        }
+    }
+    // A layout arranges panels: what is put away in a Well stays there.
+    for (const QString &viewId : model.minimizedViewIds()) {
+        layout.data.views.insert(viewId, *model.view(viewId));
+    }
+    layout.data.wells = current.wells;
+    for (WellRecord &well : layout.data.wells) {
+        if (!well.surfaceId.isEmpty() && !layout.data.surfaces.contains(well.surfaceId)) {
+            well.surfaceId.clear();
         }
     }
 

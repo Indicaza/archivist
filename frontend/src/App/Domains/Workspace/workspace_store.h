@@ -8,6 +8,7 @@
 #include "Core/Domains/Workspace/workspace_magnets.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 #include "Core/Domains/Workspace/workspace_preferences.h"
+#include "Core/Domains/Workspace/workspace_wells.h"
 
 #include <QHash>
 #include <QJsonArray>
@@ -322,6 +323,28 @@ public:
     Q_INVOKABLE QVariantMap returnToPrevious(const QString &kind, const QString &id);
     [[nodiscard]] Q_INVOKABLE bool canReturnToPrevious(const QString &kind, const QString &id) const;
 
+    // ---- Gravity Wells (workspace_store_wells.cpp) ------------------------
+    // Wells hold references: minimized views (still views, same id and
+    // resource, their live content parked like a background tab's) and
+    // pinned resources. See Core/Domains/Workspace/workspace_wells.h.
+
+    // Every Well and its entries, for QML (read it alongside `revision`).
+    [[nodiscard]] Q_INVOKABLE QVariantList wells() const;
+    [[nodiscard]] Q_INVOKABLE bool isViewMinimized(const QString &viewId) const;
+    // Puts a view away in the main Well. One workspace step.
+    // {ok, code, error, entryId}.
+    Q_INVOKABLE QVariantMap minimizeView(const QString &viewId);
+    // Puts a minimized view back where it was (or the fallback). One step.
+    // {ok, code, error, viewId, anchorId, how}.
+    Q_INVOKABLE QVariantMap restoreMinimizedView(const QString &viewId);
+    // A click on an entry: restore it, bring it forward, or open it again.
+    // A step when it changed the layout. Same result as a restore.
+    Q_INVOKABLE QVariantMap activateWellEntry(const QString &entryId);
+    Q_INVOKABLE QVariantMap setViewPinned(const QString &viewId, bool pinned);
+    Q_INVOKABLE QVariantMap setWellEntryPinned(const QString &entryId, bool pinned);
+    // Moves a Well (a share of its window, 0..1). Saved, not a history step.
+    Q_INVOKABLE bool setWellPosition(const QString &wellId, double x, double y);
+
     // ---- layouts ----------------------------------------------------------
     // Layouts arrange panels; they never open or close views. Presets are
     // built in; saved layouts are the user's own and shared by every
@@ -558,6 +581,7 @@ private:
     int m_dragPreviewSerial = 0;
     // Where each magnet was before its last drag ("view:<id>", "anchor:<id>").
     QHash<QString, Workspace::Magnets::Place> m_previousPlaces;
+    [[nodiscard]] QVariantMap wellResult(const Workspace::Wells::Restored &restored) const;
     bool applyLayoutDocument(const QJsonObject &layout, const QString &layoutId);
     [[nodiscard]] QJsonObject layoutDocument(const QString &layoutId) const;
     [[nodiscard]] QJsonArray readSavedLayouts() const;
