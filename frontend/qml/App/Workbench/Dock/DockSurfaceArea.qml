@@ -171,6 +171,7 @@ Item {
         pointer: root.dragPointer
         ghostTitle: root.workspace.dragGhostTitle
         ghostIcon: root.workspace.dragGhostIcon
+        carry: root.workspace.carry
     }
 
     // Cmd/Ctrl + = - 0 size the whole interface (InterfaceScale catches
