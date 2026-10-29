@@ -5,8 +5,7 @@ import "../../Icons"
 // What a drag carries: a picture of the panel (one grab at pickup, never
 // the live content), drawn over the whole main window.
 //
-// Over open space it is the panel as it will float, full size, where the
-// drop puts it. Aimed at a dock zone it shrinks and lifts, held by the spot
+// It stays compact during the drag, held by the spot
 // it was grabbed, while that window shows where it would dock. Picked up it
 // rises: a touch smaller (theme.magnetPickupScale), a deeper shadow, an
 // accent edge. Let go where it docks, it springs into its new place
@@ -109,8 +108,8 @@ Item {
     // 0 held small at the pointer (docking), 1 full size where it floats.
     property real spread: 1
 
-    // Always held small while carried: where it would float is outlined
-    // at full size instead (floatGhost), and it grows into it on release.
+    // Always held small while carried; the real panel grows into its
+    // committed floating frame on release, without a second outline.
     readonly property real wantedSpread: 0
 
     function updateSpread() {
@@ -176,29 +175,6 @@ Item {
         target: root
         property: "spread"
         easing.type: Easing.OutCubic
-    }
-
-    // Where a drop would float it, at full size: an outline only.
-    Rectangle {
-        id: floatGhost
-
-        objectName: "magnet.floatGhost"
-        readonly property bool shown: root.carrying && Docking.dragActive && root.floats && root.floatFrame.width > 0
-            && root.pointerHere
-        x: root.floatFrame.x
-        y: root.floatFrame.y
-        width: root.floatFrame.width
-        height: root.floatFrame.height
-        radius: root.theme.radiusPanel
-        color: Qt.rgba(root.theme.accent.r, root.theme.accent.g, root.theme.accent.b, 0.05)
-        border.width: 1
-        border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.4)
-        opacity: shown ? 1 : 0
-        visible: opacity > 0
-
-        Behavior on x { enabled: floatGhost.shown && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
-        Behavior on y { enabled: floatGhost.shown && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 120 } }
     }
 
     Item {
