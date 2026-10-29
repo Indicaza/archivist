@@ -173,7 +173,7 @@ Item {
         if (root.switchable) {
             return -1
         }
-        var x = localX - tabRow.x + tabFlick.contentX
+        var x = tabRow.mapFromItem(root, localX, root.headerHeight / 2).x
         for (var index = 0; index < tabRepeater.count; index += 1) {
             var tab = tabRepeater.itemAt(index)
             if (tab && x < tab.x + tab.width / 2) {
