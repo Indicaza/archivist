@@ -23,10 +23,11 @@ enum class Phase
 {
     Idle,     // no drag
     Pickup,   // picked up, the pointer hasn't found anything yet
-    Free,     // moving over nothing that takes a drop
+    Free,     // over no dock target: a drop floats it as a panel
+    Aiming,   // held at a dock zone, not yet long enough to dock there
     Invalid,  // over a target that refuses it (see the reason)
     Preview,  // over a valid target: the proposed layout is showing
-    Detached, // outside every window: a drop opens a floating window
+    Detached, // outside every window: a drop opens a window of its own
 };
 
 [[nodiscard]] QString phaseName(Phase phase);
@@ -52,6 +53,33 @@ struct Preview
     const LayoutMetrics &metrics
 );
 
+// Docking is opt-in: a drag only docks where the person is clearly aiming.
+// Inside a panel that is a band along each of its edges (split there), and
+// a thin band along the window border (dock along the whole side); an
+// empty panel takes a drop anywhere. The rest of a panel is open space: a
+// drop there floats. Tab strips (merge) are found by the caller.
+struct DockZones
+{
+    double windowBand = 18;   // along the window border
+    double edgeShare = 0.18;  // of the panel's width or height...
+    double edgeMinimum = 32;  // ...but never thinner than this
+    double edgeMaximum = 72;  // ...or thicker than this
+};
+
+[[nodiscard]] DropTarget dockTargetAt(
+    const WorkspaceModel &model,
+    const QString &surfaceId,
+    const QPointF &point,
+    const QSizeF &surfaceSize,
+    const LayoutMetrics &metrics,
+    const DockZones &zones = {}
+);
+
+// Whether `source` can float as a panel inside the main window (judged on a
+// copy: locks, and nothing that would leave the main window without a
+// panel).
+[[nodiscard]] OpResult canFloat(const WorkspaceModel &model, const DragSource &source);
+
 // Where a magnet sits now, recorded at pickup so it can be put back.
 struct Place
 {
@@ -68,6 +96,7 @@ struct Place
     Orientation splitOrientation = Orientation::Horizontal;
     // The anchor was alone in a floating window: going back reopens one.
     bool aloneInFloatingWindow = false;
+    bool inMainWindow = false; // that floating surface was a panel in the main window
     QRectF windowGeometry;
     QString screenName;
 
@@ -82,6 +111,7 @@ struct ReturnPlan
     OpResult result;
     DropTarget target;
     bool detach = false;
+    bool inMainWindow = false;
     QRectF geometry;
     QString screenName;
 };

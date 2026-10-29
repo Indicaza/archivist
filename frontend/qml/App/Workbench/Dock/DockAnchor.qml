@@ -843,15 +843,23 @@ Item {
 
             DockMenuSeparator { theme: root.theme }
             DockMenuItem {
+                objectName: "magnet.floatAnchor"
+                theme: root.theme
+                text: "Float Panel"
+                visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.anchorCount > 1)
+                enabled: !root.layoutLocked
+                onTriggered: root.workspace.floatAnchor(root.anchorId)
+            }
+            DockMenuItem {
                 theme: root.theme
                 text: "Move Panel to New Window"
-                visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.anchorCount > 1)
+                visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.isPanel || root.workspace.anchorCount > 1)
                 enabled: !root.layoutLocked
                 onTriggered: root.workspace.detachAnchor(root.anchorId)
             }
             DockMenuItem {
                 theme: root.theme
-                text: "Return Panel to Main Window"
+                text: root.workspace.isPanel ? "Dock Panel in Main Layout" : "Return Panel to Main Window"
                 visible: root.workspace.isFloating
                 enabled: !root.layoutLocked
                 onTriggered: root.workspace.returnToMainWindow("anchor", root.anchorId)

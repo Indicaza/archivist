@@ -121,8 +121,20 @@ whole group). It is never a copy; resources are never touched by a drag.
   itself. It refuses `NO_CHANGE` (it would land where it is) and
   `TOO_SMALL` (a panel would end up under the minimum size, unless the
   window was already that cramped), each with a message for the ghost.
+- **Floating by default, docking on aim.** A drag only docks where the
+  person is clearly aiming (`Magnets::dockTargetAt`): a tab strip (at
+  once), a band along a panel's edge or the window border (once held there
+  for `dockDwellMs`, 220 ms), or anywhere in an empty panel. Anywhere else,
+  and outside every window, the drop floats it as a panel inside the main
+  window (`SurfaceRecord::inMainWindow`, geometry in the main window's content,
+  no screen), at the size it had (capped) and held where it was grabbed.
+  Floating panels are ordinary surfaces: tabs, splits, docking and Return
+  all work in them, and there can be any number. A magnet already alone in
+  a floating panel just moves it. Windows of their own still open from the
+  tab and panel menus.
 - **One drag state.** The store publishes `Docking.dragState`: `phase`
-  (`idle`, `pickup`, `free`, `invalid`, `preview`, `detached`), what is
+  (`idle`, `pickup`, `free`, `aiming`, `invalid`, `preview`, `detached`),
+  `floats` and `floatRect`, the zone being `aim`ed at and `dwellMs`, what is
   carried and its origin rect, the target, `valid` and the reason, the
   landing rect, `reflow` (every panel in the target window, committed rect
   `from` -> proposed rect `to`; a panel the drop creates has a provisional
@@ -135,7 +147,7 @@ whole group). It is never a copy; resources are never touched by a drag.
 - **Return to Previous Position.** At pickup the store remembers where the
   magnet was (`Magnets::placeOf`): a tab's panel and position, or for a
   panel, the neighbour or window edge it sat against, its share of the
-  split, and its floating window if it had one to itself. `planReturn`
+  split, and its floating window or panel if it had one to itself. `planReturn`
   turns that into a drop (or a new floating window) against the layout as
   it is now, or refuses (`GONE`, `NO_CHANGE`). Returning again goes back.
   The memory is per project and per session.

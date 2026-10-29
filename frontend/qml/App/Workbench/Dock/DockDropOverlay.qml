@@ -11,8 +11,6 @@ Item {
     required property var workspace
 
     property string surfaceId: ""
-    // The drag's pointer is over this window (the ghost is drawn here).
-    property bool pointerHere: true
 
     readonly property var landing: Docking.dragLandingRect
     readonly property bool hasLanding: Docking.dragActive && Docking.dropAllowed && landing.width !== undefined
@@ -31,10 +29,6 @@ Item {
         }
         return "Split " + (edge === "top" ? "above" : edge === "bottom" ? "below" : edge)
     }
-
-    property point pointer: Qt.point(0, 0)
-    property string ghostTitle: ""
-    property string ghostIcon: "file"
 
     // Landing area.
     Rectangle {
@@ -96,64 +90,15 @@ Item {
         }
     }
 
-    // ---- the carried panel ----------------------------------------------
+    // ---- where it came from, and where it is aimed --------------------
     //
-    // A picture of the panel, held at the spot it was picked up by,
-    // slightly smaller and lifted. The live panel stays where it was (dimmed
-    // below) until the drop. Nothing here is committed: it only draws.
+    // The carried picture itself is drawn over the whole main window
+    // (DockCarry). Here: the spot it was lifted from, and the dock zone a
+    // drag is held at, filling until it docks.
     property var carry: null
-    readonly property bool carrying: carry !== null && carry.active
+    readonly property bool carrying: carry !== null && carry.active && !carry.live
     readonly property bool fromHere: carrying && carry.surfaceId === root.surfaceId
     readonly property rect source: carrying ? carry.sourceRect : Qt.rect(0, 0, 0, 0)
-    readonly property bool hasPicture: carrying && String(carry.image).length > 0 && source.width > 0
-    readonly property bool refused: Docking.dragActive && !Docking.dropAllowed
-        && (Docking.dropTarget.surfaceId !== undefined || Docking.dragDetached)
-    // Lifted: a little smaller, never so big that it hides where it goes.
-    readonly property real carryScale: source.width > 0 && width > 0
-        ? Math.min(0.9, 0.55 * width / source.width, 0.6 * height / Math.max(1, source.height))
-        : 0.9
-    readonly property point grab: carrying && carry.grab.x >= 0 ? carry.grab : Qt.point(60, 14)
-    // 0 sits on the original panel, 1 is held by the pointer.
-    property real lift: 1
-
-    function startLift() {
-        if (!root.fromHere || root.theme.reducedMotion) {
-            liftAnimation.stop()
-            root.lift = 1
-            return
-        }
-        root.lift = 0
-        liftAnimation.to = 1
-        liftAnimation.duration = 150
-        liftAnimation.restart()
-    }
-
-    Connections {
-        target: root.carry
-        ignoreUnknownSignals: true
-
-        function onTokenChanged() {
-            root.startLift()
-        }
-
-        function onEndingChanged() {
-            if (!root.carry || root.carry.ending !== "returning" || !root.fromHere || root.theme.reducedMotion) {
-                return
-            }
-            // Cancelled or refused: it flies back to where it came from.
-            liftAnimation.to = 0
-            liftAnimation.duration = 200
-            liftAnimation.restart()
-        }
-    }
-
-    NumberAnimation {
-        id: liftAnimation
-
-        target: root
-        property: "lift"
-        easing.type: Easing.OutCubic
-    }
 
     // Where it was lifted from: the panel stays, quietly marked.
     Rectangle {
@@ -168,125 +113,97 @@ Item {
         border.color: root.theme.panelBorder
     }
 
+    // Held at a dock zone: a bar along that edge fills over the dwell.
     Item {
-        id: carried
+        id: aim
 
-        objectName: "magnet.carried"
-        readonly property real held: root.carryScale
-        readonly property real heldX: root.pointer.x - root.grab.x * held
-        readonly property real heldY: root.pointer.y - root.grab.y * held
-        readonly property real t: root.lift
-        readonly property real s: 1 + (held - 1) * t
-
-        visible: root.carrying && !Docking.dragDetached
-            && (root.pointerHere || (root.fromHere && root.carry.ending === "returning"))
-        x: root.source.x + (heldX - root.source.x) * t
-        y: root.source.y + (heldY - root.source.y) * t
-        width: Math.max(160, root.source.width) * s
-        height: Math.max(90, root.source.height) * s
-        opacity: !root.carrying ? 0
-            : root.carry.ending === "dropped" ? 0
-            : root.carry.ending === "returning" && !root.fromHere ? 0
-            : root.refused ? 0.82 : 0.96
-
-        Behavior on opacity {
-            NumberAnimation { duration: root.theme.reducedMotion ? 0 : 140 }
-        }
-
-        // Lifted: a soft shadow under it.
-        Rectangle {
-            z: -1
-            anchors.fill: parent
-            anchors.topMargin: 10
-            anchors.leftMargin: 4
-            anchors.rightMargin: -4
-            anchors.bottomMargin: -14
-            radius: root.theme.radiusPanel + 4
-            color: "#000000"
-            opacity: 0.34 * carried.t
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            radius: root.theme.radiusPanel
-            color: root.theme.workspaceBgDeep
-            clip: true
-
-            // The panel's picture, cut from its window's grab.
-            Image {
-                readonly property real k: parent.width / Math.max(1, root.source.width)
-
-                visible: root.hasPicture
-                x: -root.source.x * k
-                y: -root.source.y * k
-                width: root.carry ? root.carry.areaSize.width * k : 0
-                height: root.carry ? root.carry.areaSize.height * k : 0
-                source: root.carrying ? root.carry.image : ""
-                smooth: true
-                asynchronous: false
+        objectName: "magnet.aim"
+        readonly property var state: Docking.dragState
+        readonly property var target: state.aim || ({})
+        readonly property bool here: Docking.dragActive && state.phase === "aiming"
+            && String(target.surfaceId || "") === root.surfaceId
+        readonly property string edge: String(target.edge || "")
+        // The panel aimed at, or the whole window for its border.
+        readonly property rect zone: {
+            if (!here) {
+                return Qt.rect(0, 0, 0, 0)
             }
+            var item = target.anchorId ? root.workspace.workspace.anchorItems[target.anchorId] : null
+            if (!item) {
+                return Qt.rect(0, 0, root.width, root.height)
+            }
+            var corner = item.mapToItem(root, 0, 0)
+            return Qt.rect(corner.x, corner.y, item.width, item.height)
+        }
+        readonly property real thickness: 4
+        property real progress: 0
 
-            // Before the picture arrives (a frame), or for a panel in
-            // another window: its title and kind.
-            Column {
-                anchors.centerIn: parent
-                visible: !root.hasPicture
-                spacing: 8
+        visible: here
+        x: edge === "right" ? zone.x + zone.width - thickness - 3 : zone.x + 3
+        y: edge === "bottom" ? zone.y + zone.height - thickness - 3 : zone.y + 3
+        width: edge === "left" || edge === "right" ? thickness : zone.width - 6
+        height: edge === "top" || edge === "bottom" ? thickness : zone.height - 6
 
-                AppIcon {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    name: Docking.dragKind === "anchor" ? "grid" : root.ghostIcon
-                    tone: "muted"
-                    iconSize: 22
-                }
+        // A new zone (or the same one again) starts the fill over.
+        property int serial: -1
 
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.ghostTitle
-                    color: root.theme.mutedText
-                    font.family: root.theme.bodyFontFamily
-                    font.pixelSize: root.theme.textCaptionSize
+        function restart() {
+            var now = Docking.dragState
+            serial = Number(now.aimSerial || 0)
+            fill.stop()
+            progress = 0
+            if (here) {
+                fill.duration = Math.max(1, Number(now.dwellMs || 220))
+                fill.start()
+            }
+        }
+
+        onHereChanged: restart()
+
+        Connections {
+            target: Docking
+
+            function onDragChanged() {
+                if (aim.here && aim.serial !== Number(Docking.dragState.aimSerial || 0)) {
+                    aim.restart()
                 }
             }
         }
 
-        // Its edge says where it stands: accent over a place that takes
-        // it, red over one that doesn't.
+        NumberAnimation {
+            id: fill
+
+            target: aim
+            property: "progress"
+            from: 0
+            to: 1
+        }
+
         Rectangle {
             anchors.fill: parent
+            radius: 2
+            visible: aim.edge !== "center"
+            color: Qt.rgba(root.theme.accent.r, root.theme.accent.g, root.theme.accent.b, 0.25)
+        }
+
+        Rectangle {
+            visible: aim.edge !== "center"
+            readonly property bool across: aim.edge === "top" || aim.edge === "bottom"
+            x: across ? (parent.width - width) / 2 : 0
+            y: across ? 0 : (parent.height - height) / 2
+            width: across ? parent.width * aim.progress : parent.width
+            height: across ? parent.height : parent.height * aim.progress
+            radius: 2
+            color: root.theme.accentBright
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: aim.edge === "center"
             radius: root.theme.radiusPanel
             color: "transparent"
-            border.width: root.refused ? 1.5 : 1
-            border.color: root.refused
-                ? root.theme.danger
-                : Docking.dropAllowed ? root.theme.accentBright : root.theme.panelBorder
-        }
-
-        // Why it can't go here.
-        Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.bottom
-            anchors.topMargin: 8
-            width: Math.min(360, reasonText.implicitWidth + 24)
-            height: 28
-            radius: 14
-            visible: root.refused && Docking.dropRefusal.length > 0
-            color: root.theme.controlSurfaceBg
-            border.width: 1
-            border.color: root.theme.danger
-
-            Text {
-                id: reasonText
-
-                anchors.centerIn: parent
-                width: Math.min(implicitWidth, 336)
-                text: Docking.dropRefusal
-                elide: Text.ElideRight
-                color: root.theme.appText
-                font.family: root.theme.bodyFontFamily
-                font.pixelSize: root.theme.textCaptionSize
-                font.weight: root.theme.textWeightEmphasis
-            }
+            border.width: 1.5
+            border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.3 + 0.6 * aim.progress)
         }
     }
 }

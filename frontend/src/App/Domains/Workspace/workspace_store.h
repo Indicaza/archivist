@@ -65,7 +65,14 @@ class WorkspaceStore final : public QObject
     Q_PROPERTY(QVariantMap dragState READ dragState NOTIFY dragChanged)
     // Why the current target refuses the drop ("" when it doesn't).
     Q_PROPERTY(QString dropRefusal READ dropRefusal NOTIFY dragChanged)
+    // Floating surfaces with a window of their own.
     Q_PROPERTY(QStringList floatingSurfaceIds READ floatingSurfaceIds NOTIFY surfacesChanged)
+    // Floating panels drawn inside the main window, oldest first.
+    Q_PROPERTY(QStringList panelSurfaceIds READ panelSurfaceIds NOTIFY surfacesChanged)
+    // Dropping now floats the dragged content as a panel (no dock target).
+    Q_PROPERTY(bool dropFloats READ dropFloats NOTIFY dragChanged)
+    // How long a drag is held at a dock zone before it docks there (ms).
+    Q_PROPERTY(int dockDwellMs READ dockDwellMs WRITE setDockDwellMs NOTIFY dragChanged)
     Q_PROPERTY(QVariantList presets READ presets CONSTANT)
     Q_PROPERTY(QVariantList savedLayouts READ savedLayouts NOTIFY layoutsChanged)
     Q_PROPERTY(QString currentLayoutId READ currentLayoutId NOTIFY layoutsChanged)
@@ -125,9 +132,16 @@ public:
     [[nodiscard]] bool dropAllowed() const { return m_dropAllowed; }
     [[nodiscard]] bool dragDetached() const { return m_dragDetached; }
     [[nodiscard]] QVariantMap dragState() const;
-    [[nodiscard]] QString dropRefusal() const { return m_dropRefusal.ok ? QString() : m_dropRefusal.message; }
+    // Why a drop now does nothing: the dock target refuses it, or it can't
+    // float (a lock).
+    [[nodiscard]] QString dropRefusal() const { return currentRefusal().ok ? QString() : currentRefusal().message; }
+    [[nodiscard]] Workspace::OpResult currentRefusal() const;
+    [[nodiscard]] bool dropFloats() const;
+    [[nodiscard]] int dockDwellMs() const { return m_dockDwellMs; }
+    void setDockDwellMs(int ms);
     [[nodiscard]] QVariantMap detachRect() const;
     [[nodiscard]] QStringList floatingSurfaceIds() const;
+    [[nodiscard]] QStringList panelSurfaceIds() const;
     [[nodiscard]] QVariantList presets() const;
     [[nodiscard]] double minimumAnchorWidth() const { return m_metrics.minimumAnchorWidth; }
     [[nodiscard]] double minimumAnchorHeight() const { return m_metrics.minimumAnchorHeight; }
@@ -156,6 +170,10 @@ public:
     // Opens a view or a whole panel in a new window. Returns the window id.
     Q_INVOKABLE QString detachView(const QString &viewId, double x, double y, double width, double height, const QString &screenName = {});
     Q_INVOKABLE QString detachAnchor(const QString &anchorId, double x, double y, double width, double height, const QString &screenName = {});
+    // Floats a tab or a whole panel as a panel inside the main window (rect
+    // in the main window's content). One undo step. Returns the panel's surface id.
+    Q_INVOKABLE QString floatView(const QString &viewId, double x, double y, double width, double height);
+    Q_INVOKABLE QString floatAnchor(const QString &anchorId, double x, double y, double width, double height);
     // Closes a floating window; its tabs return to the main window. Nothing
     // is closed.
     Q_INVOKABLE bool closeSurface(const QString &surfaceId);
@@ -276,6 +294,9 @@ public:
     // The pointer left every window: a drop opens a new window with this
     // frame (virtual desktop coordinates).
     Q_INVOKABLE void updateDragDetached(double x, double y, double width, double height, const QString &screenName);
+    // Where the dragged content would float if dropped with no dock target:
+    // a rect in the main window's content.
+    Q_INVOKABLE void updateDragFloat(double x, double y, double width, double height);
     // Drops onto a validated target (checked again against the layout as
     // it is now) as one workspace step: undo puts everything back.
     Q_INVOKABLE bool finishDrag();
@@ -495,6 +516,19 @@ private:
     Workspace::LayoutGeometry m_preview;
     QString m_previewSurfaceId;
     Workspace::Magnets::Phase m_dragPhase = Workspace::Magnets::Phase::Idle;
+    // Floating by default: where a drop with no dock target puts it, and
+    // whether it may float at all (worked out once per drag).
+    QRectF m_floatRect;
+    int m_floatAllowed = -1; // -1 unknown, 0 no, 1 yes
+    Workspace::OpResult m_floatRefusal;
+    // A dock zone the pointer is held at, docking once the dwell runs out.
+    Workspace::DropTarget m_aimTarget;
+    QTimer m_aimTimer;
+    int m_dockDwellMs = 220;
+    int m_aimSerial = 0;
+    void aimAt(const Workspace::DropTarget &target);
+    void stopAiming();
+    bool floatAllowed();
     Workspace::OpResult m_dropRefusal;
     QString m_landingAnchorId;
     Workspace::Magnets::Place m_dragOrigin;

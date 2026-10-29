@@ -85,8 +85,12 @@ public:
     OpResult splitView(QString viewId, QString targetAnchorId, Edge edge, Origin origin = Origin::User);
     // Moves a view into a new anchor along an outer edge of a surface.
     OpResult dockViewAtSurfaceEdge(QString viewId, QString surfaceId, Edge edge, Origin origin = Origin::User);
-    // Moves a view into a new floating surface.
-    OpResult detachView(QString viewId, const QRectF &geometry, QString screenName = {}, Origin origin = Origin::User);
+    // Moves a view into a new floating surface: a window of its own, or a
+    // floating panel inside the main window (`inMainWindow`, geometry in the
+    // main window's content). A view that is already alone in a
+    // floating surface just moves that surface.
+    OpResult detachView(QString viewId, const QRectF &geometry, QString screenName = {}, Origin origin = Origin::User,
+                        bool inMainWindow = false);
 
     // ---- anchors ---------------------------------------------------------
 
@@ -101,7 +105,7 @@ public:
     OpResult moveAnchor(QString anchorId, QString targetAnchorId, Edge edge, Origin origin = Origin::User);
     OpResult mergeAnchor(QString anchorId, QString targetAnchorId, Origin origin = Origin::User);
     OpResult dockAnchorAtSurfaceEdge(QString anchorId, QString surfaceId, Edge edge);
-    OpResult detachAnchor(QString anchorId, const QRectF &geometry, QString screenName = {});
+    OpResult detachAnchor(QString anchorId, const QRectF &geometry, QString screenName = {}, bool inMainWindow = false);
     OpResult setAnchorPinned(QString anchorId, bool pinned);
     OpResult setAnchorRoles(QString anchorId, const QStringList &roles);
     OpResult focusAnchor(QString anchorId);
@@ -244,7 +248,9 @@ private:
     void collapseIfIncidental(const QString &anchorId);
     void removeViewFromAnchor(const QString &viewId);
     void insertViewIntoAnchor(const QString &viewId, const QString &anchorId, int index, bool activate);
-    QString createSurface(const QRectF &geometry, const QString &screenName);
+    QString createSurface(const QRectF &geometry, const QString &screenName, bool inMainWindow = false);
+    // Moves a floating surface that a drag or return re-creates as itself.
+    void placeSurface(const QString &surfaceId, const QRectF &geometry, const QString &screenName, bool inMainWindow);
     void dropSurfaceIfEmpty(const QString &surfaceId);
     void ensurePrimaryHasAnchor();
     void repairPointers();

@@ -111,6 +111,14 @@ WorkspaceStore::WorkspaceStore(QObject *parent)
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(400);
     connect(&m_saveTimer, &QTimer::timeout, this, &WorkspaceStore::saveNow);
+    m_aimTimer.setSingleShot(true);
+    connect(&m_aimTimer, &QTimer::timeout, this, [this]() {
+        if (m_drag.kind != DragSource::Kind::None && m_aimTarget.isValid()) {
+            const DropTarget target = m_aimTarget;
+            m_aimTarget = {};
+            setDropTarget(target);
+        }
+    });
 
     // Monitors come and go (a laptop leaves its dock): bring floating
     // windows back onto a screen that exists.
@@ -402,7 +410,7 @@ void WorkspaceStore::publish()
     ++m_revision;
     emit revisionChanged();
 
-    const QStringList floating = floatingSurfaceIds();
+    const QStringList floating = floatingSurfaceIds() + QStringList{QStringLiteral("|")} + panelSurfaceIds();
     if (floating != m_publishedSurfaces) {
         m_publishedSurfaces = floating;
         emit surfacesChanged();
@@ -1457,8 +1465,95 @@ void WorkspaceStore::updateDrag(const QString &surfaceId, double x, double y)
     }
 
     // Hit-test against the committed layout, never the preview, so the
-    // target does not jump as panels ease aside.
-    setDropTarget(m_model.dropTargetAt(surfaceId, QPointF(x, y), surfaceSize(surfaceId), m_metrics));
+    // target does not jump as panels ease aside. Only the dock zones count:
+    // anywhere else the drop floats.
+    if (m_dragDetached) {
+        m_dragDetached = false;
+        emit dragChanged();
+    }
+    aimAt(Magnets::dockTargetAt(m_model, surfaceId, QPointF(x, y), surfaceSize(surfaceId), m_metrics));
+}
+
+void WorkspaceStore::aimAt(const DropTarget &target)
+{
+    const auto same = [](const DropTarget &a, const DropTarget &b) {
+        return a.surfaceId == b.surfaceId && a.anchorId == b.anchorId && a.edge == b.edge && a.index == b.index;
+    };
+    if (!target.isValid()) {
+        stopAiming();
+        setDropTarget({});
+        return;
+    }
+    if (same(target, m_dropTarget)) {
+        stopAiming(); // already docking there
+        return;
+    }
+    if (m_dockDwellMs <= 0) {
+        stopAiming();
+        setDropTarget(target);
+        return;
+    }
+    if (same(target, m_aimTarget)) {
+        return; // still holding: the dwell runs on
+    }
+    // A new zone: let go of any other, and dock here only if held.
+    m_aimTarget = target;
+    ++m_aimSerial;
+    m_aimTimer.start(m_dockDwellMs);
+    setDropTarget({});
+    m_dragPhase = Magnets::Phase::Aiming;
+    emit dragChanged();
+}
+
+void WorkspaceStore::stopAiming()
+{
+    m_aimTimer.stop();
+    if (m_aimTarget.isValid()) {
+        m_aimTarget = {};
+        if (m_dragPhase == Magnets::Phase::Aiming) {
+            m_dragPhase = Magnets::Phase::Free;
+        }
+        emit dragChanged();
+    }
+}
+
+void WorkspaceStore::setDockDwellMs(int ms)
+{
+    ms = std::max(0, ms);
+    if (ms != m_dockDwellMs) {
+        m_dockDwellMs = ms;
+        emit dragChanged();
+    }
+}
+
+bool WorkspaceStore::floatAllowed()
+{
+    if (m_floatAllowed < 0 && m_drag.kind != DragSource::Kind::None) {
+        m_floatRefusal = Magnets::canFloat(m_model, m_drag);
+        m_floatAllowed = m_floatRefusal.ok ? 1 : 0;
+    }
+    return m_floatAllowed == 1;
+}
+
+bool WorkspaceStore::dropFloats() const
+{
+    return m_drag.kind != DragSource::Kind::None && !m_dropTarget.isValid() && !m_dragDetached
+        && m_floatRect.isValid() && m_floatAllowed == 1;
+}
+
+void WorkspaceStore::updateDragFloat(double x, double y, double width, double height)
+{
+    if (m_drag.kind == DragSource::Kind::None) {
+        return;
+    }
+    const QRectF rect(x, y, std::max(240.0, width), std::max(160.0, height));
+    const bool known = m_floatAllowed >= 0;
+    floatAllowed();
+    if (m_floatRect == rect && known) {
+        return;
+    }
+    m_floatRect = rect;
+    emit dragChanged();
 }
 
 void WorkspaceStore::updateDragOverTabs(const QString &surfaceId, const QString &anchorId, int index)
@@ -1472,11 +1567,14 @@ void WorkspaceStore::updateDragOverTabs(const QString &surfaceId, const QString 
     target.anchorId = anchorId;
     target.edge = Edge::Center;
     target.index = index;
+    // A tab strip is aimed at on purpose: no dwell.
+    stopAiming();
     setDropTarget(target);
 }
 
 void WorkspaceStore::clearDragTarget()
 {
+    stopAiming();
     const bool wasDetached = m_dragDetached;
     m_dragDetached = false;
     setDropTarget({});
@@ -1513,6 +1611,7 @@ void WorkspaceStore::updateDragDetached(double x, double y, double width, double
 
     const QRectF rect(x, y, std::max(320.0, width), std::max(220.0, height));
     const bool allowed = canDetach(m_drag);
+    stopAiming();
 
     if (m_dragDetached && m_detachRect == rect && m_detachScreen == screenName && m_dropAllowed == allowed) {
         return;
@@ -1615,6 +1714,11 @@ void WorkspaceStore::resetDrag()
     m_dragSourceRect = {};
     m_dragTargetRevision = -1;
     m_dragPhase = Magnets::Phase::Idle;
+    m_floatRect = {};
+    m_floatAllowed = -1;
+    m_floatRefusal = {};
+    m_aimTimer.stop();
+    m_aimTarget = {};
 }
 
 bool WorkspaceStore::finishDrag()
@@ -1631,10 +1735,17 @@ bool WorkspaceStore::finishDrag()
     const QRectF detachRect = m_detachRect;
     const QString detachScreen = m_detachScreen;
     const Magnets::Place origin = m_dragOrigin;
+    // No dock target: it floats as a panel where it was let go.
+    const bool floating = !detached && !target.isValid() && m_floatRect.isValid();
+    const QRectF floatRect = m_floatRect;
+    if (floating) {
+        allowed = floatAllowed();
+        refusal = m_floatRefusal;
+    }
 
     // The layout changed under the drag (an agent, a window closing):
     // judge the target again against the layout as it is now.
-    if (allowed && !detached && m_model.revision() != m_dragTargetRevision) {
+    if (allowed && !detached && !floating && m_model.revision() != m_dragTargetRevision) {
         const Magnets::Preview fresh = Magnets::preview(m_model, source, target, surfaceSize(target.surfaceId), m_metrics);
         allowed = fresh.result.ok;
         refusal = fresh.result;
@@ -1645,16 +1756,36 @@ bool WorkspaceStore::finishDrag()
     QVariantMap details{
         {QStringLiteral("kind"), source.kind == DragSource::Kind::View ? QStringLiteral("view") : QStringLiteral("anchor")},
         {QStringLiteral("id"), source.id},
-        {QStringLiteral("target"), detached ? QVariantMap{{QStringLiteral("detached"), true}} : Magnets::targetMap(target)},
+        {QStringLiteral("target"), detached ? QVariantMap{{QStringLiteral("detached"), true}}
+                                   : floating ? QVariantMap{{QStringLiteral("floating"), true}, {QStringLiteral("rect"), Magnets::rectMap(floatRect)}}
+                                              : Magnets::targetMap(target)},
     };
 
     bool ok = false;
     // One drop, one workspace step.
     HistoryStep step = historyStep(detached
         ? QStringLiteral("Opened %1 in a new window").arg(dragSourceTitle(source))
+        : floating && !origin.aloneInFloatingWindow ? QStringLiteral("Floated %1").arg(dragSourceTitle(source))
         : QStringLiteral("Moved %1").arg(dragSourceTitle(source)));
 
-    if (allowed && detached) {
+    if (allowed && floating) {
+        const OpResult result = source.kind == DragSource::Kind::View
+            ? m_model.detachView(source.id, floatRect, {}, Origin::User, true)
+            : m_model.detachAnchor(source.id, floatRect, {}, true);
+        ok = result.ok;
+        if (ok) {
+            const QString anchorId = source.kind == DragSource::Kind::View ? m_model.anchorOfView(source.id) : source.id;
+            if (source.kind == DragSource::Kind::View) {
+                m_model.activateView(source.id);
+            }
+            m_model.focusAnchor(anchorId);
+            details.insert(QStringLiteral("landingAnchorId"), anchorId);
+            details.insert(QStringLiteral("surfaceId"), result.createdId);
+        } else {
+            refusal = result;
+            emit operationFailed(result.message);
+        }
+    } else if (allowed && detached) {
         const OpResult result = source.kind == DragSource::Kind::View
             ? m_model.detachView(source.id, detachRect, detachScreen)
             : m_model.detachAnchor(source.id, detachRect, detachScreen);
@@ -1691,7 +1822,7 @@ bool WorkspaceStore::finishDrag()
     emit dragChanged();
     if (ok) {
         emit dragFinished(QStringLiteral("committed"), details);
-    } else if (target.isValid() || detached) {
+    } else if (target.isValid() || detached || floating) {
         details.insert(QStringLiteral("code"), refusal.code);
         details.insert(QStringLiteral("reason"), refusal.message);
         emit dragFinished(QStringLiteral("refused"), details);
@@ -1724,7 +1855,19 @@ QStringList WorkspaceStore::floatingSurfaceIds() const
     QStringList ids;
     for (const QString &surfaceId : m_model.surfaceIds()) {
         const SurfaceRecord *surface = m_model.surface(surfaceId);
-        if (surface && !surface->primary) {
+        if (surface && !surface->primary && !surface->inMainWindow) {
+            ids.append(surfaceId);
+        }
+    }
+    return ids;
+}
+
+QStringList WorkspaceStore::panelSurfaceIds() const
+{
+    QStringList ids;
+    for (const QString &surfaceId : m_model.surfaceIds()) {
+        const SurfaceRecord *surface = m_model.surface(surfaceId);
+        if (surface && surface->inMainWindow) {
             ids.append(surfaceId);
         }
     }
@@ -1756,6 +1899,7 @@ QVariantMap WorkspaceStore::surface(const QString &surfaceId) const
         {QStringLiteral("hasGeometry"), record->geometry.isValid()},
         {QStringLiteral("screen"), record->screenName},
         {QStringLiteral("windowMaximized"), record->windowMaximized},
+        {QStringLiteral("inMainWindow"), record->inMainWindow},
         {QStringLiteral("anchorCount"), int(anchorIds.size())},
         {QStringLiteral("viewCount"), viewCount},
     };
@@ -1777,12 +1921,16 @@ bool WorkspaceStore::setSurfaceGeometry(
     }
 
     const QRectF geometry(x, y, width, height);
+    if (record->inMainWindow) {
+        windowMaximized = false;
+    }
     if (record->windowMaximized != windowMaximized) {
         m_model.setSurfaceWindowMaximized(surfaceId, windowMaximized);
     }
     // While maximized the frame is the screen's; keep the restored frame.
-    if (!windowMaximized && geometry.isValid() && (record->geometry != geometry || record->screenName != screenName)) {
-        m_model.setSurfaceGeometry(surfaceId, geometry, screenName, true);
+    const QString screen = record->inMainWindow ? QString() : screenName;
+    if (!windowMaximized && geometry.isValid() && (record->geometry != geometry || record->screenName != screen)) {
+        m_model.setSurfaceGeometry(surfaceId, geometry, screen, true);
     }
 
     // Geometry is not layout: save it without republishing every panel.

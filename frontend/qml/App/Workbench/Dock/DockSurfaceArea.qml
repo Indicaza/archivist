@@ -28,7 +28,6 @@ Item {
     readonly property int anchorCount: anchorRepeater.count
     // The pointer of a drag is over this window.
     property bool dragHere: false
-    property point dragPointer: Qt.point(0, 0)
 
     clip: true
 
@@ -55,6 +54,8 @@ Item {
     function cancelDrag() { workspace.cancelDrag() }
     function detachView(viewId) { workspace.detachView(viewId, root) }
     function detachAnchor(anchorId) { workspace.detachAnchor(anchorId, root) }
+    function floatView(viewId) { workspace.floatView(viewId) }
+    function floatAnchor(anchorId) { workspace.floatAnchor(anchorId) }
     function returnToMainWindow(kind, id) { workspace.returnToMainWindow(kind, id) }
     function returnToPrevious(kind, id) { workspace.returnToPrevious(kind, id) }
     function viewIconName(info) { return workspace.viewIconName(info) }
@@ -64,6 +65,11 @@ Item {
     function notePointerFocus() { workspace.notePointerFocus() }
     readonly property bool keyboardFocusVisible: workspace.keyboardFocusVisible
     readonly property bool isFloating: surfaceId.length > 0 && surfaceId !== Docking.primarySurfaceId
+    // A floating panel inside the main window (not a window of its own).
+    readonly property bool isPanel: {
+        Docking.revision
+        return isFloating && Docking.surface(surfaceId).inMainWindow === true
+    }
 
     function containsGlobal(point) {
         if (!root.visible || !root.Window.window || !root.Window.window.visible) {
@@ -167,10 +173,6 @@ Item {
         theme: root.theme
         workspace: root
         surfaceId: root.surfaceId
-        pointerHere: root.dragHere
-        pointer: root.dragPointer
-        ghostTitle: root.workspace.dragGhostTitle
-        ghostIcon: root.workspace.dragGhostIcon
         carry: root.workspace.carry
     }
 

@@ -865,6 +865,7 @@ Rectangle {
             leftInset: root.explorerOpen ? root.explorerRight : root.theme.activityRailWidth
             bottomOverlay: root.compactChat ? root.compactOverlay : 0
             composerAnchorId: root.composerAnchorId
+            overlayHost: floatingHost
             onContextInspectionRequested: function(messageId) {
                 artifactDrawer.openForMessage(messageId)
             }
@@ -888,6 +889,20 @@ Rectangle {
                 root.revealFileInLibrary(libraryId, fileId, relativePath)
             }
         }
+    }
+
+    // Floating panels from the docking workspace, and what a drag carries:
+    // above the sidebar, the composer and the drawers.
+    Item {
+        id: floatingHost
+
+        objectName: "shell.floatingHost"
+        x: 0
+        y: 0
+        width: parent.width
+        height: parent.height - statusBar.height
+        visible: !root.workspaceHidden
+        z: 65
     }
 
     ActivityRail {
@@ -1137,39 +1152,6 @@ Rectangle {
         border.color: root.theme.compactComposerBorder
         // Above the workspace, below the side panel (15) and the dock (30).
         z: 12
-    }
-
-    // A dark scrim under the compact composer: the conversation scrolls on
-    // behind the bubble and fades out as it reaches it.
-    Item {
-        id: compactScrim
-
-        x: root.compactAreaX
-        width: root.compactAreaWidth
-        // Docked, it stays inside the conversation's pane.
-        y: Math.max(root.compactDocked ? root.dockedFrame.y : 0, root.compactY - 64)
-        height: Math.max(0, root.compactAreaBottom - y)
-        visible: !root.workspaceHidden && root.compactEase > 0
-        opacity: root.phase(root.compactEase, 0.3, 1)
-        // Below the side panel, so a moving sidebar slides over it.
-        z: 11
-
-        Behavior on x { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on y { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on width { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: root.theme.withAlpha(root.theme.workspaceBgBottom, 0) }
-                GradientStop { position: 0.45; color: root.theme.withAlpha(root.theme.workspaceBgBottom, 0.82) }
-                GradientStop { position: 1.0; color: Qt.rgba(0.051, 0.047, 0.039, 0.97) }
-            }
-        }
-
-        // Clicks on the faded strip still reach the conversation's empty
-        // space; only the bubble takes input.
-        enabled: false
     }
 
     CompactChatComposer {

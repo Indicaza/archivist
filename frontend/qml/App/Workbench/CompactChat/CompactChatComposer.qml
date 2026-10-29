@@ -98,15 +98,16 @@ FocusScope {
 
     Component.onCompleted: loadDraft()
 
-    // A real soft shadow under the bubble: a blurred dark shape, offset
-    // down, so the bubble sits above the conversation.
+    // The bubble's own shadow: a blurred copy of its shape, a little lower,
+    // spreading out from its edges. Nothing else is drawn around it, so
+    // the conversation (or a floating panel) shows right up to the bubble.
     Rectangle {
         id: shadowShape
 
-        x: 10
-        y: 16
-        width: Math.max(0, composer.width - 20)
-        height: Math.max(0, composer.height - 10)
+        x: 0
+        y: 6
+        width: composer.width
+        height: composer.height
         radius: root.theme.compactComposerRadius
         color: root.theme.compactComposerShadow
         visible: false
@@ -121,9 +122,9 @@ FocusScope {
         source: shadowShape
         blurEnabled: true
         blur: 1
-        blurMax: 48
+        blurMax: 40
         autoPaddingEnabled: true
-        opacity: composer.focused ? 0.78 : 0.66
+        opacity: composer.focused ? 0.62 : 0.5
 
         Behavior on opacity {
             enabled: !root.theme.reducedMotion

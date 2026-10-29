@@ -190,6 +190,10 @@ struct SurfaceRecord
     QRectF preferredGeometry;
     QString preferredScreenName;
     bool windowMaximized = false;
+    // A floating panel drawn inside the main window rather than a window of
+    // its own. Its geometry is then in the main window's content (not the
+    // desktop), and it has no screen.
+    bool inMainWindow = false;
 };
 
 struct OpResult

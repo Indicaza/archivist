@@ -113,6 +113,7 @@ private slots:
         QCOMPARE(Magnets::phaseName(Magnets::Phase::Idle), QStringLiteral("idle"));
         QCOMPARE(Magnets::phaseName(Magnets::Phase::Pickup), QStringLiteral("pickup"));
         QCOMPARE(Magnets::phaseName(Magnets::Phase::Free), QStringLiteral("free"));
+        QCOMPARE(Magnets::phaseName(Magnets::Phase::Aiming), QStringLiteral("aiming"));
         QCOMPARE(Magnets::phaseName(Magnets::Phase::Invalid), QStringLiteral("invalid"));
         QCOMPARE(Magnets::phaseName(Magnets::Phase::Preview), QStringLiteral("preview"));
         QCOMPARE(Magnets::phaseName(Magnets::Phase::Detached), QStringLiteral("detached"));
@@ -279,6 +280,85 @@ private slots:
         QVERIFY(plan.detach);
         QCOMPARE(plan.geometry, frame);
         QCOMPARE(plan.screenName, QStringLiteral("Screen 1"));
+    }
+
+    // Docking is opt-in: only the bands along a panel's edges (and the
+    // window border) dock; the middle of a panel is open space.
+    void dockZonesAreOptIn()
+    {
+        Arranged s = arranged();
+        const QString surface = s.model.primarySurfaceId();
+        const QRectF chat = rectOf(s.model, s.first);
+        const QRectF editors = rectOf(s.model, s.editors);
+        const auto at = [&](double x, double y) { return Magnets::dockTargetAt(s.model, surface, QPointF(x, y), kSurface, kMetrics); };
+
+        QVERIFY(!at(chat.center().x(), chat.center().y()).isValid());
+        QVERIFY(!at(editors.center().x(), editors.center().y()).isValid());
+
+        DropTarget left = at(chat.left() + 30, chat.center().y());
+        QCOMPARE(left.anchorId, s.first);
+        QCOMPARE(left.edge, Edge::Left);
+        DropTarget right = at(chat.right() - 20, chat.center().y());
+        QCOMPARE(right.anchorId, s.first);
+        QCOMPARE(right.edge, Edge::Right);
+        DropTarget top = at(editors.center().x(), editors.top() + 30);
+        QCOMPARE(top.anchorId, s.editors);
+        QCOMPARE(top.edge, Edge::Top);
+
+        // The window border docks along the whole side.
+        DropTarget side = at(5, 400);
+        QVERIFY(side.isSurfaceEdge());
+        QCOMPARE(side.edge, Edge::Left);
+
+        // Over a splitter: nothing.
+        QVERIFY(!at(chat.right() + 3, 400).isValid());
+
+        // An empty panel takes a drop anywhere in it.
+        const QString empty = s.model.createAnchor(s.terminal, Edge::Right).createdId;
+        const QRectF emptyRect = rectOf(s.model, empty);
+        DropTarget fill = at(emptyRect.center().x(), emptyRect.center().y());
+        QCOMPARE(fill.anchorId, empty);
+        QCOMPARE(fill.edge, Edge::Center);
+    }
+
+    // With no dock target a drag floats as a panel inside the main window.
+    void floatsAsAPanelInTheMainWindow()
+    {
+        Arranged s = arranged();
+        QVERIFY(Magnets::canFloat(s.model, DragSource::view(s.a)).ok);
+        const int surfaces = int(s.model.surfaceIds().size());
+
+        const QRectF frame(120, 80, 520, 360);
+        const OpResult floated = s.model.detachView(s.a, frame, QStringLiteral("ignored"), Origin::User, true);
+        QVERIFY(floated.ok);
+        const SurfaceRecord *panel = s.model.surface(floated.createdId);
+        QVERIFY(panel->inMainWindow);
+        QVERIFY(panel->screenName.isEmpty());
+        QCOMPARE(panel->geometry, frame);
+
+        // Dragged again on its own: the same panel moves.
+        const QRectF moved(300, 200, 520, 360);
+        const OpResult again = s.model.detachView(s.a, moved, {}, Origin::User, true);
+        QCOMPARE(again.createdId, floated.createdId);
+        QCOMPARE(int(s.model.surfaceIds().size()), surfaces + 1);
+        QCOMPARE(s.model.surface(floated.createdId)->geometry, moved);
+
+        // Docked back, Return to Previous floats it again, inside the window.
+        const Magnets::Place place = Magnets::placeOf(s.model, DragSource::view(s.a));
+        QVERIFY(place.aloneInFloatingWindow);
+        QVERIFY(place.inMainWindow);
+        QVERIFY(s.model.applyDrop(DragSource::view(s.a), onto(s.model, s.editors, Edge::Center)).ok);
+        const Magnets::ReturnPlan plan = Magnets::planReturn(s.model, place);
+        QVERIFY2(plan.result.ok, qPrintable(plan.result.message));
+        QVERIFY(plan.detach);
+        QVERIFY(plan.inMainWindow);
+        QCOMPARE(plan.geometry, moved);
+
+        // A layout lock keeps a panel where it is, with the lock's reason.
+        QVERIFY(s.model.setAnchorLayoutLocked(s.editors, true).ok);
+        const OpResult locked = Magnets::canFloat(s.model, DragSource::anchor(s.editors));
+        QVERIFY(!locked.ok);
+        QVERIFY(!locked.message.isEmpty());
     }
 };
 
