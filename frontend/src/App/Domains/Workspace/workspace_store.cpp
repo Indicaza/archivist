@@ -2058,22 +2058,27 @@ bool WorkspaceStore::setSurfaceGeometry(
     }
 
     const QRectF geometry(x, y, width, height);
-    if (record->inMainWindow) {
+    const bool inMainWindow = record->inMainWindow;
+    if (inMainWindow) {
         windowMaximized = false;
     }
     if (record->windowMaximized != windowMaximized) {
         m_model.setSurfaceWindowMaximized(surfaceId, windowMaximized);
     }
-    // While maximized the frame is the screen's; keep the restored frame.
-    const QString screen = record->inMainWindow ? QString() : screenName;
+    const QString screen = inMainWindow ? QString() : screenName;
+    bool geometryChanged = false;
     if (!windowMaximized && geometry.isValid() && (record->geometry != geometry || record->screenName != screen)) {
         m_model.setSurfaceGeometry(surfaceId, geometry, screen, true);
+        geometryChanged = true;
     }
 
-    // Geometry is not layout: save it without republishing every panel.
     if (m_publishedModelRevision != m_model.revision()) {
         m_publishedModelRevision = m_model.revision();
         scheduleSave();
+    }
+    if (inMainWindow && geometryChanged) {
+        ++m_revision;
+        emit revisionChanged();
     }
     return true;
 }

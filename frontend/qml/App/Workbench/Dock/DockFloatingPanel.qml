@@ -29,6 +29,7 @@ Item {
     // While moving or resizing the panel follows the pointer; otherwise
     // the stored frame, kept reachable when the window is smaller.
     property bool interacting: false
+    property bool resizing: false
     property rect live: Qt.rect(0, 0, 0, 0)
     readonly property rect stored: {
         var width = Math.max(root.minimumWidth, Number(info.width || 520))
@@ -79,6 +80,7 @@ Item {
     function commitFrame() {
         Docking.setSurfaceGeometry(root.surfaceId, root.live.x, root.live.y, root.live.width, root.live.height, "", false)
         root.interacting = false
+        root.resizing = false
     }
 
     // Its only panel is carried away as a picture: the whole floating
@@ -283,6 +285,7 @@ Item {
             theme: root.theme
             workspace: root.workspace
             surfaceId: root.surfaceId
+            coalesceResize: root.resizing
         }
     }
 
@@ -319,15 +322,16 @@ Item {
             : horizontal !== 0 ? Qt.SizeHorCursor : Qt.SizeVerCursor
 
         onPressed: function(mouse) {
+            grip.panel.resizing = true
             grip.panel.startInteracting()
             startFrame = grip.panel.live
-            pressAt = mapToItem(grip.panel.parent, mouse.x, mouse.y)
+            pressAt = mapToGlobal(mouse.x, mouse.y)
         }
         onPositionChanged: function(mouse) {
             if (!pressed) {
                 return
             }
-            var now = mapToItem(grip.panel.parent, mouse.x, mouse.y)
+            var now = mapToGlobal(mouse.x, mouse.y)
             var dx = now.x - pressAt.x
             var dy = now.y - pressAt.y
             var x = startFrame.x
@@ -349,10 +353,13 @@ Item {
             grip.panel.live = Qt.rect(x, Math.max(0, y), width, height)
         }
         onReleased: grip.panel.commitFrame()
-        onCanceled: grip.panel.interacting = false
+        onCanceled: {
+            grip.panel.interacting = false
+            grip.panel.resizing = false
+        }
     }
 
-    readonly property real gripSize: 6
+    readonly property real gripSize: 10
 
     Grip { panel: root; horizontal: -1; x: -root.gripSize / 2; y: root.gripSize; width: root.gripSize; height: parent.height - 2 * root.gripSize }
     Grip { panel: root; horizontal: 1; x: parent.width - root.gripSize / 2; y: root.gripSize; width: root.gripSize; height: parent.height - 2 * root.gripSize }
