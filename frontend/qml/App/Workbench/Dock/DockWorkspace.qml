@@ -817,7 +817,7 @@ Item {
         carryState.id = id
         carryState.title = title
         carryState.icon = root.dragGhostIcon
-        carryState.grab = Qt.point(-1, -1)
+        carryState.grab = Qt.point(48, 14)
         carryState.image = ""
         carryState.live = false
         carryState.startRect = Qt.rect(0, 0, 0, 0)
@@ -855,22 +855,6 @@ Item {
                 carryState.image = result.url
             }
         }, Qt.size(Math.max(1, Math.round(area.width * factor)), Math.max(1, Math.round(area.height * factor))))
-    }
-
-    function noteCarryGrab(globalPoint) {
-        if (carryState.grab.x >= 0) {
-            return
-        }
-        var item = anchorItems[carryState.anchorId]
-        if (!item) {
-            carryState.grab = Qt.point(60, 14)
-            return
-        }
-        var local = item.mapFromGlobal(globalPoint.x, globalPoint.y)
-        carryState.grab = Qt.point(
-            Math.max(0, Math.min(item.width, local.x)),
-            Math.max(0, Math.min(item.height, local.y))
-        )
     }
 
     // The drag ended: let the picture land or fly back, then put it away.
@@ -1177,7 +1161,6 @@ Item {
         for (var key in surfaceAreas) {
             surfaceAreas[key].dragHere = surfaceAreas[key] === target
         }
-        noteCarryGrab(globalPoint)
         carryLayer.pointer = carryLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
         var inLayer = panelLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
         carryLayer.pointerHere = inLayer.x >= 0 && inLayer.y >= 0 && inLayer.x <= panelLayer.width && inLayer.y <= panelLayer.height
@@ -1200,11 +1183,17 @@ Item {
         }
 
         var point = target.mapFromGlobal(globalPoint.x, globalPoint.y)
-        var strip = Docking.tabStripAt(target.surfaceId, point.x, point.y, theme.editorTabHeight)
-        if (strip.anchorId) {
-            var item = anchorItems[strip.anchorId]
-            Docking.updateDragOverTabs(target.surfaceId, strip.anchorId, item ? item.tabIndexAt(strip.localX) : -1)
-            return
+        // Tabs take priority over nearby split and edge zones. Use the
+        // committed layout for stable zone selection, then the visible
+        // tab row for the exact insertion index under the pointer.
+        if (Docking.dragKind === "view") {
+            var strip = Docking.tabStripAt(target.surfaceId, point.x, point.y, theme.editorTabHeight)
+            var item = anchorItems[String(strip.anchorId || "")]
+            if (item && item.visible && !item.switchable) {
+                var local = item.mapFromGlobal(globalPoint.x, globalPoint.y)
+                Docking.updateDragOverTabs(target.surfaceId, strip.anchorId, item.tabIndexAt(local.x))
+                return
+            }
         }
         Docking.updateDrag(target.surfaceId, point.x, point.y)
     }
