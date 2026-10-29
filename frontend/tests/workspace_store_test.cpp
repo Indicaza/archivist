@@ -540,8 +540,8 @@ private slots:
         QVERIFY(!store.closeSurface(surface));
     }
 
-    // A drag floats by default; it docks only where it is aimed: a tab
-    // strip at once, a panel edge once held there.
+    // Tab headers have priority over adjacent split zones, even when
+    // the pointer approaches from just above the header.
     void tabHeadersTakePriorityNearSplit()
     {
         WorkspaceStore store;
@@ -579,6 +579,8 @@ private slots:
         QCOMPARE(store.view(moved).value("anchorId").toString(), lower);
     }
 
+    // A drag floats by default; it docks only where it is aimed: a tab
+    // strip at once, a panel edge once held there.
     void draggingFloatsUnlessAimed()
     {
         QString panel;
