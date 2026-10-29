@@ -81,6 +81,29 @@ struct DockZones
     const DropTarget &held = {}
 );
 
+// The tab strip under a point, to join that panel: `localX` is from the
+// panel's left edge. A strip takes the pointer exactly where it is drawn
+// (the top `stripHeight` of a panel). Once chosen (`held` is a tab drop on
+// it) it keeps the pointer up to `zones.hold` beyond, so drifting onto the
+// divider or the panel above doesn't drop the join; a strip drawn under
+// the pointer still wins at once. A split or window edge already chosen
+// keeps the pointer over a strip close by in the same way.
+struct StripHit
+{
+    QString anchorId;
+    double localX = 0;
+};
+[[nodiscard]] StripHit tabStripAt(
+    const WorkspaceModel &model,
+    const QString &surfaceId,
+    const QPointF &point,
+    const QSizeF &surfaceSize,
+    const LayoutMetrics &metrics,
+    double stripHeight,
+    const DockZones &zones = {},
+    const DropTarget &held = {}
+);
+
 // Whether `source` can float as a panel inside the main window (judged on a
 // copy: locks, and nothing that would leave the main window without a
 // panel).

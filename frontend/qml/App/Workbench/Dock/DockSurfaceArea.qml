@@ -51,6 +51,8 @@ Item {
     // Drags report the pointer in global (screen) coordinates, so a drag can
     // cross from one window into another or out onto the desktop.
     function moveDrag(globalPoint) { workspace.moveDrag(globalPoint) }
+    // The pointer during a drag (global).
+    readonly property point dragPointer: workspace ? workspace.dragPointer : Qt.point(-1, -1)
     function endDrag() { workspace.endDrag() }
     function cancelDrag() { workspace.cancelDrag() }
     // The dragged item lost the pointer: the workspace carries the drag on.
@@ -105,7 +107,10 @@ Item {
                 resizePublish.start()
             }
         } else {
-            root.flushResize()
+            // After this change has finished propagating: reporting the size
+            // publishes the layout, and doing that from inside a geometry
+            // binding (a floating panel's stored frame) re-enters it.
+            Qt.callLater(root.flushResize)
         }
     }
 

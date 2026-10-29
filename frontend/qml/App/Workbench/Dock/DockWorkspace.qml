@@ -963,9 +963,19 @@ Item {
     // The surface under a global point: floating panels first, front to
     // back, then windows of their own (they sit above the main window), then
     // the main window. A panel being moved by its bar is not a target.
+    // A surface whose only panel is being carried is not there while it is
+    // carried (it is drawn at opacity 0 and still holds the pointer): what
+    // lies under it is the target, never itself.
+    readonly property string liftedSurfaceId: {
+        Docking.revision
+        return root.lifting && carryState.whole && carryState.surfaceId.length > 0
+            && carryState.surfaceId !== Docking.primarySurfaceId
+            && Number(Docking.surface(carryState.surfaceId).anchorCount || 0) === 1 ? carryState.surfaceId : ""
+    }
+
     function surfaceAreaAt(globalPoint) {
         for (var p = panelOrder.length - 1; p >= 0; p -= 1) {
-            if (panelOrder[p] === root.liveSurfaceId) {
+            if (panelOrder[p] === root.liveSurfaceId || panelOrder[p] === root.liftedSurfaceId) {
                 continue
             }
             var panel = surfaceAreas[panelOrder[p]]
@@ -975,6 +985,9 @@ Item {
         }
         var floating = Docking.floatingSurfaceIds
         for (var index = floating.length - 1; index >= 0; index -= 1) {
+            if (floating[index] === root.liftedSurfaceId) {
+                continue
+            }
             var candidate = surfaceAreas[floating[index]]
             if (candidate && candidate.containsGlobal(globalPoint)) {
                 return candidate
@@ -982,6 +995,9 @@ Item {
         }
         var docked = Docking.sidebarSurfaceIds
         for (var s = 0; s < docked.length; s += 1) {
+            if (docked[s] === root.liftedSurfaceId) {
+                continue
+            }
             var inSidebar = surfaceAreas[docked[s]]
             if (inSidebar && inSidebar.containsGlobal(globalPoint)) {
                 return inSidebar

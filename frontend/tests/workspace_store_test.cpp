@@ -449,11 +449,19 @@ private slots:
         const QString second = store.view(b).value("anchorId").toString();
         const double secondX = anchors->row(second).value("rectX").toDouble();
 
-        // Moving the only tab of the right panel into the left one folds the
-        // right panel away in the preview. Its row stays drawable (it holds
-        // the pointer grab) at its old place, marked as vacating.
+        // Joining the left panel's tabs moves nothing while aiming: the right
+        // panel stays where it is (it folds once dropped).
         QVERIFY(store.beginDrag(QStringLiteral("view"), b));
         store.updateDragOverTabs(surface, first, -1);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(!anchors->row(second).value("isVacating").toBool());
+        QCOMPARE(anchors->row(second).value("rectX").toDouble(), secondX);
+
+        // A split elsewhere folds the right panel away in the preview. Its
+        // row stays drawable (it holds the pointer grab) at its old place,
+        // marked as vacating.
+        store.setDockDwellMs(0);
+        store.updateDrag(surface, 10, 300);
         QVERIFY(store.dropAllowed());
         QVERIFY(anchors->row(second).value("isVacating").toBool());
         QVERIFY(!anchors->row(second).value("isHidden").toBool());
@@ -462,11 +470,10 @@ private slots:
         store.cancelDrag();
         QVERIFY(!anchors->row(second).value("isVacating").toBool());
 
-        // Same for dragging a whole group onto another.
+        // Dragging a whole group onto another's tabs.
         QVERIFY(store.beginDrag(QStringLiteral("anchor"), second));
         store.updateDragOverTabs(surface, first, -1);
         QVERIFY(store.dropAllowed());
-        QVERIFY(anchors->row(second).value("isVacating").toBool());
         QVERIFY(store.finishDrag());
         QCOMPARE(anchors->rowCount(), 1);
         QCOMPARE(store.view(b).value("anchorId").toString(), first);
@@ -933,6 +940,120 @@ private slots:
     // Pointer jitter where two zones meet keeps one preview; hundreds of
     // moves over every kind of target commit nothing and record nothing;
     // only the release does, once.
+    // Joining a panel's tabs: the caret's slot is what lands, nothing
+    // moves while aiming, the strip keeps the pointer a little beyond its
+    // edge, and each drop is one undo step that keeps every view's id.
+    void tabJoinsCommitWhatTheyShow()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("joins"));
+        store.setDockDwellMs(0);
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        const QString right = store.splitView(c, first, QStringLiteral("right"));
+        QVERIFY(!right.isEmpty());
+        const auto viewsOf = [&](const QString &anchorId) { return store.model().anchor(anchorId) ? store.model().anchor(anchorId)->views : QStringList{}; };
+        QCOMPARE(viewsOf(first), (QStringList{a, b}));
+        const int revision = store.model().revision();
+
+        // c (alone on the right) onto the left panel's strip, between a and b.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+        QCOMPARE(store.tabStripAt(surface, 100, 10, 32).value("anchorId").toString(), first);
+        QVERIFY(store.tabStripAt(surface, 100, 40, 32).isEmpty()); // not taken on the way in
+        store.updateDragOverTabs(surface, first, 1);
+        QVERIFY(store.dropAllowed());
+        QCOMPARE(store.dragState().value("target").toMap().value("index").toInt(), 1);
+        QVERIFY(store.dragState().value("reflow").toList().isEmpty()); // nothing moves
+        QCOMPARE(store.model().revision(), revision);
+        // Drifting just below the strip keeps the join; well below lets go.
+        QCOMPARE(store.tabStripAt(surface, 100, 40, 32).value("anchorId").toString(), first);
+        QVERIFY(store.tabStripAt(surface, 100, 70, 32).isEmpty());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(viewsOf(first), (QStringList{a, c, b}));
+        QCOMPARE(store.model().anchorIds(surface).size(), 1);
+
+        QVERIFY(store.undo());
+        QCOMPARE(viewsOf(first), (QStringList{a, b}));
+        QCOMPARE(store.model().anchorOfView(c) != first, true);
+        QVERIFY(store.redo());
+        QCOMPARE(viewsOf(first), (QStringList{a, c, b}));
+
+        // Reordering rightwards in its own panel lands at the caret.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), a));
+        store.updateDragOverTabs(surface, first, 2);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(viewsOf(first), (QStringList{c, a, b}));
+        // Either side of itself: refused, nothing changes.
+        const int settled = store.model().revision();
+        QVERIFY(store.beginDrag(QStringLiteral("view"), a));
+        store.updateDragOverTabs(surface, first, 2);
+        QVERIFY(!store.dropAllowed());
+        QVERIFY(!store.finishDrag());
+        QCOMPARE(store.model().revision(), settled);
+        QCOMPARE(viewsOf(first), (QStringList{c, a, b}));
+        QCOMPARE(store.model().view(a)->id, a);
+    }
+
+    // Cancelling at any stage puts everything back, with no history.
+    void cancellingAnywhereRestores()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("cancels"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QVERIFY(!store.splitView(c, first, QStringLiteral("right")).isEmpty());
+        const int revision = store.model().revision();
+        const QString summary = store.undoSummary();
+        const auto unchanged = [&]() {
+            return store.model().revision() == revision && store.undoSummary() == summary
+                && store.model().anchorOfView(b) == first && !store.dragActive();
+        };
+
+        // Picked up only.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.cancelDrag();
+        QVERIFY(unchanged());
+        // Free, floating.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragFloat(200, 200, 400, 300);
+        store.updateDrag(surface, 300, 300);
+        store.cancelDrag();
+        QVERIFY(unchanged());
+        // Aiming (the dwell running).
+        store.setDockDwellMs(10000);
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDrag(surface, 990, 300);
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("aiming"));
+        store.cancelDrag();
+        QVERIFY(unchanged());
+        // A split previewed.
+        store.setDockDwellMs(0);
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDrag(surface, 990, 300);
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("preview"));
+        store.cancelDrag();
+        QVERIFY(unchanged());
+        // A tab join previewed, then across to a split, then to open space.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverTabs(surface, store.model().anchorOfView(c), 0);
+        QVERIFY(store.dropAllowed());
+        store.updateDrag(surface, 990, 300);
+        store.updateDrag(surface, 750, 300);
+        store.cancelDrag();
+        QVERIFY(unchanged());
+    }
+
     void previewsHoldSteadyAndNeverCommit()
     {
         WorkspaceStore store;

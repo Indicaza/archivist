@@ -103,7 +103,8 @@ public:
     OpResult closeAnchor(QString anchorId, Origin origin = Origin::User);
     // Moves a whole anchor beside another, or merges into it (Center).
     OpResult moveAnchor(QString anchorId, QString targetAnchorId, Edge edge, Origin origin = Origin::User);
-    OpResult mergeAnchor(QString anchorId, QString targetAnchorId, Origin origin = Origin::User);
+    // `index` puts the tabs in at that position (in their order); -1 at the end.
+    OpResult mergeAnchor(QString anchorId, QString targetAnchorId, Origin origin = Origin::User, int index = -1);
     OpResult dockAnchorAtSurfaceEdge(QString anchorId, QString surfaceId, Edge edge);
     OpResult detachAnchor(QString anchorId, const QRectF &geometry, QString screenName = {}, bool inMainWindow = false);
     OpResult setAnchorPinned(QString anchorId, bool pinned);

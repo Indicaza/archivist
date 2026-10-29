@@ -455,11 +455,35 @@ Item {
         Flickable {
             id: tabFlick
 
+            // A tab held near either end of a strip that doesn't fit scrolls
+            // it, so every slot can be reached; the slot follows the pointer.
+            readonly property bool aimedAt: Docking.dragActive && !root.switchable
+                && Docking.dropTarget.anchorId === root.anchorId && Docking.dropTarget.edge === "center"
+            Timer {
+                interval: 16
+                repeat: true
+                running: tabFlick.aimedAt && tabFlick.contentWidth > tabFlick.width
+                onTriggered: {
+                    var pointer = root.workspace.dragPointer
+                    var local = tabFlick.mapFromGlobal(pointer.x, pointer.y)
+                    var reach = 36
+                    var step = local.x < reach ? -Math.ceil((reach - Math.max(0, local.x)) / 3)
+                        : local.x > tabFlick.width - reach ? Math.ceil((Math.min(tabFlick.width, local.x) - (tabFlick.width - reach)) / 3)
+                        : 0
+                    var next = Math.max(0, Math.min(tabFlick.contentWidth - tabFlick.width, tabFlick.contentX + step))
+                    if (step !== 0 && next !== tabFlick.contentX) {
+                        tabFlick.contentX = next
+                        root.workspace.moveDrag(pointer)
+                    }
+                }
+            }
+
             anchors.left: labelDivider.right
             anchors.leftMargin: 2
             anchors.right: actions.left
             height: parent.height
-            contentWidth: root.switchable ? shelfButton.width + 8 : tabRow.width
+            // Room for the gap the tabs open for a tab held over them.
+            contentWidth: root.switchable ? shelfButton.width + 8 : tabRow.width + (insertMarker.shown ? root.theme.magnetTabGap : 0)
             contentHeight: height
             clip: true
             boundsBehavior: Flickable.StopAtBounds

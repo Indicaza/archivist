@@ -310,8 +310,9 @@ private slots:
         QVERIFY(side.isSurfaceEdge());
         QCOMPARE(side.edge, Edge::Left);
 
-        // Over a splitter: nothing.
-        QVERIFY(!at(chat.right() + 3, 400).isValid());
+        // Over a splitter: the nearest edge beside it (see
+        // dividersBelongToTheNearestEdge).
+        QVERIFY(at(chat.right() + 3, 400).isValid());
 
         // An empty panel takes a drop anywhere in it.
         const QString empty = s.model.createAnchor(s.terminal, Edge::Right).createdId;
@@ -371,6 +372,136 @@ private slots:
     }
 
     // With no dock target a drag floats as a panel inside the main window.
+    // The caret shows a slot between the tabs as they are now; the drop
+    // puts the tab exactly there, whichever way it moves.
+    void insertionSlotsMatchTheCaret()
+    {
+        Arranged s = arranged();
+        const QString c = s.model.openView(editorView(QStringLiteral("c.cpp")), s.editors).createdId;
+        QCOMPARE(s.model.anchor(s.editors)->views, (QStringList{s.a, s.b, c}));
+        const auto drop = [&](const QString &viewId, int slot) {
+            WorkspaceModel copy = s.model;
+            const OpResult result = copy.applyDrop(DragSource{DragSource::Kind::View, viewId}, onto(copy, s.editors, Edge::Center, slot));
+            return result.ok ? copy.anchor(s.editors)->views : QStringList{result.code};
+        };
+        // Rightwards: the tab leaves its own slot first.
+        QCOMPARE(drop(s.a, 2), (QStringList{s.b, s.a, c}));
+        QCOMPARE(drop(s.a, 3), (QStringList{s.b, c, s.a}));
+        // Leftwards.
+        QCOMPARE(drop(c, 0), (QStringList{c, s.a, s.b}));
+        QCOMPARE(drop(c, 1), (QStringList{s.a, c, s.b}));
+        // Either side of itself: nowhere new.
+        const auto preview = [&](const QString &viewId, int slot) {
+            return Magnets::preview(s.model, DragSource{DragSource::Kind::View, viewId}, onto(s.model, s.editors, Edge::Center, slot), kSurface, kMetrics).result.code;
+        };
+        QCOMPARE(preview(s.b, 1), QStringLiteral("NO_CHANGE"));
+        QCOMPARE(preview(s.b, 2), QStringLiteral("NO_CHANGE"));
+        // From another panel: the slot as shown.
+        QCOMPARE(drop(s.chat, 1), (QStringList{s.a, s.chat, s.b, c}));
+
+        // A whole panel's tabs go in at the slot too, in their order.
+        const QString d = s.model.openView(editorView(QStringLiteral("d.cpp")), s.first).createdId;
+        WorkspaceModel merged = s.model;
+        QVERIFY(merged.applyDrop(DragSource{DragSource::Kind::Anchor, s.first}, onto(merged, s.editors, Edge::Center, 1)).ok);
+        QCOMPARE(merged.anchor(s.editors)->views, (QStringList{s.a, s.chat, d, s.b, c}));
+        WorkspaceModel appended = s.model;
+        QVERIFY(appended.applyDrop(DragSource{DragSource::Kind::Anchor, s.first}, onto(appended, s.editors, Edge::Center)).ok);
+        QCOMPARE(appended.anchor(s.editors)->views, (QStringList{s.a, s.b, c, s.chat, d}));
+    }
+
+    // Joining a panel's tabs never moves the panels while aiming: the strip
+    // stays where the pointer is. The layout settles after the drop.
+    void tabJoinsPreviewWithoutMovingAnything()
+    {
+        Arranged s = arranged();
+        const QString surface = s.model.primarySurfaceId();
+        const DragSource term{DragSource::Kind::View, s.term};
+        const Magnets::Preview joined = Magnets::preview(s.model, term, onto(s.model, s.editors, Edge::Center, 1), kSurface, kMetrics);
+        QVERIFY(joined.result.ok);
+        const LayoutGeometry now = s.model.computeGeometry(surface, kSurface, kMetrics);
+        QCOMPARE(joined.geometry.anchors, now.anchors);
+        QCOMPARE(joined.landingAnchorId, s.editors);
+        QCOMPARE(joined.landingRect, rectOf(s.model, s.editors));
+
+        // A split still shows where everything goes.
+        const Magnets::Preview split = Magnets::preview(s.model, term, onto(s.model, s.first, Edge::Bottom), kSurface, kMetrics);
+        QVERIFY(split.result.ok);
+        QVERIFY(split.geometry.anchors != now.anchors);
+    }
+
+    // A tab strip takes the pointer exactly where it is drawn. Once it has
+    // it, it keeps it a little beyond (onto the divider, the panel above),
+    // and a split already previewed keeps it over a strip close by.
+    void tabStripsHoldWhereTheyAreDrawn()
+    {
+        Arranged s = arranged();
+        const QString surface = s.model.primarySurfaceId();
+        const Magnets::DockZones zones;
+        const double strip = 32;
+        const QRectF terminal = rectOf(s.model, s.terminal);
+        const QRectF editors = rectOf(s.model, s.editors);
+        const QRectF chat = rectOf(s.model, s.first);
+        const auto at = [&](double x, double y, const DropTarget &held) {
+            return Magnets::tabStripAt(s.model, surface, QPointF(x, y), kSurface, kMetrics, strip, zones, held);
+        };
+        const double x = terminal.left() + 40;
+
+        const Magnets::StripHit on = at(x, terminal.top() + 10, {});
+        QCOMPARE(on.anchorId, s.terminal);
+        QCOMPARE(on.localX, 40.0);
+        QVERIFY(at(x, terminal.top() + strip + 2, {}).anchorId.isEmpty());
+        // Not taken from the panel above on the way in...
+        QVERIFY(at(x, terminal.top() - 6, {}).anchorId.isEmpty());
+        QVERIFY(at(x, editors.bottom() - 4, {}).anchorId.isEmpty());
+        // ...but kept on the way out, a little.
+        const DropTarget joined = onto(s.model, s.terminal, Edge::Center, 0);
+        QCOMPARE(at(x, terminal.top() - 6, joined).anchorId, s.terminal);
+        QCOMPARE(at(x, terminal.top() + strip + 8, joined).anchorId, s.terminal);
+        QVERIFY(at(x, terminal.top() - zones.hold - 4, joined).anchorId.isEmpty());
+        QVERIFY(at(x, terminal.top() + strip + zones.hold + 4, joined).anchorId.isEmpty());
+        // Another strip, where it is drawn, wins at once.
+        const DropTarget chatJoined = onto(s.model, s.first, Edge::Center, 0);
+        QCOMPARE(at(editors.left() + 6, editors.top() + 10, chatJoined).anchorId, s.editors);
+
+        // A split previewed along the editors' bottom holds over the strip
+        // just below it, then lets the strip have it.
+        const DropTarget split = onto(s.model, s.editors, Edge::Bottom);
+        QVERIFY(at(x, editors.bottom() + kMetrics.splitterThickness + 4, split).anchorId.isEmpty());
+        QCOMPARE(at(x, editors.bottom() + zones.hold + 6, split).anchorId, s.terminal);
+        // A strip in a window that isn't this one holds nothing.
+        DropTarget elsewhere = joined;
+        elsewhere.surfaceId = QStringLiteral("nowhere");
+        QVERIFY(at(x, terminal.top() - 6, elsewhere).anchorId.isEmpty());
+        Q_UNUSED(chat);
+    }
+
+    // Letting go right on a divider docks against the nearest edge, not
+    // into thin air.
+    void dividersBelongToTheNearestEdge()
+    {
+        Arranged s = arranged();
+        const QString surface = s.model.primarySurfaceId();
+        const QRectF chat = rectOf(s.model, s.first);
+        const QRectF editors = rectOf(s.model, s.editors);
+        const QRectF terminal = rectOf(s.model, s.terminal);
+        const auto at = [&](double x, double y) {
+            return Magnets::dockTargetAt(s.model, surface, QPointF(x, y), kSurface, kMetrics);
+        };
+        QVERIFY(editors.left() - chat.right() >= 4);
+        const DropTarget leftSide = at(chat.right() + 1, editors.center().y());
+        QCOMPARE(leftSide.anchorId, s.first);
+        QCOMPARE(leftSide.edge, Edge::Right);
+        const DropTarget rightSide = at(editors.left() - 1, editors.center().y());
+        QCOMPARE(rightSide.anchorId, s.editors);
+        QCOMPARE(rightSide.edge, Edge::Left);
+        const DropTarget below = at(editors.center().x(), terminal.top() - 1);
+        QCOMPARE(below.anchorId, s.terminal);
+        QCOMPARE(below.edge, Edge::Top);
+        const DropTarget above = at(editors.center().x(), editors.bottom() + 1);
+        QCOMPARE(above.anchorId, s.editors);
+        QCOMPARE(above.edge, Edge::Bottom);
+    }
+
     void floatsAsAPanelInTheMainWindow()
     {
         Arranged s = arranged();

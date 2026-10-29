@@ -1,3 +1,4 @@
+#include <sqlite3.h>
 #include "Core/Domains/AI/ai_run_repository.h"
 #include "Core/Domains/AI/ai_tools.h"
 #include "Core/Domains/AI/context_compilers.h"
@@ -536,7 +537,14 @@ private slots:
         QCOMPARE(result.value(QStringLiteral("candidates")).toList().size(), 2);
 
         // Scribble over the index's structure record, as a crash or a bad copy might.
+        // Some SQLite builds (macOS) run in defensive mode, where an FTS
+        // shadow table can't be written with SQL: lift it for this one
+        // deliberate write, then put it back so the rebuild runs as it would.
+        int defensive = 0;
+        sqlite3_db_config(m_database.handle(), SQLITE_DBCONFIG_DEFENSIVE, -1, &defensive);
+        sqlite3_db_config(m_database.handle(), SQLITE_DBCONFIG_DEFENSIVE, 0, nullptr);
         m_database.exec(QStringLiteral("UPDATE library_chunk_search_data SET block = x'ffffffffffffffffffffffffffffffff'"));
+        sqlite3_db_config(m_database.handle(), SQLITE_DBCONFIG_DEFENSIVE, defensive, nullptr);
         QString damaged;
         try {
             static_cast<void>(m_database.prepare(QStringLiteral("SELECT COUNT(*) FROM library_chunk_search WHERE library_chunk_search MATCH 'lighthouse'")).scalar());

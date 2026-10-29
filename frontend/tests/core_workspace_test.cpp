@@ -358,7 +358,7 @@ private slots:
 
         // Invalid previews land nowhere and change nothing.
         QRectF nowhere(1, 1, 1, 1);
-        s.model.previewDrop(DragSource::view(s.term), {s.model.primarySurfaceId(), s.terminal, Edge::Left}, kSurface, kMetrics, &nowhere);
+        static_cast<void>(s.model.previewDrop(DragSource::view(s.term), {s.model.primarySurfaceId(), s.terminal, Edge::Left}, kSurface, kMetrics, &nowhere));
         QVERIFY(!nowhere.isValid());
         QCOMPARE(snapshotBytes(s.model), before);
     }
@@ -1116,7 +1116,7 @@ private slots:
 
         // Switching worktrees later changes nothing that already exists.
         const QByteArray before = snapshotBytes(s.model);
-        s.model.resolveLibrary(s.editors, QStringLiteral("wt-a"), QStringLiteral("lib-main"), known);
+        static_cast<void>(s.model.resolveLibrary(s.editors, QStringLiteral("wt-a"), QStringLiteral("lib-main"), known));
         QCOMPARE(snapshotBytes(s.model), before);
         for (const QString &viewId : s.model.viewIds()) {
             const ViewRecord *view = s.model.view(viewId);

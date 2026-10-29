@@ -151,6 +151,9 @@ Preview preview(const WorkspaceModel &model, const DragSource &source, const Dro
     }
 
     const LayoutGeometry geometry = after.computeGeometry(target.surfaceId, surfaceSize, metrics);
+    // Joining a panel's tabs: the panels don't move while aiming (the strip
+    // stays under the pointer); the layout settles once it is dropped.
+    const bool joins = target.edge == Edge::Center && !target.anchorId.isEmpty();
     // A window that is already cramped can't get "worse" by this measure;
     // otherwise nothing may end up under the minimum.
     if (cramped(geometry, metrics) && !cramped(model.computeGeometry(target.surfaceId, surfaceSize, metrics), metrics)) {
@@ -162,11 +165,11 @@ Preview preview(const WorkspaceModel &model, const DragSource &source, const Dro
         return out;
     }
 
-    out.geometry = geometry;
+    out.geometry = joins ? model.computeGeometry(target.surfaceId, surfaceSize, metrics) : geometry;
     out.landingAnchorId = source.kind == DragSource::Kind::View
         ? after.anchorOfView(source.id)
         : (target.edge == Edge::Center && !target.anchorId.isEmpty() ? target.anchorId : source.id);
-    out.landingRect = geometry.anchors.value(out.landingAnchorId);
+    out.landingRect = out.geometry.anchors.value(out.landingAnchorId);
     return out;
 }
 
@@ -219,6 +222,50 @@ bool stillHeld(const WorkspaceModel &model, const QString &surfaceId, const QPoi
     }
 }
 } // namespace
+
+StripHit tabStripAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
+                    const QSizeF &surfaceSize, const LayoutMetrics &metrics, double stripHeight,
+                    const DockZones &zones, const DropTarget &held)
+{
+    if (stripHeight <= 0 || !model.surface(surfaceId)) {
+        return {};
+    }
+    const LayoutGeometry geometry = model.computeGeometry(surfaceId, surfaceSize, metrics);
+    const auto stripOf = [&](const QString &anchorId) {
+        const QRectF rect = geometry.anchors.value(anchorId);
+        return QRectF(rect.left(), rect.top(), rect.width(), std::min(stripHeight, rect.height()));
+    };
+
+    // Exactly where a strip is drawn.
+    QString drawn;
+    for (auto it = geometry.anchors.cbegin(); it != geometry.anchors.cend(); ++it) {
+        if (stripOf(it.key()).contains(point)) {
+            drawn = it.key();
+            break;
+        }
+    }
+
+    const bool heldHere = held.isValid() && held.surfaceId == surfaceId;
+    const bool heldStrip = heldHere && held.edge == Edge::Center && !held.anchorId.isEmpty()
+        && geometry.anchors.contains(held.anchorId);
+    if (heldHere && !heldStrip && held.edge != Edge::Center
+        && stillHeld(model, surfaceId, point, surfaceSize, metrics, zones, held)) {
+        return {}; // a split or window edge still has it
+    }
+    if (!drawn.isEmpty()) {
+        return {drawn, point.x() - geometry.anchors.value(drawn).left()};
+    }
+    if (heldStrip) {
+        const QRectF strip = stripOf(held.anchorId);
+        // Above and below, a little; across, as far as the panel goes (the
+        // divider beside it included).
+        const QRectF kept = strip.adjusted(-metrics.splitterThickness, -zones.hold, metrics.splitterThickness, zones.hold);
+        if (kept.contains(point)) {
+            return {held.anchorId, point.x() - strip.left()};
+        }
+    }
+    return {};
+}
 
 DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
                         const QSizeF &surfaceSize, const LayoutMetrics &metrics, const DockZones &zones,
@@ -286,7 +333,39 @@ DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, c
         target.edge = best->edge;
         return target;
     }
-    return {}; // over a splitter
+    // On a divider: the nearest edge beside it (dividers are only a few
+    // pixels wide, so this is the edge the pointer is plainly at).
+    QString nearestId;
+    Edge nearestEdge = Edge::Center;
+    double nearestDistance = metrics.splitterThickness + 1;
+    for (auto it = geometry.anchors.cbegin(); it != geometry.anchors.cend(); ++it) {
+        const QRectF &rect = it.value();
+        if (rect.isEmpty()) {
+            continue;
+        }
+        const bool acrossY = point.y() >= rect.top() && point.y() <= rect.bottom();
+        const bool acrossX = point.x() >= rect.left() && point.x() <= rect.right();
+        const struct { Edge edge; double distance; bool facing; } sides[] = {
+            {Edge::Right, point.x() - rect.right(), acrossY},
+            {Edge::Left, rect.left() - point.x(), acrossY},
+            {Edge::Bottom, point.y() - rect.bottom(), acrossX},
+            {Edge::Top, rect.top() - point.y(), acrossX},
+        };
+        for (const auto &side : sides) {
+            if (side.facing && side.distance >= 0 && side.distance < nearestDistance) {
+                nearestDistance = side.distance;
+                nearestId = it.key();
+                nearestEdge = side.edge;
+            }
+        }
+    }
+    const AnchorRecord *beside = nearestId.isEmpty() ? nullptr : model.anchor(nearestId);
+    if (!beside || beside->views.isEmpty()) {
+        return {};
+    }
+    target.anchorId = nearestId;
+    target.edge = nearestEdge;
+    return target;
 }
 
 OpResult canFloat(const WorkspaceModel &model, const DragSource &source)
