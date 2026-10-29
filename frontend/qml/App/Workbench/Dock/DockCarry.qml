@@ -5,8 +5,9 @@ import "../../Icons"
 // What a drag carries: a picture of the panel (one grab at pickup, never
 // the live content), drawn over the whole main window.
 //
-// It stays compact during the drag, held by the spot
-// it was grabbed, while that window shows where it would dock. Picked up it
+// It stays compact during the drag, held by its top-left corner (wherever
+// it was grabbed, so the pointer never hides what it aims at), and swings
+// from that corner as it moves, while that window shows where it would dock. Picked up it
 // rises: a touch smaller (theme.magnetPickupScale), a deeper shadow, an
 // accent edge. Let go where it docks, it springs into its new place
 // (landAt) and hands over to the real panel there. Nothing here is
@@ -40,16 +41,17 @@ Item {
         ? Math.max(0.18, Math.min(0.9, 0.55 * width / source.width, 0.6 * height / Math.max(1, source.height),
             root.theme.magnetCarryMaxWidth / source.width, root.theme.magnetCarryMaxHeight / Math.max(1, source.height)))
         : 0.9
-    // How fast the pointer moves (px/ms), for the lean.
+    // How fast the pointer moves (px/ms), for the swing.
     property point velocity: Qt.point(0, 0)
+    // Hung from the corner it is held by, it swings back against the way
+    // it moves and, when the pointer stops, rocks past level and settles.
     readonly property real wantedTilt: !root.carrying || root.landing || root.theme.reducedMotion || root.carry.ending.length > 0 ? 0
-        : Math.max(-root.theme.magnetTiltMax, Math.min(root.theme.magnetTiltMax, root.velocity.x * root.theme.magnetTiltPerSpeed))
+        : root.theme.magnetSwingAngle(root.velocity)
     property real tilt: wantedTilt
     Behavior on tilt {
         enabled: !root.theme.reducedMotion
-        SpringAnimation { spring: 3.2; damping: 0.32; epsilon: 0.05 }
+        SpringAnimation { spring: root.theme.magnetSwingSpring; damping: root.theme.magnetSwingDamping; epsilon: 0.05 }
     }
-    readonly property point grab: carrying && carry.grab.x >= 0 ? carry.grab : Qt.point(60, 14)
 
     // 0 sits where it was lifted from, 1 is carried.
     property real lift: 1
@@ -185,8 +187,8 @@ Item {
         // Held small at the pointer...
         readonly property real heldW: Math.max(160, root.source.width) * root.heldScale
         readonly property real heldH: Math.max(90, root.source.height) * root.heldScale
-        readonly property real heldX: root.pointer.x - root.grab.x * root.heldScale
-        readonly property real heldY: root.pointer.y - root.grab.y * root.heldScale
+        readonly property real heldX: root.pointer.x + root.theme.magnetHoldOffset
+        readonly property real heldY: root.pointer.y + root.theme.magnetHoldOffset
         // ...or full size where it floats.
         readonly property bool hasFloat: root.floatFrame.width > 0
         readonly property real f: hasFloat ? root.spread : 0
@@ -199,8 +201,8 @@ Item {
         readonly property real carriedY: root.hasStart ? root.start.y + (toY - root.start.y) * t : toY
         readonly property real carriedW: Math.max(1, root.hasStart ? root.start.width + (toW - root.start.width) * t : toW)
         readonly property real carriedH: Math.max(1, root.hasStart ? root.start.height + (toH - root.start.height) * t : toH)
-        // Lifted: a touch smaller, around the spot it is held by (so the
-        // pointer stays on the same point of it); landing restores it.
+        // Lifted: a touch smaller, around the corner it is held by (so the
+        // corner stays at the pointer); landing restores it.
         readonly property real lifted: root.landing ? Math.max(0, 1 - root.landT) : t
         readonly property real shrink: root.theme.reducedMotion ? 0 : (1 - root.theme.magnetPickupScale) * lifted
 
@@ -220,8 +222,8 @@ Item {
             NumberAnimation { duration: root.theme.reducedMotion ? 0 : 140 }
         }
 
-        readonly property real holdX: root.landing ? carried.width / 2 : Math.min(carried.width, root.grab.x * carried.width / Math.max(1, root.source.width))
-        readonly property real holdY: root.landing ? carried.height / 2 : Math.min(carried.height, root.grab.y * carried.height / Math.max(1, root.source.height))
+        readonly property real holdX: root.landing ? carried.width / 2 : 0
+        readonly property real holdY: root.landing ? carried.height / 2 : 0
         transform: [
             Scale {
                 origin.x: carried.holdX
@@ -229,8 +231,8 @@ Item {
                 xScale: 1 - carried.shrink
                 yScale: 1 - carried.shrink
             },
-            // Momentum: it leans into the way it moves, pivoting on the
-            // spot it is held by (so that spot stays under the pointer).
+            // Momentum: it swings from the corner it is held by (so that
+            // corner stays at the pointer).
             Rotation {
                 origin.x: carried.holdX
                 origin.y: carried.holdY

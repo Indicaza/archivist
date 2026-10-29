@@ -99,23 +99,57 @@ Item {
     y: frame.y
     width: frame.width
     height: frame.height
-    opacity: lifted ? 0 : 1
+    opacity: lifted ? 0 : Math.min(1, root.appear * 1.6)
 
     // Let go (or a flick carried it on): it springs to its stored frame.
     Behavior on x { enabled: !root.interacting && !root.lifted && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
     Behavior on y { enabled: !root.interacting && !root.lifted && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
 
-    // Moved by its bar it shrinks around the spot it is held by, so it is
-    // easy to aim, and grows back when let go.
+    // Moved by its bar it shrinks toward its top-left corner and slides
+    // over so that corner hangs at the pointer (wherever the bar was
+    // grabbed), swings from it as it moves, and grows back when let go.
     readonly property real moveScale: moveHandler.active && !root.theme.reducedMotion ? root.theme.magnetPanelMoveScale : 1
     property real shownScale: moveScale
     Behavior on shownScale { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetPanelMoveSpring; damping: root.theme.magnetPanelMoveDamping; epsilon: 0.005 } }
-    transform: Scale {
-        origin.x: moveHandler.holdAt.x
-        origin.y: moveHandler.holdAt.y
-        xScale: root.shownScale
-        yScale: root.shownScale
+    readonly property real wantedTilt: moveHandler.active && !root.theme.reducedMotion ? root.theme.magnetSwingAngle(root.workspace.dragVelocity) : 0
+    property real tilt: wantedTilt
+    Behavior on tilt { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetSwingSpring; damping: root.theme.magnetSwingDamping; epsilon: 0.05 } }
+
+    // Opened on its own (not dropped there: the carried picture lands in
+    // its place), it pops in.
+    property real appear: 1
+    NumberAnimation on appear {
+        id: appearAnimation
+
+        running: false
+        from: 0
+        to: 1
+        duration: root.theme.magnetAppearDuration
+        easing.type: Easing.OutBack
+        easing.overshoot: 1.6
     }
+    Component.onCompleted: {
+        if (!root.theme.reducedMotion && root.workspace.startupSettled === true && !root.workspace.carry.active) {
+            root.appear = 0
+            appearAnimation.start()
+        }
+    }
+
+    transform: [
+        Scale {
+            origin.x: root.width / 2
+            origin.y: root.height / 2
+            xScale: root.theme.magnetAppearScale + (1 - root.theme.magnetAppearScale) * root.appear
+            yScale: root.theme.magnetAppearScale + (1 - root.theme.magnetAppearScale) * root.appear
+        },
+        Scale {
+            xScale: root.shownScale
+            yScale: root.shownScale
+        },
+        Rotation {
+            angle: root.tilt
+        }
+    ]
     objectName: "dock.floatingPanel"
 
     // Lifted off the layout.
@@ -212,29 +246,60 @@ Item {
                 grabPermissions: PointerHandler.CanTakeOverFromItems
                     | PointerHandler.CanTakeOverFromHandlersOfDifferentType
                     | PointerHandler.CanTakeOverFromHandlersOfSameType
-                property point pressAt: Qt.point(0, 0)
                 property rect startFrame: Qt.rect(0, 0, 0, 0)
-                // Where it is held, in the panel (the shrink pivots on it).
-                property point holdAt: Qt.point(0, 0)
-
-                onActiveChanged: {
-                    if (active) {
-                        holdAt = Qt.point(centroid.pressPosition.x, centroid.pressPosition.y)
-                        root.startInteracting()
-                        startFrame = root.live
-                        root.workspace.beginPanelMove(root.surfaceId)
-                    } else if (root.interacting) {
-                        root.workspace.endPanelMove(root.surfaceId, root.live)
-                        root.interacting = false
+                // Where the pointer holds the panel, in the panel: from the
+                // spot it was grabbed, it springs to just past the corner.
+                property real holdX: 0
+                property real holdY: 0
+                property bool catching: false
+                // The pointer, in the panels' layer, as of the last move
+                // (from the scene: the bar itself is scaled and turned).
+                property point pointerAt: Qt.point(0, 0)
+                function notePointer() {
+                    var layer = root.parent
+                    if (layer) {
+                        pointerAt = layer.mapFromItem(null, centroid.scenePosition.x, centroid.scenePosition.y)
                     }
                 }
-                onTranslationChanged: {
+                Behavior on holdX { enabled: moveHandler.catching; SpringAnimation { spring: root.theme.magnetPanelMoveSpring; damping: root.theme.magnetPanelMoveDamping; epsilon: 0.25 } }
+                Behavior on holdY { enabled: moveHandler.catching; SpringAnimation { spring: root.theme.magnetPanelMoveSpring; damping: root.theme.magnetPanelMoveDamping; epsilon: 0.25 } }
+
+                function follow() {
                     if (!active) {
                         return
                     }
-                    root.live = Qt.rect(startFrame.x + translation.x, startFrame.y + translation.y, startFrame.width, startFrame.height)
-                    root.workspace.movePanel(root.surfaceId, bar.mapToGlobal(centroid.position.x, centroid.position.y), root.live)
+                    notePointer()
+                    root.live = Qt.rect(pointerAt.x - holdX, pointerAt.y - holdY, startFrame.width, startFrame.height)
+                    root.workspace.movePanel(root.surfaceId, root.parent.mapToGlobal(pointerAt.x, pointerAt.y), root.live)
                 }
+                // Let go before the corner caught up: it settles where the
+                // corner was heading (just past the pointer), not halfway.
+                function caughtFrame() {
+                    return Qt.rect(pointerAt.x + root.theme.magnetHoldOffset, pointerAt.y + root.theme.magnetHoldOffset, startFrame.width, startFrame.height)
+                }
+
+                onActiveChanged: {
+                    if (active) {
+                        root.startInteracting()
+                        startFrame = root.live
+                        notePointer()
+                        catching = false
+                        holdX = pointerAt.x - startFrame.x
+                        holdY = pointerAt.y - startFrame.y
+                        catching = !root.theme.reducedMotion
+                        holdX = -root.theme.magnetHoldOffset
+                        holdY = -root.theme.magnetHoldOffset
+                        root.workspace.beginPanelMove(root.surfaceId)
+                        follow()
+                    } else if (root.interacting) {
+                        catching = false
+                        root.workspace.endPanelMove(root.surfaceId, caughtFrame())
+                        root.interacting = false
+                    }
+                }
+                onTranslationChanged: follow()
+                onHoldXChanged: follow()
+                onHoldYChanged: follow()
             }
 
             TapHandler {

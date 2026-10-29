@@ -788,8 +788,6 @@ Item {
         property size areaSize: Qt.size(0, 0)
         // The whole window, grabbed once at pickup (empty until it arrives).
         property url image: ""
-        // Where the pointer held the panel, in the panel's coordinates.
-        property point grab: Qt.point(-1, -1)
         // After the drop: "dropped" (it lands, the picture fades) or
         // "returning" (cancelled or refused: it flies back).
         property string ending: ""
@@ -817,7 +815,6 @@ Item {
         carryState.id = id
         carryState.title = title
         carryState.icon = root.dragGhostIcon
-        carryState.grab = Qt.point(-1, -1)
         carryState.image = ""
         carryState.live = false
         carryState.startRect = Qt.rect(0, 0, 0, 0)
@@ -855,22 +852,6 @@ Item {
                 carryState.image = result.url
             }
         }, Qt.size(Math.max(1, Math.round(area.width * factor)), Math.max(1, Math.round(area.height * factor))))
-    }
-
-    function noteCarryGrab(globalPoint) {
-        if (carryState.grab.x >= 0) {
-            return
-        }
-        var item = anchorItems[carryState.anchorId]
-        if (!item) {
-            carryState.grab = Qt.point(60, 14)
-            return
-        }
-        var local = item.mapFromGlobal(globalPoint.x, globalPoint.y)
-        carryState.grab = Qt.point(
-            Math.max(0, Math.min(item.width, local.x)),
-            Math.max(0, Math.min(item.height, local.y))
-        )
     }
 
     // The drag ended: let the picture land or fly back, then put it away.
@@ -1098,12 +1079,10 @@ Item {
         var size = root.floatSize
         var width = Math.min(size.width, Math.max(240, panelLayer.width - 16))
         var height = Math.min(size.height, Math.max(160, panelLayer.height - 16))
-        var source = carryState.sourceRect
-        // Held at the same spot it was picked up by.
-        var grabX = source.width > 0 && carryState.grab.x >= 0 ? carryState.grab.x * width / source.width : 60
-        var grabY = carryState.grab.y >= 0 ? Math.min(carryState.grab.y, 40) : 14
+        // Held by its top-left corner, wherever it was picked up, so the
+        // pointer never hides what it points at.
         var local = panelLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
-        root.floatFrame = keepInReach(Qt.rect(local.x - grabX, local.y - grabY, width, height))
+        root.floatFrame = keepInReach(Qt.rect(local.x + theme.magnetHoldOffset, local.y + theme.magnetHoldOffset, width, height))
         Docking.updateDragFloat(root.floatFrame.x, root.floatFrame.y, width, height)
     }
 
@@ -1147,7 +1126,7 @@ Item {
     Timer {
         interval: 32
         repeat: true
-        running: Docking.dragActive && (root.dragVelocity.x !== 0 || root.dragVelocity.y !== 0)
+        running: (Docking.dragActive || root.liveSurfaceId.length > 0) && (root.dragVelocity.x !== 0 || root.dragVelocity.y !== 0)
         onTriggered: {
             if (Date.now() - root.lastMoveAt < 48) {
                 return
@@ -1193,7 +1172,6 @@ Item {
         for (var key in surfaceAreas) {
             surfaceAreas[key].dragHere = surfaceAreas[key] === target
         }
-        noteCarryGrab(globalPoint)
         carryLayer.pointer = carryLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
         var inLayer = panelLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
         carryLayer.pointerHere = inLayer.x >= 0 && inLayer.y >= 0 && inLayer.x <= panelLayer.width && inLayer.y <= panelLayer.height
@@ -1278,6 +1256,7 @@ Item {
     function beginPanelMove(surfaceId) {
         root.liveSurfaceId = surfaceId
         root.liveMoveCancelled = false
+        resetVelocity()
         var anchors = panelAnchors(surfaceId)
         if (anchors.length !== 1 || !Docking.beginDrag("anchor", anchors[0])) {
             return
@@ -1300,7 +1279,12 @@ Item {
     }
 
     function movePanel(surfaceId, globalPoint, frame) {
-        if (surfaceId !== root.liveSurfaceId || !Docking.dragActive || root.liveMoveCancelled) {
+        if (surfaceId !== root.liveSurfaceId || root.liveMoveCancelled) {
+            return
+        }
+        if (!Docking.dragActive) {
+            // A group moved by its bar: no docking, but it swings and can be thrown.
+            noteVelocity(globalPoint)
             return
         }
         root.floatFrame = frame
@@ -1316,7 +1300,7 @@ Item {
             return
         }
         // A flick glides it on (the panel springs there from where it was let go).
-        var glide = Docking.dragActive && Docking.dropFloats ? throwOffset() : Qt.point(0, 0)
+        var glide = !Docking.dragActive || Docking.dropFloats ? throwOffset() : Qt.point(0, 0)
         frame = keepInReach(Qt.rect(frame.x + glide.x, frame.y + glide.y, frame.width, frame.height))
         if (Docking.dragActive) {
             Docking.updateDragFloat(frame.x, frame.y, frame.width, frame.height)

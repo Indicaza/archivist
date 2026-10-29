@@ -127,7 +127,8 @@ whole group). It is never a copy; resources are never touched by a drag.
   for `dockDwellMs`, 220 ms), or anywhere in an empty panel. Anywhere else,
   and outside every window, the drop floats it as a panel inside the main
   window (`SurfaceRecord::inMainWindow`, geometry in the main window's content,
-  no screen), at the size it had (capped) and held where it was grabbed.
+  no screen), at the size it had (capped), its top-left corner just past
+  the pointer (it is always held by that corner).
   Floating panels are ordinary surfaces: tabs, splits, docking and Return
   all work in them, and there can be any number. A magnet already alone in
   a floating panel just moves it. Windows of their own still open from the
@@ -198,22 +199,30 @@ it writes to the model, so the committed state is always exactly what the
 store published; a preview never adds an undo step, and a cancel restores
 everything with no history entry.
 
-- **Pickup** (`DockCarry`): the picture lifts to `magnetPickupScale` (96%)
-  around the point it is held by, so the pointer stays on the same spot of
-  it, with a deeper two-layer shadow and an accent edge. It is carried
+- **Pickup** (`DockCarry`): wherever it was grabbed, the picture is held
+  by its top-left corner, `magnetHoldOffset` px past the pointer's tip, so
+  the pointer never hides what it aims at (it slides there as it lifts).
+  It lifts to `magnetPickupScale` around that corner, with a deeper
+  two-layer shadow and an accent edge. It is carried
   small (at most `magnetCarryMaxWidth` x `magnetCarryMaxHeight`) so it is
   easy to aim; over open space a full-size outline shows where it would
   float, and on release it grows into it. The pointer always drives its
   position directly (no smoothing), so it never lags.
-- **Momentum**: the picture leans into the way it moves (a rotation about
-  the held point, `magnetTiltPerSpeed`, at most `magnetTiltMax`), and a
+- **Momentum**: the picture hangs from the corner it is held by and swings
+  back against the way it moves (`Theme.magnetSwingAngle`: a rotation
+  about that corner, `magnetTiltPerSpeed`, at most `magnetTiltMax`) on a
+  loose spring (`magnetSwing*`), so it rocks past level and settles when
+  the pointer stops. A
   flick on release glides a floating drop on (`magnetThrowTime` of its
   speed, at most `magnetThrowMax`). The glide goes into the frame the drop
   commits, so what lands is exactly what is stored.
 - **Floating panels** (`DockFloatingPanel`): holding one panel, a floating
   panel has no bar of its own; the panel's header is its one handle and
-  close. Holding a split, a slim bar moves the group, shrinking it to
-  `magnetPanelMoveScale` while it moves. A floating panel may hang off the
+  close. Holding a split, a slim bar moves the group: it shrinks to
+  `magnetPanelMoveScale` toward its top-left corner, that corner springs
+  to the pointer (held like a carried picture), it swings as it moves and
+  a flick throws it on. Opened on its own (not dropped there, where the
+  carried picture lands in its place) it pops in from `magnetAppearScale`. A floating panel may hang off the
   window's sides and bottom; `magnetKeepVisible` px of it and its header
   (`magnetKeepHeader`) always stay in reach.
 - **Magnetic pull** (`DockDropOverlay`, `magnet.pull`): while free, the
@@ -222,7 +231,10 @@ everything with no history entry.
   band), with a pixel-sized tremor once close. It hides as soon as a zone
   is aimed at or a preview shows.
 - **Making room**: panels spring to the preview's rects
-  (`magnetReflowSpring`/`Damping`), the landing area to its rect
+  (`magnetReflowSpring`/`Damping`) in a ripple: the spring is stiffest for
+  the panel nearest where the change was asked for (the pointer,
+  `DockSurfaceArea.rippleOrigin`) and up to `magnetRippleSpread` softer
+  for the farthest, so the near ones move first, the landing area to its rect
   (`magnetLanding*`). In a tab strip the tabs after the insertion point
   step aside (`magnetTabGap`, a `Translate`; the strip's layout is not
   touched) and the caret sits in the gap.

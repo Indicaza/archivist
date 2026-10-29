@@ -30,6 +30,18 @@ Item {
     // The pointer of a drag is over this window.
     property bool dragHere: false
 
+    // Where the last change was asked for (the pointer, in this item), so
+    // panels making room ripple out from it (see DockAnchor).
+    property point rippleOrigin: Qt.point(width / 2, height / 2)
+    onDragPointerChanged: {
+        if (dragPointer.x >= 0 && Docking.dragActive) {
+            root.rippleOrigin = root.mapFromGlobal(dragPointer.x, dragPointer.y)
+        }
+    }
+    HoverHandler {
+        onPointChanged: if (hovered) root.rippleOrigin = point.position
+    }
+
     clip: true
 
     // ---- shared with the workspace ---------------------------------------

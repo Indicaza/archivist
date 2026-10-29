@@ -145,10 +145,21 @@ Item {
         ScriptAction { script: root.arriving = false }
     }
 
-    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
-    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
-    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
-    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    // Making room, the panels nearest the change move first and the far
+    // ones follow: stiffer near where it was asked for, softer away from it
+    // (by where this panel is going, so it doesn't change on the way).
+    readonly property real reflowSpring: {
+        var origin = root.workspace.rippleOrigin
+        var dx = rectX + rectWidth / 2 - origin.x
+        var dy = rectY + rectHeight / 2 - origin.y
+        var reach = Math.max(1, Math.sqrt(root.workspace.width * root.workspace.width + root.workspace.height * root.workspace.height))
+        var share = Math.min(1, Math.sqrt(dx * dx + dy * dy) / reach)
+        return root.theme.magnetReflowSpring * (1 - root.theme.magnetRippleSpread * share)
+    }
+    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
     Behavior on opacity { enabled: !root.arriving; NumberAnimation { duration: root.theme.motionFast } }
 
     Component.onCompleted: {
