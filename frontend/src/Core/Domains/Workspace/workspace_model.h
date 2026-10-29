@@ -87,7 +87,7 @@ public:
     OpResult dockViewAtSurfaceEdge(QString viewId, QString surfaceId, Edge edge, Origin origin = Origin::User);
     // Moves a view into a new floating surface: a window of its own, or a
     // floating panel inside the main window (`inMainWindow`, geometry in the
-    // main window's workspace area). A view that is already alone in a
+    // main window's content). A view that is already alone in a
     // floating surface just moves that surface.
     OpResult detachView(QString viewId, const QRectF &geometry, QString screenName = {}, Origin origin = Origin::User,
                         bool inMainWindow = false);

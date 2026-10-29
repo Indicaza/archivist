@@ -171,7 +171,7 @@ public:
     Q_INVOKABLE QString detachView(const QString &viewId, double x, double y, double width, double height, const QString &screenName = {});
     Q_INVOKABLE QString detachAnchor(const QString &anchorId, double x, double y, double width, double height, const QString &screenName = {});
     // Floats a tab or a whole panel as a panel inside the main window (rect
-    // in the workspace area). One undo step. Returns the panel's surface id.
+    // in the main window's content). One undo step. Returns the panel's surface id.
     Q_INVOKABLE QString floatView(const QString &viewId, double x, double y, double width, double height);
     Q_INVOKABLE QString floatAnchor(const QString &anchorId, double x, double y, double width, double height);
     // Closes a floating window; its tabs return to the main window. Nothing
@@ -295,7 +295,7 @@ public:
     // frame (virtual desktop coordinates).
     Q_INVOKABLE void updateDragDetached(double x, double y, double width, double height, const QString &screenName);
     // Where the dragged content would float if dropped with no dock target:
-    // a rect in the main window's workspace area.
+    // a rect in the main window's content.
     Q_INVOKABLE void updateDragFloat(double x, double y, double width, double height);
     // Drops onto a validated target (checked again against the layout as
     // it is now) as one workspace step: undo puts everything back.

@@ -126,8 +126,8 @@ whole group). It is never a copy; resources are never touched by a drag.
   once), a band along a panel's edge or the window border (once held there
   for `dockDwellMs`, 220 ms), or anywhere in an empty panel. Anywhere else,
   and outside every window, the drop floats it as a panel inside the main
-  window (`SurfaceRecord::inMainWindow`, geometry in the workspace area, no
-  screen), at the size it had (capped) and held where it was grabbed.
+  window (`SurfaceRecord::inMainWindow`, geometry in the main window's content,
+  no screen), at the size it had (capped) and held where it was grabbed.
   Floating panels are ordinary surfaces: tabs, splits, docking and Return
   all work in them, and there can be any number. A magnet already alone in
   a floating panel just moves it. Windows of their own still open from the

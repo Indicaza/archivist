@@ -3,7 +3,7 @@ import Archivist.Services 1.0
 import "../../Icons"
 
 // What a drag carries: a picture of the panel (one grab at pickup, never
-// the live content), drawn over the main window's workspace area.
+// the live content), drawn over the whole main window.
 //
 // Over open space it is the panel as it will float, full size, where the
 // drop puts it. Aimed at a dock zone it shrinks and lifts, held by the spot

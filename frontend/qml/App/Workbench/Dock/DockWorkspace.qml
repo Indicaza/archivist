@@ -18,6 +18,11 @@ Item {
     // composer): the conversation pads its end by this much when its pane
     // reaches the bottom, so the last message can scroll clear of it.
     property real bottomOverlay: 0
+    // Where floating panels (and the picture a drag carries) are drawn: an
+    // item over the whole window, so they sit above the sidebar and the
+    // rest of the shell. Their geometry is in its coordinates, so they stay
+    // put when the sidebar opens or closes. Without one, this item.
+    property Item overlayHost: null
     // Where the live conversation sits, in this item's coordinates, or
     // null when no chat pane is showing. The compact composer centres on it.
     // Built from the main area's own position (it springs with the side
@@ -774,7 +779,7 @@ Item {
         // The panel's rect in its window, and that window's size (to cut
         // its picture from the window's grab).
         property rect sourceRect: Qt.rect(0, 0, 0, 0)
-        // Where it was lifted from in the main window's workspace area
+        // Where it was lifted from, in the floating panels' layer
         // (empty when it came from a window of its own).
         property rect startRect: Qt.rect(0, 0, 0, 0)
         // A floating panel moved by its bar: the panel itself moves, so no
@@ -942,7 +947,7 @@ Item {
     // The size a panel floats at: the size it had, but never most of the
     // window, and never less than a usable panel.
     property size floatSize: Qt.size(560, 380)
-    // Where a drop would float it now, in the workspace area.
+    // Where a drop would float it now, in the floating panels' layer.
     property rect floatFrame: Qt.rect(0, 0, 0, 0)
     // The floating panel being moved by its bar, if any.
     property string liveSurfaceId: ""
@@ -959,22 +964,22 @@ Item {
         }
         var width = sourceItem ? sourceItem.width : 560
         var height = sourceItem ? sourceItem.height : 380
-        width = Math.max(320, Math.min(width, area.width * 0.6))
-        height = Math.max(220, Math.min(height, area.height * 0.7))
+        width = Math.max(320, Math.min(width, panelLayer.width * 0.6))
+        height = Math.max(220, Math.min(height, panelLayer.height * 0.7))
         return Qt.size(Math.round(width), Math.round(height))
     }
 
     function updateFloatFrame(globalPoint) {
         var size = root.floatSize
-        var width = Math.min(size.width, Math.max(240, area.width - 16))
-        var height = Math.min(size.height, Math.max(160, area.height - 16))
+        var width = Math.min(size.width, Math.max(240, panelLayer.width - 16))
+        var height = Math.min(size.height, Math.max(160, panelLayer.height - 16))
         var source = carryState.sourceRect
         // Held at the same spot it was picked up by.
         var grabX = source.width > 0 && carryState.grab.x >= 0 ? carryState.grab.x * width / source.width : 60
         var grabY = carryState.grab.y >= 0 ? Math.min(carryState.grab.y, 40) : 14
-        var local = area.mapFromGlobal(globalPoint.x, globalPoint.y)
-        var x = Math.max(8, Math.min(local.x - grabX, area.width - width - 8))
-        var y = Math.max(8, Math.min(local.y - grabY, area.height - height - 8))
+        var local = panelLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
+        var x = Math.max(8, Math.min(local.x - grabX, panelLayer.width - width - 8))
+        var y = Math.max(8, Math.min(local.y - grabY, panelLayer.height - height - 8))
         root.floatFrame = Qt.rect(Math.round(x), Math.round(y), width, height)
         Docking.updateDragFloat(root.floatFrame.x, root.floatFrame.y, width, height)
     }
@@ -986,7 +991,8 @@ Item {
         }
         noteCarryGrab(globalPoint)
         carryLayer.pointer = carryLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
-        carryLayer.pointerHere = area.containsGlobal(globalPoint)
+        var inLayer = panelLayer.mapFromGlobal(globalPoint.x, globalPoint.y)
+        carryLayer.pointerHere = inLayer.x >= 0 && inLayer.y >= 0 && inLayer.x <= panelLayer.width && inLayer.y <= panelLayer.height
         if (root.liveSurfaceId.length === 0) {
             updateFloatFrame(globalPoint)
         }
@@ -1141,9 +1147,9 @@ Item {
     function floatFrameBeside(anchorId) {
         var item = anchorItems[anchorId]
         var size = floatSizeFor("view", item || null)
-        var corner = item && item.Window.window === root.Window.window ? item.mapToItem(area, 0, 0) : Qt.point(40, 40)
-        var x = Math.max(8, Math.min(corner.x + 36, area.width - size.width - 8))
-        var y = Math.max(8, Math.min(corner.y + 36, area.height - size.height - 8))
+        var corner = item && item.Window.window === root.Window.window ? item.mapToItem(panelLayer, 0, 0) : Qt.point(80, 80)
+        var x = Math.max(8, Math.min(corner.x + 36, panelLayer.width - size.width - 8))
+        var y = Math.max(8, Math.min(corner.y + 36, panelLayer.height - size.height - 8))
         return Qt.rect(Math.round(x), Math.round(y), size.width, size.height)
     }
 
@@ -1629,14 +1635,15 @@ Item {
         }
     }
 
-    // Floating panels, drawn over the main layout in the order last used.
+    // Floating panels, drawn over everything in the order last used.
     Item {
         id: panelLayer
 
-        x: area.x
-        y: area.y
-        width: area.width
-        height: area.height
+        parent: root.overlayHost || root
+        x: 0
+        y: 0
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
         z: 5
 
         Component.onCompleted: root.syncPanelOrder()
@@ -1681,10 +1688,11 @@ Item {
     DockCarry {
         id: carryLayer
 
-        x: area.x
-        y: area.y
-        width: area.width
-        height: area.height
+        parent: root.overlayHost || root
+        x: 0
+        y: 0
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
         z: 6
         theme: root.theme
         carry: carryState
