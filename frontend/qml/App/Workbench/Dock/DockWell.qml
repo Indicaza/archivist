@@ -4,13 +4,18 @@ import Archivist.Services 1.0
 import "../../Icons"
 import "WellGeometry.js" as WellGeometry
 
-// A Gravity Well: a small, movable row of what's been minimized or pinned.
-// It shows references the workspace holds (Docking.wells()); clicking an
-// entry restores, brings forward or reopens it (WorkspaceStore). It is an
-// accessory over the layout, not a panel, and never reflows the layout.
+// A Gravity Well: a few small spheres for what's been minimized or pinned,
+// floating over the layout like a Dock. It shows references the workspace
+// holds (Docking.wells()); clicking one restores, brings forward or reopens
+// it (WorkspaceStore). It's an accessory over the layout, never a panel.
 //
-// Pinned entries come first, then a divider, then what's only minimized.
-// Grab the grip or the Well's edge to move it; it's saved with the layout.
+// At rest it all but disappears, leaving a faint locator. As the pointer
+// comes near, the spheres fade in and lift; over them, the one nearest the
+// pointer swells and its neighbours step aside (the Dock wave). Pointer
+// input is tested against fixed slots (WellGeometry), so the wave never
+// moves what's under the pointer. Drag the space around the spheres to move
+// the Well; it's saved with the layout. Nothing here writes to the model
+// while the pointer moves.
 Item {
     id: root
 
@@ -45,22 +50,108 @@ Item {
         return count
     }
     readonly property bool empty: entries.length === 0
+    readonly property bool vertical: String(well.orientation || "horizontal") === "vertical"
 
     readonly property real margin: theme.px(12)
-    readonly property real gripWidth: theme.px(14)
+    readonly property int dividerAt: pinnedCount > 0 && pinnedCount < entries.length ? pinnedCount : -1
     readonly property var geometry: WellGeometry.layout(
         String(well.form || "linear"),
         String(well.orientation || "horizontal"),
-        entries.length,
+        Math.max(1, entries.length),
         {
             slot: theme.px(40),
-            gap: theme.px(4),
-            padding: theme.px(6),
-            lead: gripWidth,
-            dividerAt: pinnedCount > 0 && pinnedCount < entries.length ? pinnedCount : -1,
-            dividerSize: theme.px(13)
+            gap: theme.px(6),
+            padding: theme.px(10),
+            lead: 0,
+            dividerAt: dividerAt,
+            dividerSize: theme.px(11)
         }
     )
+
+    // ---- Where the pointer is, and how awake that makes the Well ----
+
+    // How far out the Well notices the pointer, and the in/out distances
+    // that keep it from flickering on the edge (WellGeometry.proximity).
+    readonly property real reach: theme.px(120)
+    readonly property var proximityOptions: ({
+        revealIn: theme.px(96),
+        revealOut: theme.px(118),
+        engageIn: 0,
+        engageOut: theme.px(22)
+    })
+    property var proximity: ({ near: false, engaged: false, level: 0 })
+    // The pointer in the Well's coordinates, while it's near.
+    property real pointerX: 0
+    property real pointerY: 0
+    property bool pointerHere: false
+
+    function track() {
+        var position = null
+        if (wellHover.hovered) {
+            position = wellHover.point.position
+        } else if (fieldHover.hovered) {
+            var inField = fieldHover.point.position
+            position = Qt.point(inField.x + field.x, inField.y + field.y)
+        }
+        if (position === null) {
+            pointerHere = false
+            proximity = WellGeometry.proximity(proximity, null, proximityOptions)
+            return
+        }
+        pointerHere = true
+        pointerX = position.x
+        pointerY = position.y
+        proximity = WellGeometry.proximity(proximity, WellGeometry.distanceToRect(position.x, position.y, width, height), proximityOptions)
+    }
+
+    // Shown in full whatever the pointer does: while something is dragged
+    // toward it, while it moves, while its menu is open, and for a moment
+    // after something lands in it.
+    readonly property bool held: dragging || moving || entryMenu.visible || landing.running
+    readonly property bool engaged: proximity.engaged && !dragging
+    readonly property real level: held ? 1 : proximity.level
+    // How visible it is, eased.
+    property real shown: theme.wellDormantOpacity + (1 - theme.wellDormantOpacity) * level
+    Behavior on shown {
+        NumberAnimation {
+            duration: root.level > 0.5 ? root.theme.wellRevealDuration : root.theme.wellSettleDuration
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    // The Dock wave, from where the pointer is along the Well. Only while
+    // engaged; with reduced motion there's none.
+    readonly property var wave: WellGeometry.magnify(
+        geometry.slots,
+        engaged && !moving && pointerHere && !theme.reducedMotion ? (vertical ? pointerY : pointerX) : null,
+        {
+            maxScale: theme.wellMagnification,
+            reach: theme.wellMagnificationReach,
+            pitch: theme.px(46),
+            vertical: vertical
+        },
+        { index: dividerAt }
+    )
+    // A little smaller and lower while it's waking, bigger while something
+    // is held over it.
+    readonly property real revealScale: theme.reducedMotion ? 1 : dropHere ? 1.1 : 0.9 + 0.1 * level
+    readonly property real lift: theme.reducedMotion ? 0 : theme.px(3) * level
+
+    // Something just landed: show it for a moment.
+    property int lastCount: 0
+    onEntriesChanged: {
+        if (entries.length > lastCount) {
+            landing.restart()
+        }
+        lastCount = entries.length
+    }
+    Timer {
+        id: landing
+
+        interval: 1400
+    }
+
+    // ---- Where it sits ----
 
     // While it's being moved: where the pointer has it. Otherwise: where it
     // was saved, worked out again for the current window size.
@@ -73,27 +164,21 @@ Item {
         parent ? parent.width : 0, parent ? parent.height : 0,
         margin, 0
     )
-
-    // Leans in when something is held over it.
-    scale: dropHere && !theme.reducedMotion ? 1.08 : 1
-    transformOrigin: Item.Bottom
-    Behavior on scale {
-        enabled: !root.theme.reducedMotion
-        SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.005 }
-    }
+    // In the top half, it grows downward, away from the window edge.
+    readonly property bool growDown: !vertical && parent !== null && y + height / 2 < parent.height / 2
 
     // Where something dropped here lands, in `item`'s coordinates: the end
-    // of the row, where its icon appears.
+    // of the row, where its orb appears.
     function landingRect(item) {
         var size = theme.px(40)
-        var corner = mapToItem(item, Math.max(0, width - size - theme.px(6)), Math.max(0, (height - size) / 2))
+        var corner = mapToItem(item, Math.max(0, width - size - theme.px(10)), Math.max(0, (height - size) / 2))
         return Qt.rect(corner.x, corner.y, size, size)
     }
 
     x: moving ? moveX : rest.x
     y: moving ? moveY : rest.y
-    width: empty ? emptyRow.width + gripWidth + theme.px(22) : geometry.width
-    height: empty ? theme.px(34) : geometry.height
+    width: geometry.width
+    height: geometry.height
     z: moving ? 2 : 0
 
     // Settles onto the centre line or an edge after a drop.
@@ -109,47 +194,76 @@ Item {
     Accessible.role: Accessible.ToolBar
     Accessible.name: empty ? "Gravity Well, empty" : "Gravity Well, " + entries.length + (entries.length === 1 ? " item" : " items")
 
-    // Shadow, lifted a little while it moves.
-    Rectangle {
-        anchors.fill: parent
-        anchors.topMargin: root.theme.px(6)
-        anchors.bottomMargin: -root.theme.px(8)
-        anchors.leftMargin: root.theme.px(2)
-        anchors.rightMargin: root.theme.px(2)
-        radius: body.radius + 2
-        color: "#000000"
-        opacity: root.empty ? 0.12 : root.moving && !root.theme.reducedMotion ? 0.42 : 0.26
-        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.magnetPickupDuration } }
+    // The pointer over the Well itself (its spheres included).
+    HoverHandler {
+        id: wellHover
+
+        onHoveredChanged: root.track()
+        onPointChanged: root.track()
     }
 
-    Rectangle {
-        id: body
+    // The pointer near the Well: a wide, invisible ring that only watches.
+    // It takes no clicks and doesn't keep hover from what's underneath.
+    Item {
+        id: field
 
-        anchors.fill: parent
-        radius: root.empty ? height / 2 : root.theme.radiusLarge
-        color: Qt.rgba(root.theme.compactComposerBg.r, root.theme.compactComposerBg.g, root.theme.compactComposerBg.b, root.empty ? 0.72 : 0.9)
-        border.width: root.dropHere ? 2 : 1
-        border.color: root.dropHere ? root.theme.accentBright
-            : root.dragging ? Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.45)
-            : root.moving || backgroundArea.containsMouse ? root.theme.compactComposerBorderHover : root.theme.compactComposerBorder
-        opacity: root.empty && !backgroundArea.containsMouse && !root.moving && !root.dragging ? 0.7 : 1
+        objectName: "dock.well.field"
 
-        Behavior on border.color { ColorAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.motionFast } }
-        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.motionHover } }
+        x: -root.reach
+        y: -root.reach
+        width: root.width + root.reach * 2
+        height: root.height + root.reach * 2
+        z: -2
 
-        // A faint top light, like the composer.
-        Rectangle {
-            anchors.top: parent.top
-            anchors.topMargin: 1
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: parent.width - parent.radius * 2
-            height: 1
-            color: root.theme.compactComposerHighlight
+        HoverHandler {
+            id: fieldHover
+
+            onHoveredChanged: root.track()
+            onPointChanged: root.track()
         }
     }
 
-    // Moving the Well: press anywhere that isn't an icon, then drag past
-    // the usual threshold, so clicks never nudge it.
+    // The field the spheres float in: a soft pool of light under them that
+    // widens with the wave. No edges, no bar.
+    WellGlow {
+        id: pool
+
+        readonly property real along: root.wave.end - root.wave.start
+        width: Math.max(root.theme.px(60), along + root.theme.px(36))
+        height: width
+        x: root.vertical ? (root.width - width) / 2 : root.wave.start + along / 2 - width / 2
+        y: (root.growDown ? root.height * 0.38 : root.height * 0.62) - height / 2
+        z: -1
+        color: root.dropHere ? root.theme.accent : "#000000"
+        strength: root.dropHere ? 0.34 : root.dragging ? 0.42 : 0.38
+        opacity: root.empty && !root.dragging ? 0 : root.level
+        transform: Scale {
+            origin.x: pool.width / 2
+            origin.y: pool.height / 2
+            xScale: root.vertical ? (root.width + root.theme.px(36)) / pool.width : 1
+            yScale: root.vertical ? 1 : (root.height + root.theme.px(26)) / pool.height
+        }
+
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.motionHover } }
+    }
+
+    // At rest: a faint mark where the Well is, so it can be found.
+    Rectangle {
+        objectName: "dock.well.locator"
+
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: root.growDown ? root.theme.px(4) : parent.height - height - root.theme.px(4)
+        width: root.theme.px(18)
+        height: root.theme.px(3)
+        radius: height / 2
+        color: root.theme.mutedText
+        opacity: (1 - root.level) * 0.4
+
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.wellSettleDuration } }
+    }
+
+    // Moving the Well: press the space around the spheres, then drag past
+    // the usual threshold, so clicks never nudge it. Only while it's awake.
     MouseArea {
         id: backgroundArea
 
@@ -161,9 +275,8 @@ Item {
         property real startY: 0
 
         anchors.fill: parent
-        hoverEnabled: true
         preventStealing: true
-        cursorShape: root.moving ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        cursorShape: root.moving ? Qt.ClosedHandCursor : root.engaged ? Qt.OpenHandCursor : Qt.ArrowCursor
 
         onPressed: function(mouse) {
             var point = mapToItem(root.parent, mouse.x, mouse.y)
@@ -209,49 +322,44 @@ Item {
         onCanceled: root.moving = false
     }
 
-    // The grip: where to grab it.
-    Grid {
-        anchors.left: parent.left
-        anchors.leftMargin: root.theme.px(7)
-        anchors.verticalCenter: parent.verticalCenter
-        columns: 2
-        rows: 3
-        spacing: root.theme.px(2)
-        opacity: root.moving ? 1 : backgroundArea.containsMouse ? 0.85 : 0.45
-
-        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.motionFast } }
-
-        Repeater {
-            model: 6
-
-            Rectangle {
-                width: root.theme.px(2.5)
-                height: width
-                radius: width / 2
-                color: root.moving ? root.theme.accentBright : root.theme.mutedText
-            }
-        }
-    }
-
-    // Empty: say what it's for.
-    Row {
-        id: emptyRow
-
+    // Empty: a hollow sphere where things will land, and a word about it
+    // once the pointer or a drag comes close.
+    Item {
         visible: root.empty
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.left: parent.left
-        anchors.leftMargin: root.gripWidth + root.theme.px(10)
-        spacing: root.theme.px(6)
+        anchors.fill: parent
+        opacity: root.shown
 
-        AppIcon {
-            anchors.verticalCenter: parent.verticalCenter
-            name: "archive"
-            tone: "muted"
-            iconSize: 12
+        Rectangle {
+            id: ghost
+
+            anchors.centerIn: parent
+            width: Math.round(root.theme.px(40) * 0.84)
+            height: width
+            radius: width / 2
+            scale: root.revealScale
+            color: root.dropHere ? Qt.rgba(root.theme.accent.r, root.theme.accent.g, root.theme.accent.b, 0.18) : "transparent"
+            border.width: 1
+            border.color: root.dropHere || root.dragging
+                ? Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, root.dropHere ? 0.8 : 0.45)
+                : Qt.rgba(1, 1, 1, 0.14)
+
+            Behavior on scale {
+                enabled: !root.theme.reducedMotion
+                SpringAnimation { spring: 7; damping: 0.42; epsilon: 0.002 }
+            }
+
+            AppIcon {
+                anchors.centerIn: parent
+                name: "archive"
+                tone: root.dropHere ? "accent" : "muted"
+                iconSize: 12
+            }
         }
 
         Text {
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: root.growDown ? parent.height + root.theme.px(4) : -height - root.theme.px(4)
+            visible: root.engaged || root.dragging
             text: root.dropHere ? "Let go to put it away" : root.dragging ? "Drop here to minimize" : "Minimized tabs land here"
             color: root.theme.mutedText
             font.family: root.theme.bodyFontFamily
@@ -259,14 +367,15 @@ Item {
         }
     }
 
-    // Between pinned and minimized.
+    // Between pinned and minimized: a faint seam that rides the wave.
     Rectangle {
         visible: root.geometry.divider !== null && !root.empty
-        x: root.geometry.divider ? root.geometry.divider.x - width / 2 : 0
+        x: root.geometry.divider ? root.geometry.divider.x - width / 2 + root.wave.dividerShift : 0
         y: root.geometry.divider ? root.geometry.divider.y - height / 2 : 0
         width: 1
-        height: root.theme.px(24)
+        height: root.theme.px(20)
         color: root.theme.panelBorder
+        opacity: root.shown * 0.8
     }
 
     Repeater {
@@ -279,6 +388,13 @@ Item {
             workspace: root.workspace
             entry: root.entries[index] || ({})
             slot: root.geometry.slots[index] || ({ x: 0, y: 0, size: 0 })
+            tileScale: root.revealScale * (root.wave.scales[index] || 1)
+            tileShift: root.wave.shifts[index] || 0
+            shown: root.shown
+            lift: root.lift
+            growDown: root.growDown
+            vertical: root.vertical
+            engaged: root.engaged || root.held
             onMenuRequested: function(entry, source, x, y) {
                 entryMenu.entry = entry
                 entryMenu.popup(source, x, y)

@@ -288,6 +288,19 @@ QtObject {
     // Let go: it springs into place with a restrained overshoot.
     readonly property int magnetReleaseDuration: 260
     readonly property real magnetReleaseOvershoot: 0.8
+
+    // Gravity Well orbs: a dark sphere lit from above, warm like the app.
+    readonly property color orbTop: "#4b473f"
+    readonly property color orbMiddle: "#2b2924"
+    readonly property color orbBottom: "#121110"
+    // The Dock wave: the orb under the pointer grows this much, its
+    // neighbours about half as much, fading out over this many slots.
+    readonly property real wellMagnification: 1.62
+    readonly property real wellMagnificationReach: 1.9
+    // At rest the Well all but disappears.
+    readonly property real wellDormantOpacity: 0.06
+    readonly property int wellRevealDuration: 160
+    readonly property int wellSettleDuration: 320
     // Cancelled or refused: back where it came from, no overshoot.
     readonly property int magnetReturnDuration: 260
     // The pull felt near a dock zone: it starts this many zone-widths away

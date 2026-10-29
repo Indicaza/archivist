@@ -300,15 +300,23 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   `WellForm` and `orientation` leave room for vertical, arc, circular and
   collapsed forms; only the linear one is drawn.
 - **Drawing it.** `DockWell.qml` draws a Well over the main window's layout
-  (never in it, so nothing reflows), pinned entries first, then a divider,
-  then what's only minimized. `WellGeometry.js` places the icons in fixed
-  slots that pointer input is tested against; anything visual (scale,
-  spreading apart, the trip into and out of the Well) is a transform on top,
-  so the slot under the pointer never moves. A tab's menu has Minimize to
-  Well and Keep in Well; an icon's menu restores, pins, unpins or closes.
-  The Well floats above floating panels (below the drag picture) and moves
-  anywhere in the window from its grip or edge after the usual drag
-  threshold, snapping to the centre line and edges.
+  (never in it, so nothing reflows) as a few small spheres
+  (`DockWellIcon.qml`, soft lights from `WellGlow.qml`), pinned first, then a
+  faint seam, then what's only minimized. There is no bar or grip. At rest it
+  fades to almost nothing but a small locator; as the pointer comes near it
+  fades in and lifts; over it, the Dock wave: the sphere nearest the pointer
+  grows to about 1.6x, its neighbours to about 1.3x, and the rest step aside
+  (`WellGeometry.magnify`). Waking and engaging use separate in and out
+  distances so it never flickers on the edge (`WellGeometry.proximity`).
+  `WellGeometry.js` places the spheres in fixed slots that pointer input is
+  tested against; the wave, the lift and the trip into the Well are
+  transforms on top, so the slot under the pointer never moves. None of this
+  writes to the model while the pointer moves. Reduced motion turns the wave
+  and springs off. A tab's menu has Minimize to Well and Keep in Well; a
+  sphere's menu restores, pins, unpins or closes. The Well floats above
+  floating panels (below the drag picture) and moves anywhere in the window
+  when dragged by the space around its spheres, snapping to the centre line
+  and edges.
 - **Whole panels.** A panel's menu or its header button puts the whole panel
   away as one entry (`Wells::minimizeAnchor`): its name, flags, active tab and
   views in tab order. A click brings it back as it was, at its old place
