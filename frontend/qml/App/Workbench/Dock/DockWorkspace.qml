@@ -753,6 +753,119 @@ Item {
 
     // ---- dragging --------------------------------------------------------
 
+    // ---- carrying (Magnets) ----------------------------------------------
+    //
+    // While a tab or panel is dragged, a picture of the panel travels with
+    // the pointer; the live content (editors, terminals, web views) stays
+    // where it is and is never torn down for the drag. Each window's drop
+    // overlay draws the picture from this state.
+    QtObject {
+        id: carryState
+
+        // Bumps on every pickup, so overlays restart their pickup motion.
+        property int token: 0
+        property bool active: false
+        property string kind: ""
+        property string id: ""
+        property string anchorId: ""
+        property string surfaceId: ""
+        property string title: ""
+        property string icon: "file"
+        // The panel's rect in its window, and that window's size.
+        property rect sourceRect: Qt.rect(0, 0, 0, 0)
+        property size areaSize: Qt.size(0, 0)
+        // The whole window, grabbed once at pickup (empty until it arrives).
+        property url image: ""
+        // Where the pointer held the panel, in the panel's coordinates.
+        property point grab: Qt.point(-1, -1)
+        // After the drop: "dropped" (it lands, the picture fades) or
+        // "returning" (cancelled or refused: it flies back).
+        property string ending: ""
+    }
+    readonly property alias carry: carryState
+
+    function startCarry(kind, id, title, sourceItem) {
+        carryState.token += 1
+        carryState.ending = ""
+        carryState.kind = kind
+        carryState.id = id
+        carryState.title = title
+        carryState.icon = root.dragGhostIcon
+        carryState.grab = Qt.point(-1, -1)
+        carryState.image = ""
+        carryState.active = true
+        carryEndTimer.stop()
+        if (!sourceItem) {
+            carryState.anchorId = ""
+            carryState.surfaceId = ""
+            carryState.sourceRect = Qt.rect(0, 0, 0, 0)
+            return
+        }
+        var area = surfaceAreas[sourceItem.surfaceId] || null
+        carryState.anchorId = sourceItem.anchorId
+        carryState.surfaceId = sourceItem.surfaceId
+        if (!area) {
+            carryState.sourceRect = Qt.rect(0, 0, sourceItem.width, sourceItem.height)
+            return
+        }
+        var corner = sourceItem.mapToItem(area, 0, 0)
+        carryState.sourceRect = Qt.rect(corner.x, corner.y, sourceItem.width, sourceItem.height)
+        carryState.areaSize = Qt.size(area.width, area.height)
+        // One picture of the window, sized so the panel is at most ~900px
+        // wide: enough to read, cheap to carry.
+        var factor = Math.min(1, 900 / Math.max(1, sourceItem.width))
+        var token = carryState.token
+        area.grabToImage(function(result) {
+            if (carryState.token === token && carryState.active) {
+                carryState.image = result.url
+            }
+        }, Qt.size(Math.max(1, Math.round(area.width * factor)), Math.max(1, Math.round(area.height * factor))))
+    }
+
+    function noteCarryGrab(globalPoint) {
+        if (carryState.grab.x >= 0) {
+            return
+        }
+        var item = anchorItems[carryState.anchorId]
+        if (!item) {
+            carryState.grab = Qt.point(60, 14)
+            return
+        }
+        var local = item.mapFromGlobal(globalPoint.x, globalPoint.y)
+        carryState.grab = Qt.point(
+            Math.max(0, Math.min(item.width, local.x)),
+            Math.max(0, Math.min(item.height, local.y))
+        )
+    }
+
+    // The drag ended: let the picture land or fly back, then put it away.
+    function endCarry(outcome) {
+        if (!carryState.active) {
+            return
+        }
+        carryState.ending = outcome === "committed" ? "dropped" : "returning"
+        carryEndTimer.interval = theme.reducedMotion ? 0 : (outcome === "committed" ? 160 : 220)
+        carryEndTimer.restart()
+    }
+
+    Timer {
+        id: carryEndTimer
+
+        onTriggered: {
+            carryState.active = false
+            carryState.ending = ""
+            carryState.image = ""
+        }
+    }
+
+    Connections {
+        target: Docking
+
+        function onDragFinished(outcome, details) {
+            root.endCarry(outcome)
+        }
+    }
+
     function beginDrag(kind, id, title) {
         if (!Docking.beginDrag(kind, id)) {
             return false
@@ -769,6 +882,7 @@ Item {
         tearGhost.sourceSize = sourceItem
             ? Qt.size(Math.max(480, sourceItem.width), Math.max(320, sourceItem.height))
             : Qt.size(720, 480)
+        startCarry(kind, id, title, sourceItem)
         root.forceActiveFocus()
         return true
     }
@@ -804,13 +918,18 @@ Item {
             surfaceAreas[key].dragHere = surfaceAreas[key] === target
         }
         tearGhost.pointer = globalPoint
+        noteCarryGrab(globalPoint)
 
         if (!target) {
-            // Out on the desktop: a drop opens a new window under the pointer.
+            // Out on the desktop: a drop opens a new window under the
+            // pointer, held at the same spot it was picked up by.
             var screen = screenAt(globalPoint)
             var size = tearGhost.sourceSize
-            var frameX = globalPoint.x - 60
-            var frameY = globalPoint.y - 14
+            var source = carryState.sourceRect
+            var grabX = source.width > 0 ? carryState.grab.x * size.width / source.width : 60
+            var grabY = source.height > 0 ? carryState.grab.y * size.height / source.height : 14
+            var frameX = globalPoint.x - grabX
+            var frameY = globalPoint.y - grabY
             if (screen) {
                 // Keep the new window on the monitor under the pointer.
                 var width = Math.min(size.width, screen.width - 40)
@@ -820,6 +939,7 @@ Item {
                 frameY = Math.max(screen.virtualY + 24, Math.min(frameY, screen.virtualY + screen.height - height - 8))
             }
             tearGhost.frame = Qt.rect(frameX, frameY, size.width, size.height)
+            tearGhost.grab = Qt.point(globalPoint.x - frameX, globalPoint.y - frameY)
             Docking.updateDragDetached(frameX, frameY, size.width, size.height, screen ? screen.name : "")
             return
         }
@@ -1377,6 +1497,10 @@ Item {
         icon: root.dragGhostIcon
         shown: Docking.dragActive && Docking.dragDetached
         allowed: Docking.dropAllowed
+        reason: Docking.dropRefusal
+        image: carryState.image
+        imageRect: carryState.sourceRect
+        imageAreaSize: carryState.areaSize
     }
 
     // Short confirmations, optionally with one action (Undo).

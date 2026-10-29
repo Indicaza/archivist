@@ -16,6 +16,13 @@ Window {
     // Where the new window would open (global coordinates).
     property rect frame: Qt.rect(pointer.x - 60, pointer.y - 14, sourceSize.width, sourceSize.height)
     property size sourceSize: Qt.size(720, 480)
+    property string reason: ""
+    // The panel's picture, cut from a grab of its window (see carry in
+    // DockWorkspace).
+    property url image: ""
+    property rect imageRect: Qt.rect(0, 0, 0, 0)
+    property size imageAreaSize: Qt.size(0, 0)
+    readonly property bool hasImage: String(image).length > 0 && imageRect.width > 0
 
     // Drawn smaller than the real window, so the desktop stays visible.
     readonly property real previewScale: 0.5
@@ -24,9 +31,11 @@ Window {
     color: "transparent"
     width: Math.round(frame.width * previewScale) + 24
     height: Math.round(frame.height * previewScale) + 24
-    // The miniature's corner sits on the new window's corner.
-    x: Math.round(frame.x - 12)
-    y: Math.round(frame.y - 12)
+    // Where the pointer holds it, in the new window's coordinates: the
+    // miniature keeps that spot under the pointer, as the window will.
+    property point grab: Qt.point(pointer.x - frame.x, pointer.y - frame.y)
+    x: Math.round(pointer.x - grab.x * previewScale - 12)
+    y: Math.round(pointer.y - grab.y * previewScale - 12)
     visible: shown
 
     Item {
@@ -104,9 +113,36 @@ Window {
                 }
             }
 
+            // The panel itself, under the title bar.
+            Item {
+                id: picture
+
+                x: 1
+                y: 29
+                width: parent.width - 2
+                height: parent.height - 30
+                clip: true
+                visible: root.hasImage
+
+                Image {
+                    readonly property real sx: picture.width / Math.max(1, root.imageRect.width)
+                    readonly property real sy: picture.height / Math.max(1, root.imageRect.height)
+
+                    x: -root.imageRect.x * sx
+                    y: -root.imageRect.y * sy
+                    width: root.imageAreaSize.width * sx
+                    height: root.imageAreaSize.height * sy
+                    source: root.image
+                    smooth: true
+                    asynchronous: false
+                    opacity: root.allowed ? 0.92 : 0.4
+                }
+            }
+
             Column {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: 12
+                visible: !root.hasImage || !root.allowed
                 spacing: 6
                 width: parent.width - 24
 
@@ -121,7 +157,8 @@ Window {
                 Text {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: root.allowed ? "Release to open in a new window" : "Already in its own window"
+                    text: root.allowed ? "Release to open in a new window"
+                        : root.reason.length > 0 ? root.reason : "Already in its own window"
                     wrapMode: Text.WordWrap
                     color: root.allowed ? root.theme.appText : root.theme.danger
                     font.family: root.theme.bodyFontFamily
