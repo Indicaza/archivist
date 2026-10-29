@@ -1018,6 +1018,7 @@ WorkspaceStore::HistoryStep WorkspaceStore::historyStep(const QString &summary) 
     step.surfaceView = m_commandSurfaceView;
     step.layoutId = m_currentLayoutId;
     step.arrangement = arrangementRecord();
+    step.composer = m_composer.toVariant();
     return step;
 }
 
@@ -1035,6 +1036,7 @@ bool WorkspaceStore::restoreStep(const HistoryStep &step, HistoryStep *inverse, 
 {
     HistoryStep back = historyStep(step.summary);
     back.surfaceTouched = step.surfaceTouched;
+    back.composerTouched = step.composerTouched;
     QStringList closed;
     QStringList reopened;
     if (!restoreTo(step.state, step.close, code, error, step.reopen, &closed, &reopened)) {
@@ -1053,6 +1055,11 @@ bool WorkspaceStore::restoreStep(const HistoryStep &step, HistoryStep *inverse, 
         setCurrentLayoutId(step.layoutId);
     }
     setArrangementRecord(step.arrangement);
+    if (step.composerTouched) {
+        Composer::State composer = Composer::State::fromVariant(step.composer);
+        Composer::normalize(composer, m_composerModes, composerEnvironment());
+        setComposerState(composer);
+    }
     *inverse = back;
     return true;
 }
@@ -1073,6 +1080,7 @@ bool WorkspaceStore::undoSteps(qsizetype count, QString *code, QString *error)
         target.close.append(later.close);
         target.reopen.append(later.reopen);
         target.surfaceTouched = target.surfaceTouched || later.surfaceTouched;
+        target.composerTouched = target.composerTouched || later.composerTouched;
     }
     if (count > 1) {
         target.summary = QStringLiteral("%1 workspace changes").arg(count);

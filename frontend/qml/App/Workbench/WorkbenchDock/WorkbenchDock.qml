@@ -18,6 +18,8 @@ Rectangle {
     property bool collapsed: false
 
     signal compactRequested()
+    // Right-click on the tab strip: the composer's mode and place.
+    signal optionsRequested(Item source, real x, real y)
     signal collapseToggleRequested()
     signal expandRequested()
     signal messageSubmitted(string message)
@@ -117,9 +119,18 @@ Rectangle {
         spacing: 0
 
         Rectangle {
+            id: tabStrip
+
             Layout.fillWidth: true
             Layout.preferredHeight: root.theme.workbenchTabHeight
             color: root.theme.controlSurfaceBg
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: function(eventPoint) {
+                    root.optionsRequested(tabStrip, eventPoint.position.x, eventPoint.position.y)
+                }
+            }
 
             Rectangle {
                 anchors.left: parent.left

@@ -938,9 +938,10 @@ Rectangle {
                     Layout.preferredHeight: 28
                     hoverEnabled: true
                     padding: 0
-                    Accessible.name: "Compact composer"
+                    objectName: "composer.collapse"
+                    Accessible.name: "Collapse to chat"
                     ToolTip.visible: hovered
-                    ToolTip.text: "Compact composer"
+                    ToolTip.text: "Collapse to chat  (" + (Qt.platform.os === "osx" ? "⌘J" : "Ctrl+J") + ")"
                     onClicked: root.compactRequested()
                     onHoveredChanged: root.updateHoverIndex(
                         "header",
