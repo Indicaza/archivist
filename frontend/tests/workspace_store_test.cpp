@@ -637,6 +637,35 @@ private slots:
         }
     }
 
+    void floatingPanelGeometryUpdatesBindings()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("floating-geometry-notify"));
+        const QString main = store.primarySurfaceId();
+        store.setSurfaceSize(main, 1200, 800);
+        const QString view = store.openView(QStringLiteral("archivist.editor"), documentResource("resize.cpp"), "resize");
+        QVERIFY(store.beginDrag(QStringLiteral("view"), view));
+        store.updateDragFloat(120, 90, 440, 300);
+        QVERIFY(store.finishDrag());
+
+        QCOMPARE(store.panelSurfaceIds().size(), 1);
+        const QString panel = store.panelSurfaceIds().first();
+        QSignalSpy revised(&store, &WorkspaceStore::revisionChanged);
+        QSignalSpy recreated(&store, &WorkspaceStore::surfacesChanged);
+        const int before = store.revision();
+
+        QVERIFY(store.setSurfaceGeometry(panel, 170, 130, 690, 470, {}, false));
+        QCOMPARE(store.surface(panel).value("width").toDouble(), 690.0);
+        QCOMPARE(store.surface(panel).value("height").toDouble(), 470.0);
+        QCOMPARE(store.revision(), before + 1);
+        QCOMPARE(revised.count(), 1);
+        QCOMPARE(recreated.count(), 0);
+
+        QVERIFY(store.setSurfaceGeometry(panel, 170, 130, 690, 470, {}, false));
+        QCOMPARE(store.revision(), before + 1);
+        QCOMPARE(revised.count(), 1);
+    }
+
     // A tab or panel dropped on a sidebar tab (or its bottom) docks there:
     // one surface per spot, one undo step, kept across a restart. When the
     // tab is deleted, what was in it floats instead of disappearing.
