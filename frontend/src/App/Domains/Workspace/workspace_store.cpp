@@ -1380,19 +1380,19 @@ QString WorkspaceStore::preferredAnchorFor(const QString &typeId) const
 
 QVariantMap WorkspaceStore::tabStripAt(const QString &surfaceId, double x, double y, double stripHeight) const
 {
-    const LayoutGeometry geometry = m_model.computeGeometry(surfaceId, surfaceSize(surfaceId), m_metrics);
-
-    for (auto it = geometry.anchors.cbegin(); it != geometry.anchors.cend(); ++it) {
-        const QRectF strip(it.value().left(), it.value().top(), it.value().width(), stripHeight);
-        if (strip.contains(QPointF(x, y))) {
-            return {
-                {QStringLiteral("anchorId"), it.key()},
-                {QStringLiteral("localX"), x - it.value().left()},
-            };
-        }
+    // Hit-tested on the committed layout (as every dock zone is). What is
+    // already shown (a join or a split preview) holds a little beyond its
+    // zone, so the target doesn't flip while the pointer drifts.
+    const Magnets::StripHit hit = Magnets::tabStripAt(
+        m_model, surfaceId, QPointF(x, y), surfaceSize(surfaceId), m_metrics, stripHeight, {},
+        m_drag.kind == DragSource::Kind::None ? DropTarget{} : m_dropTarget);
+    if (hit.anchorId.isEmpty()) {
+        return {};
     }
-
-    return {};
+    return {
+        {QStringLiteral("anchorId"), hit.anchorId},
+        {QStringLiteral("localX"), hit.localX},
+    };
 }
 
 // ---- splits --------------------------------------------------------------

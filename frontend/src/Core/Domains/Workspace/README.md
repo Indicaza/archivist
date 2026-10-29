@@ -163,6 +163,32 @@ whole group). It is never a copy; resources are never touched by a drag.
   it, so two zones that meet (a panel's edge and the window border, two
   panels' edges) never flicker between each other, and jitter never
   restarts a preview (`previewSerial` holds).
+- **What the pointer means** (in this order; every zone is hit-tested on
+  the committed layout, never the animated preview):
+  1. An empty sidebar spot under it: dock there.
+  2. A zone already shown (a split preview, a tab join) holds while the
+     pointer stays within `hold` of it (`Magnets::tabStripAt`,
+     `dockTargetAt` with `held`).
+  3. A tab strip, exactly where it is drawn (the panel's top
+     `editorTabHeight`): join that panel at the slot under the pointer, at
+     once. A strip doesn't reach beyond itself to claim the pointer; once
+     joined it keeps it `hold` px above and below and across the divider
+     beside it. A strip too long to show scrolls while a tab is held near
+     either end.
+  4. The window border (`windowBand`): dock along that edge (held for
+     `dockDwellMs`).
+  5. A panel's edge band: split it (held for `dockDwellMs`); an empty panel
+     anywhere: fill it. On a divider, the nearest edge beside it.
+  6. Anywhere else: float.
+- **The caret is the slot.** A tab drop's `index` is a slot between the
+  tabs as they are now, which is what the caret shows; within its own panel
+  the tab leaves its slot first (`applyDrop`). A whole panel's tabs go in at
+  the slot too (`mergeAnchor` with an index). Joining previews move no
+  panels (the strip stays under the pointer); the layout settles on drop.
+- **A carried panel isn't a target.** While a floating panel's only panel is
+  carried, that surface is skipped when finding what is under the pointer
+  (`DockWorkspace.liftedSurfaceId`), so what lies beneath it can be docked
+  into.
 
 ### Motion (QML only)
 

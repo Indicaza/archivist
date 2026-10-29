@@ -1226,7 +1226,7 @@ OpResult WorkspaceModel::closeAnchor(QString anchorId, Origin origin)
     });
 }
 
-OpResult WorkspaceModel::mergeAnchor(QString anchorId, QString targetAnchorId, Origin origin)
+OpResult WorkspaceModel::mergeAnchor(QString anchorId, QString targetAnchorId, Origin origin, int index)
 {
     return transact([&]() {
         if (!m_anchors.contains(anchorId) || !m_anchors.contains(targetAnchorId)) {
@@ -1255,8 +1255,11 @@ OpResult WorkspaceModel::mergeAnchor(QString anchorId, QString targetAnchorId, O
 
         m_anchors[anchorId].views.clear();
 
+        int position = index < 0 ? int(m_anchors[targetAnchorId].views.size())
+                                 : std::clamp(index, 0, int(m_anchors[targetAnchorId].views.size()));
         for (const QString &viewId : source.views) {
-            insertViewIntoAnchor(viewId, targetAnchorId, int(m_anchors[targetAnchorId].views.size()), viewId == source.activeViewId);
+            insertViewIntoAnchor(viewId, targetAnchorId, position, viewId == source.activeViewId);
+            position += 1;
         }
 
         removeAnchorRecord(anchorId);
@@ -2155,13 +2158,27 @@ OpResult WorkspaceModel::applyDrop(const DragSource &source, const DropTarget &t
             return dockViewAtSurfaceEdge(source.id, target.surfaceId, target.edge);
         }
         if (target.edge == Edge::Center) {
-            return moveView(source.id, target.anchorId, target.index);
+            // A drop's index is a slot between the tabs as they are now (as
+            // the caret shows it). Within its own panel the tab leaves its
+            // slot first, so a slot after it is one less.
+            int index = target.index;
+            if (index >= 0 && m_anchorOfView.value(source.id) == target.anchorId) {
+                const int current = int(m_anchors.value(target.anchorId).views.indexOf(source.id));
+                if (current >= 0 && index > current) {
+                    index -= 1;
+                }
+            }
+            return moveView(source.id, target.anchorId, index);
         }
         return splitView(source.id, target.anchorId, target.edge);
     }
 
     if (target.isSurfaceEdge()) {
         return dockAnchorAtSurfaceEdge(source.id, target.surfaceId, target.edge);
+    }
+
+    if (target.edge == Edge::Center) {
+        return mergeAnchor(source.id, target.anchorId, Origin::User, target.index);
     }
 
     return moveAnchor(source.id, target.anchorId, target.edge);
