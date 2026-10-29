@@ -107,7 +107,10 @@ Item {
                 resizePublish.start()
             }
         } else {
-            root.flushResize()
+            // After this change has finished propagating: reporting the size
+            // publishes the layout, and doing that from inside a geometry
+            // binding (a floating panel's stored frame) re-enters it.
+            Qt.callLater(root.flushResize)
         }
     }
 

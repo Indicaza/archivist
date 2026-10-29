@@ -19,5 +19,17 @@ cmake \
   -DARCHIVIST_BUILD_TESTS=ON \
   ${QT_PREFIX:+-DCMAKE_PREFIX_PATH="$QT_PREFIX"}
 
-cmake --build "$BUILD_DIR" --target chat-message-model-test message-block-parser-test core-database-test core-collections-test core-agents-test core-libraries-test core-library-files-test core-library-file-operations-test core-chats-test core-chat-drafts-test core-composer-test core-ai-test core-ai-runtime-test core-code-themes-test core-worktrees-test core-ide-test core-workspace-test core-magnets-test core-document-buffers-test workspace-store-test core-shell-test core-home-test
+# Build every test CTest knows about (each test is named after its target),
+# so a test added to CMakeLists.txt is never left unbuilt ("Not Run").
+TEST_TARGETS=()
+while IFS= read -r name; do
+  TEST_TARGETS+=("$name")
+done < <(ctest --test-dir "$BUILD_DIR" -N | sed -n 's/^ *Test *#[0-9]*: *//p')
+
+if [ "${#TEST_TARGETS[@]}" -eq 0 ]; then
+  echo "qt-test: CTest lists no tests in $BUILD_DIR" >&2
+  exit 1
+fi
+
+cmake --build "$BUILD_DIR" --target "${TEST_TARGETS[@]}"
 ctest --test-dir "$BUILD_DIR" --output-on-failure
