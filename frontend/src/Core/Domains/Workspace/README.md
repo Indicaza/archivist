@@ -314,9 +314,13 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   writes to the model while the pointer moves. Reduced motion turns the wave
   and springs off. A tab's menu has Minimize to Well and Keep in Well; a
   sphere's menu restores, pins, unpins or closes. The Well floats above
-  floating panels (below the drag picture) and moves anywhere in the window
-  when dragged by the space around its spheres, snapping to the centre line
-  and edges.
+  floating panels (below the drag picture) and moves anywhere over the
+  layout when dragged by the space around its spheres, snapping to the
+  centre line and edges. Its place is a share of the main layout's area,
+  not the window, so it moves with the workspace frame by frame as the
+  sidebar opens, closes or resizes (only a drop settles with a spring), and
+  it rises clear of the floating composer when that's in its way
+  (`DockWorkspace.composerRect`), easing back down when it goes.
 - **Keeping it quick.** Minimizing and restoring change the model in well
   under a millisecond; the cost is in what the screen rebuilds. So a tab
   strip changes only the tab that came or went (`TabStrip.js`), menus are

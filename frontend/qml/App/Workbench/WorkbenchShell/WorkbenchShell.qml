@@ -883,6 +883,10 @@ Rectangle {
             bottomOverlay: root.compactChat ? root.compactOverlay : 0
             composerAnchorId: root.composerAnchorId
             overlayHost: floatingHost
+            // The Gravity Well keeps clear of the composer.
+            composerRect: compactComposer.visible && compactComposer.opacity > 0.5
+                ? Qt.rect(compactComposer.x, compactComposer.y, compactComposer.width, compactComposer.height)
+                : Qt.rect(0, 0, 0, 0)
             onContextInspectionRequested: function(messageId) {
                 artifactDrawer.openForMessage(messageId)
             }

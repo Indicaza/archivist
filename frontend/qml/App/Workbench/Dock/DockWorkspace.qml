@@ -18,6 +18,9 @@ Item {
     // composer): the conversation pads its end by this much when its pane
     // reaches the bottom, so the last message can scroll clear of it.
     property real bottomOverlay: 0
+    // The floating composer, in the window's (overlayHost's) coordinates;
+    // empty when it isn't showing. The Gravity Well keeps clear of it.
+    property rect composerRect: Qt.rect(0, 0, 0, 0)
     // Where floating panels (and the picture a drag carries) are drawn: an
     // item over the whole window, so they sit above the sidebar and the
     // rest of the shell. Their geometry is in its coordinates, so they stay
@@ -2289,18 +2292,29 @@ Item {
         return here
     }
 
-    // Over everything in the window (the layout, the sidebar, floating
-    // panels), under what a drag carries: it can go anywhere, and a tab or
-    // panel can be dropped on it.
+    // Over the layout (and floating panels), under what a drag carries: a
+    // tab or panel can be dropped on it. It covers the main layout's area
+    // exactly, so a Well sits relative to the workspace, not the window:
+    // when the sidebar opens, closes or resizes, it moves with the layout,
+    // frame by frame.
     Item {
         id: wellLayer
 
         objectName: "dock.wellLayer"
         parent: root.overlayHost || root
-        x: 0
-        y: 0
-        width: parent ? parent.width : 0
-        height: parent ? parent.height : 0
+        readonly property point origin: {
+            area.x
+            area.y
+            root.x
+            root.y
+            return parent ? root.mapToItem(parent, area.x, area.y) : Qt.point(0, 0)
+        }
+        x: origin.x
+        y: origin.y
+        // To the layout's right edge from where its left edge is drawn now
+        // (it springs after the sidebar), so the Well glides one way.
+        width: Math.max(0, root.width - area.x)
+        height: area.height
         z: 5.5
 
         // Counted, not keyed: a Well's item stays while its entries change.
@@ -2315,6 +2329,9 @@ Item {
                 theme: root.theme
                 workspace: root
                 well: root.wellRows[index] || ({})
+                obstacle: root.composerRect.width > 0
+                    ? Qt.rect(root.composerRect.x - wellLayer.x, root.composerRect.y - wellLayer.y, root.composerRect.width, root.composerRect.height)
+                    : Qt.rect(0, 0, 0, 0)
             }
         }
     }

@@ -176,19 +176,48 @@ Item {
         return Qt.rect(corner.x, corner.y, size, size)
     }
 
+    // Something floating over the layout that it keeps clear of (the
+    // composer), in its parent's coordinates. In the way, it rises above
+    // it, easing; out of the way again, it settles back.
+    property rect obstacle: Qt.rect(0, 0, 0, 0)
+    readonly property real wantedClearance: {
+        if (vertical || obstacle.width <= 0 || obstacle.height <= 0) {
+            return 0
+        }
+        var gap = theme.px(10)
+        var across = rest.x < obstacle.x + obstacle.width && rest.x + width > obstacle.x
+        var down = rest.y + height > obstacle.y - gap && rest.y < obstacle.y + obstacle.height
+        return across && down ? Math.max(0, rest.y + height - (obstacle.y - gap)) : 0
+    }
+    property real clearance: wantedClearance
+    Behavior on clearance {
+        enabled: !root.theme.reducedMotion
+        NumberAnimation { duration: root.theme.motionPanel; easing.type: Easing.OutCubic }
+    }
+
+    // Following the layout (a sidebar opening, the window resizing) it
+    // moves with it, frame by frame; only a drop settles with a spring.
+    property bool settling: false
+    Timer {
+        id: settleTimer
+
+        interval: root.theme.wellSettleDuration * 2
+        onTriggered: root.settling = false
+    }
+
     x: moving ? moveX : rest.x
-    y: moving ? moveY : rest.y
+    y: moving ? moveY : Math.max(margin, rest.y - clearance)
     width: geometry.width
     height: geometry.height
     z: moving ? 2 : 0
 
     // Settles onto the centre line or an edge after a drop.
     Behavior on x {
-        enabled: !root.moving && !root.theme.reducedMotion
+        enabled: root.settling && !root.moving && !root.theme.reducedMotion
         SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 }
     }
     Behavior on y {
-        enabled: !root.moving && !root.theme.reducedMotion
+        enabled: root.settling && !root.moving && !root.theme.reducedMotion
         SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 }
     }
 
@@ -315,6 +344,8 @@ Item {
                 root.parent ? root.parent.width : 0, root.parent ? root.parent.height : 0,
                 root.margin, 0, root.theme.px(18)
             )
+            root.settling = true
+            settleTimer.restart()
             Docking.setWellPosition(root.wellId, position.x, position.y)
             root.moving = false
         }
