@@ -326,24 +326,33 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   coming back takes it, so the editor doesn't start again. Set
   `QT_LOGGING_RULES="archivist.wells.timing=true"` to log each minimize and
   restore, and where publishing spent its time.
-- **The Genie.** Minimizing and restoring play a Genie between the panel and
-  its sphere (`DockGenie.qml`, `shaders/genie.vert`/`.frag`). It warps a
-  picture, never the live panel: on minimize the panel's area is captured
-  once on the GPU (a `ShaderEffectSource` with `live: false`; a floating
-  panel uses `grabToImage`, since its window goes away), the model is
-  changed at once, and the picture flies on a grid mesh whose sides bend
-  into a funnel and slide through the neck into the sphere. Restoring
-  changes the model on the click, hides the panel while its picture flies
-  out (the same picture, kept for the last six entries), and follows the
-  panel each frame so the trip ends exactly on it; the real panel shows as
-  the picture lands, so there are never two. One trip per entry: a click
-  during a minimize restores when it lands, a click during a restore is
-  ignored. The Well stays revealed while a trip plays. Without a picture
-  (after a restart) a plain card grows from the sphere; with reduced motion
-  it's a short fade and shrink; if the shader can't load it falls back to
-  the plain path. Auto-tuck, undo and redo, and dropping on the Well don't
-  play it. The shaders are baked for every Qt Quick backend (Metal, Vulkan,
+- **The Genie.** Minimizing, tucking and restoring play a Genie between the
+  panel and its sphere (`DockGenie.qml`, `shaders/genie.vert`/`.frag`). It
+  warps a picture, never the live panel: on minimize the panel's area is
+  captured once on the GPU (a `ShaderEffectSource` with `live: false`; a
+  floating panel uses `grabToImage`, since its window goes away), the model
+  is changed at once, and the picture flies on a grid mesh: it pinches
+  toward the sphere from the first frame, slides down the funnel, lit in
+  the accent as it's drawn into the neck, over a soft shadow
+  (`genie_shadow.frag`). The sphere swells open as it comes, then squashes,
+  flashes and ripples as it lands; on a click it dips and pops as the panel
+  pours out. Restoring changes the model on the click, hides the panel while
+  its picture flies out and follows the panel each frame so the trip ends
+  exactly on it; the real panel shows as the picture lands, so there are
+  never two. One trip per entry: a click during a minimize restores when it
+  lands, a click during a restore is ignored. The Well stays revealed while
+  a trip plays. A floating panel tucking itself away asks first
+  (`setTuckAnimated`, `tuckRequested`), so its picture is taken before it
+  goes, then the UI calls `tuckAway`. Every entry keeps a small copy of its
+  picture (at most 480px across before the screen's scale, ~2-3 MB) within
+  a 48 MB budget, oldest dropped first, so restores pour out the real panel
+  at once. If the picture is late or missing, a plain card flies instead
+  (never nothing); with reduced motion it's a short fade and shrink; if the
+  shader can't load it falls back to the plain path. The shaders are drawn
+  once at start so the first trip doesn't stutter. Undo and redo don't play
+  it. The shaders are baked for every Qt Quick backend (Metal, Vulkan,
   OpenGL, Direct3D); after editing them run `scripts/bake-genie-shaders`.
+  `QT_LOGGING_RULES="archivist.wells.genie.info=true"` logs each trip.
 - **Whole panels.** A panel's menu or its header button puts the whole panel
   away as one entry (`Wells::minimizeAnchor`): its name, flags, active tab and
   views in tab order. A click brings it back as it was, at its old place

@@ -10,7 +10,7 @@ if [[ -z "$QSB" ]]; then
   exit 1
 fi
 
-for s in genie.vert genie.frag; do
+for s in genie.vert genie.frag genie_shadow.frag; do
   "$QSB" --glsl "100 es,120,150" --hlsl 50 --msl 12 -o "$DIR/$s.qsb" "$DIR/$s"
   printf 'baked %s.qsb\n' "$s"
 done

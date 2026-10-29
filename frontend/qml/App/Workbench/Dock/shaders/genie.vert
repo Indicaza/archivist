@@ -14,6 +14,7 @@ layout(location = 1) in vec2 qt_MultiTexCoord0;
 
 layout(location = 0) out vec2 qt_TexCoord0;
 layout(location = 1) out float entered;
+layout(location = 2) out float drawn;
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -24,6 +25,8 @@ layout(std140, binding = 0) uniform buf {
     vec4 sphere;
     // 0 is the panel, 1 is inside the sphere.
     float progress;
+    // The pull's light: rgb, strength.
+    vec4 glow;
 };
 
 out gl_PerVertex { vec4 gl_Position; };
@@ -43,10 +46,11 @@ void main()
         path = down ? 1.0 : -1.0;
     }
 
-    float bend = smoothstep(0.0, 0.45, progress);
-    float slide = clamp((progress - 0.16) / 0.84, 0.0, 1.0);
-    // Pulled harder as it goes.
-    slide = slide * slide * (1.6 - 0.6 * slide);
+    // The pinch comes first and fast (you see it go from the first frame),
+    // then the slide, pulled harder as it goes.
+    float bend = smoothstep(0.0, 0.3, progress);
+    float slide = clamp((progress - 0.1) / 0.9, 0.0, 1.0);
+    slide = slide * slide * (1.7 - 0.7 * slide);
 
     // Each row: 0 at the far edge, 1 at the edge nearest the sphere.
     float frac = down ? uv.y : 1.0 - uv.y;
@@ -67,9 +71,15 @@ void main()
 
     // The funnel: full width at the far edge, the sphere's neck at the
     // sphere, curving between (a smooth S, steepest midway).
+    // Narrowing starts early, so even the far half visibly leans in.
     float along = clamp((funnelled - far) / path, 0.0, 1.0);
-    float curve = along * along * (3.0 - 2.0 * along);
-    float neck = sphere.z * 0.55;
+    float eased = pow(along, 0.72);
+    float curve = eased * eased * (3.0 - 2.0 * eased);
+    // The far edge narrows too as it's drawn in.
+    float squeeze = slide * slide * 0.55;
+    curve = mix(curve, 1.0, squeeze * (1.0 - curve));
+    float neck = sphere.z * 0.42;
+    drawn = curve * bend;
     float left = mix(from.x, sphere.x - neck, curve);
     float right = mix(from.x + from.z, sphere.x + neck, curve);
     left = mix(from.x, left, bend);

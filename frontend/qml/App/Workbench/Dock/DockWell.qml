@@ -393,11 +393,11 @@ Item {
         return Qt.rect(0, 0, 0, 0)
     }
 
-    function react(entryId, kind) {
+    function react(entryId, kind, duration) {
         for (var index = 0; index < icons.count; index += 1) {
             var icon = icons.itemAt(index)
             if (icon && icon.entryId === entryId) {
-                icon.react(kind)
+                icon.react(kind, duration)
             }
         }
     }

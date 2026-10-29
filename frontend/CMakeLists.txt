@@ -392,6 +392,7 @@ qt_add_qml_module(archivist-qt
     RESOURCES
         qml/App/Workbench/Dock/shaders/genie.vert.qsb
         qml/App/Workbench/Dock/shaders/genie.frag.qsb
+        qml/App/Workbench/Dock/shaders/genie_shadow.frag.qsb
         qml/App/Files/Renderers/Assets/checkerboard.svg
         qml/App/Icons/THIRD_PARTY_ICONS.md
         ${ARCHIVIST_ICON_ASSETS}

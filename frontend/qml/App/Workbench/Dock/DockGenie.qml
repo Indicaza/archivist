@@ -86,10 +86,34 @@ Item {
             duration: root.theme.reducedMotion ? root.theme.genieReducedDuration
                 : root.direction === "restore" ? root.theme.genieRestoreDuration : root.theme.genieMinimizeDuration
             // In: pulled harder as it goes. Out: quick to open, gentle to settle.
-            easing.type: root.direction === "restore" ? Easing.OutCubic : Easing.BezierSpline
-            easing.bezierCurve: [0.35, 0.0, 0.25, 1.0, 1.0, 1.0]
+            easing.type: root.direction === "restore" ? Easing.OutQuart : Easing.BezierSpline
+            easing.bezierCurve: [0.3, 0.0, 0.2, 1.0, 1.0, 1.0]
         }
         ScriptAction { script: root.finish() }
+    }
+
+    // The warp's shadow: its outline twice, offset and faint, so the
+    // picture lifts off the panels it flies over.
+    Repeater {
+        model: root.warped ? [{ y: 4, alpha: 0.32 }, { y: 12, alpha: 0.16 }] : []
+
+        ShaderEffect {
+            required property var modelData
+
+            x: 0
+            y: modelData.y
+            width: root.width
+            height: root.height
+            opacity: modelData.alpha
+            property var picture: root.picture
+            property rect from: root.panel
+            property vector4d sphere: effect.sphere
+            property real progress: root.progress
+            property vector4d glow: effect.glow
+            mesh: GridMesh { resolution: Qt.size(4, 48) }
+            vertexShader: "shaders/genie.vert.qsb"
+            fragmentShader: "shaders/genie_shadow.frag.qsb"
+        }
     }
 
     // The warp.
@@ -104,6 +128,7 @@ Item {
         property rect from: root.panel
         property vector4d sphere: Qt.vector4d(root.sphereCentre.x, root.sphereCentre.y, root.sphereRadius, 0)
         property real progress: root.progress
+        property vector4d glow: Qt.vector4d(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.9)
         mesh: GridMesh { resolution: Qt.size(4, 48) }
         vertexShader: "shaders/genie.vert.qsb"
         fragmentShader: "shaders/genie.frag.qsb"

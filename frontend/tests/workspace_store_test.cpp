@@ -2955,6 +2955,45 @@ private slots:
         QVERIFY(store.view(c).value("anchorId").toString() != main);
     }
 
+    // Animated tucking: the store asks first, the UI tucks after its
+    // picture; nothing tucks if the reason went away meanwhile.
+    void animatedTuckAsksFirst()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-tuck-animated"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.setTuckAnimated(true);
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString main = store.view(a).value("anchorId").toString();
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        QVERIFY(!store.floatView(b, 100, 100, 400, 300).isEmpty());
+        const QString bPanel = store.view(b).value("anchorId").toString();
+        const QString bSurface = store.panelSurfaceIds().first();
+        QVERIFY(store.focusAnchor(bPanel));
+
+        QSignalSpy asked(&store, &WorkspaceStore::tuckRequested);
+        QVERIFY(store.focusAnchor(main));
+        QCOMPARE(asked.size(), 1);
+        QCOMPARE(asked.first().at(0).toString(), bSurface);
+        QVERIFY(!store.isViewMinimized(b));
+
+        // Back on it before the picture came: it stays.
+        QVERIFY(store.focusAnchor(bPanel));
+        QVERIFY(store.tuckAway(bSurface).isEmpty());
+        QVERIFY(!store.isViewMinimized(b));
+
+        // Away again: the UI tucks it, one step, and learns the entry.
+        QVERIFY(store.focusAnchor(main));
+        const QVariantList tucked = store.tuckAway(bSurface);
+        QCOMPARE(tucked.size(), 1);
+        QCOMPARE(tucked.first().toMap().value("anchorId").toString(), bPanel);
+        QVERIFY(!tucked.first().toMap().value("entryId").toString().isEmpty());
+        QVERIFY(store.isViewMinimized(b));
+        QVERIFY(store.undoSummary().startsWith(QStringLiteral("Tucked")));
+        // Already gone: asking again does nothing.
+        QVERIFY(store.tuckAway(bSurface).isEmpty());
+    }
+
     // What the Well bar and the tab menu read.
     void theWellShowsWhatItsIconsNeed()
     {
