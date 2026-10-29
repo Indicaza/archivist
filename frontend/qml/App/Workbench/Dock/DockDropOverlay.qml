@@ -105,7 +105,7 @@ Item {
 
         x: root.pointer.x + 14
         y: root.pointer.y + 10
-        width: Math.min(260, ghostRow.implicitWidth + 22)
+        width: Math.min(ghost.refused ? 360 : 260, ghostRow.implicitWidth + 22)
         height: 30
         radius: 8
         visible: Docking.dragActive && root.pointerHere && !Docking.dragDetached
@@ -143,8 +143,11 @@ Item {
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(implicitWidth, 210)
-                text: ghost.refused ? "Can't drop here" : root.ghostTitle
+                width: Math.min(implicitWidth, ghost.refused ? 310 : 210)
+                // Why not, when the layout says (too small, locked, ...).
+                text: ghost.refused
+                    ? (Docking.dropRefusal.length > 0 ? Docking.dropRefusal : "Can't drop here")
+                    : root.ghostTitle
                 elide: Text.ElideRight
                 color: root.theme.appText
                 font.family: root.theme.bodyFontFamily

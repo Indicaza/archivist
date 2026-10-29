@@ -713,7 +713,11 @@ Item {
     DockMenu {
         id: panelMenu
 
+        // Worked out as the menu opens, not on every layout change.
+        property bool canReturn: false
+
         theme: root.theme
+        onAboutToShow: canReturn = Docking.canReturnToPrevious("anchor", root.anchorId)
 
         DockMenuItem {
             theme: root.theme
@@ -742,6 +746,13 @@ Item {
             text: root.isMaximized ? "Restore Layout" : "Maximize"
             shortcutText: "Ctrl+Shift+Enter"
             onTriggered: Docking.toggleMaximize(root.anchorId)
+        }
+        DockMenuItem {
+            objectName: "magnet.returnToPrevious"
+            theme: root.theme
+            text: "Return to Previous Position"
+            visible: panelMenu.canReturn
+            onTriggered: root.workspace.returnToPrevious("anchor", root.anchorId)
         }
         DockMenuSeparator { theme: root.theme }
 

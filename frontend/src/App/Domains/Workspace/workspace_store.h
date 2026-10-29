@@ -5,6 +5,7 @@
 #include "Core/Domains/Workspace/view_type_registry.h"
 #include "Core/Domains/Workspace/workspace_compose.h"
 #include "Core/Domains/Workspace/workspace_intents.h"
+#include "Core/Domains/Workspace/workspace_magnets.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 #include "Core/Domains/Workspace/workspace_preferences.h"
 
@@ -55,6 +56,15 @@ class WorkspaceStore final : public QObject
     // The pointer is outside every window: dropping opens a new window.
     Q_PROPERTY(bool dragDetached READ dragDetached NOTIFY dragChanged)
     Q_PROPERTY(QVariantMap detachRect READ detachRect NOTIFY dragChanged)
+    // The whole drag in one place, for the visual layer and the motion
+    // that will be built on it: phase (idle, pickup, free, invalid,
+    // preview, detached), what is carried and where it came from, the
+    // target, whether it's valid and why not, where it lands, and how every
+    // panel in the target window would move (reflow: from -> to). Nothing
+    // in it is committed: the drop is the one commit.
+    Q_PROPERTY(QVariantMap dragState READ dragState NOTIFY dragChanged)
+    // Why the current target refuses the drop ("" when it doesn't).
+    Q_PROPERTY(QString dropRefusal READ dropRefusal NOTIFY dragChanged)
     Q_PROPERTY(QStringList floatingSurfaceIds READ floatingSurfaceIds NOTIFY surfacesChanged)
     Q_PROPERTY(QVariantList presets READ presets CONSTANT)
     Q_PROPERTY(QVariantList savedLayouts READ savedLayouts NOTIFY layoutsChanged)
@@ -114,6 +124,8 @@ public:
     [[nodiscard]] QVariantMap dragLandingRect() const;
     [[nodiscard]] bool dropAllowed() const { return m_dropAllowed; }
     [[nodiscard]] bool dragDetached() const { return m_dragDetached; }
+    [[nodiscard]] QVariantMap dragState() const;
+    [[nodiscard]] QString dropRefusal() const { return m_dropRefusal.ok ? QString() : m_dropRefusal.message; }
     [[nodiscard]] QVariantMap detachRect() const;
     [[nodiscard]] QStringList floatingSurfaceIds() const;
     [[nodiscard]] QVariantList presets() const;
@@ -264,8 +276,14 @@ public:
     // The pointer left every window: a drop opens a new window with this
     // frame (virtual desktop coordinates).
     Q_INVOKABLE void updateDragDetached(double x, double y, double width, double height, const QString &screenName);
+    // Drops onto a validated target (checked again against the layout as
+    // it is now) as one workspace step: undo puts everything back.
     Q_INVOKABLE bool finishDrag();
     Q_INVOKABLE void cancelDrag();
+    // Puts a view ("view") or panel ("anchor") back where it was before it
+    // was last dragged. One workspace step. {ok, code, error}.
+    Q_INVOKABLE QVariantMap returnToPrevious(const QString &kind, const QString &id);
+    [[nodiscard]] Q_INVOKABLE bool canReturnToPrevious(const QString &kind, const QString &id) const;
 
     // ---- layouts ----------------------------------------------------------
     // Layouts arrange panels; they never open or close views. Presets are
@@ -295,8 +313,8 @@ public:
     // terminals are never closed, and resources are never touched. Undo
     // closes the clean views a step opened; redo brings them back. Locked
     // panels refuse a step that would move them. A new step clears redo.
-    // Dragging panels by hand is not recorded. Document edits have their
-    // own undo.
+    // A drag that lands is one step too. Document edits have their own
+    // undo.
     Q_INVOKABLE bool undo();
     Q_INVOKABLE bool redo();
     [[nodiscard]] bool canUndo() const { return !m_history.isEmpty(); }
@@ -386,6 +404,9 @@ signals:
     void collectionIdChanged();
     void revisionChanged();
     void dragChanged();
+    // A drag ended: outcome is "committed", "cancelled" or "refused"
+    // (details: kind, id, target, landing anchor, reason).
+    void dragFinished(const QString &outcome, const QVariantMap &details);
     void metricsChanged();
     // A view was opened, revealed or focused; the shell keeps global
     // selection (Explorer highlight, Chat composer) in step.
@@ -436,6 +457,10 @@ private:
     [[nodiscard]] QList<Workspace::ScreenInfo> currentScreens() const;
     [[nodiscard]] bool canDetach(const Workspace::DragSource &source) const;
     void resetDrag();
+    [[nodiscard]] QString dragSourceTitle(const Workspace::DragSource &source) const;
+    [[nodiscard]] static QString dragKey(const Workspace::DragSource &source);
+    [[nodiscard]] Workspace::DragSource dragSourceFor(const QString &kind, const QString &id) const;
+    [[nodiscard]] QVariantList dragReflow() const;
 
     Workspace::ViewTypeRegistry m_registry;
     Workspace::WorkspaceModel m_model;
@@ -469,6 +494,15 @@ private:
     QRectF m_landingRect;
     Workspace::LayoutGeometry m_preview;
     QString m_previewSurfaceId;
+    Workspace::Magnets::Phase m_dragPhase = Workspace::Magnets::Phase::Idle;
+    Workspace::OpResult m_dropRefusal;
+    QString m_landingAnchorId;
+    Workspace::Magnets::Place m_dragOrigin;
+    QRectF m_dragSourceRect;
+    int m_dragTargetRevision = -1;
+    int m_dragPreviewSerial = 0;
+    // Where each magnet was before its last drag ("view:<id>", "anchor:<id>").
+    QHash<QString, Workspace::Magnets::Place> m_previousPlaces;
     bool applyLayoutDocument(const QJsonObject &layout, const QString &layoutId);
     [[nodiscard]] QJsonObject layoutDocument(const QString &layoutId) const;
     [[nodiscard]] QJsonArray readSavedLayouts() const;

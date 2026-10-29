@@ -228,11 +228,22 @@ Item {
     DockMenu {
         id: tabMenu
 
+        // Worked out as the menu opens, not on every layout change.
+        property bool canReturn: false
+
         theme: root.theme
+        onAboutToShow: canReturn = Docking.canReturnToPrevious("view", root.viewId)
 
         DockMenuItem { theme: root.theme; text: "Close"; shortcutText: "Ctrl+W"; onTriggered: root.workspace.closeView(root.viewId) }
         DockMenuItem { theme: root.theme; text: "Close Others"; onTriggered: root.workspace.closeOtherViews(root.viewId) }
         DockMenuSeparator { theme: root.theme }
+        DockMenuItem {
+            objectName: "magnet.returnToPrevious"
+            theme: root.theme
+            text: "Return to Previous Position"
+            visible: tabMenu.canReturn
+            onTriggered: root.workspace.returnToPrevious("view", root.viewId)
+        }
         DockMenuItem { theme: root.theme; text: "Split Right"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "right") }
         DockMenuItem { theme: root.theme; text: "Split Down"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "bottom") }
         DockMenuItem {

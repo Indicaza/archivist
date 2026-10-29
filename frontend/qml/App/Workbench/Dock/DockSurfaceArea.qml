@@ -56,6 +56,7 @@ Item {
     function detachView(viewId) { workspace.detachView(viewId, root) }
     function detachAnchor(anchorId) { workspace.detachAnchor(anchorId, root) }
     function returnToMainWindow(kind, id) { workspace.returnToMainWindow(kind, id) }
+    function returnToPrevious(kind, id) { workspace.returnToPrevious(kind, id) }
     function viewIconName(info) { return workspace.viewIconName(info) }
     function libraryLabel(libraryId) { return workspace.libraryLabel(libraryId) }
     function shelfCandidates(anchorId) { return workspace.shelfCandidates(anchorId) }

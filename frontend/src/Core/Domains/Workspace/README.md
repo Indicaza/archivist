@@ -111,6 +111,35 @@ document). Terminal processes live in `TerminalSessions` and replay scrollback
 when a view reattaches. Chats and AI runs live in their stores and the AI
 runtime.
 
+## Magnets: picking things up (`workspace_magnets`)
+
+A magnet is the handle a person drags: a view (one tab) or an anchor (the
+whole group). It is never a copy; resources are never touched by a drag.
+
+- **Preview is not commit.** `Magnets::preview` judges a drop on a copy of
+  the model: `canDrop` first (locks, invalid targets), then the result
+  itself. It refuses `NO_CHANGE` (it would land where it is) and
+  `TOO_SMALL` (a panel would end up under the minimum size, unless the
+  window was already that cramped), each with a message for the ghost.
+- **One drag state.** The store publishes `Docking.dragState`: `phase`
+  (`idle`, `pickup`, `free`, `invalid`, `preview`, `detached`), what is
+  carried and its origin rect, the target, `valid` and the reason, the
+  landing rect, `reflow` (every panel in the target window, committed rect
+  `from` -> proposed rect `to`; a panel the drop creates has a provisional
+  id), and `previewSerial`, which bumps on every target change. Motion and
+  physics read this; nothing in it is committed.
+- **One commit.** `finishDrag` checks the target again if the layout
+  changed during the drag, applies it as one operation and records one
+  undo step. `dragFinished(outcome, details)` reports `committed`,
+  `cancelled` or `refused`.
+- **Return to Previous Position.** At pickup the store remembers where the
+  magnet was (`Magnets::placeOf`): a tab's panel and position, or for a
+  panel, the neighbour or window edge it sat against, its share of the
+  split, and its floating window if it had one to itself. `planReturn`
+  turns that into a drop (or a new floating window) against the layout as
+  it is now, or refuses (`GONE`, `NO_CHANGE`). Returning again goes back.
+  The memory is per project and per session.
+
 ## Anchors as workstations
 
 An anchor can be configured, and the configuration belongs to the anchor, so
@@ -352,9 +381,9 @@ Workspace history (`WorkspaceStore::undo` / `redo`, `canUndo`, `canRedo`,
 agent undo stack; the old one-step layout undo is folded into it.
 
 - A step is recorded for every layout switch (picker, shortcut or agent),
-  every applied agent change (compose, show, arrange) and every put back.
-  Dragging panels by hand is not recorded. Up to 20 steps are kept, and a
-  new step clears redo.
+  every applied agent change (compose, show, arrange), every put back, and
+  every drag that lands (and every Return to Previous Position). Up to 20
+  steps are kept, and a new step clears redo.
 - Each step stores the model data before it, the views it opened, the views
   it closed, the bottom panel, the current layout and the temporary
   arrangement record. Undo and redo both go through
