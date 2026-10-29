@@ -50,10 +50,10 @@ Item {
         opacity: root.hasLanding ? 1 : 0
         scale: root.hasLanding ? 1 : 0.97
 
-        Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4.2; damping: 0.36; epsilon: 0.25 } }
-        Behavior on y { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4.2; damping: 0.36; epsilon: 0.25 } }
-        Behavior on width { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4.2; damping: 0.36; epsilon: 0.25 } }
-        Behavior on height { enabled: !root.theme.reducedMotion; SpringAnimation { spring: 4.2; damping: 0.36; epsilon: 0.25 } }
+        Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+        Behavior on y { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+        Behavior on width { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+        Behavior on height { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
         Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 140 } }
         Behavior on scale { NumberAnimation { duration: root.theme.reducedMotion ? 0 : 180; easing.type: Easing.OutBack } }
 
@@ -204,6 +204,108 @@ Item {
             color: "transparent"
             border.width: 1.5
             border.color: Qt.rgba(root.theme.accentBright.r, root.theme.accentBright.g, root.theme.accentBright.b, 0.3 + 0.6 * aim.progress)
+        }
+    }
+
+    // ---- magnetic pull --------------------------------------------------
+    //
+    // Near a dock zone, before anything is previewed, the nearest edge of
+    // the panel (or window border) under the pointer glows, stronger the
+    // closer it gets, with a faint tremor once it is close. It only draws:
+    // the store still decides what a drop does.
+    Item {
+        id: pull
+
+        objectName: "magnet.pull"
+        readonly property var dock: root.workspace ? root.workspace.workspace : null
+        readonly property string phase: String(Docking.dragState.phase || "")
+        readonly property bool armed: Docking.dragActive && !root.hasLanding && dock !== null
+            && (phase === "free" || phase === "aiming") && !aim.here && root.workspace.dragHere === true
+        readonly property point pointer: {
+            if (!armed) {
+                return Qt.point(-1, -1)
+            }
+            var g = dock.dragPointer
+            return root.mapFromGlobal(g.x, g.y)
+        }
+        // The nearest edge: {rect, edge, strength 0..1}.
+        readonly property var nearest: {
+            var none = { rect: Qt.rect(0, 0, 0, 0), edge: "", strength: 0 }
+            if (!armed || pointer.x < 0 || pointer.y < 0 || pointer.x > root.width || pointer.y > root.height) {
+                return none
+            }
+            var best = none
+            var reach = root.theme.magnetProximityReach
+            function consider(rect, band) {
+                var edges = [
+                    ["left", pointer.x - rect.x], ["right", rect.x + rect.width - pointer.x],
+                    ["top", pointer.y - rect.y], ["bottom", rect.y + rect.height - pointer.y]
+                ]
+                for (var i = 0; i < edges.length; i += 1) {
+                    var d = edges[i][1]
+                    if (d < 0) {
+                        continue
+                    }
+                    var strength = Math.max(0, Math.min(1, 1 - d / (band * reach)))
+                    if (strength > best.strength) {
+                        best = { rect: rect, edge: edges[i][0], strength: strength }
+                    }
+                }
+            }
+            consider(Qt.rect(0, 0, root.width, root.height), 18)
+            var items = dock.anchorItems
+            for (var key in items) {
+                var item = items[key]
+                if (!item || item.surfaceId !== root.surfaceId || !item.visible || key === dock.liftedAnchorId) {
+                    continue
+                }
+                var corner = item.mapToItem(root, 0, 0)
+                if (pointer.x < corner.x || pointer.y < corner.y
+                    || pointer.x > corner.x + item.width || pointer.y > corner.y + item.height) {
+                    continue
+                }
+                var span = Math.min(item.width, item.height)
+                consider(Qt.rect(corner.x, corner.y, item.width, item.height), Math.max(32, Math.min(72, span * 0.18)))
+            }
+            return best
+        }
+        readonly property real strength: Math.pow(nearest.strength, 1.5)
+        readonly property string edge: nearest.edge
+        readonly property rect zone: nearest.rect
+        readonly property bool across: edge === "top" || edge === "bottom"
+        readonly property real thickness: 2 + 2 * strength
+        // The tremor: a pixel or so, across the edge, only when close.
+        property real phaseAngle: 0
+        readonly property bool trembling: visible && strength > 0.45 && !root.theme.reducedMotion
+        readonly property real tremor: trembling ? root.theme.magnetTremor * strength * Math.sin(phaseAngle) : 0
+
+        visible: armed && edge.length > 0 && strength > 0.02
+        opacity: Math.min(0.75, strength)
+        x: (edge === "right" ? zone.x + zone.width - thickness - 2 : across ? zone.x + 6 : zone.x + 2) + (across ? 0 : tremor)
+        y: (edge === "bottom" ? zone.y + zone.height - thickness - 2 : across ? zone.y + 2 : zone.y + 6) + (across ? tremor : 0)
+        width: across ? Math.max(0, zone.width - 12) : thickness
+        height: across ? thickness : Math.max(0, zone.height - 12)
+
+        NumberAnimation {
+            target: pull
+            property: "phaseAngle"
+            running: pull.trembling
+            from: 0
+            to: Math.PI * 2
+            duration: root.theme.magnetTremorPeriod
+            loops: Animation.Infinite
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: 4
+            color: Qt.rgba(root.theme.accent.r, root.theme.accent.g, root.theme.accent.b, 0.18)
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: 2
+            color: root.theme.accentBright
         }
     }
 }

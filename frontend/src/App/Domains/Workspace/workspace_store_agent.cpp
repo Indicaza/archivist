@@ -1092,6 +1092,8 @@ bool WorkspaceStore::undoSteps(qsizetype count, QString *code, QString *error)
     }
     m_history.remove(first, count);
     m_redo.append(inverse);
+    // A sidebar tab deleted since then can't take its panel back.
+    adoptOrphanSidebarSurfaces();
     emit historyChanged();
     emit agentChanged();
     return true;
@@ -1123,6 +1125,7 @@ bool WorkspaceStore::redoStep(QString *code, QString *error)
     }
     m_redo.removeLast();
     m_history.append(inverse);
+    adoptOrphanSidebarSurfaces();
     while (m_history.size() > kMaximumHistorySteps) {
         m_history.removeFirst();
     }

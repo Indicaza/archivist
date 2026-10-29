@@ -194,6 +194,10 @@ struct SurfaceRecord
     // its own. Its geometry is then in the main window's content (not the
     // desktop), and it has no screen.
     bool inMainWindow = false;
+    // Docked in the sidebar: the rail tab it fills ("navigation.archive",
+    // a person's own tab), or "sidebar.bottom" under whichever tab shows.
+    // At most one surface per slot. Its geometry only keeps a size.
+    QString sidebarSlot;
 };
 
 struct OpResult

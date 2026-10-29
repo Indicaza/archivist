@@ -4,9 +4,11 @@ import "../../Icons"
 
 // A floating panel inside the main window: one more surface of the docking
 // workspace, with its own tabs and splits, drawn over the main layout.
-// Drag it by its bar to move it (hold it at a dock zone to dock it), drag
-// an edge or corner to resize it. Closing it sends its tabs back to the
-// main layout; nothing is closed.
+// Holding one panel, it has no bar of its own: the panel's header is its
+// one handle and close (drag the grip to move it, hold at a dock zone to
+// dock it). Holding a split, a slim bar moves the whole group, and its
+// close sends the tabs back to the main layout. Drag an edge or corner to
+// resize it. It may hang partly off the window.
 Item {
     id: root
 
@@ -18,13 +20,16 @@ Item {
         Docking.revision
         return Docking.surface(root.surfaceId)
     }
-    readonly property real barHeight: 26
+    // Only a group of panels needs a bar to move them together.
+    readonly property bool showsBar: Number(info.anchorCount || 0) > 1
+    readonly property real barHeight: showsBar ? 30 : 0
     readonly property real minimumWidth: 280
     readonly property real minimumHeight: 180
 
     // While moving or resizing the panel follows the pointer; otherwise
     // the stored frame, kept reachable when the window is smaller.
     property bool interacting: false
+    property bool resizing: false
     property rect live: Qt.rect(0, 0, 0, 0)
     readonly property rect stored: {
         var width = Math.max(root.minimumWidth, Number(info.width || 520))
@@ -33,8 +38,10 @@ Item {
         var parentHeight = parent ? parent.height : height
         width = Math.min(width, Math.max(root.minimumWidth, parentWidth))
         height = Math.min(height, Math.max(root.minimumHeight, parentHeight))
-        var x = Math.max(0, Math.min(Number(info.x || 40), parentWidth - Math.min(width, 120)))
-        var y = Math.max(0, Math.min(Number(info.y || 40), parentHeight - root.barHeight))
+        // It may hang off the sides and bottom; its header stays in reach.
+        var keep = Math.min(width, root.theme.magnetKeepVisible)
+        var x = Math.max(keep - width, Math.min(Number(info.x === undefined ? 40 : info.x), parentWidth - keep))
+        var y = Math.max(0, Math.min(Number(info.y === undefined ? 40 : info.y), parentHeight - root.theme.magnetKeepHeader))
         return Qt.rect(x, y, width, height)
     }
     readonly property rect frame: interacting ? live : stored
@@ -73,12 +80,42 @@ Item {
     function commitFrame() {
         Docking.setSurfaceGeometry(root.surfaceId, root.live.x, root.live.y, root.live.width, root.live.height, "", false)
         root.interacting = false
+        root.resizing = false
+    }
+
+    // Its only panel is carried away as a picture: the whole floating
+    // panel lifts out with it (still alive, it holds the pointer).
+    readonly property bool lifted: {
+        var anchorId = root.workspace.liftedAnchorId || ""
+        if (anchorId.length === 0) {
+            return false
+        }
+        var item = root.workspace.anchorItems[anchorId]
+        return item !== undefined && item !== null && item.surfaceId === root.surfaceId
+            && Number(root.info.anchorCount || 0) === 1
     }
 
     x: frame.x
     y: frame.y
     width: frame.width
     height: frame.height
+    opacity: lifted ? 0 : 1
+
+    // Let go (or a flick carried it on): it springs to its stored frame.
+    Behavior on x { enabled: !root.interacting && !root.lifted && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+    Behavior on y { enabled: !root.interacting && !root.lifted && !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
+
+    // Moved by its bar it shrinks around the spot it is held by, so it is
+    // easy to aim, and grows back when let go.
+    readonly property real moveScale: moveHandler.active && !root.theme.reducedMotion ? root.theme.magnetPanelMoveScale : 1
+    property real shownScale: moveScale
+    Behavior on shownScale { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetPanelMoveSpring; damping: root.theme.magnetPanelMoveDamping; epsilon: 0.005 } }
+    transform: Scale {
+        origin.x: moveHandler.holdAt.x
+        origin.y: moveHandler.holdAt.y
+        xScale: root.shownScale
+        yScale: root.shownScale
+    }
     objectName: "dock.floatingPanel"
 
     // Lifted off the layout.
@@ -90,7 +127,8 @@ Item {
         anchors.bottomMargin: -12
         radius: root.theme.radiusPanel + 4
         color: "#000000"
-        opacity: root.focusedHere ? 0.36 : 0.24
+        opacity: moveHandler.active && !root.theme.reducedMotion ? 0.52 : root.focusedHere ? 0.36 : 0.24
+        Behavior on opacity { NumberAnimation { duration: root.theme.reducedMotion ? 0 : root.theme.magnetPickupDuration } }
     }
 
     Rectangle {
@@ -120,11 +158,39 @@ Item {
             objectName: "dock.floatingPanel.bar"
             width: parent.width
             height: root.barHeight
+            visible: root.showsBar
             color: root.theme.controlSurfaceBg
 
-            Text {
+            // Grip dots: grab the bar anywhere to move the panel.
+            Grid {
+                id: barGrip
+
                 anchors.left: parent.left
                 anchors.leftMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                columns: 2
+                rowSpacing: 2.5
+                columnSpacing: 2.5
+                opacity: moveHandler.active ? 0.95 : root.focusedHere ? 0.65 : 0.45
+
+                Repeater {
+                    model: 6
+                    Rectangle {
+                        width: 3.5
+                        height: 3.5
+                        radius: 1.75
+                        color: moveHandler.active ? root.theme.accentBright : root.theme.mutedText
+                    }
+                }
+            }
+
+            HoverHandler {
+                cursorShape: moveHandler.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            }
+
+            Text {
+                anchors.left: barGrip.right
+                anchors.leftMargin: 9
                 anchors.right: closeButton.left
                 anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter
@@ -141,11 +207,19 @@ Item {
 
                 target: null
                 dragThreshold: 2
+                // Once it moves the panel, nothing underneath (a file in the
+                // sidebar, a tab) may take the drag over.
+                grabPermissions: PointerHandler.CanTakeOverFromItems
+                    | PointerHandler.CanTakeOverFromHandlersOfDifferentType
+                    | PointerHandler.CanTakeOverFromHandlersOfSameType
                 property point pressAt: Qt.point(0, 0)
                 property rect startFrame: Qt.rect(0, 0, 0, 0)
+                // Where it is held, in the panel (the shrink pivots on it).
+                property point holdAt: Qt.point(0, 0)
 
                 onActiveChanged: {
                     if (active) {
+                        holdAt = Qt.point(centroid.pressPosition.x, centroid.pressPosition.y)
                         root.startInteracting()
                         startFrame = root.live
                         root.workspace.beginPanelMove(root.surfaceId)
@@ -164,6 +238,9 @@ Item {
             }
 
             TapHandler {
+                // Takes the press itself, so a click or drag on the bar never
+                // reaches what lies under the panel (the sidebar's files).
+                gesturePolicy: TapHandler.WithinBounds
                 onTapped: root.workspace.raisePanel(root.surfaceId)
                 onDoubleTapped: root.workspace.closeFloatingWindow(root.surfaceId)
             }
@@ -208,6 +285,7 @@ Item {
             theme: root.theme
             workspace: root.workspace
             surfaceId: root.surfaceId
+            coalesceResize: root.resizing
         }
     }
 
@@ -244,15 +322,16 @@ Item {
             : horizontal !== 0 ? Qt.SizeHorCursor : Qt.SizeVerCursor
 
         onPressed: function(mouse) {
+            grip.panel.resizing = true
             grip.panel.startInteracting()
             startFrame = grip.panel.live
-            pressAt = mapToItem(grip.panel.parent, mouse.x, mouse.y)
+            pressAt = mapToGlobal(mouse.x, mouse.y)
         }
         onPositionChanged: function(mouse) {
             if (!pressed) {
                 return
             }
-            var now = mapToItem(grip.panel.parent, mouse.x, mouse.y)
+            var now = mapToGlobal(mouse.x, mouse.y)
             var dx = now.x - pressAt.x
             var dy = now.y - pressAt.y
             var x = startFrame.x
@@ -274,10 +353,13 @@ Item {
             grip.panel.live = Qt.rect(x, Math.max(0, y), width, height)
         }
         onReleased: grip.panel.commitFrame()
-        onCanceled: grip.panel.interacting = false
+        onCanceled: {
+            grip.panel.interacting = false
+            grip.panel.resizing = false
+        }
     }
 
-    readonly property real gripSize: 6
+    readonly property real gripSize: 10
 
     Grip { panel: root; horizontal: -1; x: -root.gripSize / 2; y: root.gripSize; width: root.gripSize; height: parent.height - 2 * root.gripSize }
     Grip { panel: root; horizontal: 1; x: parent.width - root.gripSize / 2; y: root.gripSize; width: root.gripSize; height: parent.height - 2 * root.gripSize }

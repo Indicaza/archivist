@@ -16,6 +16,16 @@ Item {
     required property int tabIndex
     required property bool active
     required property bool anchorFocused
+    // A tab held over this strip lands before this one: it steps aside
+    // (a transform only; the strip's layout and the model are untouched).
+    property real insertShift: 0
+    transform: Translate {
+        x: root.insertShift
+        Behavior on x {
+            enabled: !root.theme.reducedMotion
+            SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 }
+        }
+    }
 
     readonly property var info: {
         Docking.revision
@@ -145,6 +155,8 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+        // Once it is a magnet, the tab strip can't flick it away.
+        preventStealing: true
 
         onPressed: function(mouse) {
             pressPoint = Qt.point(mouse.x, mouse.y)
@@ -178,7 +190,7 @@ Item {
         }
         onCanceled: {
             if (dragging) {
-                root.workspace.cancelDrag()
+                root.workspace.sourceLost()
             }
             dragging = false
         }
@@ -250,7 +262,7 @@ Item {
             objectName: "magnet.floatView"
             theme: root.theme
             text: "Float"
-            visible: !root.workspace.isPanel || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+            visible: !root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
             onTriggered: root.workspace.floatView(root.viewId)
         }
         DockMenuItem {
