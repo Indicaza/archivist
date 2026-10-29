@@ -602,13 +602,14 @@ private slots:
             QVERIFY(store.redo());
             QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
 
-            // Dragged again into open space: the same panel moves.
+            // Dragged again into open space: the same panel moves, and it
+            // may hang partly off the window's left side.
             QVERIFY(store.beginDrag(QStringLiteral("view"), b));
-            store.updateDragFloat(100, 60, 420, 300);
+            store.updateDragFloat(-150, 60, 420, 300);
             store.updateDrag(surface, 300, 200);
             QVERIFY(store.finishDrag());
             QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
-            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+            QCOMPARE(store.surface(panel).value("x").toDouble(), -150.0);
 
             // Many at once.
             for (int index = 0; index < 10; index += 1) {
@@ -632,7 +633,7 @@ private slots:
             QVERIFY(store.floatingSurfaceIds().isEmpty());
             QCOMPARE(store.view(b).value("surfaceId").toString(), panel);
             QVERIFY(!store.recoverSurfaces().contains(panel));
-            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+            QCOMPARE(store.surface(panel).value("x").toDouble(), -150.0);
         }
     }
 
@@ -898,6 +899,75 @@ private slots:
         QVERIFY(!store.view(a).isEmpty());
         QCOMPARE(store.sidebarSurface(QStringLiteral("navigation.custom.1")), docked);
         QCOMPARE(store.view(b).value("surfaceId").toString(), docked);
+    }
+
+    // Pointer jitter where two zones meet keeps one preview; hundreds of
+    // moves over every kind of target commit nothing and record nothing;
+    // only the release does, once.
+    void previewsHoldSteadyAndNeverCommit()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("steady"));
+        store.setDockDwellMs(0);
+        store.setSidebarSlots({QStringLiteral("navigation.custom.1")});
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QVERIFY(!store.splitView(c, first, QStringLiteral("right")).isEmpty());
+        const QString summary = store.undoSummary();
+        const int revision = store.model().revision();
+        const int views = int(store.model().viewIds().size());
+
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragFloat(200, 120, 400, 300);
+        // Into the left panel's right band, then jitter around the border
+        // between the two panels: one target, one preview.
+        store.updateDrag(surface, 480, 300);
+        const QVariantMap chosen = store.dragState().value("target").toMap();
+        QVERIFY(!chosen.isEmpty());
+        const int serial = store.dragState().value("previewSerial").toInt();
+        for (int step = 0; step < 40; step += 1) {
+            store.updateDrag(surface, 494 + (step % 2 ? 6 : -4), 300 + step % 3);
+        }
+        QCOMPARE(store.dragState().value("target").toMap().value("anchorId"), chosen.value("anchorId"));
+        QCOMPARE(store.dragState().value("target").toMap().value("edge"), chosen.value("edge"));
+        QCOMPARE(store.dragState().value("previewSerial").toInt(), serial);
+
+        // Everywhere at once, fast.
+        for (int step = 0; step < 300; step += 1) {
+            const int kind = step % 5;
+            if (kind == 0) {
+                store.updateDrag(surface, (step * 37) % 1000, (step * 53) % 600);
+            } else if (kind == 1) {
+                store.updateDragOverTabs(surface, first, step % 3);
+            } else if (kind == 2) {
+                store.updateDragOverSlot(QStringLiteral("navigation.custom.1"));
+            } else if (kind == 3) {
+                store.updateDrag(QString(), 0, 0);
+            } else {
+                store.updateDrag(surface, 990, (step * 7) % 600);
+            }
+            QCOMPARE(store.model().revision(), revision);
+        }
+        QCOMPARE(store.undoSummary(), summary);
+        store.cancelDrag();
+        QCOMPARE(store.model().revision(), revision);
+        QCOMPARE(store.undoSummary(), summary);
+        QCOMPARE(int(store.model().viewIds().size()), views);
+
+        // Then a real drop: exactly one step, and Undo puts it all back.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDrag(surface, 990, 300);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QVERIFY(store.undoSummary() != summary);
+        QVERIFY(store.undo());
+        QCOMPARE(store.undoSummary(), summary);
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
     }
 
     // The tab and panel menus float without a drag, one undo step each.

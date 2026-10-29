@@ -170,9 +170,65 @@ Preview preview(const WorkspaceModel &model, const DragSource &source, const Dro
     return out;
 }
 
-DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
-                        const QSizeF &surfaceSize, const LayoutMetrics &metrics, const DockZones &zones)
+namespace
 {
+// Whether `point` is still within `held`'s zone, grown by zones.hold.
+bool stillHeld(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point, const QSizeF &surfaceSize,
+               const LayoutMetrics &metrics, const DockZones &zones, const DropTarget &held)
+{
+    if (!held.isValid() || held.surfaceId != surfaceId) {
+        return false;
+    }
+    if (held.anchorId.isEmpty()) {
+        // Along the window border.
+        if (model.anchorIds(surfaceId).size() <= 1) {
+            return false;
+        }
+        const double reach = zones.windowBand + zones.hold;
+        switch (held.edge) {
+        case Edge::Left: return point.x() <= reach;
+        case Edge::Right: return surfaceSize.width() - point.x() <= reach;
+        case Edge::Top: return point.y() <= reach;
+        case Edge::Bottom: return surfaceSize.height() - point.y() <= reach;
+        default: return false;
+        }
+    }
+    const AnchorRecord *anchor = model.anchor(held.anchorId);
+    if (!anchor || model.surfaceOfAnchor(held.anchorId) != surfaceId) {
+        return false;
+    }
+    const QRectF rect = model.computeGeometry(surfaceId, surfaceSize, metrics).anchors.value(held.anchorId);
+    const QRectF grown = rect.adjusted(-zones.hold, -zones.hold, zones.hold, zones.hold);
+    if (rect.isEmpty() || !grown.contains(point)) {
+        return false;
+    }
+    if (held.edge == Edge::Center) {
+        return anchor->views.isEmpty();
+    }
+    const auto band = [&zones](double length) {
+        return std::clamp(length * zones.edgeShare, zones.edgeMinimum, std::max(zones.edgeMinimum, zones.edgeMaximum));
+    };
+    const double reachX = std::min(band(rect.width()), rect.width() / 2) + zones.hold;
+    const double reachY = std::min(band(rect.height()), rect.height() / 2) + zones.hold;
+    switch (held.edge) {
+    case Edge::Left: return point.x() - rect.left() <= reachX;
+    case Edge::Right: return rect.right() - point.x() <= reachX;
+    case Edge::Top: return point.y() - rect.top() <= reachY;
+    case Edge::Bottom: return rect.bottom() - point.y() <= reachY;
+    default: return false;
+    }
+}
+} // namespace
+
+DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
+                        const QSizeF &surfaceSize, const LayoutMetrics &metrics, const DockZones &zones,
+                        const DropTarget &held)
+{
+    if (stillHeld(model, surfaceId, point, surfaceSize, metrics, zones, held)) {
+        DropTarget kept = held;
+        kept.index = -1;
+        return kept;
+    }
     if (!model.surface(surfaceId) || !QRectF(QPointF(0, 0), surfaceSize).contains(point)) {
         return {};
     }

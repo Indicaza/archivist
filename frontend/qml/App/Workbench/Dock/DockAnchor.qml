@@ -108,11 +108,35 @@ Item {
     property real arrival: 1
     property bool arriving: false
     property int arrivalDelay: 0
+    // Something just docked here: a small swell and settle (a transform
+    // only, so nothing inside it lays out again).
+    property real nudge: 0
     transform: Scale {
         origin.x: root.width / 2
         origin.y: root.height / 2
-        xScale: 0.985 + 0.015 * root.arrival
-        yScale: 0.985 + 0.015 * root.arrival
+        xScale: 0.985 + 0.015 * root.arrival + root.nudge
+        yScale: 0.985 + 0.015 * root.arrival + root.nudge
+    }
+    function receive(delay) {
+        receiveAnimation.stop()
+        root.nudge = 0
+        if (root.theme.reducedMotion) {
+            return
+        }
+        receivePause.duration = Math.max(0, delay || 0)
+        receiveAnimation.start()
+    }
+    SequentialAnimation {
+        id: receiveAnimation
+        PauseAnimation { id: receivePause; duration: 0 }
+        NumberAnimation {
+            target: root; property: "nudge"; to: root.theme.magnetReceiveNudge
+            duration: Math.round(root.theme.magnetReceiveDuration * 0.35); easing.type: Easing.OutQuad
+        }
+        NumberAnimation {
+            target: root; property: "nudge"; to: 0
+            duration: Math.round(root.theme.magnetReceiveDuration * 0.65); easing.type: Easing.OutBack
+        }
     }
     SequentialAnimation {
         id: arrivalAnimation
@@ -121,10 +145,10 @@ Item {
         ScriptAction { script: root.arriving = false }
     }
 
-    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
     Behavior on opacity { enabled: !root.arriving; NumberAnimation { duration: root.theme.motionFast } }
 
     Component.onCompleted: {
@@ -518,6 +542,8 @@ Item {
                         active: modelData === root.activeViewId
                         anchorFocused: root.isFocused
                         height: tabRow.height
+                        // Tabs after the insertion point step aside.
+                        insertShift: insertMarker.shown && index >= Docking.dropTarget.index ? root.theme.magnetTabGap : 0
                     }
                 }
 
@@ -619,15 +645,16 @@ Item {
                 width: 2
                 height: parent.height - 8
                 y: 4
+                // In the middle of the gap the tabs open up.
                 x: !targetTab
                     ? 0
                     : Docking.dropTarget.index >= tabRepeater.count
-                        ? targetTab.x + targetTab.width - 1
-                        : targetTab.x - 1
+                        ? targetTab.x + targetTab.width + root.theme.magnetTabGap / 2 - 1
+                        : targetTab.x + root.theme.magnetTabGap / 2 - 1
                 color: root.theme.accentBright
                 radius: 1
 
-                Behavior on x { enabled: root.workspace.animateLayout; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
             }
         }
 

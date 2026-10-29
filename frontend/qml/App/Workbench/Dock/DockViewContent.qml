@@ -104,10 +104,10 @@ Item {
     opacity: root.workspace.liftedViewId === root.viewId || root.workspace.liftedAnchorId === root.anchorId ? 0 : 1
     clip: true
 
-    Behavior on x { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on y { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on width { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on height { enabled: root.animate; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on x { enabled: root.animate; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on y { enabled: root.animate; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on width { enabled: root.animate; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on height { enabled: root.animate; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
 
     Rectangle {
         anchors.fill: parent

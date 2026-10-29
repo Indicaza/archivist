@@ -1485,7 +1485,9 @@ void WorkspaceStore::updateDrag(const QString &surfaceId, double x, double y)
         m_dragDetached = false;
         emit dragChanged();
     }
-    aimAt(Magnets::dockTargetAt(m_model, surfaceId, QPointF(x, y), surfaceSize(surfaceId), m_metrics));
+    // The zone already chosen holds while the pointer stays near it.
+    const DropTarget held = m_dropTarget.isValid() ? m_dropTarget : m_aimTarget;
+    aimAt(Magnets::dockTargetAt(m_model, surfaceId, QPointF(x, y), surfaceSize(surfaceId), m_metrics, {}, held));
 }
 
 void WorkspaceStore::aimAt(const DropTarget &target)
