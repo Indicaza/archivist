@@ -320,6 +320,101 @@ private slots:
         reopened.setHomeDraft({});
         QVERIFY(!settings.contains(QStringLiteral("shell/homeDraft")));
     }
+
+    // ---- a person's own tabs -------------------------------------------
+    void customTabsAddRenameAndRemove()
+    {
+        QString first;
+        QList<RailItem> tabs = addCustomTab({}, {}, &first);
+        QCOMPARE(first, QStringLiteral("navigation.custom.1"));
+        QCOMPARE(tabs.first().label, QStringLiteral("Tab 1"));
+        QVERIFY(isCustomRailId(first));
+        QVERIFY(!isCustomRailId(RailIds::Navigator));
+
+        QString second;
+        tabs = addCustomTab(tabs, QStringLiteral("  Research "), &second);
+        QCOMPARE(second, QStringLiteral("navigation.custom.2"));
+        QCOMPARE(tabs.last().label, QStringLiteral("Research"));
+
+        // Ids are never reused, so whatever was docked in a deleted tab
+        // can't turn up in a new one.
+        tabs = removeCustomTab(tabs, first);
+        QString third;
+        tabs = addCustomTab(tabs, {}, &third);
+        QCOMPARE(third, QStringLiteral("navigation.custom.3"));
+        QCOMPARE(tabs.last().label, QStringLiteral("Tab 3"));
+
+        tabs = renameCustomTab(tabs, second, QStringLiteral("Notes"));
+        QCOMPARE(railItem(second, tabs)->label, QStringLiteral("Notes"));
+        QVERIFY(railItem(second, tabs)->custom);
+        QVERIFY(railItem(RailIds::Navigator, tabs));
+        QVERIFY(!railItem(first, tabs));
+
+        // Built-ins first, then the person's own, in order.
+        const QList<RailItem> all = railItemsWith(tabs);
+        QCOMPARE(all.at(all.size() - 2).id, second);
+        QCOMPARE(all.last().id, third);
+
+        // Saved and read back forgivingly.
+        QVariantList saved = customTabsToVariant(tabs);
+        saved.append(QVariantMap{{QStringLiteral("id"), RailIds::Navigator}, {QStringLiteral("label"), QStringLiteral("x")}});
+        saved.append(saved.first());
+        const QList<RailItem> back = customTabsFromVariant(saved);
+        QCOMPARE(back.size(), 2);
+        QCOMPARE(back.first().label, QStringLiteral("Notes"));
+    }
+
+    void customTabsOpenLikeAnyPanel()
+    {
+        QString id;
+        const QList<RailItem> tabs = addCustomTab({}, {}, &id);
+        const NavigationState open = activate(workspaceWith(RailIds::Navigator, true), id, tabs);
+        QCOMPARE(open.panelId, id);
+        QVERIFY(open.panelOpen);
+        // Unknown without the list.
+        QCOMPARE(activate(workspaceWith(RailIds::Navigator, true), id).panelId, RailIds::Navigator);
+        // Read back with the list it stays; without, it falls back.
+        QCOMPARE(NavigationState::fromVariant(open.toVariant(), tabs).panelId, id);
+        QCOMPARE(NavigationState::fromVariant(open.toVariant()).panelId, RailIds::Navigator);
+        // Deleted while showing: the Navigator shows.
+        QCOMPARE(forgetPanel(open, id).panelId, RailIds::Navigator);
+        QCOMPARE(forgetPanel(open, QStringLiteral("navigation.custom.9")).panelId, id);
+    }
+
+    void storeKeepsCustomTabs()
+    {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath(QStringLiteral("shell.ini")), QSettings::IniFormat);
+        QString id;
+        {
+            ShellStore store(&settings);
+            QSignalSpy rail(&store, &ShellStore::railItemsChanged);
+            store.returnToWorkspace();
+            id = store.addRailTab(QStringLiteral("Research"));
+            QCOMPARE(rail.count(), 1);
+            QCOMPARE(store.panelId(), id);
+            QVERIFY(store.panelShown());
+            QVERIFY(store.panelIds().contains(id));
+            QVERIFY(store.panelIds().contains(RailIds::Navigator));
+            QVERIFY(!store.panelIds().contains(RailIds::Home));
+            QVERIFY(store.renameRailTab(id, QStringLiteral("Reading")));
+            QVERIFY(!store.renameRailTab(id, QStringLiteral("  ")));
+            QVERIFY(!store.renameRailTab(RailIds::Navigator, QStringLiteral("Mine")));
+            QVERIFY(!store.removeRailTab(RailIds::Navigator));
+        }
+        {
+            ShellStore store(&settings);
+            QCOMPARE(store.railItem(id).value(QStringLiteral("label")).toString(), QStringLiteral("Reading"));
+            // The panel comes back per project, as the shell restores it.
+            store.restorePanel(id, true);
+            QCOMPARE(store.panelId(), id);
+            QVERIFY(store.removeRailTab(id));
+            QCOMPARE(store.panelId(), RailIds::Navigator);
+            QVERIFY(!store.panelIds().contains(id));
+        }
+        ShellStore reopened(&settings);
+        QVERIFY(reopened.railItem(id).isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(CoreShellTest)

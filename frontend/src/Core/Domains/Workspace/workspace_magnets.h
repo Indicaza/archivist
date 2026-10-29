@@ -64,15 +64,21 @@ struct DockZones
     double edgeShare = 0.18;  // of the panel's width or height...
     double edgeMinimum = 32;  // ...but never thinner than this
     double edgeMaximum = 72;  // ...or thicker than this
+    // Once a zone is chosen it holds until the pointer is this far beyond
+    // it, so two zones that meet never flicker between each other.
+    double hold = 14;
 };
 
+// `held` is the zone already chosen (aimed at or previewed), if any: it
+// stays chosen while the pointer is within `hold` of it.
 [[nodiscard]] DropTarget dockTargetAt(
     const WorkspaceModel &model,
     const QString &surfaceId,
     const QPointF &point,
     const QSizeF &surfaceSize,
     const LayoutMetrics &metrics,
-    const DockZones &zones = {}
+    const DockZones &zones = {},
+    const DropTarget &held = {}
 );
 
 // Whether `source` can float as a panel inside the main window (judged on a
@@ -97,6 +103,7 @@ struct Place
     // The anchor was alone in a floating window: going back reopens one.
     bool aloneInFloatingWindow = false;
     bool inMainWindow = false; // that floating surface was a panel in the main window
+    QString sidebarSlot;       // ...or docked in the sidebar
     QRectF windowGeometry;
     QString screenName;
 
@@ -112,6 +119,7 @@ struct ReturnPlan
     DropTarget target;
     bool detach = false;
     bool inMainWindow = false;
+    QString sidebarSlot; // detach into this sidebar slot
     QRectF geometry;
     QString screenName;
 };

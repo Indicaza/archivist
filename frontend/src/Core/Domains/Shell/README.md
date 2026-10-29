@@ -34,7 +34,17 @@ AI's UI guidance refer to these, never to positions.
 
 The side panel's state is still saved per project under
 `workspace/collections/<id>/shell/activeViewIndex`, so the old index is kept
-for reading it back.
+for reading it back. The panel's id is saved beside it (`.../shell/panelId`)
+and wins when it names a tab that exists.
+
+### A person's own tabs
+
+`+` under the rail adds a tab (`ShellStore::addRailTab`), with the id
+`navigation.custom.<n>`; numbers are never reused, so whatever was docked in
+a deleted tab can't turn up in a new one. Right-click renames or deletes it.
+They are saved once for the app, as JSON under `shell/customTabs`. Every tab
+but the Navigator is a spot that tabs and panels dock into; what is docked
+there belongs to the docking workspace (see Workspace, "The sidebar").
 
 A click (`activate`):
 

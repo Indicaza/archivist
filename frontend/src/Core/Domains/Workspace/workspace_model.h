@@ -169,6 +169,11 @@ public:
 
     OpResult setSurfaceGeometry(QString surfaceId, const QRectF &geometry, QString screenName, bool userPlaced = true);
     OpResult setSurfaceWindowMaximized(QString surfaceId, bool maximized);
+    // Docks a floating surface into a sidebar slot (empty: out of the
+    // sidebar, as a floating panel). A slot holds one surface.
+    OpResult setSurfaceSidebarSlot(QString surfaceId, QString slot);
+    // The surface docked in a sidebar slot, if any.
+    [[nodiscard]] QString surfaceInSidebarSlot(const QString &slot) const;
     // Closes a floating window. Its views move into the primary surface's
     // target anchor; nothing is closed. The primary surface cannot close.
     OpResult closeSurface(QString surfaceId);
@@ -249,7 +254,8 @@ private:
     void removeViewFromAnchor(const QString &viewId);
     void insertViewIntoAnchor(const QString &viewId, const QString &anchorId, int index, bool activate);
     QString createSurface(const QRectF &geometry, const QString &screenName, bool inMainWindow = false);
-    // Moves a floating surface that a drag or return re-creates as itself.
+    // Moves a floating surface that a drag or return re-creates as itself
+    // (it leaves the sidebar if it was there).
     void placeSurface(const QString &surfaceId, const QRectF &geometry, const QString &screenName, bool inMainWindow);
     void dropSurfaceIfEmpty(const QString &surfaceId);
     void ensurePrimaryHasAnchor();

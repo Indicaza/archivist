@@ -18,6 +18,7 @@ Item {
     readonly property alias overlay: overlay
     property bool resizingSplit: false
     property bool resizingSurface: false
+    property bool coalesceResize: false
     readonly property bool animateLayout: !theme.reducedMotion && !resizingSplit && !resizingSurface
     // New panels ease in once the workspace is up (see DockAnchor).
     readonly property bool animateArrivals: animateLayout && root.workspace.startupSettled === true
@@ -52,6 +53,10 @@ Item {
     function moveDrag(globalPoint) { workspace.moveDrag(globalPoint) }
     function endDrag() { workspace.endDrag() }
     function cancelDrag() { workspace.cancelDrag() }
+    // The dragged item lost the pointer: the workspace carries the drag on.
+    function sourceLost() { workspace.sourceLost() }
+    readonly property string liftedAnchorId: workspace.liftedAnchorId || ""
+    readonly property string liftedViewId: workspace.liftedViewId || ""
     function detachView(viewId) { workspace.detachView(viewId, root) }
     function detachAnchor(anchorId) { workspace.detachAnchor(anchorId, root) }
     function floatView(viewId) { workspace.floatView(viewId) }
@@ -65,10 +70,16 @@ Item {
     function notePointerFocus() { workspace.notePointerFocus() }
     readonly property bool keyboardFocusVisible: workspace.keyboardFocusVisible
     readonly property bool isFloating: surfaceId.length > 0 && surfaceId !== Docking.primarySurfaceId
-    // A floating panel inside the main window (not a window of its own).
+    // Docked in the sidebar (a tab of its own, or the bottom).
+    readonly property bool isInSidebar: {
+        Docking.revision
+        return isFloating && String(Docking.surface(surfaceId).sidebarSlot || "").length > 0
+    }
+    // Inside the main window (not a window of its own): a floating panel,
+    // or something docked in the sidebar.
     readonly property bool isPanel: {
         Docking.revision
-        return isFloating && Docking.surface(surfaceId).inMainWindow === true
+        return isFloating && (Docking.surface(surfaceId).inMainWindow === true || isInSidebar)
     }
 
     function containsGlobal(point) {
@@ -79,11 +90,28 @@ Item {
         return local.x >= 0 && local.y >= 0 && local.x <= width && local.y <= height
     }
 
+    function flushResize() {
+        resizePublish.stop()
+        if (root.surfaceId.length > 0) {
+            Docking.setSurfaceSize(root.surfaceId, root.width, root.height)
+        }
+    }
+
     function noteResize() {
         root.resizingSurface = true
         resizeSettle.restart()
-        if (root.surfaceId.length > 0) {
-            Docking.setSurfaceSize(root.surfaceId, width, height)
+        if (root.coalesceResize) {
+            if (!resizePublish.running) {
+                resizePublish.start()
+            }
+        } else {
+            root.flushResize()
+        }
+    }
+
+    onCoalesceResizeChanged: {
+        if (!root.coalesceResize && resizePublish.running) {
+            root.flushResize()
         }
     }
 
@@ -98,6 +126,13 @@ Item {
         })
     }
     Component.onDestruction: workspace.unregisterSurfaceArea(surfaceId, root)
+
+    Timer {
+        id: resizePublish
+        interval: 48
+        repeat: false
+        onTriggered: root.flushResize()
+    }
 
     Timer {
         id: resizeSettle

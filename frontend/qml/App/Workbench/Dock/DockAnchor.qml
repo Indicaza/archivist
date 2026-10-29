@@ -99,18 +99,44 @@ Item {
     width: Math.max(0, rectWidth)
     height: Math.max(0, rectHeight)
     visible: !isHidden && width > 1 && height > 1
-    opacity: (isVacating ? 0 : isDragSource ? 0.45 : 1) * arrival
+    // Carried as a picture: lifted out of its place (see DockWorkspace).
+    readonly property bool lifted: root.workspace.liftedAnchorId === root.anchorId
+    opacity: (isVacating || lifted ? 0 : isDragSource ? 0.45 : 1) * arrival
 
     // A panel that appears in a running workspace eases in (fade and a
     // slight settle) instead of popping; with reduced motion it just appears.
     property real arrival: 1
     property bool arriving: false
     property int arrivalDelay: 0
+    // Something just docked here: a small swell and settle (a transform
+    // only, so nothing inside it lays out again).
+    property real nudge: 0
     transform: Scale {
         origin.x: root.width / 2
         origin.y: root.height / 2
-        xScale: 0.985 + 0.015 * root.arrival
-        yScale: 0.985 + 0.015 * root.arrival
+        xScale: 0.985 + 0.015 * root.arrival + root.nudge
+        yScale: 0.985 + 0.015 * root.arrival + root.nudge
+    }
+    function receive(delay) {
+        receiveAnimation.stop()
+        root.nudge = 0
+        if (root.theme.reducedMotion) {
+            return
+        }
+        receivePause.duration = Math.max(0, delay || 0)
+        receiveAnimation.start()
+    }
+    SequentialAnimation {
+        id: receiveAnimation
+        PauseAnimation { id: receivePause; duration: 0 }
+        NumberAnimation {
+            target: root; property: "nudge"; to: root.theme.magnetReceiveNudge
+            duration: Math.round(root.theme.magnetReceiveDuration * 0.35); easing.type: Easing.OutQuad
+        }
+        NumberAnimation {
+            target: root; property: "nudge"; to: 0
+            duration: Math.round(root.theme.magnetReceiveDuration * 0.65); easing.type: Easing.OutBack
+        }
     }
     SequentialAnimation {
         id: arrivalAnimation
@@ -119,10 +145,10 @@ Item {
         ScriptAction { script: root.arriving = false }
     }
 
-    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
+    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
     Behavior on opacity { enabled: !root.arriving; NumberAnimation { duration: root.theme.motionFast } }
 
     Component.onCompleted: {
@@ -147,7 +173,7 @@ Item {
         if (root.switchable) {
             return -1
         }
-        var x = localX - tabRow.x + tabFlick.contentX
+        var x = tabRow.mapFromItem(root, localX, root.headerHeight / 2).x
         for (var index = 0; index < tabRepeater.count; index += 1) {
             var tab = tabRepeater.itemAt(index)
             if (tab && x < tab.x + tab.width / 2) {
@@ -210,7 +236,8 @@ Item {
             readonly property real nameRoom: Math.max(36, root.width * (root.compactHeader ? 0.38 : 0.3))
 
             x: 3
-            width: labelRow.implicitWidth + 8
+            // A handle worth grabbing, however short the name.
+            width: Math.max(labelRow.implicitWidth + 14, root.compactHeader ? 64 : 92)
             height: parent.height
             Accessible.role: Accessible.Button
             Accessible.name: "Panel " + root.displayName
@@ -218,8 +245,8 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                anchors.topMargin: 4
-                anchors.bottomMargin: 4
+                anchors.topMargin: 3
+                anchors.bottomMargin: 3
                 radius: root.theme.radiusSmall
                 color: labelArea.pressed || panelMenu.visible ? root.theme.activeBg
                     : labelArea.containsMouse ? root.theme.hoverBg : "transparent"
@@ -230,25 +257,25 @@ Item {
             Row {
                 id: labelRow
 
-                x: 4
+                x: 7
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 6
+                spacing: 7
                 opacity: root.renaming ? 0 : 1
 
                 // Grip dots: the panel's handle.
                 Grid {
                     anchors.verticalCenter: parent.verticalCenter
                     columns: 2
-                    rowSpacing: 2
-                    columnSpacing: 2
-                    opacity: root.layoutLocked ? 0.25 : label.active ? 0.9 : root.isFocused ? 0.55 : 0.35
+                    rowSpacing: 2.5
+                    columnSpacing: 2.5
+                    opacity: root.layoutLocked ? 0.25 : label.active ? 0.95 : root.isFocused ? 0.65 : 0.45
 
                     Repeater {
                         model: 6
                         Rectangle {
-                            width: 2.5
-                            height: 2.5
-                            radius: 1.25
+                            width: 3.5
+                            height: 3.5
+                            radius: 1.75
                             color: label.active && !root.layoutLocked ? root.theme.accentBright : root.theme.mutedText
                         }
                     }
@@ -313,7 +340,8 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
-                cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                preventStealing: dragging
                 ToolTip.visible: containsMouse && !pressed && !panelMenu.visible && !root.renaming
                 ToolTip.delay: 700
                 ToolTip.text: (root.lockSummary.length > 0 ? root.lockSummary + "\n" : "")
@@ -354,7 +382,7 @@ Item {
                 }
                 onCanceled: {
                     if (dragging) {
-                        root.workspace.cancelDrag()
+                        root.workspace.sourceLost()
                     }
                     dragging = false
                 }
@@ -449,6 +477,7 @@ Item {
                 z: -1
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 cursorShape: dragging ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                preventStealing: dragging
                 onPressed: function(mouse) {
                     root.workspace.notePointerFocus()
                     Docking.focusAnchor(root.anchorId)
@@ -478,7 +507,7 @@ Item {
                 }
                 onCanceled: {
                     if (dragging) {
-                        root.workspace.cancelDrag()
+                        root.workspace.sourceLost()
                     }
                     dragging = false
                 }
@@ -513,6 +542,8 @@ Item {
                         active: modelData === root.activeViewId
                         anchorFocused: root.isFocused
                         height: tabRow.height
+                        // Tabs after the insertion point step aside.
+                        insertShift: insertMarker.shown && index >= Docking.dropTarget.index ? root.theme.magnetTabGap : 0
                     }
                 }
 
@@ -614,15 +645,16 @@ Item {
                 width: 2
                 height: parent.height - 8
                 y: 4
+                // In the middle of the gap the tabs open up.
                 x: !targetTab
                     ? 0
                     : Docking.dropTarget.index >= tabRepeater.count
-                        ? targetTab.x + targetTab.width - 1
-                        : targetTab.x - 1
+                        ? targetTab.x + targetTab.width + root.theme.magnetTabGap / 2 - 1
+                        : targetTab.x + root.theme.magnetTabGap / 2 - 1
                 color: root.theme.accentBright
                 radius: 1
 
-                Behavior on x { enabled: root.workspace.animateLayout; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                Behavior on x { enabled: !root.theme.reducedMotion; SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 } }
             }
         }
 
@@ -846,7 +878,7 @@ Item {
                 objectName: "magnet.floatAnchor"
                 theme: root.theme
                 text: "Float Panel"
-                visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.anchorCount > 1)
+                visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1)
                 enabled: !root.layoutLocked
                 onTriggered: root.workspace.floatAnchor(root.anchorId)
             }
@@ -950,6 +982,8 @@ Item {
         height: Math.max(0, parent.height - root.headerHeight - 1)
         active: root.editorHostWanted
         visible: root.activeTypeId === "archivist.editor"
+        // Its tab is carried away: the editor isn't drawn here meanwhile.
+        opacity: root.workspace.liftedViewId.length > 0 && root.workspace.liftedViewId === root.activeViewId ? 0 : 1
 
         sourceComponent: DockEditorHost {
             theme: root.theme

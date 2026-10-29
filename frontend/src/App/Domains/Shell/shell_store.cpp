@@ -9,6 +9,7 @@ namespace
 const QString DestinationKey = QStringLiteral("shell/destination");
 const QString RecentsKey = QStringLiteral("shell/recents");
 const QString HomeDraftKey = QStringLiteral("shell/homeDraft");
+const QString CustomTabsKey = QStringLiteral("shell/customTabs");
 
 QVariantList readJsonList(const QVariant &stored)
 {
@@ -29,7 +30,8 @@ ShellStore::ShellStore(QSettings *settings, QObject *parent)
     // First launch (nothing saved) starts on Home.
     Shell::NavigationState saved;
     saved.destination = m_settings->value(DestinationKey, Shell::Destinations::Home).toString();
-    m_state = Shell::NavigationState::fromVariant(saved.toVariant());
+    m_customTabs = Shell::customTabsFromVariant(readJsonList(m_settings->value(CustomTabsKey)));
+    m_state = Shell::NavigationState::fromVariant(saved.toVariant(), m_customTabs);
     m_recents = Shell::RecentItems::fromVariant(readJsonList(m_settings->value(RecentsKey)));
     m_homeDraft = m_settings->value(HomeDraftKey).toString();
 }
@@ -52,7 +54,7 @@ void ShellStore::setHomeDraft(const QString &draft)
 
 void ShellStore::activate(const QString &railId)
 {
-    apply(Shell::activate(m_state, railId));
+    apply(Shell::activate(m_state, railId, m_customTabs));
 }
 
 void ShellStore::goHome()
@@ -72,7 +74,7 @@ void ShellStore::toggleHome()
 
 void ShellStore::showPanel(const QString &panelId)
 {
-    apply(Shell::showPanel(m_state, panelId));
+    apply(Shell::showPanel(m_state, panelId, m_customTabs));
 }
 
 void ShellStore::setPanelOpen(bool open)
@@ -84,7 +86,7 @@ void ShellStore::setPanelOpen(bool open)
 
 void ShellStore::restorePanel(const QString &panelId, bool open)
 {
-    apply(Shell::restorePanel(m_state, panelId, open));
+    apply(Shell::restorePanel(m_state, panelId, open, m_customTabs));
 }
 
 void ShellStore::restorePanelIndex(int legacyIndex, bool open)
@@ -94,8 +96,64 @@ void ShellStore::restorePanelIndex(int legacyIndex, bool open)
 
 QVariantMap ShellStore::railItem(const QString &railId) const
 {
-    const Shell::RailItem *item = Shell::railItem(railId);
+    const Shell::RailItem *item = Shell::railItem(railId, m_customTabs);
     return item ? item->toVariant() : QVariantMap{};
+}
+
+QStringList ShellStore::panelIds() const
+{
+    QStringList ids;
+    for (const Shell::RailItem &item : Shell::railItemsWith(m_customTabs)) {
+        if (item.isPanel()) {
+            ids.append(item.id);
+        }
+    }
+    return ids;
+}
+
+QString ShellStore::addRailTab(const QString &label)
+{
+    QString id;
+    m_customTabs = Shell::addCustomTab(m_customTabs, label, &id);
+    saveCustomTabs();
+    emit railItemsChanged();
+    apply(Shell::showPanel(m_state, id, m_customTabs));
+    return id;
+}
+
+bool ShellStore::removeRailTab(const QString &railId)
+{
+    if (!Shell::railItem(railId, m_customTabs) || !Shell::isCustomRailId(railId)) {
+        return false;
+    }
+    m_customTabs = Shell::removeCustomTab(m_customTabs, railId);
+    saveCustomTabs();
+    apply(Shell::forgetPanel(m_state, railId));
+    emit railItemsChanged();
+    return true;
+}
+
+bool ShellStore::renameRailTab(const QString &railId, const QString &label)
+{
+    if (!Shell::isCustomRailId(railId) || label.trimmed().isEmpty() || !Shell::railItem(railId, m_customTabs)) {
+        return false;
+    }
+    m_customTabs = Shell::renameCustomTab(m_customTabs, railId, label);
+    saveCustomTabs();
+    emit railItemsChanged();
+    return true;
+}
+
+void ShellStore::saveCustomTabs()
+{
+    if (m_customTabs.isEmpty()) {
+        m_settings->remove(CustomTabsKey);
+        return;
+    }
+    m_settings->setValue(
+        CustomTabsKey,
+        QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(Shell::customTabsToVariant(m_customTabs))).toJson(QJsonDocument::Compact))
+    );
 }
 
 bool ShellStore::noteRecent(const QVariantMap &input)

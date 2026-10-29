@@ -602,13 +602,14 @@ private slots:
             QVERIFY(store.redo());
             QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
 
-            // Dragged again into open space: the same panel moves.
+            // Dragged again into open space: the same panel moves, and it
+            // may hang partly off the window's left side.
             QVERIFY(store.beginDrag(QStringLiteral("view"), b));
-            store.updateDragFloat(100, 60, 420, 300);
+            store.updateDragFloat(-150, 60, 420, 300);
             store.updateDrag(surface, 300, 200);
             QVERIFY(store.finishDrag());
             QCOMPARE(store.panelSurfaceIds(), QStringList{panel});
-            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+            QCOMPARE(store.surface(panel).value("x").toDouble(), -150.0);
 
             // Many at once.
             for (int index = 0; index < 10; index += 1) {
@@ -632,8 +633,370 @@ private slots:
             QVERIFY(store.floatingSurfaceIds().isEmpty());
             QCOMPARE(store.view(b).value("surfaceId").toString(), panel);
             QVERIFY(!store.recoverSurfaces().contains(panel));
-            QCOMPARE(store.surface(panel).value("x").toDouble(), 100.0);
+            QCOMPARE(store.surface(panel).value("x").toDouble(), -150.0);
         }
+    }
+
+    void floatingPanelGeometryUpdatesBindings()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("floating-geometry-notify"));
+        const QString main = store.primarySurfaceId();
+        store.setSurfaceSize(main, 1200, 800);
+        const QString view = store.openView(QStringLiteral("archivist.editor"), documentResource("resize.cpp"), "resize");
+        QVERIFY(store.beginDrag(QStringLiteral("view"), view));
+        store.updateDragFloat(120, 90, 440, 300);
+        QVERIFY(store.finishDrag());
+
+        QCOMPARE(store.panelSurfaceIds().size(), 1);
+        const QString panel = store.panelSurfaceIds().first();
+        QSignalSpy revised(&store, &WorkspaceStore::revisionChanged);
+        QSignalSpy recreated(&store, &WorkspaceStore::surfacesChanged);
+        const int before = store.revision();
+
+        QVERIFY(store.setSurfaceGeometry(panel, 170, 130, 690, 470, {}, false));
+        QCOMPARE(store.surface(panel).value("width").toDouble(), 690.0);
+        QCOMPARE(store.surface(panel).value("height").toDouble(), 470.0);
+        QCOMPARE(store.revision(), before + 1);
+        QCOMPARE(revised.count(), 1);
+        QCOMPARE(recreated.count(), 0);
+
+        QVERIFY(store.setSurfaceGeometry(panel, 170, 130, 690, 470, {}, false));
+        QCOMPARE(store.revision(), before + 1);
+        QCOMPARE(revised.count(), 1);
+    }
+
+    // A tab or panel dropped on a sidebar tab (or its bottom) docks there:
+    // one surface per spot, one undo step, kept across a restart. When the
+    // tab is deleted, what was in it floats instead of disappearing.
+    void sidebarSlotsHoldPanels()
+    {
+        const QString tab = QStringLiteral("navigation.custom.1");
+        const QString bottom = QStringLiteral("sidebar.bottom");
+        QString b;
+        QString c;
+        QString inTab;
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("sidebar-slots"));
+            store.setSidebarSlots({QStringLiteral("navigation.archive"), tab});
+            const QString surface = store.primarySurfaceId();
+            store.setSurfaceSize(surface, 1000, 600);
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+            b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+            c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+            const int revision = store.model().revision();
+
+            QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+            store.updateDragFloat(300, 200, 420, 300);
+            store.updateDrag(surface, 500, 300);
+            QVERIFY(store.dropFloats());
+            store.updateDragOverSlot(tab);
+            QVariantMap state = store.dragState();
+            QCOMPARE(state.value("slot").toString(), tab);
+            QCOMPARE(state.value("phase").toString(), QStringLiteral("preview"));
+            QVERIFY(store.dropAllowed());
+            QVERIFY(!store.dropFloats());
+            QCOMPARE(store.model().revision(), revision);
+
+            QVERIFY(store.finishDrag());
+            inTab = store.sidebarSurface(tab);
+            QVERIFY(!inTab.isEmpty());
+            QCOMPARE(store.view(b).value("surfaceId").toString(), inTab);
+            QCOMPARE(store.surface(inTab).value("sidebarSlot").toString(), tab);
+            QVERIFY(store.sidebarSurfaceIds().contains(inTab));
+            QVERIFY(store.panelSurfaceIds().isEmpty());
+            QVERIFY(store.floatingSurfaceIds().isEmpty());
+            QCOMPARE(store.undoSummary(), QStringLiteral("Docked “b” in the sidebar"));
+
+            QVERIFY(store.undo());
+            QVERIFY(store.sidebarSurface(tab).isEmpty());
+            QCOMPARE(store.view(b).value("surfaceId").toString(), surface);
+            QVERIFY(store.redo());
+            QCOMPARE(store.sidebarSurface(tab), inTab);
+
+            // That spot is taken now.
+            QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+            store.updateDragOverSlot(tab);
+            QVERIFY(!store.dropAllowed());
+            QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("invalid"));
+            // The bottom is free.
+            store.updateDragOverSlot(bottom);
+            QVERIFY(store.dropAllowed());
+            QVERIFY(store.finishDrag());
+            const QString inBottom = store.sidebarSurface(bottom);
+            QVERIFY(!inBottom.isEmpty());
+            QCOMPARE(store.view(c).value("surfaceId").toString(), inBottom);
+
+            // Out of the sidebar into open space: it floats, the spot frees.
+            QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+            store.updateDragFloat(200, 120, 420, 300);
+            store.updateDrag(surface, 500, 300);
+            QVERIFY(store.finishDrag());
+            QVERIFY(store.sidebarSurface(bottom).isEmpty());
+            QCOMPARE(store.panelSurfaceIds().size(), 1);
+            QCOMPARE(store.view(c).value("surfaceId").toString(), store.panelSurfaceIds().first());
+
+            // Return puts it back in the sidebar.
+            QVERIFY(store.returnToPrevious(QStringLiteral("view"), c).value("ok").toBool());
+            QCOMPARE(store.view(c).value("surfaceId").toString(), store.sidebarSurface(bottom));
+            store.saveNow();
+        }
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("sidebar-slots"));
+            QCOMPARE(store.sidebarSurface(tab), inTab);
+            QCOMPARE(store.view(b).value("surfaceId").toString(), inTab);
+            QVERIFY(!store.sidebarSurface(bottom).isEmpty());
+
+            // The tab is deleted: its panel floats, nothing is closed.
+            store.setSidebarSlots({QStringLiteral("navigation.archive")});
+            QVERIFY(store.sidebarSurface(tab).isEmpty());
+            QCOMPARE(store.panelSurfaceIds(), QStringList{inTab});
+            QCOMPARE(store.view(b).value("surfaceId").toString(), inTab);
+            QVERIFY(!store.sidebarSurface(bottom).isEmpty());
+        }
+    }
+
+    // The odd cases around sidebar spots: a magnet over its own spot, locks,
+    // cancelling, a tab deleted mid-drag, the spot's height, closing it.
+    void sidebarSlotEdgeCases()
+    {
+        const QString tab = QStringLiteral("navigation.custom.1");
+        const QString other = QStringLiteral("navigation.custom.2");
+        const QString bottom = QStringLiteral("sidebar.bottom");
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("sidebar-edges"));
+        store.setSidebarSlots({tab, other});
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+
+        // Cancelled over a spot: nothing changes, nothing to undo.
+        const int revision = store.model().revision();
+        const QString undoBefore = store.undoSummary();
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverSlot(tab);
+        QVERIFY(store.dropAllowed());
+        store.cancelDrag();
+        QCOMPARE(store.model().revision(), revision);
+        QCOMPARE(store.undoSummary(), undoBefore);
+        QVERIFY(store.sidebarSurface(tab).isEmpty());
+        QVERIFY(store.dragState().value("slot").toString().isEmpty());
+
+        // Over a spot, then open space: it floats again, the spot lets go.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragFloat(300, 200, 420, 300);
+        store.updateDragOverSlot(tab);
+        QVERIFY(!store.dropFloats());
+        store.updateDrag(surface, 500, 300);
+        QVERIFY(store.dropFloats());
+        QVERIFY(store.dragState().value("slot").toString().isEmpty());
+        // ...and back over the spot, then a tab strip: it docks in the strip.
+        store.updateDragOverSlot(tab);
+        store.updateDragOverTabs(surface, first, 0);
+        QVERIFY(store.dragState().value("slot").toString().isEmpty());
+        store.cancelDrag();
+
+        // Docked; dragged over its own spot it can't go "there" again, and
+        // it says so plainly.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverSlot(tab);
+        QVERIFY(store.finishDrag());
+        const QString inTab = store.sidebarSurface(tab);
+        QVERIFY(!inTab.isEmpty());
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverSlot(tab);
+        QVERIFY(!store.dropAllowed());
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("invalid"));
+        QCOMPARE(store.dropRefusal(), QStringLiteral("It's already there."));
+        store.cancelDrag();
+
+        // Alone in its spot, it moves to another spot: the same surface goes.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverSlot(other);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(store.sidebarSurface(other), inTab);
+        QVERIFY(store.sidebarSurface(tab).isEmpty());
+
+        // A whole panel docks too; a locked one can't leave its place.
+        QVERIFY(store.setAnchorLayoutLocked(first, true));
+        if (store.beginDrag(QStringLiteral("anchor"), first)) {
+            store.updateDragOverSlot(tab);
+            QVERIFY(!store.dropAllowed());
+            QVERIFY(!store.dropRefusal().isEmpty());
+            store.finishDrag();
+        }
+        QVERIFY(store.sidebarSurface(tab).isEmpty());
+        QCOMPARE(store.view(c).value("anchorId").toString(), first);
+        QVERIFY(store.setAnchorLayoutLocked(first, false));
+
+        // The tab is deleted while the drag is over it: the drop floats
+        // instead of docking into a spot that is gone.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+        store.updateDragFloat(260, 160, 420, 300);
+        store.updateDragOverSlot(tab);
+        store.setSidebarSlots({other});
+        QVERIFY(store.dragState().value("slot").toString().isEmpty());
+        QVERIFY(store.finishDrag());
+        QVERIFY(store.sidebarSurface(tab).isEmpty());
+        QCOMPARE(store.panelSurfaceIds().size(), 1);
+        QCOMPARE(store.view(c).value("surfaceId").toString(), store.panelSurfaceIds().first());
+
+        // The bottom spot keeps the height it is given, and stays a spot.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), a));
+        store.updateDragOverSlot(bottom);
+        QVERIFY(store.finishDrag());
+        const QString inBottom = store.sidebarSurface(bottom);
+        QVERIFY(store.setSurfaceGeometry(inBottom, 0, 0, 280, 330, QString(), false));
+        QCOMPARE(store.surface(inBottom).value("height").toDouble(), 330.0);
+        QCOMPARE(store.surface(inBottom).value("sidebarSlot").toString(), bottom);
+        QVERIFY(!store.surface(inBottom).value("inMainWindow").toBool());
+        QVERIFY(store.panelSurfaceIds().size() == 1);
+
+        // Closing a spot's surface sends its tabs back to the main layout.
+        QVERIFY(store.closeSurface(inBottom));
+        QVERIFY(store.sidebarSurface(bottom).isEmpty());
+        QCOMPARE(store.view(a).value("surfaceId").toString(), surface);
+
+        // Nothing was ever closed or copied along the way.
+        for (const QString &view : {a, b, c}) {
+            QVERIFY(!store.view(view).value("viewId").toString().isEmpty());
+        }
+        QCOMPARE(store.model().viewIds().size(), qsizetype(3));
+    }
+
+    // A drag must never leave anything behind: one drag at a time, no
+    // second finish, no late timer after a cancel, and a source closed
+    // mid-drag is refused, not crashed on. Layouts leave the sidebar alone.
+    void dragsLeaveNothingBehind()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("drag-edges"));
+        store.setSidebarSlots({QStringLiteral("navigation.custom.1")});
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+
+        // One at a time.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        QVERIFY(!store.beginDrag(QStringLiteral("view"), c));
+        store.cancelDrag();
+        QVERIFY(!store.finishDrag());
+        QVERIFY(!store.dragActive());
+
+        // Cancelled while aiming: the dwell never fires later.
+        const int revision = store.model().revision();
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDrag(surface, 960, 300);
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("aiming"));
+        store.cancelDrag();
+        QTest::qWait(500);
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("idle"));
+        QVERIFY(!store.dragActive());
+        QCOMPARE(store.model().revision(), revision);
+
+        // The source is closed while it is being carried: the drop is
+        // refused and nothing else moves.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), c));
+        store.updateDragOverSlot(QStringLiteral("navigation.custom.1"));
+        store.closeView(c, true);
+        QSignalSpy finished(&store, &WorkspaceStore::dragFinished);
+        store.finishDrag();
+        QVERIFY(store.sidebarSurface(QStringLiteral("navigation.custom.1")).isEmpty());
+        QVERIFY(store.view(c).isEmpty());
+        QVERIFY(!store.dragActive());
+        if (!finished.isEmpty()) {
+            QVERIFY(finished.first().at(0).toString() != QStringLiteral("committed"));
+        }
+
+        // Something in the sidebar stays there when a layout is applied.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragOverSlot(QStringLiteral("navigation.custom.1"));
+        QVERIFY(store.finishDrag());
+        const QString docked = store.sidebarSurface(QStringLiteral("navigation.custom.1"));
+        QVERIFY(!docked.isEmpty());
+        QVERIFY(store.applyPreset(QStringLiteral("development")));
+        QVERIFY(!store.view(b).isEmpty());
+        QVERIFY(!store.view(a).isEmpty());
+        QCOMPARE(store.sidebarSurface(QStringLiteral("navigation.custom.1")), docked);
+        QCOMPARE(store.view(b).value("surfaceId").toString(), docked);
+    }
+
+    // Pointer jitter where two zones meet keeps one preview; hundreds of
+    // moves over every kind of target commit nothing and record nothing;
+    // only the release does, once.
+    void previewsHoldSteadyAndNeverCommit()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("steady"));
+        store.setDockDwellMs(0);
+        store.setSidebarSlots({QStringLiteral("navigation.custom.1")});
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        KeyedListModel *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b");
+        const QString c = store.openView(QStringLiteral("archivist.editor"), documentResource("c.cpp"), "c");
+        const QString first = anchors->get(0).value("anchorId").toString();
+        QVERIFY(!store.splitView(c, first, QStringLiteral("right")).isEmpty());
+        const QString summary = store.undoSummary();
+        const int revision = store.model().revision();
+        const int views = int(store.model().viewIds().size());
+
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDragFloat(200, 120, 400, 300);
+        // Into the left panel's right band, then jitter around the border
+        // between the two panels: one target, one preview.
+        store.updateDrag(surface, 480, 300);
+        const QVariantMap chosen = store.dragState().value("target").toMap();
+        QVERIFY(!chosen.isEmpty());
+        const int serial = store.dragState().value("previewSerial").toInt();
+        for (int step = 0; step < 40; step += 1) {
+            store.updateDrag(surface, 494 + (step % 2 ? 6 : -4), 300 + step % 3);
+        }
+        QCOMPARE(store.dragState().value("target").toMap().value("anchorId"), chosen.value("anchorId"));
+        QCOMPARE(store.dragState().value("target").toMap().value("edge"), chosen.value("edge"));
+        QCOMPARE(store.dragState().value("previewSerial").toInt(), serial);
+
+        // Everywhere at once, fast.
+        for (int step = 0; step < 300; step += 1) {
+            const int kind = step % 5;
+            if (kind == 0) {
+                store.updateDrag(surface, (step * 37) % 1000, (step * 53) % 600);
+            } else if (kind == 1) {
+                store.updateDragOverTabs(surface, first, step % 3);
+            } else if (kind == 2) {
+                store.updateDragOverSlot(QStringLiteral("navigation.custom.1"));
+            } else if (kind == 3) {
+                store.updateDrag(QString(), 0, 0);
+            } else {
+                store.updateDrag(surface, 990, (step * 7) % 600);
+            }
+            QCOMPARE(store.model().revision(), revision);
+        }
+        QCOMPARE(store.undoSummary(), summary);
+        store.cancelDrag();
+        QCOMPARE(store.model().revision(), revision);
+        QCOMPARE(store.undoSummary(), summary);
+        QCOMPARE(int(store.model().viewIds().size()), views);
+
+        // Then a real drop: exactly one step, and Undo puts it all back.
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.updateDrag(surface, 990, 300);
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QVERIFY(store.undoSummary() != summary);
+        QVERIFY(store.undo());
+        QCOMPARE(store.undoSummary(), summary);
+        QCOMPARE(store.view(b).value("anchorId").toString(), first);
     }
 
     // The tab and panel menus float without a drag, one undo step each.

@@ -330,6 +330,11 @@ Rectangle {
             workspaceStateKey(workspaceScopeId, "activeViewIndex"),
             activeViewIndex
         )
+        // By id too: the person's own tabs have no index.
+        WorkspaceState.setValue(
+            workspaceStateKey(workspaceScopeId, "panelId"),
+            Shell.panelId
+        )
         WorkspaceState.setValue(
             workspaceStateKey(workspaceScopeId, "explorerOpen"),
             explorerOpen
@@ -410,6 +415,10 @@ Rectangle {
                 )
             )
         )
+        var savedPanelId = String(WorkspaceState.value(workspaceStateKey(targetScopeId, "panelId"), "") || "")
+        if (savedPanelId.length > 0 && Shell.panelIds.indexOf(savedPanelId) >= 0) {
+            Shell.restorePanel(savedPanelId, Shell.panelOpen)
+        }
         explorerWidth = Number(
             readStateValue(
                 "explorerWidth",
@@ -533,6 +542,14 @@ Rectangle {
     }
 
     onActiveViewIndexChanged: scheduleWorkspaceStateSave()
+
+    Connections {
+        target: Shell
+
+        function onNavigationChanged() {
+            root.scheduleWorkspaceStateSave()
+        }
+    }
     onExplorerOpenChanged: scheduleWorkspaceStateSave()
     onExplorerWidthChanged: scheduleWorkspaceStateSave()
     onChatModeChanged: reportCommandSurface()
@@ -1017,6 +1034,7 @@ Rectangle {
         opacity: root.explorerOpen ? 1 : 0
         theme: root.theme
         activeViewIndex: root.activeViewIndex
+        dockWorkspace: !root.legacyWorkspace && workspaceLoader.item && workspaceLoader.item.registerSlotZone ? workspaceLoader.item : null
         z: 15
         onCloseRequested: Shell.setPanelOpen(false)
 

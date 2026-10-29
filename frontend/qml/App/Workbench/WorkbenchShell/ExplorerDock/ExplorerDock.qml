@@ -7,12 +7,30 @@ import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "WorkspaceNavigator"
 import "WorktreeBar"
+import "../../Dock"
 
 Rectangle {
     id: root
 
     required property var theme
     required property int activeViewIndex
+    // The docking workspace, for what is docked in the sidebar (null while
+    // the old workspace is in use).
+    property var dockWorkspace: null
+
+    // Which tab shows. The Navigator is the file tree; every other tab
+    // (the built-in ones still to come, and the person's own) is a spot
+    // that tabs and panels dock into.
+    readonly property string panelId: String(Shell.panelId || "")
+    readonly property bool showsNavigator: panelId === "navigation.navigator"
+    readonly property var panelItem: {
+        Shell.railItems
+        return Shell.railItem(root.panelId)
+    }
+    readonly property bool customPanel: root.panelItem.custom === true
+    readonly property string panelTitle: root.customPanel
+        ? String(root.panelItem.label || "")
+        : root.viewTitles[root.activeViewIndex] || ""
 
     signal closeRequested()
 
@@ -2118,10 +2136,10 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.activeViewIndex === 0
+            Layout.preferredHeight: root.showsNavigator
                 ? 0
                 : root.theme.explorerHeaderHeight
-            visible: root.activeViewIndex !== 0
+            visible: !root.showsNavigator
             color: root.theme.controlSurfaceBg
 
             Rectangle {
@@ -2140,7 +2158,7 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.viewTitles[root.activeViewIndex]
+                    text: root.panelTitle
                     color: root.theme.mutedText
                     font.pixelSize: root.theme.typeSize(10)
                     font.weight: Font.Bold
@@ -2194,7 +2212,88 @@ Rectangle {
         Loader {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            sourceComponent: root.activeViewIndex === 0 ? libraryView : placeholderView
+            sourceComponent: root.showsNavigator ? libraryView : slotView
+        }
+
+        // The bottom of the sidebar: under every tab. Empty, it shows only
+        // while something is being dragged, as a place to drop it.
+        Item {
+            id: bottomDock
+
+            readonly property string slot: "sidebar.bottom"
+            readonly property string dockedId: {
+                Docking.revision
+                Docking.sidebarSurfaceIds
+                return Docking.sidebarSurface(bottomDock.slot)
+            }
+            readonly property bool filled: dockedId.length > 0
+            readonly property real storedHeight: {
+                Docking.revision
+                return filled ? Number(Docking.surface(dockedId).height || 260) : 0
+            }
+            property real liveHeight: -1
+            readonly property real maximumHeight: Math.max(120, root.height - 220)
+            readonly property real shownHeight: !root.dockWorkspace ? 0
+                : filled ? Math.max(120, Math.min(liveHeight >= 0 ? liveHeight : storedHeight, maximumHeight))
+                : Docking.dragActive ? 64
+                : 0
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: shownHeight
+            visible: shownHeight > 0
+            clip: true
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 1
+                color: root.theme.quietBorder
+            }
+
+            // Drag to make it taller or shorter.
+            MouseArea {
+                id: bottomResize
+
+                objectName: "sidebar.bottom.resize"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 6
+                z: 10
+                visible: bottomDock.filled
+                hoverEnabled: true
+                cursorShape: Qt.SizeVerCursor
+                preventStealing: true
+                property real pressY: 0
+                property real startHeight: 0
+
+                onPressed: function(mouse) {
+                    pressY = mapToItem(root, mouse.x, mouse.y).y
+                    startHeight = bottomDock.shownHeight
+                    bottomDock.liveHeight = startHeight
+                }
+                onPositionChanged: function(mouse) {
+                    if (pressed) {
+                        var now = mapToItem(root, mouse.x, mouse.y).y
+                        bottomDock.liveHeight = Math.max(120, Math.min(startHeight - (now - pressY), bottomDock.maximumHeight))
+                    }
+                }
+                onReleased: {
+                    Docking.setSurfaceGeometry(bottomDock.dockedId, 0, 0, bottomDock.width, Math.round(bottomDock.liveHeight), "", false)
+                    bottomDock.liveHeight = -1
+                }
+                onCanceled: bottomDock.liveHeight = -1
+            }
+
+            DockSidebarSlot {
+                anchors.fill: parent
+                anchors.topMargin: bottomDock.filled ? 1 : 0
+                theme: root.theme
+                workspace: root.dockWorkspace
+                slot: bottomDock.slot
+                compact: true
+            }
         }
 
         WorktreeBar {
@@ -2990,51 +3089,16 @@ Rectangle {
     }
 
     Component {
-        id: placeholderView
+        id: slotView
 
-        Item {
-            Column {
-                anchors.centerIn: parent
-                width: Math.max(140, parent.width - 30)
-                spacing: 10
-
-                Rectangle {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: 46
-                    height: 46
-                    radius: 13
-                    color: root.theme.accentSoft
-                    border.width: 1
-                    border.color: "#554a7b"
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: root.activeViewIndex === 1 ? "▤" : root.activeViewIndex === 2 ? "⌕" : root.activeViewIndex === 3 ? "◇" : "⚒"
-                        color: root.theme.accentBright
-                        font.pixelSize: root.theme.typeSize(20)
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    text: root.viewTitles[root.activeViewIndex]
-                    color: root.theme.appText
-                    font.pixelSize: root.theme.typeBody
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
-                }
-
-                Text {
-                    width: parent.width
-                    text: "This surface is structurally ready and will be connected after the native Workbench is proven."
-                    color: root.theme.mutedText
-                    font.pixelSize: root.theme.typeSize(10)
-                    lineHeight: root.theme.typeLineHeightCompact
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.Wrap
-                }
-            }
+        DockSidebarSlot {
+            theme: root.theme
+            workspace: root.dockWorkspace
+            slot: root.panelId
+            emptyTitle: root.panelTitle
+            emptyHint: root.customPanel
+                ? "Drag a tab or a panel here to keep it in this tab."
+                : "This tab's own tools aren't here yet. Meanwhile, drag a tab or a panel here to keep it in this tab."
         }
     }
 }

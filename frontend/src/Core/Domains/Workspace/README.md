@@ -140,6 +140,13 @@ whole group). It is never a copy; resources are never touched by a drag.
   `from` -> proposed rect `to`; a panel the drop creates has a provisional
   id), and `previewSerial`, which bumps on every target change. Motion and
   physics read this; nothing in it is committed.
+- **One drag, one copy.** `beginDrag` refuses while a drag is on, so nothing
+  under the pointer can start a second one. What is carried is lifted out of
+  its place (drawn at opacity 0, never hidden or rebuilt, since it holds the
+  pointer) while its picture travels. If it loses the pointer anyway, the
+  workspace's drag shield takes the pointer over and carries the same drag
+  to the release (`DockDragShield`); a floating panel's bar never hands its
+  drag to anything underneath.
 - **One commit.** `finishDrag` checks the target again if the layout
   changed during the drag, applies it as one operation and records one
   undo step. `dragFinished(outcome, details)` reports `committed`,
@@ -151,6 +158,81 @@ whole group). It is never a copy; resources are never touched by a drag.
   turns that into a drop (or a new floating window) against the layout as
   it is now, or refuses (`GONE`, `NO_CHANGE`). Returning again goes back.
   The memory is per project and per session.
+- **Steady aim.** `dockTargetAt` takes the zone already chosen (`held`):
+  it stays chosen while the pointer is within `DockZones::hold` (14 px) of
+  it, so two zones that meet (a panel's edge and the window border, two
+  panels' edges) never flicker between each other, and jitter never
+  restarts a preview (`previewSerial` holds).
+
+### Motion (QML only)
+
+Every magnet animation is presentation: transforms, opacity and the
+carried picture, read from `Docking.dragState` and `dragFinished`. None of
+it writes to the model, so the committed state is always exactly what the
+store published; a preview never adds an undo step, and a cancel restores
+everything with no history entry.
+
+- **Pickup** (`DockCarry`): the picture lifts to `magnetPickupScale` (96%)
+  around the point it is held by, so the pointer stays on the same spot of
+  it, with a deeper two-layer shadow and an accent edge. It is carried
+  small (at most `magnetCarryMaxWidth` x `magnetCarryMaxHeight`) so it is
+  easy to aim; over open space a full-size outline shows where it would
+  float, and on release it grows into it. The pointer always drives its
+  position directly (no smoothing), so it never lags.
+- **Momentum**: the picture leans into the way it moves (a rotation about
+  the held point, `magnetTiltPerSpeed`, at most `magnetTiltMax`), and a
+  flick on release glides a floating drop on (`magnetThrowTime` of its
+  speed, at most `magnetThrowMax`). The glide goes into the frame the drop
+  commits, so what lands is exactly what is stored.
+- **Floating panels** (`DockFloatingPanel`): holding one panel, a floating
+  panel has no bar of its own; the panel's header is its one handle and
+  close. Holding a split, a slim bar moves the group, shrinking it to
+  `magnetPanelMoveScale` while it moves. A floating panel may hang off the
+  window's sides and bottom; `magnetKeepVisible` px of it and its header
+  (`magnetKeepHeader`) always stay in reach.
+- **Magnetic pull** (`DockDropOverlay`, `magnet.pull`): while free, the
+  nearest edge of the panel or window border under the pointer glows,
+  stronger the closer it is (reach: `magnetProximityReach` times the dock
+  band), with a pixel-sized tremor once close. It hides as soon as a zone
+  is aimed at or a preview shows.
+- **Making room**: panels spring to the preview's rects
+  (`magnetReflowSpring`/`Damping`), the landing area to its rect
+  (`magnetLanding*`). In a tab strip the tabs after the insertion point
+  step aside (`magnetTabGap`, a `Translate`; the strip's layout is not
+  touched) and the caret sits in the gap.
+- **Release**: a committed drop lands the picture on the committed rect
+  (the anchor's `rectX/Y/Width/Height`, not where its spring is now, or the
+  floating frame) on an `OutBack` curve (`magnetReleaseOvershoot`), so it
+  overshoots a little and ends exactly there; then it fades over the real
+  panel, which shows again (`carry.landed`) and gives a small nudge
+  (`DockAnchor.receive`). Cancelled or refused, it flies back
+  (`magnetReturnDuration`).
+- **Tokens**: all timings live in `Theme.qml` (`magnet*`). With reduced
+  motion every one of them jumps: no springs, tremor, overshoot or nudge.
+
+## The sidebar
+
+Tabs and panels dock into the sidebar too: into one of its tabs (any rail
+tab but the Navigator, including the person's own), or at its bottom, under
+every tab. Each spot holds one surface (`SurfaceRecord::sidebarSlot`: the
+rail tab's id, or `sidebar.bottom`), with its own tabs and splits like any
+other; `setSurfaceSidebarSlot` refuses the main layout (`PRIMARY_SURFACE`)
+and a spot already taken (`SLOT_TAKEN`).
+
+- **Dropping in.** Over an empty spot a drag docks there on release, with
+  no dwell (`updateDragOverSlot`; `dragState.slot` says which). One drop,
+  one undo step ("Docked … in the sidebar"). A spot that holds something is
+  an ordinary surface: drops dock into its panels as anywhere else.
+- **Taking out.** Dragged out (or Float from the menu), it floats; Return
+  puts it back in its spot if that is still free.
+- **A tab deleted.** The shell tells the store which spots exist
+  (`setSidebarSlots`). Deleting a tab from the rail sends what was in it
+  back to the main layout; anything left in a spot that no longer exists
+  (restored from an older save, or by undo) floats instead. Nothing is
+  closed.
+- **The bottom spot** keeps its height as the surface's geometry.
+- **Layouts** arrange the windows, not the sidebar: applying one keeps what
+  is docked there.
 
 ## Anchors as workstations
 

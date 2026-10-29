@@ -157,6 +157,9 @@ QJsonArray encodeSurfaces(const WorkspaceModel &model, bool withHistory)
         if (surface->inMainWindow) {
             object.insert(QStringLiteral("inMainWindow"), true);
         }
+        if (!surface->sidebarSlot.isEmpty()) {
+            object.insert(QStringLiteral("sidebarSlot"), surface->sidebarSlot);
+        }
         if (!surface->maximizedAnchorId.isEmpty()) {
             object.insert(QStringLiteral("maximizedAnchor"), surface->maximizedAnchorId);
         }
@@ -201,6 +204,10 @@ public:
             surface.preferredScreenName = object.value(QStringLiteral("preferredScreen")).toString();
             surface.windowMaximized = object.value(QStringLiteral("windowMaximized")).toBool();
             surface.inMainWindow = !surface.primary && object.value(QStringLiteral("inMainWindow")).toBool();
+            surface.sidebarSlot = surface.primary ? QString() : object.value(QStringLiteral("sidebarSlot")).toString();
+            if (!surface.sidebarSlot.isEmpty()) {
+                surface.inMainWindow = false;
+            }
             surface.maximizedAnchorId = object.value(QStringLiteral("maximizedAnchor")).toString();
             m_currentSurface = surface.id;
             surface.rootNodeId = readNode(object.value(QStringLiteral("root")).toObject(), QString());
@@ -217,6 +224,17 @@ public:
                 surface.maximizedAnchorId.clear();
             }
 
+            // One surface per sidebar slot: a second one floats instead.
+            if (!surface.sidebarSlot.isEmpty()) {
+                for (const SurfaceRecord &other : std::as_const(m_result.data.surfaces)) {
+                    if (other.sidebarSlot == surface.sidebarSlot) {
+                        surface.sidebarSlot.clear();
+                        surface.inMainWindow = true;
+                        break;
+                    }
+                }
+            }
+
             m_result.data.surfaces.insert(surface.id, surface);
             m_result.data.surfaceOrder.append(surface.id);
         }
@@ -227,7 +245,10 @@ public:
         }
 
         if (!sawPrimary) {
-            m_result.data.surfaces[m_result.data.surfaceOrder.first()].primary = true;
+            SurfaceRecord &first = m_result.data.surfaces[m_result.data.surfaceOrder.first()];
+            first.primary = true;
+            first.inMainWindow = false;
+            first.sidebarSlot.clear();
         }
 
         // Maximized anchors must live in their own window.
@@ -699,10 +720,51 @@ LoadReport applyLayout(const QJsonObject &layoutObject, WorkspaceModel &model)
         }
     }
 
+    // What is docked in the sidebar stays there: a layout arranges the
+    // windows, not the sidebar. Those surfaces come along whole.
+    const WorkspaceModel::Data current = model.data();
+    QSet<QString> keptViews;
+    for (const QString &surfaceId : current.surfaceOrder) {
+        const SurfaceRecord surface = current.surfaces.value(surfaceId);
+        if (surface.sidebarSlot.isEmpty() || layout.data.surfaces.contains(surfaceId)) {
+            continue;
+        }
+        QStringList stack{surface.rootNodeId};
+        QList<SplitNode> nodes;
+        bool clash = false;
+        while (!stack.isEmpty()) {
+            const SplitNode node = current.nodes.value(stack.takeLast());
+            if (node.id.isEmpty() || layout.data.nodes.contains(node.id)
+                || (node.leaf && layout.data.anchors.contains(node.anchorId))) {
+                clash = true;
+                break;
+            }
+            nodes.append(node);
+            stack.append(node.children);
+        }
+        if (clash) {
+            continue; // its tabs go into the layout like any others
+        }
+        for (const SplitNode &node : std::as_const(nodes)) {
+            layout.data.nodes.insert(node.id, node);
+            if (node.leaf) {
+                const AnchorRecord anchor = current.anchors.value(node.anchorId);
+                layout.data.anchors.insert(anchor.id, anchor);
+                for (const QString &viewId : anchor.views) {
+                    keptViews.insert(viewId);
+                }
+            }
+        }
+        layout.data.surfaces.insert(surfaceId, surface);
+        layout.data.surfaceOrder.append(surfaceId);
+    }
+
     QList<ViewRecord> views;
     for (const QString &viewId : model.viewIds()) {
-        views.append(*model.view(viewId));
         layout.data.views.insert(viewId, *model.view(viewId));
+        if (!keptViews.contains(viewId)) {
+            views.append(*model.view(viewId));
+        }
     }
 
     // Keep each anchor's current active tab active in its new home.

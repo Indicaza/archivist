@@ -170,9 +170,65 @@ Preview preview(const WorkspaceModel &model, const DragSource &source, const Dro
     return out;
 }
 
-DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
-                        const QSizeF &surfaceSize, const LayoutMetrics &metrics, const DockZones &zones)
+namespace
 {
+// Whether `point` is still within `held`'s zone, grown by zones.hold.
+bool stillHeld(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point, const QSizeF &surfaceSize,
+               const LayoutMetrics &metrics, const DockZones &zones, const DropTarget &held)
+{
+    if (!held.isValid() || held.surfaceId != surfaceId) {
+        return false;
+    }
+    if (held.anchorId.isEmpty()) {
+        // Along the window border.
+        if (model.anchorIds(surfaceId).size() <= 1) {
+            return false;
+        }
+        const double reach = zones.windowBand + zones.hold;
+        switch (held.edge) {
+        case Edge::Left: return point.x() <= reach;
+        case Edge::Right: return surfaceSize.width() - point.x() <= reach;
+        case Edge::Top: return point.y() <= reach;
+        case Edge::Bottom: return surfaceSize.height() - point.y() <= reach;
+        default: return false;
+        }
+    }
+    const AnchorRecord *anchor = model.anchor(held.anchorId);
+    if (!anchor || model.surfaceOfAnchor(held.anchorId) != surfaceId) {
+        return false;
+    }
+    const QRectF rect = model.computeGeometry(surfaceId, surfaceSize, metrics).anchors.value(held.anchorId);
+    const QRectF grown = rect.adjusted(-zones.hold, -zones.hold, zones.hold, zones.hold);
+    if (rect.isEmpty() || !grown.contains(point)) {
+        return false;
+    }
+    if (held.edge == Edge::Center) {
+        return anchor->views.isEmpty();
+    }
+    const auto band = [&zones](double length) {
+        return std::clamp(length * zones.edgeShare, zones.edgeMinimum, std::max(zones.edgeMinimum, zones.edgeMaximum));
+    };
+    const double reachX = std::min(band(rect.width()), rect.width() / 2) + zones.hold;
+    const double reachY = std::min(band(rect.height()), rect.height() / 2) + zones.hold;
+    switch (held.edge) {
+    case Edge::Left: return point.x() - rect.left() <= reachX;
+    case Edge::Right: return rect.right() - point.x() <= reachX;
+    case Edge::Top: return point.y() - rect.top() <= reachY;
+    case Edge::Bottom: return rect.bottom() - point.y() <= reachY;
+    default: return false;
+    }
+}
+} // namespace
+
+DropTarget dockTargetAt(const WorkspaceModel &model, const QString &surfaceId, const QPointF &point,
+                        const QSizeF &surfaceSize, const LayoutMetrics &metrics, const DockZones &zones,
+                        const DropTarget &held)
+{
+    if (stillHeld(model, surfaceId, point, surfaceSize, metrics, zones, held)) {
+        DropTarget kept = held;
+        kept.index = -1;
+        return kept;
+    }
     if (!model.surface(surfaceId) || !QRectF(QPointF(0, 0), surfaceSize).contains(point)) {
         return {};
     }
@@ -276,6 +332,7 @@ Place placeOf(const WorkspaceModel &model, const DragSource &source)
     if (surface && !surface->primary && anchorLeaves && model.anchorIds(place.surfaceId).size() == 1) {
         place.aloneInFloatingWindow = true;
         place.inMainWindow = surface->inMainWindow;
+        place.sidebarSlot = surface->sidebarSlot;
         place.windowGeometry = surface->geometry;
         place.screenName = surface->screenName;
     }
@@ -298,7 +355,9 @@ ReturnPlan planReturn(const WorkspaceModel &model, const Place &place)
     const bool isView = place.source.kind == DragSource::Kind::View;
 
     // A tab whose panel is still there goes back into it, at its old position.
-    if (isView && model.anchor(place.anchorId)) {
+    // (A tab alone in its panel moved the whole panel: that is put back below.)
+    const bool movedItsPanel = place.aloneInFloatingWindow && now.anchorId == place.anchorId;
+    if (isView && model.anchor(place.anchorId) && !movedItsPanel) {
         if (now.anchorId == place.anchorId && now.index == place.index) {
             plan.result = OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."));
             return plan;
@@ -314,13 +373,20 @@ ReturnPlan planReturn(const WorkspaceModel &model, const Place &place)
     // It had a floating window to itself: it gets one again.
     if (place.aloneInFloatingWindow) {
         const SurfaceRecord *nowSurface = model.surface(now.surfaceId);
-        if (now.aloneInFloatingWindow && nowSurface && nowSurface->geometry == place.windowGeometry
-            && nowSurface->inMainWindow == place.inMainWindow) {
+        if (now.aloneInFloatingWindow && nowSurface && nowSurface->inMainWindow == place.inMainWindow
+            && nowSurface->sidebarSlot == place.sidebarSlot
+            && (!place.sidebarSlot.isEmpty() || nowSurface->geometry == place.windowGeometry)) {
             plan.result = OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."));
+            return plan;
+        }
+        const QString holder = model.surfaceInSidebarSlot(place.sidebarSlot);
+        if (!holder.isEmpty() && holder != now.surfaceId) {
+            plan.result = OpResult::failure(QStringLiteral("SLOT_TAKEN"), QStringLiteral("Something else is docked there now."));
             return plan;
         }
         plan.detach = true;
         plan.inMainWindow = place.inMainWindow;
+        plan.sidebarSlot = place.sidebarSlot;
         plan.geometry = place.windowGeometry;
         plan.screenName = place.screenName;
         plan.result = OpResult::success();
