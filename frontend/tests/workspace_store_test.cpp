@@ -542,6 +542,43 @@ private slots:
 
     // A drag floats by default; it docks only where it is aimed: a tab
     // strip at once, a panel edge once held there.
+    void tabHeadersTakePriorityNearSplit()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("tab-header-proximity"));
+        const QString surface = store.primarySurfaceId();
+        store.setSurfaceSize(surface, 1000, 600);
+        const QString moved = store.openView(QStringLiteral("archivist.editor"), documentResource("move.cpp"), "move.cpp");
+        const QString upper = store.view(moved).value("anchorId").toString();
+        const QString lower = store.createAnchor(upper, QStringLiteral("bottom"));
+        QVERIFY(!lower.isEmpty());
+
+        auto *anchors = static_cast<KeyedListModel *>(store.anchors(surface));
+        const QVariantMap below = anchors->row(lower);
+        const double x = below.value("rectX").toDouble() + below.value("rectWidth").toDouble() / 2;
+        const double top = below.value("rectY").toDouble();
+        QVERIFY(top > 100);
+
+        const auto target = [&](double y) {
+            return store.tabStripAt(surface, x, y, 32).value("anchorId").toString();
+        };
+        QCOMPARE(target(top - 14), lower);
+        QCOMPARE(target(top), lower);
+        QCOMPARE(target(top + 16), lower);
+        QCOMPARE(target(top + 40), lower);
+        QVERIFY(target(top - 30).isEmpty());
+        QVERIFY(target(top + 50).isEmpty());
+
+        QVERIFY(store.beginDrag(QStringLiteral("view"), moved));
+        const QVariantMap strip = store.tabStripAt(surface, x, top - 14, 32);
+        store.updateDragOverTabs(surface, strip.value("anchorId").toString(), 0);
+        QCOMPARE(store.dragState().value("phase").toString(), QStringLiteral("preview"));
+        QCOMPARE(store.dragState().value("target").toMap().value("edge").toString(), QStringLiteral("center"));
+        QVERIFY(store.dropAllowed());
+        QVERIFY(store.finishDrag());
+        QCOMPARE(store.view(moved).value("anchorId").toString(), lower);
+    }
+
     void draggingFloatsUnlessAimed()
     {
         QString panel;
