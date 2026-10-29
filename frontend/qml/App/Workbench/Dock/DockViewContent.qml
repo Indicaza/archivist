@@ -101,7 +101,9 @@ Item {
     height: Math.max(0, rectHeight - headerHeight - 1)
     visible: shown && width > 1 && height > 1
     // Carried away as a picture: not drawn in its old place meanwhile.
-    opacity: root.workspace.liftedViewId === root.viewId || root.workspace.liftedAnchorId === root.anchorId ? 0 : 1
+    // Or a Genie trip is drawing it, until it lands.
+    opacity: root.workspace.liftedViewId === root.viewId || root.workspace.liftedAnchorId === root.anchorId
+        || root.workspace.genieHidden["v:" + root.viewId] === true || root.workspace.genieHidden["a:" + root.anchorId] === true ? 0 : 1
     clip: true
 
     Behavior on x { enabled: root.animate; SpringAnimation { spring: root.theme.magnetReflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }

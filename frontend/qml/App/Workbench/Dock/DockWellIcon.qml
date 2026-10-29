@@ -32,6 +32,36 @@ Item {
 
     signal menuRequested(var entry, Item source, real x, real y)
 
+    // The sphere's own reactions: a dip when pressed, a squash and spring
+    // back when something arrives in it.
+    property real squash: 0
+    property real dip: 0
+
+    function react(kind) {
+        if (root.theme.reducedMotion) {
+            return
+        }
+        if (kind === "arrive") {
+            arrival.restart()
+        } else {
+            press.restart()
+        }
+    }
+
+    SequentialAnimation {
+        id: arrival
+
+        NumberAnimation { target: root; property: "squash"; to: 0.16; duration: Math.round(root.theme.wellArrivalDuration * 0.35); easing.type: Easing.OutQuad }
+        NumberAnimation { target: root; property: "squash"; to: 0; duration: Math.round(root.theme.wellArrivalDuration * 0.65); easing.type: Easing.OutBack; easing.overshoot: 2.2 }
+    }
+
+    SequentialAnimation {
+        id: press
+
+        NumberAnimation { target: root; property: "dip"; to: 0.1; duration: 60; easing.type: Easing.OutQuad }
+        NumberAnimation { target: root; property: "dip"; to: 0; duration: 180; easing.type: Easing.OutBack; easing.overshoot: 2 }
+    }
+
     x: slot.x
     y: slot.y
     width: slot.size
@@ -118,10 +148,18 @@ Item {
         scale: root.drawnScale
         // Grows away from the window edge, like a Dock icon.
         transformOrigin: root.vertical ? Item.Center : root.growDown ? Item.Top : Item.Bottom
-        transform: Translate {
-            x: root.vertical ? 0 : root.drawnShift
-            y: root.vertical ? root.drawnShift : (root.growDown ? root.lift : -root.lift)
-        }
+        transform: [
+            Scale {
+                origin.x: tile.width / 2
+                origin.y: root.growDown ? 0 : tile.height
+                xScale: (1 + root.squash) * (1 - root.dip)
+                yScale: (1 - root.squash) * (1 - root.dip)
+            },
+            Translate {
+                x: root.vertical ? 0 : root.drawnShift
+                y: root.vertical ? root.drawnShift : (root.growDown ? root.lift : -root.lift)
+            }
+        ]
 
         // Its shadow on the surface below.
         WellGlow {
@@ -275,7 +313,7 @@ Item {
                 root.menuRequested(root.entry, root, mouse.x, mouse.y)
                 return
             }
-            Docking.activateWellEntry(root.entryId)
+            root.workspace.restoreFromWell(root.entryId)
         }
     }
 

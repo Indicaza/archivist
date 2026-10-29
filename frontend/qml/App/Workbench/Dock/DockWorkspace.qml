@@ -720,18 +720,354 @@ Item {
 
     // Puts a tab away in the Gravity Well (it keeps running).
     function minimizeView(viewId) {
-        var result = Docking.minimizeView(viewId)
-        if (!result.ok && result.error) {
-            toast.show(String(result.error))
-        }
+        genieMinimize("view", viewId)
     }
 
     // Puts a whole panel away in the Gravity Well, as one icon.
     function minimizeAnchor(anchorId) {
-        var result = Docking.minimizeAnchor(anchorId)
-        if (!result.ok && result.error) {
-            toast.show(String(result.error))
+        genieMinimize("anchor", anchorId)
+    }
+
+    // ---- The Genie: into and out of the Gravity Well ----
+    //
+    // Minimizing: a picture of the panel is taken on the GPU (a
+    // ShaderEffectSource, once; no pixels come back to the CPU), and as soon
+    // as it's ready the panel is put away through the store as usual. The
+    // picture then funnels into the new sphere (DockGenie), which squashes
+    // as it takes it in. The picture is kept for a while, so the trip back
+    // out can show it.
+    //
+    // Restoring: the sphere dips at once, the store restores (its usual
+    // single step), and the restored panel (or tab) is hidden while the
+    // picture grows out of the sphere into exactly where the panel now is,
+    // then shown under the picture as it ends. The panel is the real
+    // workspace object throughout; the picture is only drawn.
+    //
+    // One trip per sphere at a time. Clicking a sphere while its panel is
+    // still flying in brings it back out as soon as it lands; clicking one
+    // that is already flying out does nothing more. Different spheres can
+    // fly at once.
+    property int genieTrips: 0
+    readonly property bool genieActive: genieTrips > 0
+    // What a trip stands in for, by "a:<anchorId>" / "v:<viewId>": hidden
+    // until it lands.
+    property var genieHidden: ({})
+    property var genieBusy: ({})
+    property var genieQueued: ({})
+    // Pictures kept from minimizing, by Well entry: the newest few.
+    property var genieSnapshots: ({})
+    property var genieSnapshotOrder: []
+    readonly property int genieSnapshotsKept: 6
+
+    function genieSetHidden(keys, hidden) {
+        var next = Object.assign({}, root.genieHidden)
+        for (var index = 0; index < keys.length; index += 1) {
+            if (hidden) {
+                next[keys[index]] = true
+            } else {
+                delete next[keys[index]]
+            }
         }
+        root.genieHidden = next
+    }
+
+    function genieSetBusy(key, busy) {
+        var next = Object.assign({}, root.genieBusy)
+        if (busy) {
+            next[key] = true
+        } else {
+            delete next[key]
+        }
+        root.genieBusy = next
+    }
+
+    // `fit` says what the picture shows: "panel", "content" (one tab's
+    // content) or "tab" (just the tab), so it's only reused for the same.
+    function keepGenieSnapshot(entryId, picture, fit) {
+        var kept = Object.assign({}, root.genieSnapshots)
+        var order = root.genieSnapshotOrder.filter(function(id) { return id !== entryId })
+        if (kept[entryId] && kept[entryId].picture !== picture) {
+            kept[entryId].picture.destroy()
+        }
+        kept[entryId] = { picture: picture, fit: fit }
+        order.push(entryId)
+        // Forget pictures of entries no longer in any Well (closed, or
+        // brought back some other way).
+        var present = ({})
+        var wells = Docking.wells()
+        for (var w = 0; w < wells.length; w += 1) {
+            var entries = wells[w].entries || []
+            for (var e = 0; e < entries.length; e += 1) {
+                present[String(entries[e].entryId)] = true
+            }
+        }
+        order = order.filter(function(id) {
+            if (present[id]) {
+                return true
+            }
+            if (kept[id]) {
+                kept[id].picture.destroy()
+                delete kept[id]
+            }
+            return false
+        })
+        while (order.length > root.genieSnapshotsKept) {
+            var oldest = order.shift()
+            if (kept[oldest]) {
+                kept[oldest].picture.destroy()
+                delete kept[oldest]
+            }
+        }
+        root.genieSnapshots = kept
+        root.genieSnapshotOrder = order
+    }
+
+    function takeGenieSnapshot(entryId, fit) {
+        var kept = root.genieSnapshots[entryId] || null
+        if (!kept) {
+            return null
+        }
+        var next = Object.assign({}, root.genieSnapshots)
+        delete next[entryId]
+        root.genieSnapshots = next
+        root.genieSnapshotOrder = root.genieSnapshotOrder.filter(function(id) { return id !== entryId })
+        // Not the same view of it, or its window is gone (a GPU picture
+        // goes with its window): fly a plain card instead.
+        var orphaned = kept.picture.sourceItem !== undefined && kept.picture.sourceItem === null
+        if (kept.fit !== fit || orphaned) {
+            kept.picture.destroy()
+            return null
+        }
+        return kept.picture
+    }
+
+    // What to take a picture of: the panel, the tab's content, or (a tab
+    // that isn't showing) the tab itself. Only in this window.
+    function genieSource(kind, id) {
+        var anchorId = kind === "anchor" ? id : String(Docking.view(id).anchorId || "")
+        var item = anchorItems[anchorId] || null
+        var area = item ? (surfaceAreas[item.surfaceId] || null) : null
+        if (!item || !area || !item.visible || area.Window.window !== genieLayer.Window.window) {
+            return null
+        }
+        var rect = Qt.rect(0, 0, item.width, item.height)
+        var from = item
+        var fit = "panel"
+        if (kind === "view") {
+            var anchor = Docking.anchor(anchorId)
+            var views = anchor.views || []
+            if (views.length > 1 && anchor.activeViewId === id) {
+                rect = Qt.rect(0, item.headerHeight, item.width, Math.max(1, item.height - item.headerHeight))
+                fit = "content"
+            } else if (views.length > 1) {
+                var tab = item.tabItem(id)
+                if (!tab) {
+                    return null
+                }
+                from = tab
+                fit = "tab"
+                rect = Qt.rect(0, 0, tab.width, tab.height)
+            }
+        }
+        var inArea = from.mapToItem(area, rect.x, rect.y)
+        var inLayer = from.mapToItem(genieLayer, rect.x, rect.y)
+        return {
+            area: area,
+            fit: fit,
+            rect: Qt.rect(inArea.x, inArea.y, rect.width, rect.height),
+            layerRect: Qt.rect(inLayer.x, inLayer.y, rect.width, rect.height)
+        }
+    }
+
+    function wellSphereRect(entryId) {
+        for (var index = 0; index < wellRepeater.count; index += 1) {
+            var well = wellRepeater.itemAt(index)
+            if (well) {
+                var rect = well.sphereRect(entryId, genieLayer)
+                if (rect.width > 0) {
+                    return rect
+                }
+            }
+        }
+        return Qt.rect(0, 0, 0, 0)
+    }
+
+    function wellReact(entryId, kind) {
+        for (var index = 0; index < wellRepeater.count; index += 1) {
+            var well = wellRepeater.itemAt(index)
+            if (well) {
+                well.react(entryId, kind)
+            }
+        }
+    }
+
+    function genieMinimize(kind, id) {
+        var put = function() {
+            var result = kind === "anchor" ? Docking.minimizeAnchor(id) : Docking.minimizeView(id)
+            if (!result.ok && result.error) {
+                toast.show(String(result.error))
+            }
+            return result
+        }
+        var key = kind + ":" + id
+        var source = root.genieBusy[key] ? null : genieSource(kind, id)
+        if (!source) {
+            put()
+            return
+        }
+        root.genieSetBusy(key, true)
+        var started = false
+        var go = function(picture) {
+            if (started) {
+                if (picture) {
+                    picture.destroy()
+                }
+                return
+            }
+            started = true
+            root.genieSetBusy(key, false)
+            var result = put()
+            var sphere = result.ok ? wellSphereRect(String(result.entryId || "")) : Qt.rect(0, 0, 0, 0)
+            if (!result.ok || sphere.width <= 0 || !picture) {
+                if (picture) {
+                    picture.destroy()
+                }
+                return
+            }
+            startGenie("minimize", picture, source.layerRect, sphere, String(result.entryId), [], source.fit)
+        }
+        if (source.area === area) {
+            // The main window's panels: a GPU picture of just this panel.
+            // Sized so it's at most ~1100px across: sharp in flight, cheap
+            // to keep.
+            var factor = Math.min(1, 1100 / Math.max(1, Math.max(source.rect.width, source.rect.height))) * (Screen.devicePixelRatio || 1)
+            var layer = genieSnapshotComponent.createObject(genieLayer, {
+                sourceItem: source.area,
+                sourceRect: source.rect,
+                textureSize: Qt.size(Math.max(1, Math.round(source.rect.width * factor)), Math.max(1, Math.round(source.rect.height * factor)))
+            })
+            layer.scheduledUpdateCompleted.connect(function() { go(layer) })
+            layer.scheduleUpdate()
+            // Never wait on a picture that doesn't come: put it away anyway.
+            genieTimeoutComponent.createObject(genieLayer, { run: function() {
+                if (!started) {
+                    go(null)
+                    layer.destroy()
+                }
+            } })
+        } else {
+            // A floating panel's window goes away with its last panel, and
+            // a GPU picture would go with it: grab one that stays.
+            source.area.grabToImage(function(result) {
+                go(genieImageComponent.createObject(genieLayer, { source: result.url, sourceClipRect: source.rect }))
+            })
+            genieTimeoutComponent.createObject(genieLayer, { interval: 250, run: function() { go(null) } })
+        }
+    }
+
+    // A sphere was clicked (or Restore chosen from its menu).
+    function restoreFromWell(entryId) {
+        if (root.genieBusy["entry:" + entryId]) {
+            if (root.genieBusy["in:" + entryId]) {
+                var queued = Object.assign({}, root.genieQueued)
+                queued[entryId] = true
+                root.genieQueued = queued
+            }
+            return
+        }
+        var entry = null
+        var wells = Docking.wells()
+        for (var w = 0; w < wells.length && !entry; w += 1) {
+            var entries = wells[w].entries || []
+            for (var e = 0; e < entries.length; e += 1) {
+                if (String(entries[e].entryId) === entryId) {
+                    entry = entries[e]
+                }
+            }
+        }
+        var sphere = wellSphereRect(entryId)
+        wellReact(entryId, "press")
+        var anchorsBefore = Object.assign({}, root.anchorItems)
+        var result = Docking.activateWellEntry(entryId)
+        if (!result.ok) {
+            if (result.error) {
+                toast.show(String(result.error))
+            }
+            return
+        }
+        var how = String(result.how || "")
+        // Already showing: brought forward, nothing flies.
+        if (how === "revealed" || sphere.width <= 0) {
+            return
+        }
+        var anchorId = String(result.anchorId || "")
+        var viewId = String(result.viewId || "")
+        var item = anchorItems[anchorId] || null
+        if (!item || !item.parent || item.Window.window !== genieLayer.Window.window) {
+            return
+        }
+        // A panel that came back (or was made) for it flies whole; a tab
+        // that joined a panel already there flies into its content.
+        var whole = (entry && entry.panel === true) || !anchorsBefore[anchorId]
+        // Where it lands: the panel's settled place (not where its spring
+        // is), followed while the layout settles.
+        var last = Qt.rect(0, 0, 0, 0)
+        var landing = function() {
+            var now = anchorItems[anchorId] || null
+            if (!now || !now.parent) {
+                return last
+            }
+            var corner = now.parent.mapToItem(genieLayer, now.rectX, now.rectY)
+            last = whole
+                ? Qt.rect(corner.x, corner.y, now.rectWidth, now.rectHeight)
+                : Qt.rect(corner.x, corner.y + now.headerHeight, now.rectWidth, Math.max(1, now.rectHeight - now.headerHeight))
+            return last
+        }
+        var hidden = whole ? ["a:" + anchorId] : ["v:" + viewId]
+        root.genieSetHidden(hidden, true)
+        startGenie("restore", takeGenieSnapshot(entryId, whole ? "panel" : "content"), landing(), sphere, entryId, hidden, "", landing)
+    }
+
+    function startGenie(direction, picture, panelRect, sphereRect, entryId, hidden, fit, follow) {
+        root.genieTrips += 1
+        root.genieSetBusy("entry:" + entryId, true)
+        if (direction === "minimize") {
+            root.genieSetBusy("in:" + entryId, true)
+        }
+        var trip = genieComponent.createObject(genieLayer, {
+            direction: direction,
+            panel: panelRect,
+            sphere: sphereRect,
+            picture: picture,
+            follow: follow || null,
+            // Restoring: the panel fades in under the picture before it goes.
+            linger: direction === "restore" ? root.theme.motionFast + 40 : 0
+        })
+        trip.finished.connect(function() {
+            if (direction === "minimize") {
+                wellReact(entryId, "arrive")
+            } else {
+                root.genieSetHidden(hidden, false)
+            }
+        })
+        trip.gone.connect(function() {
+            if (direction === "minimize" && picture) {
+                keepGenieSnapshot(entryId, picture, fit)
+            } else if (picture) {
+                picture.destroy()
+            }
+            root.genieSetBusy("entry:" + entryId, false)
+            root.genieSetBusy("in:" + entryId, false)
+            root.genieTrips = Math.max(0, root.genieTrips - 1)
+            trip.destroy()
+            if (root.genieQueued[entryId]) {
+                var queued = Object.assign({}, root.genieQueued)
+                delete queued[entryId]
+                root.genieQueued = queued
+                root.restoreFromWell(entryId)
+            }
+        })
+        trip.start()
     }
 
     function closeOtherViews(viewId) {
@@ -1970,6 +2306,8 @@ Item {
                 width: placed ? Math.max(0, row.rectWidth - 2) : 0
                 height: placed ? Math.max(0, row.rectHeight - root.theme.editorTabHeight - 1) : 0
                 visible: surfaceArea !== null && width > 1 && height > 1
+                // A Genie trip is drawing it: not shown until it lands.
+                opacity: placed && (root.genieHidden["v:" + String(row.viewId)] === true || root.genieHidden["a:" + String(row.anchorId)] === true) ? 0 : 1
                 clip: true
                 theme: root.theme
                 dockedMode: true
@@ -2125,6 +2463,77 @@ Item {
         function onSurfacesChanged() {
             root.syncSurfaceModels()
             root.syncPanelOrder()
+        }
+    }
+
+    // Genie trips fly here: over floating panels, just under the Well, so
+    // a picture goes into its sphere rather than over it.
+    Item {
+        id: genieLayer
+
+        objectName: "dock.genieLayer"
+        parent: root.overlayHost || root
+        x: 0
+        y: 0
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
+        z: 5.4
+    }
+
+    Component {
+        id: genieComponent
+
+        DockGenie {
+            theme: root.theme
+        }
+    }
+
+    // A panel's picture: rendered once on the GPU when asked, then kept.
+    // DockGenie draws it; this item itself is one pixel just off the
+    // window (it must be in the scene, not transparent, for the scene
+    // graph to render it).
+    Component {
+        id: genieSnapshotComponent
+
+        ShaderEffectSource {
+            x: -2
+            y: -2
+            width: 1
+            height: 1
+            live: false
+            hideSource: false
+            recursive: false
+        }
+    }
+
+    // A floating panel's picture, grabbed once (see genieMinimize).
+    Component {
+        id: genieImageComponent
+
+        Image {
+            x: -2
+            y: -2
+            width: 1
+            height: 1
+            asynchronous: false
+            cache: false
+        }
+    }
+
+    Component {
+        id: genieTimeoutComponent
+
+        Timer {
+            property var run: null
+
+            interval: 120
+            running: true
+            onTriggered: {
+                if (run) {
+                    run()
+                }
+                destroy()
+            }
         }
     }
 

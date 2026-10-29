@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Rebakes the Gravity Well Genie shaders after editing genie.vert/genie.frag.
+# Needs Qt's qsb tool (Qt Shader Tools), e.g. $QTDIR/bin/qsb.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../frontend/qml/App/Workbench/Dock/shaders" && pwd)"
+QSB="${QSB:-$(command -v qsb || true)}"
+if [[ -z "$QSB" ]]; then
+  printf 'qsb not found: set QSB=/path/to/qsb (it ships with Qt Shader Tools)\n' >&2
+  exit 1
+fi
+
+for s in genie.vert genie.frag; do
+  "$QSB" --glsl "100 es,120,150" --hlsl 50 --msl 12 -o "$DIR/$s.qsb" "$DIR/$s"
+  printf 'baked %s.qsb\n' "$s"
+done
