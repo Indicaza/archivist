@@ -193,4 +193,43 @@ const centreOf = (slot) => slot.x + slot.size / 2;
   assert.deepEqual(G.proximity({ near: true, engaged: true }, null, options), { near: false, engaged: false, level: 0 });
 }
 
+// The tab strip changes only what changed (TabStrip.js): a tab put in the
+// Well or brought back is one change, and tabs that stay are never remade.
+{
+  const stripPath = path.join(root, "frontend/qml/App/Workbench/Dock/TabStrip.js");
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(stripPath, "utf8").replace(/^\s*\.pragma library\s*$/m, ""), context, { filename: stripPath });
+  const changes = (current, wanted) => plain(context.changes(current, wanted));
+  const apply = (current, ops) => {
+    const strip = current.slice();
+    for (const op of ops) {
+      if (op.op === "remove") strip.splice(op.at, 1);
+      else if (op.op === "insert") strip.splice(op.at, 0, op.id);
+      else strip.splice(op.to, 0, strip.splice(op.from, 1)[0]);
+    }
+    return strip;
+  };
+  assert.deepEqual(changes(["a", "b", "c"], ["a", "b", "c"]), []);
+  assert.deepEqual(changes(["a", "b", "c"], ["a", "c"]), [{ op: "remove", at: 1 }]);
+  assert.deepEqual(changes(["a", "c"], ["a", "b", "c"]), [{ op: "insert", at: 1, id: "b" }]);
+  assert.deepEqual(changes([], ["a", "b"]), [{ op: "insert", at: 0, id: "a" }, { op: "insert", at: 1, id: "b" }]);
+  assert.deepEqual(changes(["a", "b", "c"], ["c", "a", "b"]).length, 1);
+  // Any reordering, removal or addition comes out right, and a tab that
+  // stays is never removed.
+  let seed = 7;
+  const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  for (let round = 0; round < 500; round += 1) {
+    const pool = ["a", "b", "c", "d", "e", "f", "g"];
+    const current = pool.filter(() => random() < 0.6);
+    const wanted = pool.filter(() => random() < 0.6).sort(() => random() - 0.5);
+    const ops = changes(current, wanted);
+    assert.deepEqual(apply(current, ops), wanted);
+    let strip = current.slice();
+    for (const op of ops) {
+      if (op.op === "remove") assert.ok(!wanted.includes(strip[op.at]), "a staying tab was removed");
+      strip = apply(strip, [op]);
+    }
+  }
+}
+
 console.log("gravity wells geometry: ok");

@@ -1859,6 +1859,82 @@ Item {
         return Qt.rect(0, 0, 0, 0)
     }
 
+    // ---- Editor pages ----
+    // The Monaco pages panels show their editors in. A panel takes one when
+    // it first needs an editor and gives it back when it goes (put in the
+    // Well, closed, folded away). A couple are kept warm, so a panel coming
+    // back from the Well, or a new split, opens without starting the editor
+    // again. Pages belong to this item, not to a panel, so they outlive the
+    // panel that showed them; a parked page is hidden and shows nothing.
+    readonly property int editorPagesKept: 2
+    property var parkedEditorPages: []
+    // How many were ever made (a restore that takes a warm page makes none).
+    property int editorPagesMade: 0
+
+    Item {
+        id: editorPark
+
+        objectName: "dock.editorPark"
+        visible: false
+        width: 1
+        height: 1
+    }
+
+    Component {
+        id: editorPageComponent
+
+        DockEditorHost {}
+    }
+
+    function takeEditorPage(slot, anchorId) {
+        var parked = root.parkedEditorPages
+        var page = null
+        if (parked.length > 0) {
+            // The one parked last: most likely the panel now coming back.
+            page = parked.pop()
+            root.parkedEditorPages = parked
+        } else {
+            page = editorPageComponent.createObject(editorPark, { theme: root.theme, anchorId: anchorId })
+            root.editorPagesMade += 1
+        }
+        page.parent = slot
+        page.anchors.fill = slot
+        return page
+    }
+
+    function parkEditorPage(page) {
+        if (!page) {
+            return
+        }
+        // Plain values: the panel that bound them is going away.
+        page.anchorId = String(page.anchorId)
+        page.viewId = ""
+        page.shown = false
+        page.anchors.fill = undefined
+        page.parent = editorPark
+        var parked = root.parkedEditorPages
+        parked.push(page)
+        while (parked.length > root.editorPagesKept) {
+            parked.shift().destroy()
+        }
+        root.parkedEditorPages = parked
+        editorPageExpiry.restart()
+    }
+
+    // Warm pages that sit unused for a long while are let go.
+    Timer {
+        id: editorPageExpiry
+
+        interval: 10 * 60 * 1000
+        onTriggered: {
+            var parked = root.parkedEditorPages
+            root.parkedEditorPages = []
+            for (var index = 0; index < parked.length; index += 1) {
+                parked[index].destroy()
+            }
+        }
+    }
+
     // Where view content waits while its window is being made.
     Item {
         id: viewParking
