@@ -16,6 +16,16 @@ Item {
     required property int tabIndex
     required property bool active
     required property bool anchorFocused
+    // A tab held over this strip lands before this one: it steps aside
+    // (a transform only; the strip's layout and the model are untouched).
+    property real insertShift: 0
+    transform: Translate {
+        x: root.insertShift
+        Behavior on x {
+            enabled: !root.theme.reducedMotion
+            SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 }
+        }
+    }
 
     readonly property var info: {
         Docking.revision

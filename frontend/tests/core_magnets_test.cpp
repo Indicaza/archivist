@@ -321,6 +321,55 @@ private slots:
         QCOMPARE(fill.edge, Edge::Center);
     }
 
+    // A chosen dock zone holds while the pointer stays near it, so the
+    // preview never flickers between two zones that meet; it lets go once
+    // the pointer is clearly elsewhere.
+    void chosenTargetsHoldSteady()
+    {
+        Arranged s = arranged();
+        const QString surface = s.model.primarySurfaceId();
+        const QRectF chat = rectOf(s.model, s.first);
+        const QRectF editors = rectOf(s.model, s.editors);
+        const Magnets::DockZones zones;
+        const double band = std::clamp(chat.width() * zones.edgeShare, zones.edgeMinimum, zones.edgeMaximum);
+        const auto at = [&](double x, double y, const DropTarget &held) {
+            return Magnets::dockTargetAt(s.model, surface, QPointF(x, y), kSurface, kMetrics, zones, held);
+        };
+        const double y = editors.center().y();
+
+        const DropTarget right = at(chat.right() - 10, y, {});
+        QCOMPARE(right.edge, Edge::Right);
+        QCOMPARE(right.anchorId, s.first);
+
+        // Just out of the band: still held. Well out of it: let go.
+        QVERIFY(!at(chat.right() - band - 6, y, {}).isValid());
+        QCOMPARE(at(chat.right() - band - 6, y, right).edge, Edge::Right);
+        QVERIFY(!at(chat.right() - band - 40, y, right).isValid());
+
+        // Across the splitter, the neighbour's edge has to win clearly.
+        QCOMPARE(at(editors.left() + 4, y, {}).anchorId, s.editors);
+        QCOMPARE(at(editors.left() + 4, y, right).anchorId, s.first);
+        const DropTarget next = at(editors.left() + zones.hold + 12, y, right);
+        QCOMPARE(next.anchorId, s.editors);
+        QCOMPARE(next.edge, Edge::Left);
+
+        // The window border holds the same way against a panel's band.
+        const DropTarget side = at(4, y, {});
+        QVERIFY(side.isSurfaceEdge());
+        QVERIFY(at(zones.windowBand + 6, y, side).isSurfaceEdge());
+        QVERIFY(!at(zones.windowBand + 6, y, {}).isSurfaceEdge());
+        QVERIFY(!at(zones.windowBand + zones.hold + 10, y, side).isSurfaceEdge());
+
+        // A held zone in another window, or on a panel that is gone, holds
+        // nothing.
+        DropTarget elsewhere = right;
+        elsewhere.surfaceId = QStringLiteral("nowhere");
+        QVERIFY(!at(chat.right() - band - 6, y, elsewhere).isValid());
+        DropTarget gone = right;
+        gone.anchorId = QStringLiteral("gone");
+        QVERIFY(!at(chat.right() - band - 6, y, gone).isValid());
+    }
+
     // With no dock target a drag floats as a panel inside the main window.
     void floatsAsAPanelInTheMainWindow()
     {

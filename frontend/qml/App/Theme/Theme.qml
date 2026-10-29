@@ -260,6 +260,42 @@ QtObject {
     // and the in-view zones, and jumps instead of gliding.
     readonly property bool reducedMotion: ChatUi.reducedMotion
 
+    // ---- magnets: one motion language for picking up, making room,
+    // docking and putting back (Orbit, Peek and Spaces will share it). The
+    // pointer is always authoritative: nothing here delays where a carried
+    // panel is, only how it looks getting there. With reduced motion every
+    // magnet animation jumps (springs, tremor and overshoot are skipped).
+    readonly property int magnetPickupDuration: 140
+    readonly property real magnetPickupScale: 0.96
+    // Shadow under a carried panel: how dark, and how far it drops.
+    readonly property real magnetLiftShadow: 0.42
+    readonly property real magnetLiftOffset: 14
+    // Neighbours making room (and the content following them).
+    readonly property real magnetReflowSpring: motionSpring * 1.4
+    readonly property real magnetReflowDamping: motionDamping + 0.12
+    // The landing area easing to where a drop would go.
+    readonly property real magnetLandingSpring: 4.2
+    readonly property real magnetLandingDamping: 0.36
+    // Held small while docking, or full size where it floats.
+    readonly property int magnetSpreadDuration: 140
+    // Let go: it springs into place with a restrained overshoot.
+    readonly property int magnetReleaseDuration: 260
+    readonly property real magnetReleaseOvershoot: 0.8
+    // Cancelled or refused: back where it came from, no overshoot.
+    readonly property int magnetReturnDuration: 260
+    // The pull felt near a dock zone: it starts this many zone-widths away
+    // and grows as the pointer closes in; at its strongest the zone's edge
+    // trembles by this many pixels, this fast.
+    readonly property real magnetProximityReach: 2.2
+    readonly property real magnetTremor: 1.0
+    readonly property int magnetTremorPeriod: 110
+    // The panel that receives a drop answers with this small nudge.
+    readonly property real magnetReceiveNudge: 0.012
+    readonly property int magnetReceiveDuration: 220
+    // A tab held over a tab strip: the tabs after the insertion point
+    // step aside this far.
+    readonly property real magnetTabGap: 14
+
     // Each agent speaks in its own hue: its rail, glyph, list bullets, small
     // headings and composer chip. The id picks a hue, so it stays the same
     // across launches without being stored.

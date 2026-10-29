@@ -795,6 +795,9 @@ Item {
         property string ending: ""
         // The picture is the whole panel (a panel, or its only tab).
         property bool whole: false
+        // Dropped and landing: the picture has reached its new place and the
+        // real panel shows again under it (DockCarry sets it).
+        property bool landed: false
     }
     readonly property alias carry: carryState
 
@@ -802,7 +805,8 @@ Item {
     // its old place (one of it, never two). It stays alive and keeps the
     // pointer; only its opacity changes. It shows again as the picture
     // lands, or once the picture has flown back.
-    readonly property bool lifting: carryState.active && !carryState.live && carryState.ending !== "dropped"
+    readonly property bool lifting: carryState.active && !carryState.live
+        && (carryState.ending !== "dropped" || (carryLayer.landing && !carryState.landed))
     readonly property string liftedAnchorId: lifting && carryState.whole ? carryState.anchorId : ""
     readonly property string liftedViewId: lifting && carryState.kind === "view" ? carryState.id : ""
 
@@ -818,6 +822,7 @@ Item {
         carryState.live = false
         carryState.startRect = Qt.rect(0, 0, 0, 0)
         carryState.whole = false
+        carryState.landed = false
         carryState.active = true
         carryEndTimer.stop()
         if (!sourceItem) {
@@ -874,8 +879,44 @@ Item {
             return
         }
         carryState.ending = outcome === "committed" ? "dropped" : "returning"
-        carryEndTimer.interval = theme.reducedMotion ? 0 : (outcome === "committed" ? 160 : 220)
+        carryEndTimer.interval = theme.reducedMotion ? 0
+            : outcome !== "committed" ? theme.magnetReturnDuration
+            : carryLayer.landing ? theme.magnetReleaseDuration + 40
+            : 160
         carryEndTimer.restart()
+    }
+
+    // Where a committed drop put the panel, in the carry layer: the
+    // anchor's committed rect (not where its spring is right now), or the
+    // floating frame. Empty when it landed in a window of its own.
+    function landingRect(details) {
+        var surfaceId = String(details.surfaceId || "")
+        if (surfaceId.length > 0 && Docking.surface(surfaceId).inMainWindow === true && root.floatFrame.width > 0) {
+            return root.floatFrame
+        }
+        var item = anchorItems[String(details.landingAnchorId || "")]
+        if (!item || !item.parent || item.Window.window !== carryLayer.Window.window) {
+            return Qt.rect(0, 0, 0, 0)
+        }
+        var corner = item.parent.mapToItem(carryLayer, item.rectX, item.rectY)
+        return Qt.rect(corner.x, corner.y, item.rectWidth, item.rectHeight)
+    }
+
+    // The picture springs into its place, then the panel there gives a
+    // small nudge to say it took it.
+    function landCarry(details) {
+        if (!carryState.active) {
+            return
+        }
+        var anchorId = String(details.landingAnchorId || "")
+        // A panel moved by its bar is already where it went: only the nudge.
+        if (!carryState.live) {
+            carryLayer.landAt(landingRect(details))
+        }
+        var item = anchorItems[anchorId]
+        if (item && item.receive) {
+            item.receive(carryLayer.landing && !theme.reducedMotion ? Math.round(theme.magnetReleaseDuration * 0.55) : 0)
+        }
     }
 
     Timer {
@@ -892,6 +933,9 @@ Item {
         target: Docking
 
         function onDragFinished(outcome, details) {
+            if (outcome === "committed") {
+                root.landCarry(details)
+            }
             root.endCarry(outcome)
         }
     }
@@ -1048,7 +1092,11 @@ Item {
         Docking.updateDragFloat(root.floatFrame.x, root.floatFrame.y, width, height)
     }
 
+    // The pointer during a drag (global), for the magnetic pull.
+    property point dragPointer: Qt.point(-1, -1)
+
     function moveDrag(globalPoint) {
+        root.dragPointer = Qt.point(globalPoint.x, globalPoint.y)
         var target = surfaceAreaAt(globalPoint)
         for (var key in surfaceAreas) {
             surfaceAreas[key].dragHere = surfaceAreas[key] === target
@@ -1145,6 +1193,7 @@ Item {
         carryState.active = true
         carryState.live = true
         carryState.ending = ""
+        carryState.landed = false
         carryState.kind = "anchor"
         carryState.id = anchors[0]
         carryState.anchorId = anchors[0]
