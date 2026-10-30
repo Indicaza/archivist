@@ -79,6 +79,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Ide/language_support.h
     src/Core/Domains/Ide/ide_server.cpp
     src/Core/Domains/Ide/ide_server.h
+    src/Core/Domains/Observatory/observatory_records.cpp
+    src/Core/Domains/Observatory/observatory_records.h
     src/Core/Support/json_values.h
     src/Core/Domains/Collections/collection_repository.cpp
     src/Core/Domains/Collections/collection_repository.h
@@ -362,6 +364,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ChatDock/ChatEditor/ChatEditor.qml
         qml/App/Workbench/ChatDock/AgentEditor/AgentEditor.qml
         qml/App/Workbench/IdeHost/IdeHost.qml
+        qml/App/Workbench/Observatory/ObservatoryView.qml
         qml/App/Workbench/Dock/DockWorkspace.qml
         qml/App/Workbench/Dock/DockAnchor.qml
         qml/App/Workbench/Dock/DockTab.qml
@@ -476,6 +479,11 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-app-profile-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-app-profile-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-app-profile-test COMMAND core-app-profile-test)
+
+    qt_add_executable(core-observatory-records-test tests/core_observatory_records_test.cpp)
+    target_link_libraries(core-observatory-records-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-observatory-records-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-observatory-records-test COMMAND core-observatory-records-test)
 
     qt_add_executable(core-database-test tests/core_database_test.cpp)
     target_link_libraries(core-database-test PRIVATE archivist-core Qt6::Test)

@@ -3,10 +3,13 @@ import { mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/
 import { request } from "node:http";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { compareRuns, SAME_WITHIN_PCT } from "../dashboard/compare.mjs";
-import { filterOptions, filterRuns } from "../dashboard/filter.mjs";
-import { artifactPath, loadRuns, normalizeRun } from "../dashboard/records.mjs";
-import { createDashboardServer, previewText } from "../dashboard/server.mjs";
+import { compareRuns, SAME_WITHIN_PCT } from "../dashboard/public/compare.mjs";
+import { filterOptions, filterRuns } from "../dashboard/public/filter.mjs";
+import { normalizeRun, SUPPORTED_SCHEMA_VERSION } from "../dashboard/public/normalize.mjs";
+import { previewText } from "../dashboard/public/preview.mjs";
+import { artifactPath, loadRuns } from "../dashboard/records.mjs";
+import { createDashboardServer, PAGE_DIR, PAGE_FILES } from "../dashboard/server.mjs";
+import { SCHEMA_VERSION } from "../storage.mjs";
 import { dashboardFixtures, writeDashboardFixtures } from "./fixtures/dashboard-runs.mjs";
 import { tempDir } from "./helpers.mjs";
 
@@ -106,6 +109,10 @@ describe("loading records", () => {
     assert.equal(run.supported, false);
     assert.equal(run.build, undefined);
     assert.match(run.problems[0], /schemaVersion 99/);
+  });
+
+  test("the dashboard reads the schema version Observatory writes", () => {
+    assert.equal(SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION);
   });
 
   test("non-object summaries and a missing runs folder are handled", async () => {
@@ -281,13 +288,21 @@ describe("artifacts and log previews", () => {
 describe("local server", () => {
   let server;
   let port;
+  let data;
+  const realFetch = globalThis.fetch;
 
   before(async () => {
     server = createDashboardServer({ root, port: 0 });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     port = server.address().port;
+    // The page's data layer, run against this server as the page would.
+    globalThis.fetch = (url, options) => realFetch(new URL(url, `http://127.0.0.1:${port}/`), options);
+    data = await import("../dashboard/public/data.js");
   });
-  after(() => new Promise((resolve) => server.close(resolve)));
+  after(() => {
+    globalThis.fetch = realFetch;
+    return new Promise((resolve) => server.close(resolve));
+  });
 
   function get(pathname, { method = "GET", host } = {}) {
     return new Promise((resolve, reject) => {
@@ -306,15 +321,28 @@ describe("local server", () => {
     });
   }
 
-  test("serves the page and the run list", async () => {
+  test("serves the page's files and nothing else from its folder", async () => {
     const page = await get("/");
     assert.equal(page.status, 200);
     assert.match(page.headers["content-security-policy"], /default-src 'self'/);
     assert.equal(page.headers["x-content-type-options"], "nosniff");
+    for (const file of Object.keys(PAGE_FILES)) {
+      assert.equal((await get(`/${file}`)).status, 200, file);
+    }
+    assert.deepEqual((await readdir(PAGE_DIR)).sort(), Object.keys(PAGE_FILES).sort(), "every page file is listed");
+    assert.equal((await get("/../server.mjs")).status, 404);
+    assert.equal((await get("/server.mjs")).status, 404);
+    assert.equal((await get("/../../etc/passwd")).status, 404);
+  });
+
+  test("lists raw summaries, unreadable ones with their error", async () => {
     const list = await get("/api/runs");
+    assert.equal(list.json.root, root);
     assert.equal(list.json.runs.length, runs.length);
-    assert.ok(list.json.options.kinds.includes("build"));
-    assert.equal((await get("/compare.mjs")).status, 200);
+    const broken = list.json.runs.find((entry) => entry.runId === ID.broken);
+    assert.equal(broken.summary, null);
+    assert.match(broken.error, /unreadable/);
+    assert.equal(list.json.runs.find((entry) => entry.runId === ID.buildA).summary.totalDurationMs, 12000);
   });
 
   test("answers only requests addressed to localhost", async () => {
@@ -329,30 +357,46 @@ describe("local server", () => {
     }
   });
 
-  test("serves a run, its events and its listed artifacts", async () => {
-    const run = await get(`/api/runs/${ID.sidebarA}`);
-    assert.equal(run.status, 200);
-    assert.equal(run.json.run.ui.scenarioId, "sidebar");
-    assert.deepEqual(run.json.artifacts.sort(), ["events", "log", "scenario"]);
-    assert.equal((await get(`/api/runs/${ID.sidebarA}/events`)).json.status, "passed");
-    const log = await get(`/api/runs/${ID.failedBuild}/artifacts/log?q=script`);
-    assert.equal(log.json.matchingLines, 1);
-    assert.match(log.json.lines[0].text, /<script>/);
-    const raw = await get(`/api/runs/${ID.failedBuild}/artifacts/log?download=1`);
+  test("serves a run's listed artifacts as text", async () => {
+    const raw = await get(`/api/runs/${ID.failedBuild}/artifacts/log`);
+    assert.equal(raw.status, 200);
     assert.match(raw.headers["content-type"], /^text\/plain/);
     assert.equal(raw.text, await readFile(path.join(root, "runs", ID.failedBuild, "build.log"), "utf8"));
-    const broken = await get(`/api/runs/${ID.broken}`);
-    assert.equal(broken.json.run.status, "unreadable");
   });
 
   test("refuses anything outside the runs' listed files", async () => {
-    assert.equal((await get("/api/runs/..%2F..%2Fetc")).status, 400);
-    assert.equal((await get("/api/runs/not-a-run")).status, 400);
+    assert.equal((await get("/api/runs/..%2F..%2Fetc/artifacts/log")).status, 400);
+    assert.equal((await get("/api/runs/not-a-run/artifacts/log")).status, 400);
     assert.equal((await get(`/api/runs/${ID.buildA}/artifacts/summary`)).status, 404);
+    assert.equal((await get(`/api/runs/${ID.buildA}/artifacts/__proto__`)).status, 404);
     assert.equal((await get(`/api/runs/${ID.buildA}/artifacts/..%2F..%2Fsummary.json`)).status, 404);
-    assert.equal((await get(`/api/runs/${ID.buildA}/events`)).status, 404);
-    assert.equal((await get("/../../etc/passwd")).status, 404);
-    assert.equal((await get("/server.mjs")).status, 404);
+    assert.equal((await get(`/api/runs/${ID.broken}/artifacts/log`)).status, 404);
+    assert.equal((await get(`/api/runs/${ID.buildA}`)).status, 404);
+  });
+
+  test("the page's data layer normalizes, previews and compares", async () => {
+    const loaded = await data.loadRuns();
+    assert.equal(loaded.root, root);
+    assert.deepEqual(loaded.runs, runs);
+    assert.ok(loaded.options.kinds.includes("build"));
+
+    const details = data.runDetails(ID.sidebarA);
+    assert.equal(details.run.ui.scenarioId, "sidebar");
+    assert.deepEqual(details.artifacts.sort(), ["events", "log", "scenario"]);
+    assert.equal((await data.runEvents(ID.sidebarA)).status, "passed");
+    await assert.rejects(data.runEvents(ID.buildA), /no UI events/);
+
+    const log = await data.artifactPreview(ID.failedBuild, "log", { q: "script" });
+    assert.equal(log.file, "build.log");
+    assert.equal(log.matchingLines, 1);
+    assert.match(log.lines[0].text, /<script>/);
+    await assert.rejects(data.artifactPreview(ID.buildA, "summary"), /lists no such artifact/);
+    await assert.rejects(data.artifactPreview(ID.running, "log"), /missing/);
+
+    assert.equal(data.runDetails(ID.broken).run.status, "unreadable");
+    assert.equal(data.compare(ID.buildA, ID.buildB).comparison.comparable, true);
+    assert.equal(data.compare(ID.sidebarB, ID.sidebarV2).comparison.comparable, false);
+    assert.equal(data.compare(ID.buildA, "20261231T000000-000Z-build-ffffff").comparison.blockers[0].code, "unreadable");
   });
 
   test("won't follow a listed artifact that links outside its run", async () => {
@@ -362,15 +406,5 @@ describe("local server", () => {
     await rm(path.join(dir, "runtime.log"));
     await symlink(outside, path.join(dir, "runtime.log"));
     assert.equal((await get(`/api/runs/${ID.runtime}/artifacts/log`)).status, 404);
-  });
-
-  test("compares two runs and explains incompatible ones", async () => {
-    const ok = await get(`/api/compare?a=${ID.buildA}&b=${ID.buildB}`);
-    assert.equal(ok.json.comparison.comparable, true);
-    const blocked = await get(`/api/compare?a=${ID.sidebarB}&b=${ID.sidebarV2}`);
-    assert.equal(blocked.json.comparison.comparable, false);
-    const missing = await get(`/api/compare?a=${ID.buildA}&b=20261231T000000-000Z-build-ffffff`);
-    assert.equal(missing.json.comparison.blockers[0].code, "unreadable");
-    assert.equal((await get(`/api/compare?a=${ID.buildA}`)).status, 400);
   });
 });

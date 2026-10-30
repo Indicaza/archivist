@@ -4,6 +4,7 @@ import Archivist.Services 1.0
 import "../../Files/FileIdentity.js" as FileIdentity
 import "../Workspace/FilePreview"
 import "../IdeHost"
+import "../Observatory"
 
 // The content of one view, positioned over its Anchor's content area. It is
 // keyed by view, so moving the view between Anchors in this window moves
@@ -141,6 +142,8 @@ Item {
                 return terminalComponent
             case "archivist.chat":
                 return chatComponent
+            case "archivist.observatory":
+                return observatoryComponent
             default:
                 return placeholderComponent
             }
@@ -216,6 +219,14 @@ Item {
 
             Component.onCompleted: root.workspace.registerTerminal(root.viewId, this)
             Component.onDestruction: root.workspace.unregisterTerminal(root.viewId, this)
+        }
+    }
+
+    Component {
+        id: observatoryComponent
+
+        ObservatoryView {
+            theme: root.theme
         }
     }
 

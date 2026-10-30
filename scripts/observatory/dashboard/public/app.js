@@ -2,6 +2,7 @@
 // renders them; never writes anything. All text is set with textContent.
 import { lineChart, stackedBars } from "./charts.js";
 import { compareRuns, SAME_WITHIN_PCT } from "./compare.mjs";
+import { artifactPreview, artifactUrl, compare, loadRuns, runDetails, runEvents } from "./data.js";
 import { filterRuns } from "./filter.mjs";
 
 const view = document.getElementById("view");
@@ -325,7 +326,7 @@ function runsPage(params) {
 }
 
 async function runPage(runId) {
-  const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
+  const data = runDetails(runId);
   const { run, summary } = data;
   const parts = [
     h("div", { class: "page-head" }, h("h2", {}, kindLabel(run), " ", statusPill(run.status)), h("span", { class: "mono muted" }, run.runId)),
@@ -383,7 +384,7 @@ function phaseDetails(phase) {
 async function actionsSection(run) {
   let events;
   try {
-    events = await api(`/api/runs/${encodeURIComponent(run.runId)}/events`);
+    events = await runEvents(run.runId);
   } catch (error) {
     return h("section", {}, h("h3", {}, "Actions"), empty(`No action records: ${error.message}`));
   }
@@ -416,17 +417,15 @@ function artifactsSection(runId, names) {
   let offset = 0;
   const load = async () => {
     for (const button of tabs.children) button.classList.toggle("active", button.dataset.name === current);
-    const params = new URLSearchParams({ offset: String(offset), limit: "300" });
-    if (query) params.set("q", query);
     try {
-      const preview = await api(`/api/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(current)}?${params}`);
+      const preview = await artifactPreview(runId, current, { offset, limit: 300, q: query });
       const lines = h("div", { class: "log" }, preview.lines.map((line) => h("div", { class: /error|FAILED|CMake Error/i.test(line.text) ? "err" : null }, h("span", { class: "n" }, line.n), line.text)));
       output.replaceChildren(
         h("div", { class: "filters" },
           h("label", {}, "Search", h("input", { type: "search", value: query, placeholder: "find lines", onchange: (event) => { query = event.target.value; offset = 0; load(); } })),
           h("button", { disabled: offset === 0, onclick: () => { offset = Math.max(0, offset - 300); load(); } }, "Previous"),
           h("button", { disabled: !preview.truncated, onclick: () => { offset += 300; load(); } }, "Next"),
-          h("a", { href: `/api/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(current)}?download=1`, target: "_blank", rel: "noopener" }, `Open full ${preview.file}`)),
+          h("a", { href: artifactUrl(runId, current), target: "_blank", rel: "noopener" }, `Open full ${preview.file}`)),
         h("p", { class: "muted small" }, `${preview.file} · ${(preview.sizeBytes / 1024).toFixed(1)} KB · ${query ? `${preview.matchingLines} matching of ${preview.totalLines} lines` : `${preview.totalLines} lines`} · showing ${preview.lines.length}`),
         preview.lines.length ? lines : empty("Nothing to show."));
     } catch (error) {
@@ -461,7 +460,7 @@ async function comparePage(params) {
     parts.push(h("p", { class: "muted" }, "Pick a baseline and a candidate. Builds compare with builds; UI runs compare only with the same scenario and version."));
     return parts;
   }
-  const { runs, comparison } = await api(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+  const { runs, comparison } = compare(a, b);
   const [baseline, candidate] = runs;
   parts.push(h("div", { class: "versus" }, [[baseline, "Baseline"], [candidate, "Candidate"]].map(([run, role]) => h("div", { class: "card" },
     h("h3", {}, `${role} `, statusPill(run.status ?? "unknown")),
@@ -491,13 +490,6 @@ async function comparePage(params) {
 
 // ---- data and routing ---------------------------------------------------------
 
-async function api(url) {
-  const response = await fetch(url);
-  const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
-  return body;
-}
-
 function go(hash) {
   if (location.hash === hash) render(); else location.hash = hash;
 }
@@ -525,9 +517,10 @@ async function render() {
   view.replaceChildren(...[content].flat(Infinity).filter(Boolean));
 }
 
-async function start() {
+async function refresh() {
+  state.error = null;
   try {
-    const data = await api("/api/runs");
+    const data = await loadRuns();
     state.runs = data.runs;
     state.options = data.options;
     state.root = data.root;
@@ -535,8 +528,13 @@ async function start() {
   } catch (error) {
     state.error = error.message;
   }
-  window.addEventListener("hashchange", render);
   render();
+}
+
+function start() {
+  document.getElementById("refresh").addEventListener("click", refresh);
+  window.addEventListener("hashchange", render);
+  refresh();
 }
 
 start();

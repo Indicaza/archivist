@@ -230,13 +230,21 @@ a build run only when you pass `--build-run`, recorded as
 
 ## Dashboard
 
+**Inside Archivist:** open a panel's menu and pick **Observatory Here**, or
+press **Ctrl+Alt+Shift+O** (⌘⌥⇧O on a Mac). The dashboard opens as a panel
+you can move, split and minimize like any other, and **Refresh** reads the
+runs again. The app serves it from its own loopback host at
+`/observatory/`; nothing extra runs.
+
+**In a browser**, without starting Archivist:
+
 ```bash
 npm run observatory:dashboard                 # opens http://127.0.0.1:4317/
 npm run observatory:dashboard -- --port 4400 --no-open
 ```
 
-A small local web page over the records above. It reads them and never
-writes, renames or deletes anything. Press Ctrl+C to stop it.
+Both show the same page over the records above. They read them and never
+write, rename or delete anything. Press Ctrl+C to stop the browser version.
 
 - **Overview**: latest build, latest run of each UI scenario, build and UI
   trends, recent failures, the machine, and "since the previous comparable
@@ -263,12 +271,27 @@ Runs that never finished show as `incomplete`, summaries that can't be parsed
 as `unreadable`, and summaries from a newer `schemaVersion` are listed but not
 interpreted. Missing measurements show as `—` and are never filled in.
 
-Safety: the server listens on 127.0.0.1 only, answers GET only, rejects
+How it's put together: the page (`dashboard/public/`) does all the reading,
+comparing and filtering itself. A host only answers two requests, and
+Archivist's IDE host (`frontend/src/Core/Domains/Observatory`) answers them
+exactly like the Node server (`dashboard/server.mjs`):
+
+| Request | Answer |
+| ------- | ------ |
+| `GET api/runs` | `{ root, runs: [{ runId, summary, error }] }`, newest first; `summary` is `summary.json` as stored, or `null` with the reason in `error` |
+| `GET api/runs/<runId>/artifacts/<name>` | The text of an artifact the run's summary lists under `artifacts` (up to 32 MB) |
+
+Safety, in both hosts: they listen on 127.0.0.1 only, answer GET only, reject
 requests whose Host isn't `127.0.0.1`/`localhost` (so another website can't
-read it through DNS tricks), and serves only files a run's own summary lists
-under `artifacts`, inside that run's folder (symlinks out are refused). Log
-text is rendered as text, never as HTML, under a strict Content Security
-Policy.
+read them through DNS tricks), serve only the page's own listed files, and
+serve only artifacts a run's own summary lists, inside that run's folder
+(symlinks out are refused). Log text is rendered as text, never as HTML,
+under a strict Content Security Policy. In the app, the panel can't navigate
+away from the dashboard, and "Open full …" links open in your browser.
+
+Release builds without repository paths (`ARCHIVIST_USE_REPOSITORY_PATHS=OFF`)
+need the page copied to `Archivist.app/Contents/Resources/observatory`, or
+`ARCHIVIST_OBSERVATORY_PAGE` pointing at it.
 
 To preview the dashboard without real records, write the test fixtures to a
 scratch folder (they are made-up runs labelled `fixture:` on a `fixture/main`
@@ -295,11 +318,16 @@ ARCHIVIST_OBSERVATORY_DIR=/tmp/observatory-fixtures npm run observatory:dashboar
 | `ui-stats.mjs` | Median, p95 and max over UI actions |
 | `ui-report.mjs` | The UI Lab terminal summary |
 | `ui-scenarios/` | Scenario definitions |
-| `dashboard/server.mjs` | The dashboard's local, read-only server and JSON API |
-| `dashboard/records.mjs` | Reading runs into one flat record shape |
-| `dashboard/compare.mjs` | Baseline vs candidate: blockers, warnings, deltas (also used by the page) |
-| `dashboard/filter.mjs` | Run filters (also used by the page) |
+| `dashboard/server.mjs` | The browser dashboard's local, read-only server |
+| `dashboard/records.mjs` | Reading runs and artifacts from disk for that server |
 | `dashboard/public/` | The page: plain JavaScript, no dependencies |
+| `dashboard/public/data.js` | The page's data layer over the two host requests |
+| `dashboard/public/normalize.mjs` | One run's summary into the flat record the page uses |
+| `dashboard/public/compare.mjs` | Baseline vs candidate: blockers, warnings, deltas |
+| `dashboard/public/filter.mjs` | Run filters |
+| `dashboard/public/preview.mjs` | Paging and searching a log |
+| `frontend/src/Core/Domains/Observatory/` | The same two requests, served inside Archivist |
+| `frontend/qml/App/Workbench/Observatory/` | The Observatory panel |
 
 ## Testing the collector
 

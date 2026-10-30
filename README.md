@@ -273,7 +273,9 @@ instance (it uses a throwaway profile, never your data):
 npm run observatory:ui
 ```
 
-Browse, chart and compare those records in a local, read-only dashboard:
+Browse, chart and compare those records in a read-only dashboard: inside
+Archivist, pick **Observatory Here** from a panel's menu (or press
+⌘⌥⇧O), or in a browser:
 
 ```bash
 npm run observatory:dashboard

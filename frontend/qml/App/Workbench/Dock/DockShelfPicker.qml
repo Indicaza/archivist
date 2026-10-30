@@ -336,6 +336,17 @@ Popup {
 
         Row_ {
             visible: !root.addingItems
+            iconName: "history"
+            label: "Observatory Here"
+            dim: true
+            onActivated: {
+                root.close()
+                root.workspace.openObservatory(root.anchorId)
+            }
+        }
+
+        Row_ {
+            visible: !root.addingItems
             iconName: ""
             label: "Show as Tabs"
             dim: true

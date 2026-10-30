@@ -68,6 +68,7 @@ Item {
     function revealView(viewId) { workspace.revealView(viewId) }
     function openChat(anchorId) { workspace.openChat(anchorId) }
     function openTerminal(anchorId) { workspace.openTerminal(anchorId) }
+    function openObservatory(anchorId) { workspace.openObservatory(anchorId) }
     function openLocation(filePath, lineNumber, columnNumber) { workspace.openLocation(filePath, lineNumber, columnNumber) }
     function beginDrag(kind, id, title) { return workspace.beginDrag(kind, id, title) }
     // Drags report the pointer in global (screen) coordinates, so a drag can

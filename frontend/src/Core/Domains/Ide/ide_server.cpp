@@ -6,6 +6,7 @@
 #include "Core/Domains/Ide/web_socket_connection.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
+#include "Core/Domains/Observatory/observatory_records.h"
 #include "Core/Support/json_values.h"
 #include "Core/core_error.h"
 
@@ -269,6 +270,23 @@ private:
             return;
         }
 
+        // The Observatory dashboard: a read-only page over local build and
+        // UI timing records, shown in its own panel.
+        if (path == QStringLiteral("/observatory") && get) {
+            respondRedirect(QStringLiteral("/observatory/"));
+            return;
+        }
+
+        if (path.startsWith(QStringLiteral("/observatory/"))) {
+            if (!get) {
+                respondJson(405, errorBody(QStringLiteral("The Observatory dashboard is read-only.")));
+                return;
+            }
+
+            serveObservatory(path.mid(13));
+            return;
+        }
+
         if (path == QStringLiteral("/api/health") && get) {
             respondJson(200, {{QStringLiteral("ok"), true}, {QStringLiteral("app"), QStringLiteral("Archivist IDE host")}});
             return;
@@ -378,6 +396,33 @@ private:
                 [self, status, body]() {
                     if (self) {
                         self->respondJson(status, body);
+                    }
+                },
+                Qt::QueuedConnection
+            );
+        });
+    }
+
+    // Reads records off the main thread: a long history is many small files.
+    void serveObservatory(const QString &relativePath)
+    {
+        QPointer<IdeHttpConnection> self(this);
+        const bool head = m_request.method == "HEAD";
+
+        m_server->m_pool.start([self, relativePath, head]() {
+            Observatory::Response response;
+
+            try {
+                response = Observatory::handle(Observatory::defaultRoot(), Observatory::defaultPagePath(), relativePath);
+            } catch (const std::exception &) {
+                response = {500, "application/json; charset=utf-8", "{\"error\":\"An unexpected server error occurred.\"}", Observatory::securityHeaders()};
+            }
+
+            QMetaObject::invokeMethod(
+                qApp,
+                [self, response, head]() {
+                    if (self) {
+                        self->respond(response.status, response.contentType, head ? QByteArray() : response.body, response.body.size(), response.headers);
                     }
                 },
                 Qt::QueuedConnection
@@ -781,6 +826,11 @@ void IdeServer::stop()
 QUrl IdeServer::url() const
 {
     return ready() ? QUrl(QStringLiteral("http://127.0.0.1:%1/ide/").arg(m_server->serverPort())) : QUrl();
+}
+
+QUrl IdeServer::observatoryUrl() const
+{
+    return ready() ? QUrl(QStringLiteral("http://127.0.0.1:%1/observatory/").arg(m_server->serverPort())) : QUrl();
 }
 
 bool IdeServer::ready() const
