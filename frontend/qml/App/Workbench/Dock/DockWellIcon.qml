@@ -27,7 +27,7 @@ Item {
     property real lift: 0
     property bool growDown: false
     property bool vertical: false
-    // Tooltips and hover marks only once the Well is engaged.
+    // Hover marks only once the Well is engaged.
     property bool engaged: true
 
     signal menuRequested(var entry, Item source, real x, real y)
@@ -153,6 +153,18 @@ Item {
             ? "Pinned · open"
             : "Pinned · click to open"
     readonly property bool hovered: hit.containsMouse
+    readonly property bool pressed: hit.pressed
+
+    // The orb as drawn now (the wave, its lift), in the Well's coordinates,
+    // so the hover card can stay beside it as it swells.
+    readonly property rect drawnRect: {
+        var size = orb * drawnScale
+        var cx = x + width / 2 + (vertical ? 0 : drawnShift)
+        var cy = vertical ? y + height / 2 + drawnShift
+            : growDown ? y + (height / 2) * drawnScale + lift
+            : y + height - (height / 2) * drawnScale - lift
+        return Qt.rect(cx - size / 2, cy - size / 2, size, size)
+    }
 
     // The body's colour, warmed toward the accent when it has focus.
     function lit(base) {
@@ -386,8 +398,4 @@ Item {
         }
     }
 
-    ToolTip.visible: hit.containsMouse && !hit.pressed && root.engaged
-    ToolTip.delay: 350
-    ToolTip.text: root.title + "\n" + root.stateText
-        + (root.panel && root.tabTitles.length > 1 ? "\n" + root.tabTitles.join(", ") : "")
 }

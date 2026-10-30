@@ -381,9 +381,11 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockSplitGlyph.qml
         qml/App/Workbench/Dock/DockWell.qml
         qml/App/Workbench/Dock/DockWellIcon.qml
+        qml/App/Workbench/Dock/DockWellTip.qml
         qml/App/Workbench/Dock/WellGlow.qml
         qml/App/Workbench/Dock/DockGenie.qml
         qml/App/Workbench/Dock/WellGeometry.js
+        qml/App/Workbench/Dock/WellTip.js
         qml/App/Workbench/Dock/TabStrip.js
         qml/App/Workbench/TerminalDock/TerminalDock.qml
         qml/App/Workbench/WorkbenchDock/WorkbenchDock.qml

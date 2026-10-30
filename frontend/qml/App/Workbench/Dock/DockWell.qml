@@ -2,7 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import Archivist.Services 1.0
 import "../../Icons"
+import "../../Files/FileIdentity.js" as FileIdentity
 import "WellGeometry.js" as WellGeometry
+import "WellTip.js" as WellTip
 
 // A Gravity Well: a few small spheres for what's been minimized or pinned,
 // floating over the layout like a Dock. It shows references the workspace
@@ -108,7 +110,7 @@ Item {
     // toward it, while it moves, while its menu is open, and for a moment
     // after something lands in it.
     readonly property bool held: dragging || moving || entryMenu.visible || wellMenu.visible || landing.running
-        || root.workspace.genieActive === true
+        || root.workspace.genieActive === true || tipState.visible === true
     readonly property bool engaged: proximity.engaged && !dragging
     readonly property real level: held ? 1 : proximity.level
     // How visible it is, eased.
@@ -475,6 +477,120 @@ Item {
         }
     }
 
+    // ---- The hover card ----
+
+    // When it shows (WellTip.hover): a moment after the pointer rests on a
+    // sphere; at once moving to the next one; gone a beat after it leaves.
+    // Anything that takes the Well (a press, a drag, a move, a menu, the
+    // Genie) puts it away at once.
+    property var tipState: ({ phase: "idle", entryId: "", visible: false })
+    // The sphere under the pointer (empty: none).
+    property string hoverEntryId: ""
+    readonly property bool tipBlocked: dragging || moving || entryMenu.visible || wellMenu.visible
+        || root.workspace.genieActive === true || pressedEntry
+    property bool pressedEntry: false
+
+    function tipEvent(event) {
+        var next = WellTip.hover(tipState, event)
+        if (next.timer === "stop") {
+            tipTimer.stop()
+        } else if (next.timer) {
+            tipTimer.interval = WellTip.delayFor(next.timer)
+            tipTimer.restart()
+        }
+        tipState = next
+    }
+
+    function noteHover(entryId, hovered) {
+        if (hovered) {
+            hoverEntryId = entryId
+            if (!tipBlocked) {
+                tipEvent({ type: "enter", entryId: entryId })
+            }
+        } else if (hoverEntryId === entryId) {
+            hoverEntryId = ""
+            tipEvent({ type: "leave" })
+        }
+    }
+
+    onTipBlockedChanged: {
+        if (tipBlocked) {
+            tipEvent({ type: "cancel" })
+        }
+    }
+
+    Timer {
+        id: tipTimer
+
+        onTriggered: root.tipEvent({ type: "timer" })
+    }
+
+    // What the card shows, kept through its fade out.
+    property string tipEntryId: ""
+    onTipStateChanged: {
+        if (tipState.visible && tipState.entryId !== tipEntryId) {
+            var from = tip.x
+            var glide = tipEntryId.length > 0 && tip.presence > 0.5 && !theme.reducedMotion
+            tipSlide.stop()
+            tip.slideX = 0
+            tipEntryId = tipState.entryId
+            if (glide) {
+                tip.slideX = from - tip.x
+                tipSlide.start()
+            }
+        }
+    }
+    readonly property int tipIndex: {
+        for (var index = 0; index < entries.length; index += 1) {
+            if (String(entries[index].entryId || "") === tipEntryId) {
+                return index
+            }
+        }
+        return -1
+    }
+    // Put away or taken out while its card shows: the card goes too.
+    onTipIndexChanged: {
+        if (tipIndex < 0 && tipState.visible) {
+            tipEvent({ type: "cancel" })
+        }
+    }
+
+    // How the card names things: the same names, icons and marks the tabs
+    // and spheres use, from what's recorded. Nothing is opened to find out.
+    readonly property var tipLook: ({
+        title: function(info) { return root.workspace.viewTitle(info) },
+        icon: function(info) { return root.workspace.viewIconName(info) },
+        kind: function(info) { return root.tipKind(info) },
+        path: function(info) { return String(((info.resource || {}).details || {}).path || "") },
+        dirty: function(info) {
+            var resource = info.resource || {}
+            return resource.kind === "document" && Documents.isDirty(String(resource.id || ""))
+        }
+    })
+
+    // A view's type as people say it: a file's own type (C++, Markdown),
+    // else its kind of view (Chat, Terminal). Empty when it isn't known.
+    function tipKind(info) {
+        var typeId = String(info.typeId || "")
+        var details = (info.resource || {}).details || ({})
+        var named = String(details.name || details.path || "")
+        if (named.length > 0 || String(details.extension || "").length > 0) {
+            var identity = FileIdentity.resolve({ fileName: named, extension: String(details.extension || "") })
+            if (identity.category !== "unknown") {
+                return String(identity.displayLabel || "")
+            }
+        }
+        var type = Docking.viewType(typeId)
+        return String((type || {}).displayName || "")
+    }
+
+    readonly property var tipCard: {
+        // Names and marks that change without the Well changing.
+        ChatStore.chats
+        Documents.revision
+        return tipIndex >= 0 ? WellTip.describe(entries[tipIndex], tipLook) : WellTip.describe(null, tipLook)
+    }
+
     Repeater {
         id: icons
 
@@ -494,6 +610,17 @@ Item {
             growDown: root.growDown
             vertical: root.vertical
             engaged: root.engaged || root.held
+            onHoveredChanged: root.noteHover(entryId, hovered)
+            onPressedChanged: root.pressedEntry = pressed
+            // Gone mid-press (restored, closed): don't leave the card blocked.
+            Component.onDestruction: {
+                if (pressed) {
+                    root.pressedEntry = false
+                }
+                if (root.hoverEntryId === entryId) {
+                    root.noteHover(entryId, false)
+                }
+            }
             onMenuRequested: function(entry, source, x, y) {
                 entryMenu.entry = entry
                 entryMenu.popup(source, x, y)
@@ -579,6 +706,71 @@ Item {
                 settleTimer.restart()
                 Docking.setWellPosition(root.wellId, 0.5, 1)
             }
+        }
+    }
+
+    // The card itself: one, reused for every sphere. It sits above the
+    // sphere (below it when the Well is at the top, beside it when the Well
+    // stands upright), stays inside the window, and follows the sphere as
+    // it swells.
+    DockWellTip {
+        id: tip
+
+        readonly property var icon: root.tipIndex >= 0 && root.tipIndex < icons.count ? icons.itemAt(root.tipIndex) : null
+        readonly property rect sphere: icon ? icon.drawnRect : Qt.rect(0, 0, 0, 0)
+        readonly property rect bounds: root.parent ? Qt.rect(-root.x, -root.y, root.parent.width, root.parent.height) : Qt.rect(0, 0, 0, 0)
+        readonly property real gap: root.theme.px(8)
+        readonly property real edge: root.theme.px(8)
+        readonly property string prefer: root.vertical
+            ? (root.x + root.width / 2 > bounds.width / 2 ? "left" : "right")
+            : root.growDown ? "below" : "above"
+        readonly property var placed: WellTip.place(
+            { x: sphere.x, y: sphere.y, width: sphere.width, height: sphere.height },
+            width, height,
+            { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+            prefer, gap, edge
+        )
+
+        // Shown (1) or not (0), eased; it rises a few pixels toward the
+        // sphere as it appears.
+        property real presence: root.tipState.visible === true && icon !== null ? 1 : 0
+        Behavior on presence {
+            NumberAnimation {
+                // Taken away by a press, a drag or a menu, it's gone almost
+                // at once; left, it fades.
+                duration: root.theme.reducedMotion ? 0 : tip.presence < 0.5 ? root.theme.motionFast
+                    : root.tipBlocked ? 60 : root.theme.motionHoverExit
+                easing.type: Easing.OutCubic
+            }
+        }
+        readonly property real rise: root.theme.reducedMotion ? 0 : (1 - presence) * root.theme.px(4)
+        readonly property real riseX: placed.side === "left" ? -rise : placed.side === "right" ? rise : 0
+        readonly property real riseY: placed.side === "above" ? -rise : placed.side === "below" ? rise : 0
+
+        theme: root.theme
+        card: root.tipCard
+        side: placed.side
+        pointer: placed.pointer
+        available: root.vertical ? bounds.height - edge * 2
+            : Math.max(sphere.y - bounds.y, bounds.y + bounds.height - sphere.y - sphere.height) - gap - edge
+        x: Math.round(placed.x - riseX + slideX)
+        y: Math.round(placed.y - riseY)
+        z: 10
+        visible: presence > 0.001
+        opacity: presence
+        scale: root.theme.reducedMotion ? 1 : 0.97 + 0.03 * presence
+        transformOrigin: placed.side === "above" ? Item.Bottom : placed.side === "below" ? Item.Top : placed.side === "left" ? Item.Right : Item.Left
+
+        // Moving to the next sphere, it glides there instead of jumping.
+        property real slideX: 0
+        NumberAnimation {
+            id: tipSlide
+
+            target: tip
+            property: "slideX"
+            to: 0
+            duration: root.theme.reducedMotion ? 0 : root.theme.motionFast
+            easing.type: Easing.OutCubic
         }
     }
 }
