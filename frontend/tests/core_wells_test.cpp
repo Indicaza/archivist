@@ -711,6 +711,89 @@ private slots:
         QVERIFY(s.model.well(WorkspaceModel::kMainWellId)->entries.isEmpty());
     }
 
+    // What the hover card reads: each entry's views as the model has them,
+    // a panel's in tab order with its active tab and its own name.
+    void anEntryListsWhatsInsideIt()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(s.model.splitView(b, s.main, Edge::Right).ok);
+        const QString panel = s.model.anchorOfView(b);
+        const QString t = s.open(terminalView(QStringLiteral("t1")), panel);
+        const QString c = s.open(chatView(QStringLiteral("c1")), panel);
+        QVERIFY(s.model.moveView(c, panel, 0).ok); // reordered: c, b, t
+        QVERIFY(s.model.activateView(t).ok);
+        QVERIFY(s.model.renameAnchor(panel, QStringLiteral("Development")).ok);
+        QVERIFY(Wells::minimizeAnchor(s.model, panel).ok);
+
+        QVariantMap entry = Wells::wellsList(s.model).first().toMap().value("entries").toList().first().toMap();
+        QVERIFY(entry.value("panel").toBool());
+        QCOMPARE(entry.value("anchorName").toString(), QStringLiteral("Development"));
+        QCOMPARE(entry.value("activeViewId").toString(), t);
+        const QVariantList views = entry.value("views").toList();
+        QStringList ids;
+        QStringList types;
+        for (const QVariant &view : views) {
+            ids.append(view.toMap().value("viewId").toString());
+            types.append(view.toMap().value("typeId").toString());
+            QVERIFY(!view.toMap().value("missing").toBool());
+        }
+        QCOMPARE(ids, (QStringList{c, b, t}));
+        QCOMPARE(types, (QStringList{ViewTypes::Chat, ViewTypes::Editor, ViewTypes::Terminal}));
+        QCOMPARE(views.at(1).toMap().value("title").toString(), QStringLiteral("b"));
+        QCOMPARE(views.at(1).toMap().value("resource").toMap().value("id").toString(), QStringLiteral("col:lib:b"));
+
+        // A single view put away: just it, no panel name or active tab.
+        Setup one;
+        one.open(editorView(QStringLiteral("x")));
+        const QString y = one.open(editorView(QStringLiteral("y")));
+        QVERIFY(Wells::minimize(one.model, y).ok);
+        entry = Wells::wellsList(one.model).first().toMap().value("entries").toList().first().toMap();
+        QVERIFY(!entry.value("panel").toBool());
+        QCOMPARE(entry.value("anchorName").toString(), QString());
+        QCOMPARE(entry.value("activeViewId").toString(), QString());
+        QCOMPARE(entry.value("views").toList().size(), 1);
+        QCOMPARE(entry.value("views").toList().first().toMap().value("viewId").toString(), y);
+    }
+
+    // A saved panel whose tab has gone (its view unreadable): it lists what
+    // is left, in order, and names no active tab it can't show.
+    void aPanelWithAMissingTabListsOnlyWhatsLeft()
+    {
+        Setup s;
+        s.open(editorView(QStringLiteral("a")));
+        const QString b = s.open(editorView(QStringLiteral("b")));
+        QVERIFY(s.model.splitView(b, s.main, Edge::Right).ok);
+        const QString panel = s.model.anchorOfView(b);
+        const QString c = s.open(editorView(QStringLiteral("c")), panel);
+        const QString d = s.open(editorView(QStringLiteral("d")), panel);
+        QVERIFY(s.model.activateView(c).ok);
+        QVERIFY(Wells::minimizeAnchor(s.model, panel).ok);
+
+        QJsonObject snapshot = Codec::encodeSnapshot(s.model);
+        QJsonObject session = snapshot.value(QStringLiteral("session")).toObject();
+        QJsonArray views = session.value(QStringLiteral("views")).toArray();
+        for (qsizetype index = views.size() - 1; index >= 0; --index) {
+            if (views.at(index).toObject().value(QStringLiteral("id")).toString() == c) {
+                views.removeAt(index);
+            }
+        }
+        session.insert(QStringLiteral("views"), views);
+        snapshot.insert(QStringLiteral("session"), session);
+        WorkspaceModel loaded(counter());
+        QVERIFY(Codec::decodeSnapshot(snapshot, ViewTypeRegistry::withBuiltIns(), loaded).ok);
+        QVERIFY(loaded.validate().isEmpty());
+
+        const QVariantMap entry = Wells::wellsList(loaded).first().toMap().value("entries").toList().first().toMap();
+        QStringList ids;
+        for (const QVariant &view : entry.value("views").toList()) {
+            ids.append(view.toMap().value("viewId").toString());
+        }
+        QCOMPARE(ids, (QStringList{b, d}));
+        QCOMPARE(entry.value("activeViewId").toString(), QString());
+    }
+
     void leaveOnTopIsSaved()
     {
         Setup s;

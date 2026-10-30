@@ -327,6 +327,19 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   Switching keeps it exactly where it is. Dragged, it lifts a touch, shows
   a faint line on the centre it'll snap to, gives a little past the edge
   of its frame and springs back; only a drop settles with a spring.
+- **What's inside.** Resting on a sphere for about 300 ms shows a small
+  card above it (`DockWellTip.qml`, logic in `WellTip.js`): a Magnet's name,
+  its type (the file's own, like C++, else Chat or Terminal), its path and
+  whether it has unsaved changes; an Anchor's name and its Magnets in tab
+  order, the active one marked, as many as fit and then "N more". It reads
+  only what `Docking.wells()` already lists (each entry's `views`, its
+  `activeViewId` and `anchorName`) and the names and marks tabs use, so
+  hovering never opens, wakes or reads anything. There is one card per
+  Well, reused: moving along the row only changes what it says and glides
+  it to the next sphere, a short grace covers the gaps between spheres,
+  and it stays inside the window, flipping below when there's no room
+  above. It keeps the Well shown while it's up, takes no input, and goes
+  at once on a press, a drag, a move, a menu or the Genie.
 - **Keeping it quick.** Minimizing and restoring change the model in well
   under a millisecond; the cost is in what the screen rebuilds. So a tab
   strip changes only the tab that came or went (`TabStrip.js`), menus are

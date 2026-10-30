@@ -261,9 +261,33 @@ QVariantList wellsList(const WorkspaceModel &model)
                                  ? entry.panelInfo.activeViewId
                                  : entry.minimized.last().viewId);
             QStringList titles;
+            // What's inside, for the Well's hover card: each view put away
+            // (a panel's in tab order), as the model has it now. Only what's
+            // recorded; nothing is opened or woken to find out more.
+            QVariantList views;
             for (const MinimizedView &view : entry.minimized) {
                 const ViewRecord *record = model.view(view.viewId);
                 titles.append(record ? record->title : QString());
+                views.append(record
+                    ? QVariantMap{
+                          {QStringLiteral("viewId"), view.viewId},
+                          {QStringLiteral("typeId"), record->typeId},
+                          {QStringLiteral("title"), record->title},
+                          {QStringLiteral("resource"), Commands::resourceToMap(record->resource)},
+                      }
+                    : QVariantMap{
+                          {QStringLiteral("viewId"), view.viewId},
+                          {QStringLiteral("missing"), true},
+                      });
+            }
+            // The panel's active tab, when it's still one of them.
+            QString activeViewId;
+            if (entry.panel) {
+                for (const MinimizedView &view : entry.minimized) {
+                    if (view.viewId == entry.panelInfo.activeViewId && model.view(view.viewId)) {
+                        activeViewId = view.viewId;
+                    }
+                }
             }
             entries.append(QVariantMap{
                 {QStringLiteral("entryId"), entry.id},
@@ -281,6 +305,10 @@ QVariantList wellsList(const WorkspaceModel &model)
                 // A whole panel put away: its tabs come back together.
                 {QStringLiteral("panel"), entry.panel},
                 {QStringLiteral("viewTitles"), titles},
+                {QStringLiteral("views"), views},
+                {QStringLiteral("activeViewId"), activeViewId},
+                // The name the user gave the panel (empty: none).
+                {QStringLiteral("anchorName"), entry.panel ? entry.panelInfo.name : QString()},
             });
         }
         wells.append(QVariantMap{
