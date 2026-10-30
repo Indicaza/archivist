@@ -1,6 +1,7 @@
 #include "core_runtime.h"
 
 #include "core_error.h"
+#include "Core/Support/app_profile.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -273,6 +274,11 @@ QString CoreRuntime::defaultDatabasePath()
 
     if (!configured.isEmpty()) {
         return configured;
+    }
+
+    // A test profile never falls back to the repository's database.
+    if (AppProfile::active()) {
+        return QDir(AppProfile::directory()).filePath(QStringLiteral("archivist.db"));
     }
 
 #ifdef ARCHIVIST_REPOSITORY_ROOT

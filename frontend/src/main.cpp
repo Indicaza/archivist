@@ -8,6 +8,7 @@
 #include <QVariantMap>
 #include <QtEnvironmentVariables>
 #include <QtWebEngineQuick>
+#include <memory>
 #include <qqml.h>
 
 #include "App/Domains/Agent/agent_store.h"
@@ -30,10 +31,12 @@
 #include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
 #include "App/Services/interface_scale.h"
+#include "App/Services/ui_lab.h"
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
 #include "Core/Domains/Ide/ide_server.h"
 #include "Core/Domains/Themes/code_theme_library.h"
+#include "Core/Support/app_profile.h"
 #include "Core/Support/login_environment.h"
 #include "Core/core_runtime.h"
 
@@ -49,6 +52,26 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationDomain("archivist.local");
 
     QQuickStyle::setStyle("Basic");
+
+    // A disposable test profile (ARCHIVIST_PROFILE_DIR) keeps settings,
+    // the database and recovery files out of the person's own profile.
+    if (!AppProfile::isolateSettings()) {
+        qCritical().noquote() << "[Profile] Cannot create the test profile at" << AppProfile::directory();
+        return 3;
+    }
+
+    // The Observatory UI Lab runs a scenario in this instance. It checks
+    // the profile before the database is opened, and refuses otherwise.
+    std::unique_ptr<UiLab> uiLab;
+    if (UiLab::requested()) {
+        uiLab = std::make_unique<UiLab>();
+        QString error;
+        if (!uiLab->load(CoreRuntime::defaultDatabasePath(), &error)) {
+            qCritical().noquote() << "[UiLab] Refusing to run:" << error;
+            return 3;
+        }
+        qInfo().noquote() << "[UiLab] Test profile:" << AppProfile::directory();
+    }
 
     // Finder launches get a bare PATH; the terminal and language servers
     // need the same tools the user has in their shell.
@@ -125,7 +148,7 @@ int main(int argc, char *argv[])
     // and comes back, marked unsaved, on the next start.
     UnsavedRecovery unsavedRecovery(
         &documentStore,
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/recovery/unsaved.json")
+        AppProfile::dataLocation() + QStringLiteral("/recovery/unsaved.json")
     );
     const int recoveredDocuments = unsavedRecovery.restore();
     if (recoveredDocuments > 0) {
@@ -266,6 +289,8 @@ int main(int argc, char *argv[])
         "legacyWorkspace",
         qEnvironmentVariableIsSet("ARCHIVIST_LEGACY_WORKSPACE")
     );
+    diagnostics.insert("uiLab", uiLab != nullptr);
+    engine.rootContext()->setContextProperty("UiLab", uiLab.get());
     engine.rootContext()->setContextProperty(
         "ArchivistDiagnostics",
         diagnostics

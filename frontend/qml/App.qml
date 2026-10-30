@@ -29,10 +29,20 @@ ApplicationWindow {
     }
 
     WorkbenchShell {
+        id: shell
+
         anchors.top: topbar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         theme: theme
+    }
+
+    // The Observatory UI Lab's scenario driver; only in a test profile
+    // started with ARCHIVIST_UI_LAB_SCENARIO (see src/App/Services/ui_lab.h).
+    Loader {
+        active: ArchivistDiagnostics.uiLab === true
+        source: "App/UiLab/UiLabDriver.qml"
+        onLoaded: item.start(window, shell)
     }
 }

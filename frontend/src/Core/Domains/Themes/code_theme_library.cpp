@@ -1,4 +1,5 @@
 #include "code_theme_library.h"
+#include "Core/Support/app_profile.h"
 
 #include "code_theme.h"
 
@@ -60,7 +61,7 @@ CodeThemeLibrary::CodeThemeLibrary(const QString &directory, QObject *parent)
 
 QString CodeThemeLibrary::defaultDirectory()
 {
-    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("themes"));
+    return QDir(AppProfile::dataLocation()).filePath(QStringLiteral("themes"));
 }
 
 QVariantList CodeThemeLibrary::themes() const

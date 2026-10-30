@@ -1,0 +1,194 @@
+{
+  "id": "sidebar",
+  "version": 1,
+  "name": "Sidebar Stress",
+  "description": "Opens and closes the side panel from the activity rail, drags its edge through several widths, switches between rail sections, and ends closed at the default width.",
+  "initialConditions": "Fresh disposable profile, 1280x840 window, workspace shown, side panel closed at its default width (310).",
+  "methods": {
+    "click": "input: synthetic left-button press/release delivered to the window at the rail button's centre",
+    "dragSidebarEdge": "input: press on the resize handle, 8 moves, release",
+    "returnToWorkspace": "store-call: Shell.returnToWorkspace()",
+    "setPanelOpen": "store-call: Shell.setPanelOpen()"
+  },
+  "seed": null,
+  "warmupIterations": 1,
+  "iterations": 5,
+  "actionTimeoutMs": 5000,
+  "settleQuietMs": 120,
+  "readyTimeoutMs": 30000,
+  "timeoutMs": 240000,
+  "setup": [
+    {
+      "op": "returnToWorkspace",
+      "label": "show workspace",
+      "expect": {
+        "homeActive": false
+      }
+    },
+    {
+      "op": "setPanelOpen",
+      "open": false,
+      "label": "start closed",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "open sidebar",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.navigator",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "close sidebar",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "open sidebar",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.navigator",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "close sidebar",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "open sidebar",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.navigator",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "dragSidebarEdge",
+      "width": 260,
+      "label": "resize sidebar to 260",
+      "expect": {
+        "explorerWidth": 260,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "dragSidebarEdge",
+      "width": 420,
+      "label": "resize sidebar to 420",
+      "expect": {
+        "explorerWidth": 420,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "dragSidebarEdge",
+      "width": 560,
+      "label": "resize sidebar to 560",
+      "expect": {
+        "explorerWidth": 560,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "dragSidebarEdge",
+      "width": 310,
+      "label": "resize sidebar to 310",
+      "expect": {
+        "explorerWidth": 310,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.search",
+      "label": "switch to search",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.search",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.archive",
+      "label": "switch to archive",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.archive",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.plugins",
+      "label": "switch to plugins",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.plugins",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.tools",
+      "label": "switch to tools",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.tools",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "switch to navigator",
+      "expect": {
+        "panelOpen": true,
+        "panelId": "navigation.navigator",
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "click",
+      "objectName": "rail.navigation.navigator",
+      "label": "close sidebar",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "op": "noop",
+      "label": "verify start layout",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true,
+        "explorerWidth": 310
+      }
+    }
+  ]
+}

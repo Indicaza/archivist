@@ -151,6 +151,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Support/secret_store.h
     src/Core/Support/login_environment.cpp
     src/Core/Support/login_environment.h
+    src/Core/Support/app_profile.cpp
+    src/Core/Support/app_profile.h
 )
 
 file(GLOB ARCHIVIST_CORE_MIGRATIONS
@@ -260,6 +262,8 @@ qt_add_executable(archivist-qt
     src/App/Services/workspace_state_store.h
     src/App/Services/interface_scale.cpp
     src/App/Services/interface_scale.h
+    src/App/Services/ui_lab.cpp
+    src/App/Services/ui_lab.h
 )
 
 set_source_files_properties(
@@ -272,6 +276,7 @@ qt_add_qml_module(archivist-qt
     VERSION 1.0
     QML_FILES
         qml/App.qml
+        qml/App/UiLab/UiLabDriver.qml
         qml/App/Theme/Theme.qml
         qml/App/Icons/AppIcon.qml
         qml/App/Icons/LanguageIcon.qml
@@ -466,6 +471,11 @@ if(ARCHIVIST_BUILD_TESTS)
     set_target_properties(chat-text-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME chat-text-test COMMAND chat-text-test)
     set_tests_properties(chat-text-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    qt_add_executable(core-app-profile-test tests/core_app_profile_test.cpp)
+    target_link_libraries(core-app-profile-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-app-profile-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-app-profile-test COMMAND core-app-profile-test)
 
     qt_add_executable(core-database-test tests/core_database_test.cpp)
     target_link_libraries(core-database-test PRIVATE archivist-core Qt6::Test)

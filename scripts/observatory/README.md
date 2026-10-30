@@ -2,7 +2,8 @@
 
 Observatory keeps a local, structured record of Archivist development builds,
 so a change's effect on build time can be compared run to run. This is the
-first piece: build capture, plus an optional import of the existing
+pieces so far: build capture, the UI Lab (scripted UI scenarios timed in a
+real, isolated app instance), and an import of the existing
 `archivist.wells.timing` runtime logs. There is no dashboard yet.
 
 ## Run a capture
@@ -61,7 +62,7 @@ npm run observatory -- show <runId>
 | Field | Meaning |
 | ----- | ------- |
 | `schemaVersion` | `1`. Bumped when a field's meaning changes. |
-| `kind` | `build` or `runtime-log`. |
+| `kind` | `build`, `runtime-log` or `ui-scenario` (fields below are for `build`; UI runs are described under UI Lab). |
 | `runId`, `label` | Unique id; your `--label` or `null`. |
 | `createdAt`, `finishedAt` | ISO 8601 wall-clock times. |
 | `status` | `running` (still going, or the collector was killed), `success`, `failure`, `interrupted`, `error` (collector bug). |
@@ -106,6 +107,105 @@ capture still leaves the phases it finished.
 - Durations from one run are noisy; compare several runs on the same machine.
 - Anything about the running app other than imported wells timings.
 
+## UI Lab (UI Torture Lab v0)
+
+```bash
+npm run observatory:ui                              # build, then every scenario
+npm run observatory:ui -- --scenario sidebar
+npm run observatory:ui -- --scenario workspace --skip-build --label "after spring tweak"
+```
+
+Each scenario runs in a fresh Archivist window (it's visible; leave the
+mouse alone while it runs) and gets its own run directory:
+
+```
+<observatory>/runs/<runId>/summary.json    kind "ui-scenario": status, stats, build, isolation
+<observatory>/runs/<runId>/ui-events.json   every action, raw (what the app's driver wrote)
+<observatory>/runs/<runId>/scenario.json    the exact definition that ran
+<observatory>/runs/<runId>/runtime.log      the app's own output, wells timing included
+```
+
+Unless `--skip-build` is given it first runs the build capture and links
+that build run (`build.links`); `build.sha256` identifies the binary that ran.
+
+### Isolation
+
+The runner makes a temporary profile directory and starts the app with
+`ARCHIVIST_PROFILE_DIR` (database, QSettings as an INI file, unsaved-edit
+recovery and themes all go inside it; see `frontend/src/Core/Support/app_profile.h`).
+Before the database is opened the app checks those paths are inside the
+profile and refuses to start otherwise (status `refused`, exit 3). The
+driver records the same check in `app.isolation`. Your chats, libraries,
+layouts, settings and open documents are never touched. Inherited
+`ARCHIVIST_*` variables are dropped. The profile is deleted afterwards
+(`--keep-profile` keeps it). No network or AI service is used.
+
+Not isolated: macOS Keychain reads (an API key, only if something asks),
+and LibreOffice preview caches in the user cache directory (not used by
+these scenarios). A dev instance you already have open keeps running; the
+lab instance takes another IDE port if 3334 is busy.
+
+### How actions run and what is timed
+
+The scenario runs inside the app (`frontend/qml/App/UiLab/UiLabDriver.qml`,
+helped by `src/App/Services/ui_lab.cpp`), so timings come from the app's
+own monotonic clock and the window's real frame swaps. Each action records
+its `method`:
+
+- `input`: synthetic mouse press/move/release sent to the window, going
+  through Qt Quick's normal hit-testing and handlers (rail clicks, dragging
+  the side panel's edge).
+- `ui-function`: the QML function a control calls (minimize to the Gravity
+  Well with its Genie, restore from the Well).
+- `store-call`: the same store call a control makes (open a view, switch
+  layout, activate a tab). These skip the control itself.
+
+Per action, all in ms from dispatch:
+
+| Field | Meaning |
+| ----- | ------- |
+| `dispatchMs` | The input or call returned. |
+| `stateMs` | The step's expected UI state was first seen (checked about every millisecond). A state, not a frame. |
+| `settledMs` | The last frame swapped before rendering went quiet for `settleQuietMs` (120 ms). `null` if nothing was drawn. `settleTimedOut` when something never stopped animating. |
+| `frames` | Frames swapped during the action: `count`, `firstMs`, `lastMs`, `maxIntervalMs` (longest gap between two frames). Measured from `QQuickWindow::frameSwapped`, timed on the render thread. |
+
+Summary stats (`stats.measured`, `stats.steps[]`) cover measured iterations
+only; warm-up, setup and teardown are counted apart. p95 is `null` under 20
+samples. There are no performance thresholds: only functional failures
+(an expectation not met within `actionTimeoutMs`, a crash, a timeout) fail a
+run. Statuses: `passed`, `failed` (exit 1), `refused` (3), `crashed` /
+`error` (70), `timeout` (124), `interrupted` (130).
+
+### Scenarios
+
+Definitions live in `ui-scenarios/*.json`: `id`, `version` (bump it when the
+workload changes), `initialConditions`, `warmupIterations`, `iterations`,
+timeouts, and `setup` / `steps` / `teardown`, each step an `op`, a `label`
+and the UI state it must `expect`. No randomness (`seed` is null).
+
+- **sidebar** (v1): open/close the side panel from the rail 4 times, drag
+  its edge to 260/420/560/310, visit all five rail sections, close. Input
+  driven.
+- **workspace** (v1): open four Preview views (Lab A-D) on files that don't
+  exist, so they show their empty state; switch Code Review, Creative and
+  Research layouts; activate tabs; minimize two views into the Gravity Well
+  and restore them; verify all four are open. Layouts, tabs and opening are
+  store calls; minimize/restore go through the workspace's own functions.
+
+### What it can't tell you yet
+
+- `settledMs` is when drawing stopped, not when pixels reached the screen
+  (no vsync/compositor timing), and frame swaps are only seen in the one
+  main window.
+- Drags are sent as a press, 8 moves and a release in one go, not spread
+  over frames like a hand.
+- Tab clicks, the layout picker and Magnet drag-and-drop are not driven by
+  input yet; view contents are empty-state Previews, not real documents.
+- Wells timing lines have no timestamps, so they are attached to the run
+  (`runtimeTiming`, same process), not to individual actions.
+- The runner's own logic is tested with a stand-in app; the in-app driver is
+  only exercised by real runs.
+
 ## Runtime timings (archivist.wells.timing)
 
 The Workspace store already logs minimize, restore and publish timings when
@@ -138,7 +238,11 @@ a build run only when you pass `--build-run`, recorded as
 | `ninja.mjs` | Ninja progress output and `.ninja_log` |
 | `runtime-log.mjs` | Parsing `archivist.wells.timing` lines |
 | `storage.mjs` | Record location, run ids, atomic writes |
-| `report.mjs` | The terminal summary |
+| `report.mjs` | The build terminal summary |
+| `ui-lab.mjs` | Starting the isolated app for a scenario, timeouts, classifying the run |
+| `ui-stats.mjs` | Median, p95 and max over UI actions |
+| `ui-report.mjs` | The UI Lab terminal summary |
+| `ui-scenarios/` | Scenario definitions |
 
 ## Testing the collector
 
@@ -146,5 +250,5 @@ a build run only when you pass `--build-run`, recorded as
 npm run test:observatory
 ```
 
-Uses Node's built-in test runner with small temporary subprocesses; it needs
-no Qt build.
+Uses Node's built-in test runner with small temporary subprocesses and a
+stand-in app (`test/fixtures/fake-app.mjs`); it needs no Qt build.

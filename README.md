@@ -266,6 +266,13 @@ local Observatory run (see `scripts/observatory/README.md`):
 npm run observatory:build
 ```
 
+Time scripted sidebar and workspace interactions in an isolated app
+instance (it uses a throwaway profile, never your data):
+
+```bash
+npm run observatory:ui
+```
+
 Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
 
 ```bash

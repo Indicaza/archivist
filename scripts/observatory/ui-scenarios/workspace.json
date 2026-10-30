@@ -1,0 +1,253 @@
+{
+  "id": "workspace",
+  "version": 1,
+  "name": "Workspace Stress",
+  "description": "Opens four Preview views on synthetic (missing) files, cycles through three preset layouts, switches tabs, minimizes two views into the Gravity Well and restores them, then checks every view is open again.",
+  "initialConditions": "Fresh disposable profile, 1280x840 window, workspace shown, side panel closed, Research layout, four Preview views (Lab A-D) whose files don't exist.",
+  "methods": {
+    "openView": "store-call: Docking.openView (what a menu's Open does)",
+    "applyLayout": "store-call: Docking.applyLayout (what the layout picker does)",
+    "activateView": "store-call: Docking.activateView (what clicking a tab does)",
+    "minimizeView": "ui-function: DockWorkspace.minimizeView, the tab's minimize action including the Genie",
+    "restoreView": "ui-function: DockWorkspace.restoreFromWell, what clicking the sphere does"
+  },
+  "seed": null,
+  "warmupIterations": 1,
+  "iterations": 5,
+  "actionTimeoutMs": 5000,
+  "settleQuietMs": 120,
+  "readyTimeoutMs": 30000,
+  "timeoutMs": 300000,
+  "setup": [
+    {
+      "op": "returnToWorkspace",
+      "label": "show workspace",
+      "expect": {
+        "homeActive": false
+      }
+    },
+    {
+      "op": "setPanelOpen",
+      "open": false,
+      "label": "close side panel",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "applyLayout",
+      "layoutId": "research",
+      "label": "layout research",
+      "expect": {
+        "currentLayoutId": "research"
+      }
+    },
+    {
+      "op": "openView",
+      "key": "a",
+      "typeId": "archivist.preview",
+      "resource": {
+        "kind": "file",
+        "id": "ui-lab-a",
+        "libraryId": "ui-lab"
+      },
+      "title": "Lab A",
+      "label": "open view a",
+      "expect": {
+        "viewsOpen": [
+          "a"
+        ],
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "openView",
+      "key": "b",
+      "typeId": "archivist.preview",
+      "resource": {
+        "kind": "file",
+        "id": "ui-lab-b",
+        "libraryId": "ui-lab"
+      },
+      "title": "Lab B",
+      "label": "open view b",
+      "expect": {
+        "viewsOpen": [
+          "b"
+        ],
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "openView",
+      "key": "c",
+      "typeId": "archivist.preview",
+      "resource": {
+        "kind": "file",
+        "id": "ui-lab-c",
+        "libraryId": "ui-lab"
+      },
+      "title": "Lab C",
+      "label": "open view c",
+      "expect": {
+        "viewsOpen": [
+          "c"
+        ],
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "openView",
+      "key": "d",
+      "typeId": "archivist.preview",
+      "resource": {
+        "kind": "file",
+        "id": "ui-lab-d",
+        "libraryId": "ui-lab"
+      },
+      "title": "Lab D",
+      "label": "open view d",
+      "expect": {
+        "viewsOpen": [
+          "d"
+        ],
+        "genieIdle": true
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "applyLayout",
+      "layoutId": "code-review",
+      "label": "layout code-review",
+      "expect": {
+        "currentLayoutId": "code-review",
+        "viewsOpen": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ]
+      }
+    },
+    {
+      "op": "applyLayout",
+      "layoutId": "creative",
+      "label": "layout creative",
+      "expect": {
+        "currentLayoutId": "creative",
+        "viewsOpen": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ]
+      }
+    },
+    {
+      "op": "applyLayout",
+      "layoutId": "research",
+      "label": "layout research",
+      "expect": {
+        "currentLayoutId": "research",
+        "viewsOpen": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ]
+      }
+    },
+    {
+      "op": "activateView",
+      "key": "a",
+      "label": "tab a",
+      "expect": {
+        "focusedView": "a"
+      }
+    },
+    {
+      "op": "activateView",
+      "key": "c",
+      "label": "tab c",
+      "expect": {
+        "focusedView": "c"
+      }
+    },
+    {
+      "op": "minimizeView",
+      "key": "b",
+      "label": "minimize b",
+      "expect": {
+        "minimized": {
+          "b": true
+        },
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "minimizeView",
+      "key": "d",
+      "label": "minimize d",
+      "expect": {
+        "minimized": {
+          "d": true
+        },
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "restoreView",
+      "key": "b",
+      "label": "restore b",
+      "expect": {
+        "minimized": {
+          "b": false
+        },
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "restoreView",
+      "key": "d",
+      "label": "restore d",
+      "expect": {
+        "minimized": {
+          "d": false
+        },
+        "genieIdle": true
+      }
+    },
+    {
+      "op": "activateView",
+      "key": "b",
+      "label": "tab b",
+      "expect": {
+        "focusedView": "b"
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "op": "noop",
+      "label": "verify final workspace",
+      "expect": {
+        "currentLayoutId": "research",
+        "viewsOpen": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ],
+        "minimized": {
+          "a": false,
+          "b": false,
+          "c": false,
+          "d": false
+        },
+        "focusedView": "b"
+      }
+    }
+  ]
+}
