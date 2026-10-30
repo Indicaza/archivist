@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Archivist Observatory</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <div>
+        <h1>Observatory</h1>
+        <p class="sub" id="root-path">Archivist development telemetry</p>
+      </div>
+    </div>
+    <nav id="nav" aria-label="Sections">
+      <a href="#/">Overview</a>
+      <a href="#/builds">Builds</a>
+      <a href="#/ui">UI performance</a>
+      <a href="#/runs">Runs</a>
+      <a href="#/compare">Compare</a>
+    </nav>
+  </header>
+  <main id="view" tabindex="-1"><p class="muted">Loading runs…</p></main>
+</body>
+</html>

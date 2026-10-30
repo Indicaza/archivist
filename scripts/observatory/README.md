@@ -4,7 +4,8 @@ Observatory keeps a local, structured record of Archivist development builds,
 so a change's effect on build time can be compared run to run. This is the
 pieces so far: build capture, the UI Lab (scripted UI scenarios timed in a
 real, isolated app instance), and an import of the existing
-`archivist.wells.timing` runtime logs. There is no dashboard yet.
+`archivist.wells.timing` runtime logs, plus a local dashboard to browse and
+compare the records.
 
 ## Run a capture
 
@@ -227,6 +228,57 @@ in `unrecognizedLines`. View titles are not stored. A runtime log is linked to
 a build run only when you pass `--build-run`, recorded as
 `relationship: "declared-by-user"`.
 
+## Dashboard
+
+```bash
+npm run observatory:dashboard                 # opens http://127.0.0.1:4317/
+npm run observatory:dashboard -- --port 4400 --no-open
+```
+
+A small local web page over the records above. It reads them and never
+writes, renames or deletes anything. Press Ctrl+C to stop it.
+
+- **Overview**: latest build, latest run of each UI scenario, build and UI
+  trends, recent failures, the machine, and "since the previous comparable
+  run" changes.
+- **Builds**: phases per build, cached vs rebuilt IDE bundle, build kind,
+  status, and each build's log.
+- **UI performance**: settled and state latency (median, p95, max) per
+  scenario version, per-step tables for the latest run, failures. This is
+  action latency, not frame time; frame gaps are shown separately.
+- **Compare**: any two runs as baseline and candidate. Shows Git, build
+  configuration, machine and scenario for both, then every metric with the
+  absolute and percentage change and better / worse / about the same
+  (within 2%) / not measured in both. Runs of different kinds, different
+  scenarios or different scenario versions are refused with the reason.
+  Different hardware, OS, build type, compiler, Qt, build kind, IDE cache,
+  dirty trees and failed runs are warned about. It makes no claim of
+  statistical significance: each side is one run.
+- **Runs**: every run, filterable by type, result, scenario, branch, commit,
+  date and text; tick two to compare. A run's page has its metadata,
+  phases or actions, and a searchable, paged preview of its log files with a
+  link to the full file.
+
+Runs that never finished show as `incomplete`, summaries that can't be parsed
+as `unreadable`, and summaries from a newer `schemaVersion` are listed but not
+interpreted. Missing measurements show as `—` and are never filled in.
+
+Safety: the server listens on 127.0.0.1 only, answers GET only, rejects
+requests whose Host isn't `127.0.0.1`/`localhost` (so another website can't
+read it through DNS tricks), and serves only files a run's own summary lists
+under `artifacts`, inside that run's folder (symlinks out are refused). Log
+text is rendered as text, never as HTML, under a strict Content Security
+Policy.
+
+To preview the dashboard without real records, write the test fixtures to a
+scratch folder (they are made-up runs labelled `fixture:` on a `fixture/main`
+branch):
+
+```bash
+node scripts/observatory/test/fixtures/dashboard-runs.mjs /tmp/observatory-fixtures
+ARCHIVIST_OBSERVATORY_DIR=/tmp/observatory-fixtures npm run observatory:dashboard
+```
+
 ## Code
 
 | File | Responsibility |
@@ -243,6 +295,11 @@ a build run only when you pass `--build-run`, recorded as
 | `ui-stats.mjs` | Median, p95 and max over UI actions |
 | `ui-report.mjs` | The UI Lab terminal summary |
 | `ui-scenarios/` | Scenario definitions |
+| `dashboard/server.mjs` | The dashboard's local, read-only server and JSON API |
+| `dashboard/records.mjs` | Reading runs into one flat record shape |
+| `dashboard/compare.mjs` | Baseline vs candidate: blockers, warnings, deltas (also used by the page) |
+| `dashboard/filter.mjs` | Run filters (also used by the page) |
+| `dashboard/public/` | The page: plain JavaScript, no dependencies |
 
 ## Testing the collector
 
@@ -251,4 +308,5 @@ npm run test:observatory
 ```
 
 Uses Node's built-in test runner with small temporary subprocesses and a
-stand-in app (`test/fixtures/fake-app.mjs`); it needs no Qt build.
+stand-in app (`test/fixtures/fake-app.mjs`); it needs no Qt build. The
+dashboard tests use the made-up runs in `test/fixtures/dashboard-runs.mjs`.

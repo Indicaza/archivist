@@ -4,6 +4,7 @@
 //   node scripts/observatory/cli.mjs ingest-runtime <log> [--label <text>] [--build-run <runId>]
 //   node scripts/observatory/cli.mjs ui [--scenario <name>] [--skip-build] [--keep-profile]
 //   node scripts/observatory/cli.mjs show [runId]
+//   node scripts/observatory/cli.mjs dashboard [--port <n>] [--no-open]
 import { copyFile, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,8 @@ import {
   binaryIdentity, classifyRun, createProfile, exitCodeForStatus, findAppBinary, labEnvironment, overallTimeoutMs,
   readEvents, removeProfile, runApp,
 } from "./ui-lab.mjs";
+import { spawn } from "node:child_process";
+import { createDashboardServer } from "./dashboard/server.mjs";
 import { formatUiSummary } from "./ui-report.mjs";
 import { summarizeActions } from "./ui-stats.mjs";
 import {
@@ -33,6 +36,7 @@ const USAGE = `Archivist Observatory
   npm run observatory -- ingest-runtime <log> [--label <text>] [--build-run <runId>]
   npm run observatory:ui [-- --scenario sidebar|workspace] [--skip-build] [--keep-profile]
   npm run observatory -- show [runId]
+  npm run observatory:dashboard [-- --port <n>] [--no-open]
 
 Records are stored in $ARCHIVIST_OBSERVATORY_DIR, or by default
 ${observatoryRoot()}`;
@@ -365,10 +369,47 @@ async function showCommand(runId) {
   return 0;
 }
 
+const DEFAULT_DASHBOARD_PORT = 4317;
+
+async function dashboardCommand(options) {
+  const port = options.port === undefined ? DEFAULT_DASHBOARD_PORT : Number(options.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error(`--port must be a number from 0 to 65535, got ${options.port}`);
+    return 2;
+  }
+  const root = observatoryRoot();
+  const server = createDashboardServer({ root, port });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      // Bound to the loopback interface only: nothing on the network can reach it.
+      server.listen(port, "127.0.0.1", resolve);
+    });
+  } catch (error) {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${port} is in use. Try: npm run observatory:dashboard -- --port ${port + 1}`);
+      return 1;
+    }
+    throw error;
+  }
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  console.log(`Observatory dashboard: ${url}\nReading records (read-only) from ${root}\nPress Ctrl+C to stop.`);
+  if (options.open && process.platform === "darwin") {
+    spawn("open", [url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  }
+  await new Promise((resolve) => {
+    const stop = () => server.close(() => resolve());
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+  return 0;
+}
+
 async function main(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
+    allowNegative: true,
     options: {
       label: { type: "string" },
       follow: { type: "boolean", default: false },
@@ -378,6 +419,8 @@ async function main(argv) {
       "keep-profile": { type: "boolean", default: false },
       timeout: { type: "string" },
       app: { type: "string" },
+      port: { type: "string" },
+      open: { type: "boolean", default: true },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -395,6 +438,8 @@ async function main(argv) {
       return ingestRuntimeCommand(argument, values);
     case "show":
       return showCommand(argument);
+    case "dashboard":
+      return dashboardCommand(values);
     default:
       console.error(`Unknown command: ${command}\n\n${USAGE}`);
       return 2;

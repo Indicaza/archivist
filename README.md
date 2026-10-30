@@ -273,6 +273,12 @@ instance (it uses a throwaway profile, never your data):
 npm run observatory:ui
 ```
 
+Browse, chart and compare those records in a local, read-only dashboard:
+
+```bash
+npm run observatory:dashboard
+```
+
 Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
 
 ```bash
