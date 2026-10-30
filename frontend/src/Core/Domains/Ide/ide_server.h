@@ -26,6 +26,8 @@ class IdeServer final : public QObject
     Q_OBJECT
     Q_PROPERTY(QUrl url READ url NOTIFY stateChanged)
     Q_PROPERTY(bool ready READ ready NOTIFY stateChanged)
+    // The Observatory dashboard page (see Core/Domains/Observatory).
+    Q_PROPERTY(QUrl observatoryUrl READ observatoryUrl NOTIFY stateChanged)
 
 public:
     explicit IdeServer(QObject *parent = nullptr);
@@ -37,6 +39,7 @@ public:
     void stop();
 
     [[nodiscard]] QUrl url() const;
+    [[nodiscard]] QUrl observatoryUrl() const;
     [[nodiscard]] bool ready() const;
     [[nodiscard]] quint16 port() const;
 

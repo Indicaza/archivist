@@ -274,6 +274,9 @@ Item {
         if (typeId === "archivist.welcome") {
             return "workspace"
         }
+        if (typeId === "archivist.observatory") {
+            return "history"
+        }
         var details = ((info || {}).resource || {}).details || ({})
         var identity = FileIdentity.resolve({
             fileName: String(details.name || details.path || info.title || ""),
@@ -650,6 +653,19 @@ Item {
         var resource = Docking.view(viewId).resource || ({})
         var details = resource.details || ({})
         root.revealInLibraryRequested(String(resource.libraryId || ""), String(details.fileId || ""), String(details.path || ""))
+    }
+
+    // ---- observatory -----------------------------------------------------
+
+    // The Observatory dashboard (build and UI timing records). There is one:
+    // opening it again brings that one forward.
+    function openObservatory(anchorId) {
+        Docking.openView(
+            "archivist.observatory",
+            { kind: "observatory", id: "observatory" },
+            "Observatory",
+            { anchorId: String(anchorId || ""), reveal: true }
+        )
     }
 
     // ---- terminals -------------------------------------------------------

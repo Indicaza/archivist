@@ -36,6 +36,11 @@ ViewTypeRegistry ViewTypeRegistry::withBuiltIns()
     ViewTypeDescriptor welcome = builtIn(ViewTypes::Welcome, QStringLiteral("Welcome"), QStringLiteral("home"), QString(), false);
     welcome.allowsDuplicates = false;
     registry.registerType(welcome);
+
+    // The Observatory dashboard: one per window set, read-only.
+    ViewTypeDescriptor observatory = builtIn(ViewTypes::Observatory, QStringLiteral("Observatory"), QStringLiteral("history"), QStringLiteral("observatory"), false);
+    observatory.allowsDuplicates = false;
+    registry.registerType(observatory);
     return registry;
 }
 

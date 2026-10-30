@@ -91,5 +91,6 @@ inline const QString Terminal = QStringLiteral("archivist.terminal");
 inline const QString Preview = QStringLiteral("archivist.preview");
 inline const QString Diff = QStringLiteral("archivist.diff");
 inline const QString Welcome = QStringLiteral("archivist.welcome");
+inline const QString Observatory = QStringLiteral("archivist.observatory");
 } // namespace ViewTypes
 } // namespace Workspace

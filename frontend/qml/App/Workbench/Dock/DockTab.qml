@@ -60,6 +60,8 @@ Item {
             return "git-branch"
         case "archivist.welcome":
             return "workspace"
+        case "archivist.observatory":
+            return "history"
         default:
             break
         }

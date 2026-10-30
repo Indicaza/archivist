@@ -860,6 +860,16 @@ Rectangle {
         }
     }
 
+    // The Observatory dashboard: build and UI timing records, in a panel.
+    Shortcut {
+        objectName: "observatory.open"
+        sequences: ["Ctrl+Alt+Shift+O"]
+        context: Qt.ApplicationShortcut
+        // The docked workspace only; the legacy one has no panels.
+        enabled: !Shell.homeActive && root.workspaceItem !== null && typeof root.workspaceItem.openObservatory === "function"
+        onActivated: root.workspaceItem.openObservatory("")
+    }
+
     Shortcut {
         sequences: ["Ctrl+Shift+H"]
         context: Qt.ApplicationShortcut

@@ -4,7 +4,8 @@ Observatory keeps a local, structured record of Archivist development builds,
 so a change's effect on build time can be compared run to run. This is the
 pieces so far: build capture, the UI Lab (scripted UI scenarios timed in a
 real, isolated app instance), and an import of the existing
-`archivist.wells.timing` runtime logs. There is no dashboard yet.
+`archivist.wells.timing` runtime logs, plus a local dashboard to browse and
+compare the records.
 
 ## Run a capture
 
@@ -227,6 +228,80 @@ in `unrecognizedLines`. View titles are not stored. A runtime log is linked to
 a build run only when you pass `--build-run`, recorded as
 `relationship: "declared-by-user"`.
 
+## Dashboard
+
+**Inside Archivist:** open a panel's menu and pick **Observatory Here**, or
+press **Ctrl+Alt+Shift+O** (⌘⌥⇧O on a Mac). The dashboard opens as a panel
+you can move, split and minimize like any other, and **Refresh** reads the
+runs again. The app serves it from its own loopback host at
+`/observatory/`; nothing extra runs.
+
+**In a browser**, without starting Archivist:
+
+```bash
+npm run observatory:dashboard                 # opens http://127.0.0.1:4317/
+npm run observatory:dashboard -- --port 4400 --no-open
+```
+
+Both show the same page over the records above. They read them and never
+write, rename or delete anything. Press Ctrl+C to stop the browser version.
+
+- **Overview**: latest build, latest run of each UI scenario, build and UI
+  trends, recent failures, the machine, and "since the previous comparable
+  run" changes.
+- **Builds**: phases per build, cached vs rebuilt IDE bundle, build kind,
+  status, and each build's log.
+- **UI performance**: settled and state latency (median, p95, max) per
+  scenario version, per-step tables for the latest run, failures. This is
+  action latency, not frame time; frame gaps are shown separately.
+- **Compare**: any two runs as baseline and candidate. Shows Git, build
+  configuration, machine and scenario for both, then every metric with the
+  absolute and percentage change and better / worse / about the same
+  (within 2%) / not measured in both. Runs of different kinds, different
+  scenarios or different scenario versions are refused with the reason.
+  Different hardware, OS, build type, compiler, Qt, build kind, IDE cache,
+  dirty trees and failed runs are warned about. It makes no claim of
+  statistical significance: each side is one run.
+- **Runs**: every run, filterable by type, result, scenario, branch, commit,
+  date and text; tick two to compare. A run's page has its metadata,
+  phases or actions, and a searchable, paged preview of its log files with a
+  link to the full file.
+
+Runs that never finished show as `incomplete`, summaries that can't be parsed
+as `unreadable`, and summaries from a newer `schemaVersion` are listed but not
+interpreted. Missing measurements show as `—` and are never filled in.
+
+How it's put together: the page (`dashboard/public/`) does all the reading,
+comparing and filtering itself. A host only answers two requests, and
+Archivist's IDE host (`frontend/src/Core/Domains/Observatory`) answers them
+exactly like the Node server (`dashboard/server.mjs`):
+
+| Request | Answer |
+| ------- | ------ |
+| `GET api/runs` | `{ root, runs: [{ runId, summary, error }] }`, newest first; `summary` is `summary.json` as stored, or `null` with the reason in `error` |
+| `GET api/runs/<runId>/artifacts/<name>` | The text of an artifact the run's summary lists under `artifacts` (up to 32 MB) |
+
+Safety, in both hosts: they listen on 127.0.0.1 only, answer GET only, reject
+requests whose Host isn't `127.0.0.1`/`localhost` (so another website can't
+read them through DNS tricks), serve only the page's own listed files, and
+serve only artifacts a run's own summary lists, inside that run's folder
+(symlinks out are refused). Log text is rendered as text, never as HTML,
+under a strict Content Security Policy. In the app, the panel can't navigate
+away from the dashboard, and "Open full …" links open in your browser.
+
+Release builds without repository paths (`ARCHIVIST_USE_REPOSITORY_PATHS=OFF`)
+need the page copied to `Archivist.app/Contents/Resources/observatory`, or
+`ARCHIVIST_OBSERVATORY_PAGE` pointing at it.
+
+To preview the dashboard without real records, write the test fixtures to a
+scratch folder (they are made-up runs labelled `fixture:` on a `fixture/main`
+branch):
+
+```bash
+node scripts/observatory/test/fixtures/dashboard-runs.mjs /tmp/observatory-fixtures
+ARCHIVIST_OBSERVATORY_DIR=/tmp/observatory-fixtures npm run observatory:dashboard
+```
+
 ## Code
 
 | File | Responsibility |
@@ -243,6 +318,16 @@ a build run only when you pass `--build-run`, recorded as
 | `ui-stats.mjs` | Median, p95 and max over UI actions |
 | `ui-report.mjs` | The UI Lab terminal summary |
 | `ui-scenarios/` | Scenario definitions |
+| `dashboard/server.mjs` | The browser dashboard's local, read-only server |
+| `dashboard/records.mjs` | Reading runs and artifacts from disk for that server |
+| `dashboard/public/` | The page: plain JavaScript, no dependencies |
+| `dashboard/public/data.js` | The page's data layer over the two host requests |
+| `dashboard/public/normalize.mjs` | One run's summary into the flat record the page uses |
+| `dashboard/public/compare.mjs` | Baseline vs candidate: blockers, warnings, deltas |
+| `dashboard/public/filter.mjs` | Run filters |
+| `dashboard/public/preview.mjs` | Paging and searching a log |
+| `frontend/src/Core/Domains/Observatory/` | The same two requests, served inside Archivist |
+| `frontend/qml/App/Workbench/Observatory/` | The Observatory panel |
 
 ## Testing the collector
 
@@ -251,4 +336,5 @@ npm run test:observatory
 ```
 
 Uses Node's built-in test runner with small temporary subprocesses and a
-stand-in app (`test/fixtures/fake-app.mjs`); it needs no Qt build.
+stand-in app (`test/fixtures/fake-app.mjs`); it needs no Qt build. The
+dashboard tests use the made-up runs in `test/fixtures/dashboard-runs.mjs`.
