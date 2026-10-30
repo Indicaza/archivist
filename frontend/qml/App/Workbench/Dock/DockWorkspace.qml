@@ -18,6 +18,9 @@ Item {
     // composer): the conversation pads its end by this much when its pane
     // reaches the bottom, so the last message can scroll clear of it.
     property real bottomOverlay: 0
+    // The floating composer, in the window's (overlayHost's) coordinates;
+    // empty when it isn't showing. The Gravity Well keeps clear of it.
+    property rect composerRect: Qt.rect(0, 0, 0, 0)
     // Where floating panels (and the picture a drag carries) are drawn: an
     // item over the whole window, so they sit above the sidebar and the
     // rest of the shell. Their geometry is in its coordinates, so they stay
@@ -2290,8 +2293,11 @@ Item {
     }
 
     // Over everything in the window (the layout, the sidebar, floating
-    // panels), under what a drag carries: it can go anywhere, and a tab or
-    // panel can be dropped on it.
+    // panels), under what a drag carries: a tab or panel can be dropped on
+    // a Well. Each Well places itself in a frame: a reactive one in the
+    // free workspace (`wellReactiveFrame`), so it moves with the layout
+    // frame by frame as the sidebar opens, closes or resizes and as the
+    // chat dock comes and goes; a fixed one in the whole window.
     Item {
         id: wellLayer
 
@@ -2302,6 +2308,22 @@ Item {
         width: parent ? parent.width : 0
         height: parent ? parent.height : 0
         z: 5.5
+
+        // The main layout's area, in this layer: from where its left edge
+        // is drawn now (it springs after the sidebar, so the Well glides
+        // one way) to its right edge.
+        readonly property rect wellReactiveFrame: {
+            area.x
+            area.y
+            area.height
+            root.x
+            root.y
+            root.width
+            root.height
+            var corner = root.mapToItem(wellLayer, area.x, area.y)
+            var right = root.mapToItem(wellLayer, root.width, 0).x
+            return Qt.rect(corner.x, corner.y, Math.max(0, right - corner.x), area.height)
+        }
 
         // Counted, not keyed: a Well's item stays while its entries change.
         Repeater {
@@ -2315,6 +2337,11 @@ Item {
                 theme: root.theme
                 workspace: root
                 well: root.wellRows[index] || ({})
+                reactiveFrame: wellLayer.wellReactiveFrame
+                windowFrame: Qt.rect(0, 0, wellLayer.width, wellLayer.height)
+                obstacle: root.composerRect.width > 0
+                    ? Qt.rect(root.composerRect.x - wellLayer.x, root.composerRect.y - wellLayer.y, root.composerRect.width, root.composerRect.height)
+                    : Qt.rect(0, 0, 0, 0)
             }
         }
     }

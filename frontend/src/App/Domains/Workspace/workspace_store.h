@@ -373,6 +373,9 @@ public:
     Q_INVOKABLE QVariantMap setWellEntryPinned(const QString &entryId, bool pinned);
     // Moves a Well (a share of its window, 0..1). Saved, not a history step.
     Q_INVOKABLE bool setWellPosition(const QString &wellId, double x, double y);
+    // Reactive or fixed, and where it is then (a share of its new frame,
+    // so it doesn't jump). Saved, not a history step.
+    Q_INVOKABLE bool setWellFixed(const QString &wellId, bool fixed, double x, double y);
 
     // ---- layouts ----------------------------------------------------------
     // Layouts arrange panels; they never open or close views. Presets are

@@ -314,9 +314,19 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   writes to the model while the pointer moves. Reduced motion turns the wave
   and springs off. A tab's menu has Minimize to Well and Keep in Well; a
   sphere's menu restores, pins, unpins or closes. The Well floats above
-  floating panels (below the drag picture) and moves anywhere in the window
-  when dragged by the space around its spheres, snapping to the centre line
-  and edges.
+  floating panels (below the drag picture) and moves anywhere over the
+  layout when dragged by the space around its spheres, snapping to the
+  centre line and edges. It's reactive by default: its place is a share
+  of the free workspace (the main layout's area, from where its left edge
+  is drawn), so it moves with the layout frame by frame as the sidebar
+  opens, closes or resizes and as the chat dock comes and goes, and it
+  rises clear of the floating composer when that's in its way, easing back
+  when it goes. Right-click the space around its spheres for Follow the
+  Layout or Stay Where Placed (`WellRecord::fixed`, saved; fixed is a share
+  of the whole window and nothing moves it) and Move to Bottom Centre.
+  Switching keeps it exactly where it is. Dragged, it lifts a touch, shows
+  a faint line on the centre it'll snap to, gives a little past the edge
+  of its frame and springs back; only a drop settles with a spring.
 - **Keeping it quick.** Minimizing and restoring change the model in well
   under a millisecond; the cost is in what the screen rebuilds. So a tab
   strip changes only the tab that came or went (`TabStrip.js`), menus are
