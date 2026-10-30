@@ -290,6 +290,7 @@ QVariantList wellsList(const WorkspaceModel &model)
             {QStringLiteral("y"), well.position.y()},
             {QStringLiteral("orientation"), orientationName(well.orientation)},
             {QStringLiteral("form"), wellFormName(well.form)},
+            {QStringLiteral("fixed"), well.fixed},
             {QStringLiteral("entries"), entries},
         });
     }

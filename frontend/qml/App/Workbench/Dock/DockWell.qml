@@ -107,7 +107,7 @@ Item {
     // Shown in full whatever the pointer does: while something is dragged
     // toward it, while it moves, while its menu is open, and for a moment
     // after something lands in it.
-    readonly property bool held: dragging || moving || entryMenu.visible || landing.running
+    readonly property bool held: dragging || moving || entryMenu.visible || wellMenu.visible || landing.running
         || root.workspace.genieActive === true
     readonly property bool engaged: proximity.engaged && !dragging
     readonly property real level: held ? 1 : proximity.level
@@ -154,19 +154,41 @@ Item {
 
     // ---- Where it sits ----
 
+    // Reactive (the default): it sits in the free workspace and moves with
+    // the layout (`reactiveFrame`: what the sidebar, the chat dock and the
+    // composer leave). Fixed: it sits in the whole window (`windowFrame`)
+    // and stays put whatever moves. Both in the parent's coordinates.
+    readonly property bool fixed: well.fixed === true
+    property rect reactiveFrame: Qt.rect(0, 0, parent ? parent.width : 0, parent ? parent.height : 0)
+    property rect windowFrame: Qt.rect(0, 0, parent ? parent.width : 0, parent ? parent.height : 0)
+    readonly property rect frame: fixed ? windowFrame : reactiveFrame
+
     // While it's being moved: where the pointer has it. Otherwise: where it
-    // was saved, worked out again for the current window size.
+    // was saved, worked out again for its frame as it is now.
     property bool moving: false
     property real moveX: 0
     property real moveY: 0
-    readonly property var rest: WellGeometry.place(
-        { x: Number(well.x), y: Number(well.y) },
-        width, height,
-        parent ? parent.width : 0, parent ? parent.height : 0,
-        margin, 0
-    )
+    readonly property var rest: {
+        var at = WellGeometry.place(
+            { x: Number(well.x), y: Number(well.y) },
+            width, height, frame.width, frame.height, margin, 0
+        )
+        return { x: frame.x + at.x, y: frame.y + at.y }
+    }
     // In the top half, it grows downward, away from the window edge.
     readonly property bool growDown: !vertical && parent !== null && y + height / 2 < parent.height / 2
+
+    // Its saved place for a top left in the parent, in a given frame.
+    function shareIn(box, x, y, snap) {
+        return WellGeometry.position(x - box.x, y - box.y, width, height, box.width, box.height, margin, 0, snap)
+    }
+
+    // Reactive or fixed, staying exactly where it is on screen.
+    function setFixed(fixed) {
+        var box = fixed ? windowFrame : reactiveFrame
+        var share = shareIn(box, x, y, 0)
+        Docking.setWellFixed(wellId, fixed, share.x, share.y)
+    }
 
     // Where something dropped here lands, in `item`'s coordinates: the end
     // of the row, where its orb appears.
@@ -176,19 +198,68 @@ Item {
         return Qt.rect(corner.x, corner.y, size, size)
     }
 
+    // Something floating over the layout that it keeps clear of (the
+    // composer), in its parent's coordinates. In the way, it rises above
+    // it, easing; out of the way again, it settles back.
+    property rect obstacle: Qt.rect(0, 0, 0, 0)
+    readonly property real wantedClearance: {
+        if (fixed || vertical || obstacle.width <= 0 || obstacle.height <= 0) {
+            return 0
+        }
+        var gap = theme.px(10)
+        var across = rest.x < obstacle.x + obstacle.width && rest.x + width > obstacle.x
+        var down = rest.y + height > obstacle.y - gap && rest.y < obstacle.y + obstacle.height
+        return across && down ? Math.max(0, rest.y + height - (obstacle.y - gap)) : 0
+    }
+    property real clearance: wantedClearance
+    Behavior on clearance {
+        enabled: !root.theme.reducedMotion
+        NumberAnimation { duration: root.theme.motionPanel; easing.type: Easing.OutCubic }
+    }
+
+    // Following the layout (a sidebar opening, the window resizing) it
+    // moves with it, frame by frame; only a drop settles with a spring.
+    property bool settling: false
+    Timer {
+        id: settleTimer
+
+        interval: root.theme.wellSettleDuration * 2
+        onTriggered: root.settling = false
+    }
+
+    // Dragged past the edge of its frame it gives a little, like a
+    // scrolled list at its end, and springs back when let go.
+    function rubber(value, low, high) {
+        if (value < low) {
+            return low - Math.min(theme.px(36), (low - value) * 0.3)
+        }
+        if (value > high) {
+            return high + Math.min(theme.px(36), (value - high) * 0.3)
+        }
+        return value
+    }
+
     x: moving ? moveX : rest.x
-    y: moving ? moveY : rest.y
+    y: moving ? moveY : Math.max(frame.y + margin, rest.y - clearance)
     width: geometry.width
     height: geometry.height
     z: moving ? 2 : 0
 
+    // Picked up: it lifts a touch (bigger, a deeper shadow) while it moves.
+    property real pickup: moving ? 1 : 0
+    Behavior on pickup {
+        enabled: !root.theme.reducedMotion
+        NumberAnimation { duration: root.theme.wellRevealDuration; easing.type: Easing.OutCubic }
+    }
+    scale: 1 + pickup * 0.04
+
     // Settles onto the centre line or an edge after a drop.
     Behavior on x {
-        enabled: !root.moving && !root.theme.reducedMotion
+        enabled: root.settling && !root.moving && !root.theme.reducedMotion
         SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 }
     }
     Behavior on y {
-        enabled: !root.moving && !root.theme.reducedMotion
+        enabled: root.settling && !root.moving && !root.theme.reducedMotion
         SpringAnimation { spring: root.theme.magnetLandingSpring; damping: root.theme.magnetLandingDamping; epsilon: 0.25 }
     }
 
@@ -278,8 +349,13 @@ Item {
         anchors.fill: parent
         preventStealing: true
         cursorShape: root.moving ? Qt.ClosedHandCursor : root.engaged ? Qt.OpenHandCursor : Qt.ArrowCursor
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
 
         onPressed: function(mouse) {
+            if (mouse.button === Qt.RightButton) {
+                wellMenu.popup(backgroundArea, mouse.x, mouse.y)
+                return
+            }
             var point = mapToItem(root.parent, mouse.x, mouse.y)
             pressX = point.x
             pressY = point.y
@@ -287,7 +363,7 @@ Item {
             startY = root.y
         }
         onPositionChanged: function(mouse) {
-            if (!pressed) {
+            if (!pressed || !(pressedButtons & Qt.LeftButton)) {
                 return
             }
             var point = mapToItem(root.parent, mouse.x, mouse.y)
@@ -301,20 +377,17 @@ Item {
                 root.moveY = startY
                 root.moving = true
             }
-            var areaWidth = root.parent ? root.parent.width : 0
-            var areaHeight = root.parent ? root.parent.height : 0
-            root.moveX = Math.max(root.margin, Math.min(areaWidth - root.width - root.margin, startX + dx))
-            root.moveY = Math.max(root.margin, Math.min(areaHeight - root.height - root.margin, startY + dy))
+            var box = root.frame
+            root.moveX = root.rubber(startX + dx, box.x + root.margin, box.x + box.width - root.width - root.margin)
+            root.moveY = root.rubber(startY + dy, box.y + root.margin, box.y + box.height - root.height - root.margin)
         }
         onReleased: {
             if (!root.moving) {
                 return
             }
-            var position = WellGeometry.position(
-                root.moveX, root.moveY, root.width, root.height,
-                root.parent ? root.parent.width : 0, root.parent ? root.parent.height : 0,
-                root.margin, 0, root.theme.px(18)
-            )
+            var position = root.shareIn(root.frame, root.moveX, root.moveY, root.theme.px(18))
+            root.settling = true
+            settleTimer.restart()
             Docking.setWellPosition(root.wellId, position.x, position.y)
             root.moving = false
         }
@@ -455,6 +528,57 @@ Item {
             // One at a time, so each can ask about unsaved changes.
             visible: entryMenu.minimizedIds.length === 1 && !entryMenu.entry.panel
             onTriggered: root.workspace.closeView(String(entryMenu.minimizedIds[0] || ""))
+        }
+    }
+
+    // While it's moved: a faint line on the centre of its frame when it's
+    // close enough to land on it (it snaps there when let go).
+    Rectangle {
+        readonly property real centre: root.frame.x + root.frame.width / 2
+        readonly property bool near: root.moving && Math.abs(root.x + root.width / 2 - centre) <= root.theme.px(18)
+
+        x: centre - root.x - width / 2
+        y: root.frame.y - root.y
+        width: 1
+        height: root.frame.height
+        color: root.theme.accentBright
+        opacity: near ? 0.35 : 0
+        visible: opacity > 0
+
+        Behavior on opacity { NumberAnimation { duration: root.theme.motionFast } }
+    }
+
+    // The Well's own menu (right-click the space around its spheres).
+    DockMenu {
+        id: wellMenu
+
+        theme: root.theme
+
+        DockMenuItem {
+            objectName: "well.menu.reactive"
+            theme: root.theme
+            text: "Follow the Layout"
+            checkable: true
+            checked: !root.fixed
+            onTriggered: root.setFixed(false)
+        }
+        DockMenuItem {
+            objectName: "well.menu.fixed"
+            theme: root.theme
+            text: "Stay Where Placed"
+            checkable: true
+            checked: root.fixed
+            onTriggered: root.setFixed(true)
+        }
+        DockMenuSeparator { theme: root.theme }
+        DockMenuItem {
+            theme: root.theme
+            text: "Move to Bottom Centre"
+            onTriggered: {
+                root.settling = true
+                settleTimer.restart()
+                Docking.setWellPosition(root.wellId, 0.5, 1)
+            }
         }
     }
 }
