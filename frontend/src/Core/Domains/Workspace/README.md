@@ -340,6 +340,19 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   and it stays inside the window, flipping below when there's no room
   above. It keeps the Well shown while it's up, takes no input, and goes
   at once on a press, a drag, a move, a menu or the Genie.
+- **Glued while things move.** The layout has no motion of its own. Its
+  left edge is the sidebar's edge as drawn and its bottom edge the bottom
+  dock's top as drawn, every frame of their animations, and its right edge
+  is the window's; the main window reports its size to the store in the
+  same frame, so panels never trail their area. View content (previews,
+  chats) sits over its panel as the panel is drawn, riding the panel's own
+  springs; only a terminal keeps its size until a move comes to rest, so
+  its scrollback isn't rewrapped mid-move. The sidebar slides out at its
+  full width rather than squeezing its rows, and is drawn once out of
+  sight at startup so its first open has nothing to build. How it all
+  moves is tunable in one place, `Theme` (`motionSpeed`, `layoutDuration`,
+  `layoutBounce`, `reflowSpring`, `reflowDamping`), live from the Motion
+  panel (Ctrl+Alt+Shift+M) and saved.
 - **Keeping it quick.** Minimizing and restoring change the model in well
   under a millisecond; the cost is in what the screen rebuilds. So a tab
   strip changes only the tab that came or went (`TabStrip.js`), menus are

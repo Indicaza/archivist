@@ -123,6 +123,10 @@ Item {
             if (!resizePublish.running) {
                 resizePublish.start()
             }
+        } else if (!root.isFloating) {
+            // The main window: in this same frame, so its panels move with
+            // its edges instead of trailing them by a frame.
+            root.flushResize()
         } else {
             // After this change has finished propagating: reporting the size
             // publishes the layout, and doing that from inside a geometry

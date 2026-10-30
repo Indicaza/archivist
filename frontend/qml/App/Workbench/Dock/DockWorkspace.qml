@@ -2270,11 +2270,9 @@ Item {
         theme: root.theme
         workspace: root
         surfaceId: root.surfaceId
-
-        Behavior on x {
-            enabled: !root.theme.reducedMotion
-            SpringAnimation { spring: root.theme.motionSpring; damping: root.theme.motionDamping; epsilon: 0.2 }
-        }
+        // Glued to the sidebar's edge and the window's right edge: no
+        // motion of its own. The sidebar's own animation is what moves it,
+        // so both edges stay put on the frame they change.
     }
 
     // Gravity Wells over this window's layout (WorkspaceStore). The main
@@ -2309,9 +2307,9 @@ Item {
         height: parent ? parent.height : 0
         z: 5.5
 
-        // The main layout's area, in this layer: from where its left edge
-        // is drawn now (it springs after the sidebar, so the Well glides
-        // one way) to its right edge.
+        // The main layout's area, in this layer: from its left edge (the
+        // sidebar's edge as drawn, every frame of its animation) to its
+        // right edge.
         readonly property rect wellReactiveFrame: {
             area.x
             area.y
@@ -2480,10 +2478,16 @@ Item {
                 parent: surfaceArea || viewParking
                 z: 1
 
-                x: placed ? row.rectX + 1 : 0
-                y: placed ? row.rectY + root.theme.editorTabHeight : 0
-                width: placed ? Math.max(0, row.rectWidth - 2) : 0
-                height: placed ? Math.max(0, row.rectHeight - root.theme.editorTabHeight - 1) : 0
+                // Over its panel as drawn, riding the panel's own springs, so
+                // the two never drift apart while the layout moves.
+                readonly property Item panel: {
+                    var item = placed && !row.isHidden ? root.anchorItems[String(row.anchorId || "")] : null
+                    return item && item.parent === surfaceArea ? item : null
+                }
+                x: panel ? panel.x + 1 : placed ? row.rectX + 1 : 0
+                y: panel ? panel.y + root.theme.editorTabHeight : placed ? row.rectY + root.theme.editorTabHeight : 0
+                width: Math.max(0, (panel ? panel.width : placed ? row.rectWidth : 2) - 2)
+                height: Math.max(0, (panel ? panel.height : placed ? row.rectHeight : root.theme.editorTabHeight + 1) - root.theme.editorTabHeight - 1)
                 visible: surfaceArea !== null && width > 1 && height > 1
                 // A Genie trip is drawing it: not shown until it lands.
                 opacity: placed && (root.genieHidden["v:" + String(row.viewId)] === true || root.genieHidden["a:" + String(row.anchorId)] === true) ? 0 : 1
@@ -2505,10 +2509,10 @@ Item {
                     root.contextInspectionRequested(messageId)
                 }
 
-                Behavior on x { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-                Behavior on y { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-                Behavior on width { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
-                Behavior on height { enabled: chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on x { enabled: chatSurface.panel === null && chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on y { enabled: chatSurface.panel === null && chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on width { enabled: chatSurface.panel === null && chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
+                Behavior on height { enabled: chatSurface.panel === null && chatSurface.surfaceArea !== null && chatSurface.surfaceArea.animateLayout; SpringAnimation { spring: root.theme.motionSpring * 1.4; damping: root.theme.motionDamping + 0.12; epsilon: 0.25 } }
 
                 MouseArea {
                     anchors.fill: parent

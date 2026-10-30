@@ -228,10 +228,58 @@ QtObject {
     readonly property real pressedScale: 0.985
     readonly property real modalSpawnScale: 0.12
     readonly property real modalOvershootScale: 1.025
-    readonly property int motionFast: 150
-    readonly property int motionHover: 170
-    readonly property int motionHoverExit: 145
-    readonly property int motionPanel: 240
+    // ---- motion you can tune -------------------------------------------
+    // The feel of the app's movement, in one place. Ctrl+Alt+M opens the
+    // Motion panel to change these live; they're saved for next time.
+    // motionSpeed scales every duration (0.5 is twice as quick). layout*
+    // is how the sidebar, the bottom dock and Home open, close and push the
+    // layout: how long, and how much it overshoots (0 eases in with no
+    // overshoot). reflow* is the spring panels move on when they make room
+    // or are moved: stiffer is quicker, more damping is less wobble.
+    readonly property var motionDefaults: ({
+        speed: 1.0,
+        layoutDuration: 220,
+        layoutBounce: 0.2,
+        reflowSpring: 4.2,
+        reflowDamping: 0.34
+    })
+    property real motionSpeed: savedMotion("speed")
+    property int layoutDuration: savedMotion("layoutDuration")
+    property real layoutBounce: savedMotion("layoutBounce")
+    property real reflowSpring: savedMotion("reflowSpring")
+    property real reflowDamping: savedMotion("reflowDamping")
+
+    function savedMotion(key) {
+        var stored = Number(WorkspaceState.value("motion/" + key, motionDefaults[key]))
+        return isFinite(stored) ? stored : motionDefaults[key]
+    }
+    function setMotion(key, value) {
+        switch (key) {
+        case "speed": motionSpeed = value; break
+        case "layoutDuration": layoutDuration = value; break
+        case "layoutBounce": layoutBounce = value; break
+        case "reflowSpring": reflowSpring = value; break
+        case "reflowDamping": reflowDamping = value; break
+        default: return
+        }
+        WorkspaceState.setValue("motion/" + key, String(value))
+    }
+    function resetMotion() {
+        for (var key in motionDefaults) {
+            setMotion(key, motionDefaults[key])
+        }
+    }
+
+    // The layout's own moves (sidebar, dock, Home): this long, eased like
+    // this. With a bounce it overshoots a touch and settles.
+    readonly property int layoutMotionDuration: Math.round(layoutDuration * motionSpeed)
+    readonly property int layoutEasing: layoutBounce > 0.01 ? Easing.OutBack : Easing.OutCubic
+    readonly property real layoutOvershoot: layoutBounce * 2.4
+
+    readonly property int motionFast: Math.round(150 * motionSpeed)
+    readonly property int motionHover: Math.round(170 * motionSpeed)
+    readonly property int motionHoverExit: Math.round(145 * motionSpeed)
+    readonly property int motionPanel: layoutMotionDuration
     readonly property int motionModalLaunch: 235
     readonly property int motionModalSettle: 85
     readonly property int motionModalCloseKick: 55
@@ -273,8 +321,8 @@ QtObject {
     // Neighbours making room (and the content following them). The panels
     // nearest the change move first and the far ones follow, a ripple out
     // from the pointer: the farthest spring is magnetRippleSpread softer.
-    readonly property real magnetReflowSpring: motionSpring * 1.4
-    readonly property real magnetReflowDamping: motionDamping + 0.06
+    readonly property real magnetReflowSpring: reflowSpring / Math.max(0.25, motionSpeed)
+    readonly property real magnetReflowDamping: reflowDamping
     readonly property real magnetRippleSpread: 0.35
     // A floating panel opening on its own (not dropped) pops in from this
     // share of its size, with a little overshoot.
