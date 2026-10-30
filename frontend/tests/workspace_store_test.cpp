@@ -2,7 +2,10 @@
 #include "App/Domains/Documents/unsaved_recovery.h"
 #include "App/Domains/Workspace/keyed_list_model.h"
 #include "App/Domains/Workspace/workspace_store.h"
+#include "Core/Domains/Observatory/live_events.h"
+#include "Core/Domains/Observatory/live_session.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
@@ -2767,6 +2770,56 @@ private slots:
         QCOMPARE(store.undoSummary(), QStringLiteral("Restored “b.cpp”"));
         QVERIFY(store.viewRow(b).value("isActive").toBool());
         QVERIFY(documents.isDirty(docB));
+    }
+
+    // While the Observatory live recorder runs, operations report spans with
+    // their outcome and publish reports its stages; never titles or paths.
+    void liveRecorderSeesOperations()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-live"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "secret-name.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+
+        Live::Session session;
+        session.reset(LiveEvents::nowNs());
+        LiveEvents::setSink(&session);
+        QVERIFY(store.minimizeView(b).value("ok").toBool());
+        QVERIFY(store.restoreMinimizedView(b).value("ok").toBool());
+        QVERIFY(store.activateView(a));
+        QVERIFY(!store.minimizeView(QStringLiteral("no-such-view")).value("ok").toBool());
+        QVERIFY(store.beginDrag(QStringLiteral("view"), b));
+        store.cancelDrag();
+        store.setResizing(true);
+        store.setResizing(false);
+        LiveEvents::setSink(nullptr);
+
+        const QJsonArray events = Live::eventsJson(session.snapshot()).value(QStringLiteral("events")).toArray();
+        QHash<QString, QList<QJsonObject>> byName;
+        for (const QJsonValue &value : events) {
+            const QJsonObject event = value.toObject();
+            byName[event.value("category").toString() + "." + event.value("name").toString()].append(event);
+        }
+        QCOMPARE(byName.value("wells.minimize").size(), 2);
+        QCOMPARE(byName.value("wells.minimize").at(0).value("ok").toBool(), true);
+        QCOMPARE(byName.value("wells.minimize").at(1).value("ok").toBool(), false);
+        QCOMPARE(byName.value("wells.restore").size(), 1);
+        QVERIFY(byName.value("wells.restore").at(0).value("durationMs").isDouble());
+        QVERIFY(!byName.value("workspace.publish").isEmpty());
+        const QJsonObject stages = byName.value("workspace.publish").at(0).value("fields").toObject();
+        QVERIFY(stages.contains("geometry") && stages.contains("composer"));
+        QCOMPARE(byName.value("workspace.switch-tab").at(0).value("fields").toObject().value("viewType").toString(), QStringLiteral("archivist.editor"));
+        QCOMPARE(byName.value("workspace.drag").size(), 1);
+        QCOMPARE(byName.value("workspace.drag").at(0).value("fields").toObject().value("outcome").toString(), QStringLiteral("cancelled"));
+        QCOMPARE(byName.value("workspace.drag").at(0).value("ok").toBool(), false);
+        QCOMPARE(byName.value("workspace.resize-split").size(), 1);
+        QVERIFY(!QJsonDocument(events).toJson().contains("secret-name"));
+
+        // Not recording: nothing is collected.
+        const qsizetype before = session.snapshot().events.size();
+        QVERIFY(store.minimizeView(b).value("ok").toBool());
+        QCOMPARE(session.snapshot().events.size(), before);
     }
 
     void openingSomethingPutAwayBringsItBack()

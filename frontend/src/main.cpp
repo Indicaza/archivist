@@ -31,6 +31,7 @@
 #include "App/Services/runtime_trace_store.h"
 #include "App/Services/workspace_state_store.h"
 #include "App/Services/interface_scale.h"
+#include "App/Services/live_recorder.h"
 #include "App/Services/ui_lab.h"
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
@@ -103,8 +104,16 @@ int main(int argc, char *argv[])
         aiSettings.setDatabasePath(coreRuntime.databasePath());
     }
 
+    // The Observatory's live flight recorder. It belongs to the app (not to
+    // the Observatory panel) and is created before the IDE host that serves
+    // its controls, so it outlives every request.
+    LiveRecorder liveRecorder(Observatory::defaultRoot());
+
     // The IDE panel's web bundle, terminals and language servers.
     IdeServer ideServer;
+    ideServer.setLiveHandler([&liveRecorder](const QString &operation, const QByteArray &body, const QString &caller) {
+        return liveRecorder.handle(operation, body, caller);
+    });
 
     if (coreRuntime.ready() && !ideServer.start(coreRuntime.databasePath())) {
         qWarning().noquote() << "[IDE] Native IDE host unavailable.";
@@ -219,6 +228,7 @@ int main(int argc, char *argv[])
     );
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Core", &coreRuntime);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "IdeServer", &ideServer);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LiveRecorder", &liveRecorder);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AISettings", &aiSettings);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
     qmlRegisterSingletonInstance(

@@ -2,6 +2,7 @@
 #include "chat_message_model.h"
 
 #include "Core/Domains/AI/ai_runtime.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Domains/AppState/app_state_repository.h"
 #include "Core/Domains/Chats/chat_repository.h"
 #include "Core/core_runtime.h"
@@ -1745,11 +1746,14 @@ void ChatStore::selectChat(const QString &chatId)
     setAttachments({});
     resetMessagePageState();
     setLoadingMessages(true);
+    // Observatory live recorder: from the click to the conversation loaded.
+    const quint64 live = LiveEvents::begin(QStringLiteral("chat"), QStringLiteral("switch-conversation"));
 
     core->write(
         [chatId](CoreDatabase &database) { return ChatRepository::selectChat(database, chatId); },
         this,
-        [this](const CoreResult &result) {
+        [this, live](const CoreResult &result) {
+            LiveEvents::end(live, result.ok ? 1 : 0);
             if (!result.ok) {
                 setLoadingMessages(false);
                 setErrorMessage(result.errorMessage);

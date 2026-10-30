@@ -79,10 +79,18 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Ide/language_support.h
     src/Core/Domains/Ide/ide_server.cpp
     src/Core/Domains/Ide/ide_server.h
+    src/Core/Domains/Observatory/live_events.cpp
+    src/Core/Domains/Observatory/live_events.h
+    src/Core/Domains/Observatory/live_session.cpp
+    src/Core/Domains/Observatory/live_session.h
+    src/Core/Domains/Observatory/live_store.cpp
+    src/Core/Domains/Observatory/live_store.h
     src/Core/Domains/Observatory/observatory_control.cpp
     src/Core/Domains/Observatory/observatory_control.h
     src/Core/Domains/Observatory/observatory_records.cpp
     src/Core/Domains/Observatory/observatory_records.h
+    src/Core/Domains/Observatory/process_metrics.cpp
+    src/Core/Domains/Observatory/process_metrics.h
     src/Core/Support/json_values.h
     src/Core/Domains/Collections/collection_repository.cpp
     src/Core/Domains/Collections/collection_repository.h
@@ -266,6 +274,8 @@ qt_add_executable(archivist-qt
     src/App/Services/workspace_state_store.h
     src/App/Services/interface_scale.cpp
     src/App/Services/interface_scale.h
+    src/App/Services/live_recorder.cpp
+    src/App/Services/live_recorder.h
     src/App/Services/ui_lab.cpp
     src/App/Services/ui_lab.h
 )
@@ -486,6 +496,23 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-observatory-records-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-observatory-records-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-observatory-records-test COMMAND core-observatory-records-test)
+
+    qt_add_executable(core-observatory-live-test tests/core_observatory_live_test.cpp)
+    target_link_libraries(core-observatory-live-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-observatory-live-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-observatory-live-test COMMAND core-observatory-live-test)
+
+    # Real (offscreen) windows and frame swaps, drawn by the software renderer.
+    qt_add_executable(live-recorder-test
+        tests/live_recorder_test.cpp
+        src/App/Services/live_recorder.cpp
+        src/App/Services/live_recorder.h
+    )
+    target_include_directories(live-recorder-test PRIVATE src)
+    target_link_libraries(live-recorder-test PRIVATE archivist-core Qt6::Gui Qt6::Quick Qt6::Test)
+    set_target_properties(live-recorder-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME live-recorder-test COMMAND live-recorder-test)
+    set_tests_properties(live-recorder-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 
     qt_add_executable(core-database-test tests/core_database_test.cpp)
     target_link_libraries(core-database-test PRIVATE archivist-core Qt6::Test)

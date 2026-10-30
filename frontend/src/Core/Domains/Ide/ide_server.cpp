@@ -12,12 +12,14 @@
 #include "Core/core_error.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QTcpServer>
@@ -278,6 +280,12 @@ private:
             return;
         }
 
+        // The live recorder: POST only, checked in serveObservatoryLive.
+        if (path.startsWith(QStringLiteral("/observatory/api/live/"))) {
+            serveObservatoryLive(path.mid(22));
+            return;
+        }
+
         // The panel's test controls: POST only, checked in serveObservatoryControl.
         if (path.startsWith(QStringLiteral("/observatory/api/control/"))) {
             serveObservatoryControl(path.mid(25));
@@ -489,6 +497,126 @@ private:
                 Qt::QueuedConnection
             );
         });
+    }
+
+    // Starts, stops and checks live recordings (status, start, stop, mark),
+    // and turns agent access on or off (agent-access, panel only). Two kinds
+    // of caller are accepted, each with its own key:
+    //  - the Observatory panel: the page's own origin and the panel's key,
+    //    as for serveObservatoryControl;
+    //  - a local agent: no Origin or Sec-Fetch-Site header (so not a web
+    //    page) and the agent key from agent-access.json, which exists only
+    //    while the person has agent access turned on.
+    void serveObservatoryLive(const QString &operation)
+    {
+        const QString name = QStringLiteral("observatory.live.") + operation.left(40);
+        const auto refuse = [this, &name](int status, const QString &code, const QString &message) {
+            const Observatory::Response response = Observatory::controlError(status, name, code, message);
+            respond(response.status, response.contentType, response.body, response.body.size(), response.headers);
+        };
+
+        static const QRegularExpression operationPattern(QStringLiteral("^[a-z][a-z-]{0,19}$"));
+
+        if (m_request.method != "POST") {
+            refuse(405, QStringLiteral("invalid-input"), QStringLiteral("Live recording operations are POST requests."));
+            return;
+        }
+
+        if (!operationPattern.match(operation).hasMatch()) {
+            refuse(400, QStringLiteral("unknown-operation"), QStringLiteral("Live operations are status, start, stop and mark."));
+            return;
+        }
+
+        if (!m_request.headers.value("content-type").toLower().startsWith("application/json")) {
+            refuse(400, QStringLiteral("invalid-input"), QStringLiteral("Send the input as application/json."));
+            return;
+        }
+
+        const bool hasOrigin = m_request.headers.contains("origin");
+        const QString origin = QString::fromLatin1(m_request.headers.value("origin"));
+        const QByteArray site = m_request.headers.value("sec-fetch-site");
+        QString caller;
+
+        if (hasOrigin) {
+            if (!allowedOrigins().contains(origin) || (!site.isEmpty() && site != "same-origin")) {
+                refuse(403, QStringLiteral("forbidden-origin"), QStringLiteral("Live recording requests must come from the Observatory page itself."));
+                return;
+            }
+
+            if (!Observatory::sameControlToken(m_request.headers.value("x-observatory-token"), m_server->m_observatoryControlToken)) {
+                refuse(401, QStringLiteral("unauthorized"), QStringLiteral("This page doesn't have the control key. Reopen the Observatory panel."));
+                return;
+            }
+
+            caller = QStringLiteral("panel");
+        } else {
+            if (!site.isEmpty()) {
+                refuse(403, QStringLiteral("forbidden-origin"), QStringLiteral("Live recording requests must come from the Observatory page or a local agent."));
+                return;
+            }
+
+            if (m_server->m_agentToken.isEmpty()) {
+                refuse(403, QStringLiteral("agent-access-off"), QStringLiteral("Agent access is off. Turn on \"Let agents record\" in Observatory > Live in Archivist."));
+                return;
+            }
+
+            if (!Observatory::sameControlToken(m_request.headers.value("x-observatory-agent-token"), m_server->m_agentToken)) {
+                refuse(401, QStringLiteral("unauthorized"), QStringLiteral("Wrong or missing agent key. Read it again from agent-access.json."));
+                return;
+            }
+
+            caller = QStringLiteral("agent");
+        }
+
+        if (operation == QLatin1String("agent-access")) {
+            if (caller != QLatin1String("panel")) {
+                refuse(403, QStringLiteral("unauthorized"), QStringLiteral("Only the Observatory panel can change agent access."));
+                return;
+            }
+
+            const QJsonObject input = QJsonDocument::fromJson(m_request.body).object();
+            const QJsonValue enabled = input.value(QStringLiteral("enabled"));
+
+            if (!enabled.isBool() || input.size() != 1) {
+                refuse(400, QStringLiteral("invalid-input"), QStringLiteral("Send {\"enabled\": true} or {\"enabled\": false}."));
+                return;
+            }
+
+            if (!m_server->setObservatoryAgentAccess(enabled.toBool())) {
+                refuse(500, QStringLiteral("io-error"), QStringLiteral("Could not write %1.").arg(IdeServer::agentAccessFile()));
+                return;
+            }
+
+            const QByteArray body = QJsonDocument(QJsonObject{
+                {QStringLiteral("schema"), QStringLiteral("archivist.observatory.response")},
+                {QStringLiteral("schemaVersion"), 1},
+                {QStringLiteral("operation"), name},
+                {QStringLiteral("ok"), true},
+                {QStringLiteral("result"), QJsonObject{{QStringLiteral("agentAccess"), m_server->observatoryAgentAccess()}}},
+            }).toJson(QJsonDocument::Compact);
+            respond(200, "application/json; charset=utf-8", body, body.size(), Observatory::securityHeaders());
+            return;
+        }
+
+        if (!m_server->m_liveHandler) {
+            refuse(503, QStringLiteral("unavailable"), QStringLiteral("The live recorder isn't running in this app."));
+            return;
+        }
+
+        Observatory::Response response = m_server->m_liveHandler(operation, m_request.body, caller);
+
+        if (operation == QLatin1String("status")) {
+            QJsonObject body = QJsonDocument::fromJson(response.body).object();
+            QJsonObject result = body.value(QStringLiteral("result")).toObject();
+
+            if (body.value(QStringLiteral("ok")).toBool()) {
+                result.insert(QStringLiteral("agentAccess"), m_server->observatoryAgentAccess());
+                body.insert(QStringLiteral("result"), result);
+                response.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
+            }
+        }
+
+        respond(response.status, response.contentType, response.body, response.body.size(), response.headers);
     }
 
     void serveStatic(const QString &relativePath)
@@ -774,6 +902,71 @@ IdeServer::~IdeServer()
     stop();
 }
 
+void IdeServer::setLiveHandler(LiveHandler handler)
+{
+    m_liveHandler = std::move(handler);
+}
+
+QString IdeServer::agentAccessFile()
+{
+    return QDir(Observatory::defaultRoot()).filePath(QStringLiteral("live/agent-access.json"));
+}
+
+bool IdeServer::setObservatoryAgentAccess(bool enabled)
+{
+    const QString path = agentAccessFile();
+    const bool was = observatoryAgentAccess();
+
+    if (!enabled || !ready()) {
+        m_agentToken.clear();
+        // Only remove the file this app wrote (another Archivist may own one).
+        QFile existing(path);
+        if (existing.open(QIODevice::ReadOnly)) {
+            const QJsonObject access = QJsonDocument::fromJson(existing.read(64 * 1024)).object();
+            existing.close();
+            if (static_cast<qint64>(access.value(QStringLiteral("pid")).toDouble()) == QCoreApplication::applicationPid()) {
+                QFile::remove(path);
+            }
+        }
+        if (was) {
+            emit observatoryAgentAccessChanged();
+        }
+        return !enabled;
+    }
+
+    const QByteArray token = Observatory::newControlToken();
+    const QJsonObject access{
+        {QStringLiteral("schema"), QStringLiteral("archivist.observatory.live-access")},
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("endpoint"), QStringLiteral("http://127.0.0.1:%1/observatory/api/live/").arg(port())},
+        {QStringLiteral("token"), QString::fromLatin1(token)},
+        {QStringLiteral("pid"), static_cast<double>(QCoreApplication::applicationPid())},
+        {QStringLiteral("enabledAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+    };
+
+    if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+        return false;
+    }
+
+    // Created readable and writable by this user only, before the key is written.
+    QFile::remove(path);
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        return false;
+    }
+    const QByteArray data = QJsonDocument(access).toJson(QJsonDocument::Indented);
+    if (file.write(data) != data.size() || !file.flush()) {
+        file.close();
+        QFile::remove(path);
+        return false;
+    }
+    file.close();
+
+    m_agentToken = token;
+    emit observatoryAgentAccessChanged();
+    return true;
+}
+
 QString IdeServer::defaultDistributionPath()
 {
     const QString configured = qEnvironmentVariable("ARCHIVIST_IDE_DIST").trimmed();
@@ -848,6 +1041,8 @@ bool IdeServer::start(const QString &databasePath, const QString &distributionPa
 
 void IdeServer::stop()
 {
+    // The address in agent-access.json is about to stop working.
+    setObservatoryAgentAccess(false);
     const bool wasReady = ready();
 
     if (m_terminals) {

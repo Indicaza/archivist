@@ -4,6 +4,7 @@
 // in Core (workspace_magnets).
 
 #include "App/Domains/Workspace/workspace_store.h"
+#include "Core/Domains/Observatory/live_events.h"
 
 using namespace Workspace;
 
@@ -184,6 +185,7 @@ QVariantMap WorkspaceStore::returnToPrevious(const QString &kind, const QString 
 
 QString WorkspaceStore::floatView(const QString &viewId, double x, double y, double width, double height)
 {
+    LiveEvents::Scope live(QStringLiteral("workspace"), QStringLiteral("undock"), {{QStringLiteral("kind"), QStringLiteral("view")}, {QStringLiteral("how"), QStringLiteral("float")}});
     if (m_drag.kind != DragSource::Kind::None) {
         cancelDrag();
     }
@@ -210,6 +212,7 @@ QString WorkspaceStore::floatView(const QString &viewId, double x, double y, dou
 
 QString WorkspaceStore::floatAnchor(const QString &anchorId, double x, double y, double width, double height)
 {
+    LiveEvents::Scope live(QStringLiteral("workspace"), QStringLiteral("undock"), {{QStringLiteral("kind"), QStringLiteral("anchor")}, {QStringLiteral("how"), QStringLiteral("float")}});
     if (m_drag.kind != DragSource::Kind::None) {
         cancelDrag();
     }

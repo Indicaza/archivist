@@ -3,6 +3,7 @@
 // a restore does is decided in Core (workspace_wells).
 
 #include "App/Domains/Workspace/workspace_store.h"
+#include "Core/Domains/Observatory/live_events.h"
 
 using namespace Workspace;
 
@@ -53,6 +54,8 @@ QVariantMap WorkspaceStore::wellResult(const Wells::Restored &restored) const
 
 QVariantMap WorkspaceStore::minimizeView(const QString &viewId)
 {
+    LiveEvents::Scope live(QStringLiteral("wells"), QStringLiteral("minimize"));
+    live.setOk(false);
     const ViewRecord *view = m_model.view(viewId);
     if (!view) {
         return failed(OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("It's no longer open.")));
@@ -72,6 +75,7 @@ QVariantMap WorkspaceStore::minimizeView(const QString &viewId)
     const qint64 model = clock.nsecsElapsed();
     publish();
     qCDebug(lcWellTiming).noquote() << "minimize" << title << "model" << model / 1e6 << "ms, publish" << (clock.nsecsElapsed() - model) / 1e6 << "ms";
+    live.setOk(true);
     return {{QStringLiteral("ok"), true}, {QStringLiteral("entryId"), result.createdId}};
 }
 
@@ -184,6 +188,8 @@ bool WorkspaceStore::dropIntoWell(const DragSource &source, const QString &wellI
 
 QVariantMap WorkspaceStore::restoreMinimizedView(const QString &viewId)
 {
+    LiveEvents::Scope live(QStringLiteral("wells"), QStringLiteral("restore"));
+    live.setOk(false);
     if (!m_model.isMinimized(viewId)) {
         return failed(OpResult::failure(QStringLiteral("NOT_MINIMIZED"), QStringLiteral("It isn't put away.")));
     }
@@ -211,6 +217,7 @@ QVariantMap WorkspaceStore::restoreMinimizedView(const QString &viewId)
     emit viewFocused(viewId);
     qCDebug(lcWellTiming).noquote() << "restore" << title << restored.how << "model" << model / 1e6
         << "ms, publish" << (published - model) / 1e6 << "ms, after" << (clock.nsecsElapsed() - published) / 1e6 << "ms";
+    live.setOk(true);
     return wellResult(restored);
 }
 

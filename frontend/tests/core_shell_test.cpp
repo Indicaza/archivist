@@ -1,6 +1,8 @@
 #include "App/Domains/Shell/shell_store.h"
 #include "Core/Domains/Shell/recent_items.h"
 #include "Core/Domains/Shell/shell_navigation.h"
+#include "Core/Domains/Observatory/live_events.h"
+#include "Core/Domains/Observatory/live_session.h"
 
 #include <QSet>
 #include <QSettings>
@@ -258,6 +260,31 @@ private slots:
     }
 
     // ---- ShellStore ----------------------------------------------------
+
+    // The Observatory live recorder hears when the side panel opens, closes
+    // or switches section (markers: the animation's length isn't claimed).
+    void sidePanelChangesAreMarkedWhileRecording()
+    {
+        QTemporaryDir directory;
+        QSettings settings(directory.filePath(QStringLiteral("shell.ini")), QSettings::IniFormat);
+        ShellStore store(&settings);
+        store.activate(RailIds::Navigator);
+        Live::Session session;
+        session.reset(LiveEvents::nowNs());
+        LiveEvents::setSink(&session);
+        store.setPanelOpen(false);
+        store.setPanelOpen(true);
+        store.showPanel(RailIds::Search);
+        store.setPanelOpen(true); // no change, no marker
+        LiveEvents::setSink(nullptr);
+        store.setPanelOpen(false); // not recording
+        QStringList names;
+        for (const LiveEvents::Event &event : session.snapshot().events) {
+            QCOMPARE(event.kind, QStringLiteral("marker"));
+            names.append(event.category + QLatin1Char('.') + event.name);
+        }
+        QCOMPARE(names, (QStringList{QStringLiteral("sidebar.close"), QStringLiteral("sidebar.open"), QStringLiteral("sidebar.switch-section")}));
+    }
 
     void storeStartsOnHomeAndRemembersTheDestination()
     {

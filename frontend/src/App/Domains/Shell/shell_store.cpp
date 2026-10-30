@@ -1,5 +1,7 @@
 #include "App/Domains/Shell/shell_store.h"
 
+#include "Core/Domains/Observatory/live_events.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSettings>
@@ -220,6 +222,16 @@ void ShellStore::apply(const Shell::NavigationState &next)
         return;
     }
     const bool destinationChanged = next.destination != m_state.destination;
+    // Marked for the Observatory live recorder; the panel's animation runs
+    // in QML afterwards, so no duration is claimed here.
+    if (next.panelShown() != m_state.panelShown()) {
+        LiveEvents::marker(QStringLiteral("sidebar"), next.panelShown() ? QStringLiteral("open") : QStringLiteral("close"));
+    } else if (next.panelShown() && next.panelId != m_state.panelId) {
+        LiveEvents::marker(QStringLiteral("sidebar"), QStringLiteral("switch-section"));
+    }
+    if (destinationChanged) {
+        LiveEvents::marker(QStringLiteral("shell"), QStringLiteral("navigate"), {{QStringLiteral("to"), next.destination}});
+    }
     m_state = next;
     if (destinationChanged) {
         saveNavigation();
