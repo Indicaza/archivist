@@ -20,7 +20,9 @@ export function phaseLine(phase) {
   if (phase.name === "ide-bundle" && phase.status === "success") {
     value = `${phase.details.cacheReused ? "cached" : "rebuilt"} (${value})`;
   } else if (phase.name === "build-plan" && phase.status === "success") {
-    value = `${phase.details.plannedSteps} steps (${value})`;
+    value = `${phase.details.plannedWorkSteps} steps + ${phase.details.plannedBookkeepingSteps} CMake checks (${value})`;
+  } else if (phase.name === "native-build" && phase.details?.ninjaLog?.basis === "measured-by-ninja") {
+    value = `${value}  (${phase.details.ninjaLog.workSteps} steps run)`;
   }
   if (phase.status !== "success") {
     value += `  ${phase.status.toUpperCase()}`;
@@ -38,7 +40,7 @@ export function formatBuildSummary(summary, { summaryPath, logPath }) {
   lines.push(row("Git", `${source.branch ?? "(detached)"} @ ${source.commit?.slice(0, 9) ?? "unknown"}`));
   lines.push(row("Workspace", source.dirty == null ? "unknown" : source.dirty ? `dirty (${source.changedFiles} changed)` : "clean"));
   if (summary.buildConditions?.classification?.value) {
-    lines.push(row("Kind", `${summary.buildConditions.classification.value} (inferred)`));
+    lines.push(row("Kind", summary.buildConditions.classification.value));
   }
   lines.push("");
   summary.phases.forEach((phase) => lines.push(phaseLine(phase)));

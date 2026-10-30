@@ -4,7 +4,7 @@
 //   scripts/qt-build          -> scripts/qt-configure, then cmake --build
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { progressAnalyzer, ninjaLogSize, readNinjaLogSince } from "./ninja.mjs";
+import { isBookkeepingDescription, progressAnalyzer, ninjaLogSize, readNinjaLogSince } from "./ninja.mjs";
 import { runPhase } from "./capture.mjs";
 
 export const PHASE_LABELS = {
@@ -45,14 +45,28 @@ function configureAnalyzer() {
 }
 
 // Ninja dry run (-n): lists the steps a build would run without running
-// them, so a no-change build can be told from an incremental one.
+// them. CMake's glob re-check and regeneration steps are always listed, so
+// they are counted apart from real work.
 function planAnalyzer() {
   const progress = progressAnalyzer();
+  let bookkeeping = 0;
   return {
-    line: progress.line,
+    line(text) {
+      progress.line(text);
+      const description = text.match(/^\[\d+\/\d+\]\s*(.*)$/)?.[1];
+      if (description && isBookkeepingDescription(description)) {
+        bookkeeping += 1;
+      }
+    },
     details() {
       const steps = progress.details().ninjaSteps;
-      return { plannedSteps: steps.noWorkToDo ? 0 : steps.planned ?? 0, plannedStepsBasis: "ninja-dry-run" };
+      const planned = steps.noWorkToDo ? 0 : steps.planned ?? 0;
+      return {
+        plannedSteps: planned,
+        plannedBookkeepingSteps: bookkeeping,
+        plannedWorkSteps: Math.max(0, planned - bookkeeping),
+        plannedStepsBasis: "ninja-dry-run",
+      };
     },
   };
 }
@@ -100,20 +114,31 @@ export async function buildConditionsBefore(buildDir) {
   };
 }
 
-// clean: no previous build output; no-change: Ninja planned nothing;
-// incremental: Ninja planned some steps. Null when the native build never
-// started or the plan is missing.
+// clean: no .ninja_log before the run. Otherwise, for a successful build,
+// what Ninja logged: no-change when it ran only CMake/AUTOMOC bookkeeping
+// steps, incremental when it ran real work. A failed step is not logged,
+// so a failed build falls back to the dry run's plan.
 export function classifyBuild(before, phases) {
   const native = phases.find((phase) => phase.name === "native-build" && phase.status !== "skipped");
   if (!native) {
     return { value: null, basis: "native build did not run" };
   }
-  const plan = phases.find((phase) => phase.name === "build-plan" && phase.status === "success");
-  let value = null;
   if (!before.ninjaLogExisted) {
-    value = "clean";
-  } else if (plan) {
-    value = plan.details.plannedSteps === 0 ? "no-change" : "incremental";
+    return { value: "clean", basis: "no .ninja_log before the build" };
   }
-  return { value, basis: "inferred from build directory state and ninja dry run" };
+  const log = native.details?.ninjaLog;
+  if (native.status === "success" && log?.basis === "measured-by-ninja") {
+    return {
+      value: log.workSteps === 0 ? "no-change" : "incremental",
+      basis: ".ninja_log steps, excluding CMake/AUTOMOC bookkeeping",
+    };
+  }
+  const plan = phases.find((phase) => phase.name === "build-plan" && phase.status === "success");
+  if (plan) {
+    return {
+      value: plan.details.plannedWorkSteps === 0 ? "no-change" : "incremental",
+      basis: "ninja dry run, excluding CMake bookkeeping",
+    };
+  }
+  return { value: null, basis: "no Ninja log or plan available" };
 }

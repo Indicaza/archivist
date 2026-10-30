@@ -21,6 +21,12 @@ scripts `npm run dev` uses:
 | `ide-bundle`   | `node scripts/build-ide.mjs`              | time; whether the cached bundle was used |
 | `configure`    | `scripts/qt-configure`                    | time; whether a stale cache was reset    |
 | `build-plan`   | `cmake --build build/frontend-debug -- -n`| Ninja dry run: steps the build will run  |
+
+**Bookkeeping steps.** CMake re-checks its source globs, and Qt's AUTOMOC
+refreshes its timestamps and metatype lists, on every build, even when
+nothing changed. Observatory counts these apart from real work
+(`plannedBookkeepingSteps`, `bookkeepingSteps`), so a build that runs only
+them is `no-change`. The patterns are in `ninja.mjs`.
 | `native-build` | `cmake --build build/frontend-debug`      | time; Ninja progress; `.ninja_log` edges |
 
 `scripts/qt-build` is configure followed by `cmake --build`, so the last two
@@ -65,7 +71,7 @@ npm run observatory -- show <runId>
 | `environment` | `platform`, `osVersion`, `architecture`, `cpuModel`, `logicalCpus`, `totalMemoryBytes`, `nodeVersion`. |
 | `toolchain` | From the configured build directory: `buildType`, `generator`, `cmakeVersion`, `ninjaVersion`, `compiler` (`id`, `version`, `path`), `qtVersion`, `compilerCache` (`launcher` configured, `ccacheInstalled`, `sccacheInstalled`). |
 | `buildConditions.before` | Whether the build directory, CMake cache and `.ninja_log` existed before the run. |
-| `buildConditions.classification` | `clean` (no `.ninja_log` before), `no-change` (dry run planned 0 steps), `incremental`, or `null` when the native build didn't run. Always inferred. |
+| `buildConditions.classification` | `value`: `clean` (no `.ninja_log` before), `no-change` (Ninja ran only bookkeeping steps), `incremental` (it ran real compile, moc or link steps), or `null` when the native build didn't run; `basis` says how it was decided. A failed build uses the dry run instead, since Ninja doesn't log failed steps. |
 | `phases[]` | `name`, `command`, `status` (`success`/`failure`/`interrupted`/`skipped`), `exitCode`, `signal`, `startOffsetMs`, `durationMs`, `details`, and `error` (`message`, `excerpt`) when it didn't succeed. |
 | `errors[]` | One `{ phase, message }` per problem; the details are in `build.log`. |
 | `artifacts` | Paths relative to the run directory. |
@@ -79,20 +85,23 @@ capture still leaves the phases it finished.
 - **Measured:** phase and total durations (Node's monotonic clock), exit
   codes, and `native-build.details.ninjaLog`: the start/end times Ninja
   itself wrote to `.ninja_log` for the steps it ran in this build
-  (`edgesRecorded`, `sumOfEdgeDurationsMs`, `slowestEdges`). An edge is one
-  compile or link step, so `slowestEdges` are real per-file compile times. If
+  (`stepsRecorded`, `workSteps`, `bookkeepingSteps`, `sumOfStepDurationsMs`,
+  `slowestSteps`). A step is one compile, moc, qmlcache or link command, so
+  `slowestSteps` are real per-file times. Paths are relative to the build
+  directory. If
   Ninja recompacted its log during the build, this is marked `unavailable`.
 - **Inferred from output** (labelled with a `basis` field): IDE cache reuse
   (from `build-ide.mjs`'s "using cached build" message), `ninjaSteps` (the
-  `[n/total]` progress lines), `plannedSteps` (Ninja dry run) and the build
-  classification.
+  `[n/total]` progress lines) and `plannedSteps` (Ninja dry run). The build
+  classification comes from `.ninja_log` when the build succeeded, and from
+  the dry run when it failed.
 
 ### What it cannot tell you yet
 
 - Whether a compiler cache actually hit (only whether one is configured).
 - Clean-build times, unless the build directory happened to be empty. A
   deliberate clean-build experiment is future work.
-- `sumOfEdgeDurationsMs` is not CPU time: steps run in parallel and include
+- `sumOfStepDurationsMs` is not CPU time: steps run in parallel and include
   waiting. Wall-clock build time is `native-build.durationMs`.
 - Durations from one run are noisy; compare several runs on the same machine.
 - Anything about the running app other than imported wells timings.
