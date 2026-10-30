@@ -283,7 +283,6 @@ QtObject {
     // curve. Anticipation draws back a touch before it goes; bounce carries
     // it a little past its mark before it settles. Both 0 is a plain ease.
     readonly property int layoutMotionDuration: Math.round(layoutDuration * motionSpeed)
-    readonly property var layoutCurve: [0.34, -0.5 * anticipation, 0.18, 1 + 0.5 * layoutBounce, 1, 1]
 
     readonly property int motionFast: Math.round(150 * motionSpeed)
     readonly property int motionHover: Math.round(170 * motionSpeed)

@@ -14,6 +14,7 @@ Item {
 
     required property var theme
     property real leftInset: 0
+    property real rightInset: 0
     // Something floats over the bottom of the workspace (the compact chat
     // composer): the conversation pads its end by this much when its pane
     // reaches the bottom, so the last message can scroll clear of it.
@@ -2224,7 +2225,7 @@ Item {
 
         x: root.leftInset
         y: 0
-        width: Math.max(0, root.width - root.leftInset)
+        width: Math.max(0, root.width - root.leftInset - root.rightInset)
         z: 5
         theme: root.theme
         open: suggestion.summary !== undefined
@@ -2245,7 +2246,7 @@ Item {
 
         x: root.leftInset
         y: agentSuggestionBar.height
-        width: Math.max(0, root.width - root.leftInset)
+        width: Math.max(0, root.width - root.leftInset - root.rightInset)
         z: 5
         theme: root.theme
         open: arrangement.since !== undefined && !agentSuggestionBar.open
@@ -2265,7 +2266,7 @@ Item {
 
         x: root.leftInset
         y: noticeHeight
-        width: Math.max(0, root.width - root.leftInset)
+        width: Math.max(0, root.width - root.leftInset - root.rightInset)
         height: Math.max(0, root.height - noticeHeight)
         theme: root.theme
         workspace: root

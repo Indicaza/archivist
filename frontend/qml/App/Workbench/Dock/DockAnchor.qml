@@ -172,20 +172,21 @@ Item {
     // since an edge's spring depends only on where that edge is going, both
     // draw it in the same place: no gaps, no overlaps.
     //
-    // While the window, sidebar or dock is resizing the layout, an edge on
-    // the outside of the layout stays exactly on it (glued to the window
-    // and the sidebar); only the edges inside follow through. Dragging a
-    // splitter moves everything directly: the pointer leads.
+    // These springs are for panels making room (a split, a close). While
+    // the layout itself is resizing (its edge next to the sidebar or the
+    // dock rides its own spring, see WorkbenchShell), every panel stays
+    // exactly on its share of it, so the whole layout stretches as one.
+    // Dragging a splitter moves everything directly: the pointer leads.
     readonly property real targetLeft: rectX
     readonly property real targetTop: rectY
     readonly property real targetRight: rectX + Math.max(0, rectWidth)
     readonly property real targetBottom: rectY + Math.max(0, rectHeight)
     readonly property bool springEdges: root.workspace.springEdges === true
     readonly property bool gluing: root.workspace.resizingSurface === true
-    readonly property bool glueLeft: gluing && targetLeft <= 0.5
-    readonly property bool glueTop: gluing && targetTop <= 0.5
-    readonly property bool glueRight: gluing && targetRight >= root.workspace.width - 0.5
-    readonly property bool glueBottom: gluing && targetBottom >= root.workspace.height - 0.5
+    readonly property bool glueLeft: gluing
+    readonly property bool glueTop: gluing
+    readonly property bool glueRight: gluing
+    readonly property bool glueBottom: gluing
 
     // How stiff an edge's spring is: stiffest where the change came from,
     // softer away from it (the ripple), by where the edge is going.

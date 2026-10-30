@@ -78,7 +78,21 @@ Rectangle {
         maximumExplorerWidth,
         Math.max(theme.explorerMinWidth, explorerWidth)
     )
-    property real explorerExtent: explorerOpen ? clampedExplorerWidth : 0
+    // The sidebar opens and closes on a spring (see EdgeSpring); dragging
+    // its edge moves it directly.
+    readonly property real explorerExtent: explorerSpring.value
+    EdgeSpring {
+        id: explorerSpring
+        theme: root.theme
+        target: root.explorerOpen ? root.clampedExplorerWidth : 0
+        active: root.springLayoutEdges && !root.resizingExplorer
+    }
+    EdgeSpring {
+        id: dockSpring
+        theme: root.theme
+        target: root.clampedDockHeight
+        active: root.springLayoutEdges && !root.resizingDock
+    }
     // Home's sidebar is a side panel like the Explorer: same slot, same
     // edge to drag. Its width and whether it's open are one setting for
     // every project. While the Explorer is open it keeps its width, so
@@ -92,9 +106,13 @@ Rectangle {
         maximumExplorerWidth,
         Math.max(theme.explorerMinWidth, homeSidebarWidth)
     )
-    property real homeSidebarExtent: homeSidebarOpen && (Shell.homeActive || explorerOpen)
-        ? clampedHomeSidebarWidth
-        : 0
+    readonly property real homeSidebarExtent: homeSidebarSpring.value
+    EdgeSpring {
+        id: homeSidebarSpring
+        theme: root.theme
+        target: root.homeSidebarOpen && (Shell.homeActive || root.explorerOpen) ? root.clampedHomeSidebarWidth : 0
+        active: root.springLayoutEdges && !root.resizingHomeSidebar
+    }
     readonly property real maximumDockHeight: Math.max(
         theme.chatDockMinHeight,
         height - theme.statusBarHeight - theme.workspaceMinHeight
@@ -276,24 +294,6 @@ Rectangle {
         NumberAnimation {
             duration: root.theme.motionPanel
             easing.type: Easing.OutCubic
-        }
-    }
-
-    Behavior on explorerExtent {
-        enabled: !root.resizingExplorer
-        NumberAnimation {
-            duration: root.theme.motionPanel
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.theme.layoutCurve
-        }
-    }
-
-    Behavior on homeSidebarExtent {
-        enabled: !root.resizingHomeSidebar
-        NumberAnimation {
-            duration: root.theme.motionPanel
-            easing.type: Easing.BezierSpline
-            easing.bezierCurve: root.theme.layoutCurve
         }
     }
 
@@ -638,6 +638,13 @@ Rectangle {
         - statusBar.height
         - root.workspaceBottomObstruction
 
+    // Which side the sidebar is on (it can move to the right later). The
+    // layout's edge on the far side stays on the window; the edge next to
+    // the sidebar is the sidebar's edge as drawn, so it rides the sidebar's
+    // spring, and its bottom rides the dock's.
+    readonly property string sidebarSide: String(WorkspaceState.value("layout/sidebarSide", "left") || "left") === "right" ? "right" : "left"
+    readonly property bool springLayoutEdges: !theme.reducedMotion && !explorerWarm
+
     function revealFileInLibrary(libraryId, fileId, relativePath) {
         Shell.showPanel("navigation.navigator")
         explorerDock.revealFile(libraryId, fileId, relativePath)
@@ -903,8 +910,10 @@ Rectangle {
 
         DockWorkspace {
             theme: root.theme
-            // The sidebar's edge as drawn, every frame of its animation.
-            leftInset: root.explorerRight
+            // The edge next to the sidebar is the sidebar's, as drawn; the
+            // far edge stays on the window.
+            leftInset: root.sidebarSide === "left" ? root.explorerRight : 0
+            rightInset: root.sidebarSide === "right" ? root.explorerRight : 0
             bottomOverlay: root.compactChat ? root.compactOverlay : 0
             composerAnchorId: root.composerAnchorId
             overlayHost: floatingHost
@@ -1008,7 +1017,7 @@ Rectangle {
 
         x: root.theme.activityRailWidth
         y: 0
-        width: root.homeSidebarExtent
+        width: Math.max(0, root.homeSidebarExtent)
         height: parent.height - statusBar.height
         visible: width > 0.5 && root.homeReveal > 0
         opacity: root.homeReveal
@@ -1039,7 +1048,7 @@ Rectangle {
     SidePanelResizeHandle {
         id: homeSidebarResizeHandle
 
-        x: root.theme.activityRailWidth + root.homeSidebarExtent - width / 2
+        x: root.theme.activityRailWidth + Math.max(0, root.homeSidebarExtent) - width / 2
         y: 0
         height: parent.height - statusBar.height
         visible: Shell.homeActive && root.homeSidebarOpen
@@ -1122,7 +1131,7 @@ Rectangle {
         x: root.attachedDockX
         y: parent.height - statusBar.height - height
         width: parent.width - root.attachedDockX
-        height: root.clampedDockHeight
+        height: Math.max(0, dockSpring.value)
         theme: root.theme
         collectionId:
             CollectionStore.selectedCollectionId
@@ -1144,16 +1153,6 @@ Rectangle {
         Component.onCompleted: root.reportCommandSurface()
         onMessageSubmitted: function(message) {
             ChatStore.sendMessage(message)
-        }
-
-        Behavior on height {
-            enabled: !root.resizingDock
-
-            NumberAnimation {
-                duration: root.theme.motionPanel
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: root.theme.layoutCurve
-            }
         }
     }
 

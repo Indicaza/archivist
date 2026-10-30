@@ -290,6 +290,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Topbar/Topbar.qml
         qml/App/Topbar/CodeThemePicker.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
+        qml/App/Workbench/WorkbenchShell/EdgeSpring.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
         qml/App/Workbench/WorkbenchShell/SidePanelResizeHandle/SidePanelResizeHandle.qml

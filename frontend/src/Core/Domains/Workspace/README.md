@@ -350,19 +350,21 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   its scrollback isn't rewrapped mid-move. The sidebar slides out at its
   full width rather than squeezing its rows, and is drawn once out of
   sight at startup so its first open has nothing to build.
-- **Moving with some life.** Inside that glued frame, each panel is drawn
-  by its four edges on springs (`DockAnchor`, stepped once a frame). An
-  edge on the outside of the layout stays on it while the layout resizes;
-  the edges inside follow through: the ones nearest what moved go first,
-  the far ones a beat later (stagger), each carries a few pixels past its
-  mark and settles, and the panels between squash and stretch on the way.
-  Neighbours share an edge and its spring depends only on where the edge
-  is going, so both draw it in the same place. The sidebar and dock moves
-  wind up slightly before they go (anticipation) and land with a small
-  overshoot. Splitter drags stay direct, and startup and reduced motion
-  don't animate. All of it is tunable in one place, `Theme` (`motionSpeed`,
-  `layoutDuration`, `layoutBounce`, `anticipation`, `reflowSpring`,
-  `reflowDamping`, `reflowMass`, `stagger`), live from the Motion panel
+- **Moving with some life.** The sidebar and the bottom dock open, close
+  and resize on a spring (`EdgeSpring`): it keeps its speed when you change
+  your mind mid-move, winds back a touch before it goes, carries past its
+  mark and settles. The layout's edge on the far side from the sidebar
+  stays on the window (which side that is comes from
+  `layout/sidebarSide`, left by default), and its edge next to the sidebar
+  (and its bottom, next to the dock) is theirs as drawn, so the whole
+  layout stretches with them and every panel keeps its share. Panels
+  making room inside it (a split, a close) are drawn by their four edges
+  on springs (`DockAnchor`), nearest first. Dragging an edge or a splitter
+  moves things directly, and startup and reduced motion don't animate.
+  All of it is tunable in one place, `Theme`: `layoutDuration`,
+  `layoutBounce` and `anticipation` for the sidebar and dock;
+  `reflowSpring`, `reflowDamping`, `reflowMass` and `stagger` for panels;
+  `motionSpeed` for everything. They're live from the Motion panel
   (Ctrl+Alt+Shift+M) and saved.
 - **Keeping it quick.** Minimizing and restoring change the model in well
   under a millisecond; the cost is in what the screen rebuilds. So a tab
