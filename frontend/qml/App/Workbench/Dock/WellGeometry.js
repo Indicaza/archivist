@@ -12,7 +12,7 @@
 
 // form: "linear"; orientation: "horizontal" or "vertical".
 // options: { slot, gap, padding, lead, dividerAt, dividerSize }
-//   lead: room before the first icon (the Well's grip).
+//   lead: room before the first icon (none now; kept for other forms).
 //   dividerAt: index of the first icon after the divider, or -1 for none.
 // Returns { slots: [{ x, y, size }], divider: { x, y } or null, width, height }.
 function layout(form, orientation, count, options) {
@@ -89,4 +89,112 @@ function position(x, y, wellWidth, wellHeight, areaWidth, areaHeight, margin, bo
         py = 0
     }
     return { x: px, y: py }
+}
+
+// The Dock wave: for a pointer at `pointer` along the Well (Well
+// coordinates; null when it isn't over the Well), how much each icon is
+// drawn bigger and how far it steps aside. The icon nearest the pointer
+// grows most, its neighbours less, and the rest stay as they are. Each
+// icon pushes the ones after it along by half its growth and the ones
+// before it back by the other half, so they never overlap and the one under
+// the pointer stays under it. Slots are untouched: this is drawing only.
+//
+// options: { maxScale, reach, pitch, vertical }
+//   reach: how many slots out the growth fades to nothing.
+//   pitch: distance between neighbouring slot centres.
+// Returns { scales, shifts, start, end, dividerShift }: start and end are
+// where the drawn row begins and ends along the Well (it widens both ways).
+function magnify(slots, pointer, options, divider) {
+    var count = slots.length
+    var vertical = options.vertical === true
+    var scales = []
+    var growth = []
+    for (var index = 0; index < count; index += 1) {
+        var slot = slots[index]
+        var centre = (vertical ? slot.y : slot.x) + slot.size / 2
+        var scale = 1
+        if (pointer !== null && pointer !== undefined && options.maxScale > 1) {
+            var distance = Math.abs(pointer - centre) / options.pitch
+            if (distance < options.reach) {
+                var fall = 0.5 * (1 + Math.cos(Math.PI * distance / options.reach))
+                scale = 1 + (options.maxScale - 1) * fall
+            }
+        }
+        scales.push(scale)
+        growth.push(slot.size * (scale - 1))
+    }
+
+    var total = 0
+    for (index = 0; index < count; index += 1) {
+        total += growth[index]
+    }
+    var shifts = []
+    var before = 0
+    var start = Infinity
+    var end = -Infinity
+    for (index = 0; index < count; index += 1) {
+        // Pushed forward by half of everything before, back by half of
+        // everything after.
+        var after = total - before - growth[index]
+        var shift = before / 2 - after / 2
+        shifts.push(shift)
+        before += growth[index]
+        slot = slots[index]
+        var lead = (vertical ? slot.y : slot.x) + shift - growth[index] / 2
+        start = Math.min(start, lead)
+        end = Math.max(end, lead + slot.size * scales[index])
+    }
+
+    // The divider stays halfway between the icons either side of it.
+    var dividerShift = 0
+    if (divider && divider.index > 0 && divider.index < count) {
+        var left = divider.index - 1
+        var right = divider.index
+        var leftEdge = (vertical ? slots[left].y : slots[left].x) + slots[left].size + shifts[left] + growth[left] / 2
+        var rightEdge = (vertical ? slots[right].y : slots[right].x) + shifts[right] - growth[right] / 2
+        var plainLeft = (vertical ? slots[left].y : slots[left].x) + slots[left].size
+        var plainRight = vertical ? slots[right].y : slots[right].x
+        dividerShift = (leftEdge + rightEdge) / 2 - (plainLeft + plainRight) / 2
+    }
+
+    return {
+        scales: scales,
+        shifts: shifts,
+        start: count > 0 ? start : 0,
+        end: count > 0 ? end : 0,
+        dividerShift: dividerShift
+    }
+}
+
+// How far a point is from a rectangle (0 inside it).
+function distanceToRect(x, y, width, height) {
+    var dx = Math.max(0, -x, x - width)
+    var dy = Math.max(0, -y, y - height)
+    return Math.sqrt(dx * dx + dy * dy)
+}
+
+// The Well's reveal, from the pointer's distance to it. It wakes (`near`)
+// as the pointer comes within revealIn and sleeps again only past
+// revealOut; it engages (magnifies, shows tooltips) within engageIn and
+// lets go only past engageOut. The gaps between in and out are what keep
+// it from flickering on the edge. `level` is 0..1: how much to show.
+//
+// previous: { near, engaged }; distance: null when the pointer is gone.
+// options: { revealIn, revealOut, engageIn, engageOut }
+function proximity(previous, distance, options) {
+    if (distance === null || distance === undefined) {
+        return { near: false, engaged: false, level: 0 }
+    }
+    var engaged = previous.engaged ? distance <= options.engageOut : distance <= options.engageIn
+    var near = engaged || (previous.near ? distance <= options.revealOut : distance <= options.revealIn)
+    var level = 0
+    if (engaged) {
+        level = 1
+    } else if (near) {
+        var span = Math.max(1, options.revealOut - options.engageIn)
+        level = Math.min(1, Math.max(0, 1 - (distance - options.engageIn) / span))
+        // Eases in: most of the change happens close up.
+        level = level * level * (3 - 2 * level)
+    }
+    return { near: near, engaged: engaged, level: level }
 }
