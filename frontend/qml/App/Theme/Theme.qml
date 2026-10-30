@@ -239,15 +239,21 @@ QtObject {
     readonly property var motionDefaults: ({
         speed: 1.0,
         layoutDuration: 220,
-        layoutBounce: 0.2,
+        layoutBounce: 0.3,
         reflowSpring: 4.2,
-        reflowDamping: 0.34
+        reflowDamping: 0.34,
+        reflowMass: 1.0,
+        stagger: 0.35,
+        anticipation: 0.25
     })
     property real motionSpeed: savedMotion("speed")
     property int layoutDuration: savedMotion("layoutDuration")
     property real layoutBounce: savedMotion("layoutBounce")
     property real reflowSpring: savedMotion("reflowSpring")
     property real reflowDamping: savedMotion("reflowDamping")
+    property real reflowMass: savedMotion("reflowMass")
+    property real stagger: savedMotion("stagger")
+    property real anticipation: savedMotion("anticipation")
 
     function savedMotion(key) {
         var stored = Number(WorkspaceState.value("motion/" + key, motionDefaults[key]))
@@ -260,6 +266,9 @@ QtObject {
         case "layoutBounce": layoutBounce = value; break
         case "reflowSpring": reflowSpring = value; break
         case "reflowDamping": reflowDamping = value; break
+        case "reflowMass": reflowMass = value; break
+        case "stagger": stagger = value; break
+        case "anticipation": anticipation = value; break
         default: return
         }
         WorkspaceState.setValue("motion/" + key, String(value))
@@ -270,11 +279,11 @@ QtObject {
         }
     }
 
-    // The layout's own moves (sidebar, dock, Home): this long, eased like
-    // this. With a bounce it overshoots a touch and settles.
+    // The layout's own moves (sidebar, dock, Home): this long, on this
+    // curve. Anticipation draws back a touch before it goes; bounce carries
+    // it a little past its mark before it settles. Both 0 is a plain ease.
     readonly property int layoutMotionDuration: Math.round(layoutDuration * motionSpeed)
-    readonly property int layoutEasing: layoutBounce > 0.01 ? Easing.OutBack : Easing.OutCubic
-    readonly property real layoutOvershoot: layoutBounce * 2.4
+    readonly property var layoutCurve: [0.34, -0.5 * anticipation, 0.18, 1 + 0.5 * layoutBounce, 1, 1]
 
     readonly property int motionFast: Math.round(150 * motionSpeed)
     readonly property int motionHover: Math.round(170 * motionSpeed)
@@ -323,7 +332,7 @@ QtObject {
     // from the pointer: the farthest spring is magnetRippleSpread softer.
     readonly property real magnetReflowSpring: reflowSpring / Math.max(0.25, motionSpeed)
     readonly property real magnetReflowDamping: reflowDamping
-    readonly property real magnetRippleSpread: 0.35
+    readonly property real magnetRippleSpread: stagger
     // A floating panel opening on its own (not dropped) pops in from this
     // share of its size, with a little overshoot.
     readonly property real magnetAppearScale: 0.9

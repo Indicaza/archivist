@@ -19,7 +19,13 @@ Item {
     property bool resizingSplit: false
     property bool resizingSurface: false
     property bool coalesceResize: false
+    property real lastHeight: 0
     readonly property bool animateLayout: !theme.reducedMotion && !resizingSplit && !resizingSurface
+    // Panels draw their edges on springs (DockAnchor): on layout changes,
+    // and while the window, sidebar or dock resizes the layout (its outer
+    // edges stay glued then). Not while a splitter is dragged (the pointer
+    // leads), nor before the workspace has settled after launch.
+    readonly property bool springEdges: !theme.reducedMotion && !resizingSplit && root.workspace.startupSettled === true
     // New panels ease in once the workspace is up (see DockAnchor).
     readonly property bool animateArrivals: animateLayout && root.workspace.startupSettled === true
     function nextArrivalDelay() {
@@ -116,7 +122,19 @@ Item {
         }
     }
 
+    // A resize ripples out from the edge that moved: the sidebar's (left),
+    // the window's (right) or the dock's (bottom).
+    property double leftMovedAt: 0
+    onXChanged: {
+        root.leftMovedAt = Date.now()
+        root.rippleOrigin = Qt.point(0, height / 2)
+    }
+
     function noteResize() {
+        if (Date.now() - root.leftMovedAt > 40) {
+            root.rippleOrigin = root.height !== root.lastHeight ? Qt.point(width / 2, height) : Qt.point(width, height / 2)
+        }
+        root.lastHeight = root.height
         root.resizingSurface = true
         resizeSettle.restart()
         if (root.coalesceResize) {

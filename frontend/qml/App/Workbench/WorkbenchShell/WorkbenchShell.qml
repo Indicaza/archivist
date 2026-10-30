@@ -283,8 +283,8 @@ Rectangle {
         enabled: !root.resizingExplorer
         NumberAnimation {
             duration: root.theme.motionPanel
-            easing.type: root.theme.layoutEasing
-            easing.overshoot: root.theme.layoutOvershoot
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: root.theme.layoutCurve
         }
     }
 
@@ -292,8 +292,8 @@ Rectangle {
         enabled: !root.resizingHomeSidebar
         NumberAnimation {
             duration: root.theme.motionPanel
-            easing.type: root.theme.layoutEasing
-            easing.overshoot: root.theme.layoutOvershoot
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: root.theme.layoutCurve
         }
     }
 
@@ -1151,8 +1151,8 @@ Rectangle {
 
             NumberAnimation {
                 duration: root.theme.motionPanel
-                easing.type: root.theme.layoutEasing
-                easing.overshoot: root.theme.layoutOvershoot
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: root.theme.layoutCurve
             }
         }
     }

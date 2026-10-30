@@ -162,10 +162,128 @@ Item {
         root.editorPool.parkEditorPage(page)
     }
 
-    x: rectX
-    y: rectY
-    width: Math.max(0, rectWidth)
-    height: Math.max(0, rectHeight)
+    // ---- where it's drawn ------------------------------------------------
+    //
+    // Drawn by its four edges, each on its own spring, so a change in the
+    // layout plays like something physical: the panels nearest what moved
+    // go first and the far ones follow (a ripple out from it), each edge
+    // carries a little past its mark and settles, and so the panels between
+    // squash and stretch as they go. Two neighbours share an edge, and
+    // since an edge's spring depends only on where that edge is going, both
+    // draw it in the same place: no gaps, no overlaps.
+    //
+    // While the window, sidebar or dock is resizing the layout, an edge on
+    // the outside of the layout stays exactly on it (glued to the window
+    // and the sidebar); only the edges inside follow through. Dragging a
+    // splitter moves everything directly: the pointer leads.
+    readonly property real targetLeft: rectX
+    readonly property real targetTop: rectY
+    readonly property real targetRight: rectX + Math.max(0, rectWidth)
+    readonly property real targetBottom: rectY + Math.max(0, rectHeight)
+    readonly property bool springEdges: root.workspace.springEdges === true
+    readonly property bool gluing: root.workspace.resizingSurface === true
+    readonly property bool glueLeft: gluing && targetLeft <= 0.5
+    readonly property bool glueTop: gluing && targetTop <= 0.5
+    readonly property bool glueRight: gluing && targetRight >= root.workspace.width - 0.5
+    readonly property bool glueBottom: gluing && targetBottom >= root.workspace.height - 0.5
+
+    // How stiff an edge's spring is: stiffest where the change came from,
+    // softer away from it (the ripple), by where the edge is going.
+    function edgeSpring(along, vertical) {
+        var origin = root.workspace.rippleOrigin
+        var reach = Math.max(1, vertical ? root.workspace.height : root.workspace.width)
+        var share = Math.min(1, Math.abs(along - (vertical ? origin.y : origin.x)) / reach)
+        return root.theme.magnetReflowSpring * (1 - root.theme.magnetRippleSpread * share)
+    }
+
+    // The springs themselves, stepped once a frame while any edge is still
+    // on its way. (A SpringAnimation behind a Behavior starts over each time
+    // its mark moves, so while the layout moves every frame it never gets
+    // going; this keeps each edge's speed from frame to frame.)
+    property real drawnLeft: 0
+    property real drawnTop: 0
+    property real drawnRight: 0
+    property real drawnBottom: 0
+    property real speedLeft: 0
+    property real speedTop: 0
+    property real speedRight: 0
+    property real speedBottom: 0
+    property bool springing: false
+
+    function settleEdges() {
+        springing = false
+        speedLeft = speedTop = speedRight = speedBottom = 0
+        drawnLeft = targetLeft
+        drawnTop = targetTop
+        drawnRight = targetRight
+        drawnBottom = targetBottom
+    }
+    function edgeMoved() {
+        if (!root.springEdges) {
+            settleEdges()
+        } else {
+            springing = true
+        }
+    }
+    onTargetLeftChanged: edgeMoved()
+    onTargetTopChanged: edgeMoved()
+    onTargetRightChanged: edgeMoved()
+    onTargetBottomChanged: edgeMoved()
+    onSpringEdgesChanged: if (!springEdges) settleEdges()
+
+    // One edge, one step of a damped spring: { at, speed }. `spring` and
+    // `damping` are the Motion panel's (0.34 damping lands a few percent past
+    // the mark and settles); `mass` slows it and lets it carry further.
+    function stepEdge(at, speed, target, spring, dt) {
+        var mass = Math.max(0.2, root.theme.reflowMass)
+        var stiffness = Math.max(0.1, spring) * 140 / mass
+        var ratio = Math.max(0.05, Math.min(1.5, 0.35 + root.theme.magnetReflowDamping)) / Math.sqrt(mass)
+        var damping = 2 * ratio * Math.sqrt(stiffness)
+        var steps = Math.max(1, Math.ceil(dt / 0.008))
+        var h = dt / steps
+        for (var i = 0; i < steps; i += 1) {
+            speed += (stiffness * (target - at) - damping * speed) * h
+            at += speed * h
+        }
+        return { at: at, speed: speed }
+    }
+
+    FrameAnimation {
+        running: root.springing
+        onTriggered: {
+            // A long frame (the window was hidden, a stall) jumps ahead.
+            var dt = Math.min(0.05, frameTime)
+            var still = true
+            var edges = [["Left", root.targetLeft, false, root.glueLeft], ["Top", root.targetTop, true, root.glueTop],
+                         ["Right", root.targetRight, false, root.glueRight], ["Bottom", root.targetBottom, true, root.glueBottom]]
+            for (var index = 0; index < edges.length; index += 1) {
+                var name = edges[index][0]
+                var target = edges[index][1]
+                if (edges[index][3]) {
+                    root["drawn" + name] = target
+                    root["speed" + name] = 0
+                    continue
+                }
+                var next = root.stepEdge(root["drawn" + name], root["speed" + name], target, root.edgeSpring(target, edges[index][2]), dt)
+                if (Math.abs(target - next.at) < 0.25 && Math.abs(next.speed) < 2) {
+                    next.at = target
+                    next.speed = 0
+                } else {
+                    still = false
+                }
+                root["drawn" + name] = next.at
+                root["speed" + name] = next.speed
+            }
+            if (still) {
+                root.springing = false
+            }
+        }
+    }
+
+    x: glueLeft ? targetLeft : drawnLeft
+    y: glueTop ? targetTop : drawnTop
+    width: Math.max(0, (glueRight ? targetRight : drawnRight) - x)
+    height: Math.max(0, (glueBottom ? targetBottom : drawnBottom) - y)
     visible: !isHidden && width > 1 && height > 1
     // Carried as a picture: lifted out of its place (see DockWorkspace).
     readonly property bool lifted: root.workspace.liftedAnchorId === root.anchorId
@@ -214,24 +332,10 @@ Item {
         ScriptAction { script: root.arriving = false }
     }
 
-    // Making room, the panels nearest the change move first and the far
-    // ones follow: stiffer near where it was asked for, softer away from it
-    // (by where this panel is going, so it doesn't change on the way).
-    readonly property real reflowSpring: {
-        var origin = root.workspace.rippleOrigin
-        var dx = rectX + rectWidth / 2 - origin.x
-        var dy = rectY + rectHeight / 2 - origin.y
-        var reach = Math.max(1, Math.sqrt(root.workspace.width * root.workspace.width + root.workspace.height * root.workspace.height))
-        var share = Math.min(1, Math.sqrt(dx * dx + dy * dy) / reach)
-        return root.theme.magnetReflowSpring * (1 - root.theme.magnetRippleSpread * share)
-    }
-    Behavior on x { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
-    Behavior on y { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
-    Behavior on width { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
-    Behavior on height { enabled: root.workspace.animateLayout; SpringAnimation { spring: root.reflowSpring; damping: root.theme.magnetReflowDamping; epsilon: 0.25 } }
     Behavior on opacity { enabled: !root.arriving; NumberAnimation { duration: root.theme.motionFast } }
 
     Component.onCompleted: {
+        settleEdges()
         if (root.workspace.animateArrivals === true) {
             root.arriving = true
             root.arrival = 0

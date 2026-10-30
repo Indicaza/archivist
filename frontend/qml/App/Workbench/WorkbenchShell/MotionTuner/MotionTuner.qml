@@ -3,7 +3,8 @@ import QtQuick.Controls
 
 // A small panel for tuning how the app moves, live: how quick everything
 // is, how the sidebar, dock and Home push the layout (how long, how much
-// bounce), and the spring panels move on when they make room. Changes
+// they draw back first and carry past), and the springs the panels follow
+// on (stiffness, damping, weight, and how much the far ones lag). Changes
 // apply at once and are saved (Theme.setMotion). Ctrl+Alt+Shift+M (⌘⌥⇧M
 // on a Mac) shows or hides it. It has buttons to play the moves it tunes.
 Rectangle {
@@ -210,7 +211,15 @@ Rectangle {
             value: root.theme.layoutBounce
             from: 0
             to: 1
-            hint: "0 glides in. Higher overshoots a little and settles."
+            hint: "How far the sidebar and dock carry past their mark."
+        }
+        Knob {
+            label: "Anticipation"
+            key: "anticipation"
+            value: root.theme.anticipation
+            from: 0
+            to: 1
+            hint: "How far the sidebar and dock draw back before they go."
         }
         Knob {
             label: "Panel spring"
@@ -219,7 +228,7 @@ Rectangle {
             from: 1
             to: 12
             decimals: 1
-            hint: "Panels making room or moving. Stiffer is quicker."
+            hint: "Panels following a change. Stiffer is quicker."
         }
         Knob {
             label: "Panel damping"
@@ -228,6 +237,22 @@ Rectangle {
             from: 0.1
             to: 1
             hint: "Less is wobblier, 1 doesn't overshoot."
+        }
+        Knob {
+            label: "Panel weight"
+            key: "reflowMass"
+            value: root.theme.reflowMass
+            from: 0.4
+            to: 3
+            hint: "Heavier panels lag further behind and swing wider."
+        }
+        Knob {
+            label: "Stagger"
+            key: "stagger"
+            value: root.theme.stagger
+            from: 0
+            to: 0.8
+            hint: "How much later the panels far from a change follow it."
         }
 
         Flow {
