@@ -31,7 +31,7 @@ function phase(name, startOffsetMs, durationMs, extra = {}) {
   return { name, status: "success", exitCode: 0, signal: null, startOffsetMs, durationMs, details: {}, error: null, ...extra };
 }
 
-function build(runId, { commit, total, phases, status = "success", classification = "incremental", cacheReused = true, environment = MAC, workSteps = 12 }) {
+export function fixtureBuild(runId, { commit, total, phases, status = "success", classification = "incremental", cacheReused = true, environment = MAC, workSteps = 12 }) {
   const [ide, configure, plan, native] = phases;
   const list = [
     phase("ide-bundle", 0, ide, { details: { cacheReused, cacheReusedBasis: "inferred-from-output" } }),
@@ -71,7 +71,7 @@ function timing(n, median, p95, max) {
   return { n, medianMs: median, p95Ms: p95, maxMs: max };
 }
 
-function uiRun(runId, { scenario = "sidebar", version = 1, status = "passed", settled, failed = 0, commit = COMMIT_A, environment = MAC, error = null }) {
+export function fixtureUiRun(runId, { scenario = "sidebar", version = 1, status = "passed", settled, failed = 0, commit = COMMIT_A, environment = MAC, error = null }) {
   const actions = 12;
   const steps = [
     { step: 0, op: "click", label: "open library", method: "input", actions: 4, passed: 4, failed: 0, settledMs: timing(4, settled, null, settled * 1.4), stateMs: timing(4, 2, null, 3) },
@@ -111,15 +111,15 @@ export function dashboardFixtures() {
   const add = (summary, files = {}) => { runs[summary.runId] = { summary, files }; };
   const buildLog = (lines) => ({ "build.log": lines.join("\n") + "\n" });
 
-  add(build("20261020T090000-000Z-build-00000a", { commit: COMMIT_A, total: 64000, phases: [9000, 3000, 2000, 50000], classification: "clean", cacheReused: false, workSteps: 120 }),
+  add(fixtureBuild("20261020T090000-000Z-build-00000a", { commit: COMMIT_A, total: 64000, phases: [9000, 3000, 2000, 50000], classification: "clean", cacheReused: false, workSteps: 120 }),
     buildLog(["fixture build log", ...Array.from({ length: 30 }, (_, i) => `[${i + 1}/120] Building CXX object fixture_${i}.o`)]));
-  add(build("20261021T090000-000Z-build-00000b", { commit: COMMIT_A, total: 12000, phases: [1000, 1500, 500, 9000] }),
+  add(fixtureBuild("20261021T090000-000Z-build-00000b", { commit: COMMIT_A, total: 12000, phases: [1000, 1500, 500, 9000] }),
     buildLog(["fixture build log", "[1/12] Building CXX object main.cpp.o"]));
-  add(build("20261022T090000-000Z-build-00000c", { commit: COMMIT_B, total: 10000, phases: [1000, 1500, 500, 7000] }),
+  add(fixtureBuild("20261022T090000-000Z-build-00000c", { commit: COMMIT_B, total: 10000, phases: [1000, 1500, 500, 7000] }),
     buildLog(["fixture build log", "[1/12] Building CXX object main.cpp.o"]));
-  add(build("20261023T090000-000Z-build-00000d", { commit: COMMIT_B, total: 8000, phases: [1000, 1500, 500, 5000], status: "failure" }),
+  add(fixtureBuild("20261023T090000-000Z-build-00000d", { commit: COMMIT_B, total: 8000, phases: [1000, 1500, 500, 5000], status: "failure" }),
     buildLog(["fixture build log", "error: expected ';' after expression", "<script>alert('log text is shown as text')</script>"]));
-  add(build("20261024T090000-000Z-build-00000e", { commit: COMMIT_B, total: 15000, phases: [1000, 1500, 500, 12000], environment: OTHER_MAC }),
+  add(fixtureBuild("20261024T090000-000Z-build-00000e", { commit: COMMIT_B, total: 15000, phases: [1000, 1500, 500, 12000], environment: OTHER_MAC }),
     buildLog(["fixture build log on another machine"]));
 
   const uiFiles = (status) => ({
@@ -127,16 +127,16 @@ export function dashboardFixtures() {
     "runtime.log": "fixture runtime log\narchivist.wells.timing: fixture\n",
     "scenario.json": JSON.stringify({ id: "fixture" }),
   });
-  add(uiRun("20261025T090000-000Z-ui-sidebar-00000f", { settled: 40, commit: COMMIT_A }), uiFiles("passed"));
-  add(uiRun("20261026T090000-000Z-ui-sidebar-000010", { settled: 30, commit: COMMIT_B }), uiFiles("passed"));
-  add(uiRun("20261026T100000-000Z-ui-sidebar-000011", { settled: 30, version: 2, commit: COMMIT_B }), uiFiles("passed"));
-  add(uiRun("20261027T090000-000Z-ui-workspace-000012", {
+  add(fixtureUiRun("20261025T090000-000Z-ui-sidebar-00000f", { settled: 40, commit: COMMIT_A }), uiFiles("passed"));
+  add(fixtureUiRun("20261026T090000-000Z-ui-sidebar-000010", { settled: 30, commit: COMMIT_B }), uiFiles("passed"));
+  add(fixtureUiRun("20261026T100000-000Z-ui-sidebar-000011", { settled: 30, version: 2, commit: COMMIT_B }), uiFiles("passed"));
+  add(fixtureUiRun("20261027T090000-000Z-ui-workspace-000012", {
     scenario: "workspace", status: "failed", settled: 60, failed: 1, commit: COMMIT_B, error: "1 action failed",
   }), uiFiles("failed"));
 
   // A run that never finished, one that can't be read, one from a future
   // schema, and an imported runtime log.
-  const running = build("20261028T090000-000Z-build-000013", { commit: COMMIT_B, total: null, phases: [1000, 0, 0, 0] });
+  const running = fixtureBuild("20261028T090000-000Z-build-000013", { commit: COMMIT_B, total: null, phases: [1000, 0, 0, 0] });
   add({ ...running, status: "running", label: "fixture: interrupted build", finishedAt: null, totalDurationMs: null, phases: running.phases.slice(0, 1) });
   add({ runId: "20261028T100000-000Z-ui-sidebar-000014", raw: "{ this is not json" });
   add({ schemaVersion: 99, kind: "build", runId: "20261029T090000-000Z-build-000015", label: "fixture: future schema", status: "success" });
@@ -151,7 +151,11 @@ export function dashboardFixtures() {
 }
 
 export async function writeDashboardFixtures(root) {
-  const runs = dashboardFixtures();
+  return writeFixtureRuns(root, dashboardFixtures());
+}
+
+// runId -> { summary, files } written under <root>/runs.
+export async function writeFixtureRuns(root, runs) {
   for (const [runId, { summary, files }] of Object.entries(runs)) {
     const dir = path.join(root, "runs", runId);
     await mkdir(dir, { recursive: true });

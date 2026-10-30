@@ -127,6 +127,30 @@ private slots:
         QCOMPARE(Observatory::handle(m_root.path(), QString(), QStringLiteral("index.html")).status, 404);
     }
 
+    void readsBaselinesAndBudgets()
+    {
+        QTemporaryDir page;
+        QTemporaryDir root;
+        // Budgets fall back to the repository copy two folders above the page.
+        QDir().mkpath(QDir(page.path()).filePath(QStringLiteral("dashboard/public")));
+        write(QDir(page.path()).filePath(QStringLiteral("budgets.json")), R"({"schemaVersion":1,"categories":{}})");
+        const QString pagePath = QDir(page.path()).filePath(QStringLiteral("dashboard/public"));
+
+        QJsonObject body = json(Observatory::handle(root.path(), pagePath, QStringLiteral("api/baselines")));
+        QVERIFY(body.value(QStringLiteral("baselines")).isNull());
+        QVERIFY(body.value(QStringLiteral("baselinesError")).isNull());
+        QCOMPARE(body.value(QStringLiteral("budgets")).toObject().value(QStringLiteral("schemaVersion")).toInt(), 1);
+        QVERIFY(body.value(QStringLiteral("budgetsSource")).toString().endsWith(QStringLiteral("budgets.json")));
+
+        // A local budgets file wins; a damaged baselines file is reported, not served.
+        write(QDir(root.path()).filePath(QStringLiteral("budgets.json")), R"({"schemaVersion":1,"local":true})");
+        write(QDir(root.path()).filePath(QStringLiteral("baselines.json")), "{ broken");
+        body = json(Observatory::handle(root.path(), pagePath, QStringLiteral("api/baselines")));
+        QVERIFY(body.value(QStringLiteral("budgets")).toObject().value(QStringLiteral("local")).toBool());
+        QVERIFY(body.value(QStringLiteral("baselines")).isNull());
+        QVERIFY(body.value(QStringLiteral("baselinesError")).toString().contains(QStringLiteral("baselines.json")));
+    }
+
     void runIds()
     {
         QVERIFY(Observatory::isRunId(QString::fromLatin1(Build)));

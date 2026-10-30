@@ -79,6 +79,11 @@ export async function runEvents(runId) {
   return { status: events.status ?? null, error: events.error ?? null, actions: Array.isArray(events.actions) ? events.actions : [] };
 }
 
+// baselines.json and the budgets, as stored; the page checks them itself.
+export async function loadBaselines() {
+  return getJson("api/baselines");
+}
+
 export function compare(a, b) {
   const runs = [record(a), record(b)];
   return { runs, comparison: compareRuns(runs[0], runs[1]) };

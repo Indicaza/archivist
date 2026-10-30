@@ -13,6 +13,8 @@
 //   api/runs                          {"root", "runs": [{"runId", "summary", "error"}]}
 //   api/runs/<runId>/artifacts/<name> the text of an artifact the run's
 //                                     summary lists under "artifacts"
+//   api/baselines                     {"baselines", "baselinesError", "budgets",
+//                                      "budgetsSource", "budgetsError"}
 //
 // Nothing here writes, and nothing outside a run's own folder is read.
 namespace Observatory
@@ -49,6 +51,9 @@ QList<QByteArray> securityHeaders();
 Response handle(const QString &root, const QString &pagePath, const QString &relativePath);
 
 Response runsListing(const QString &root);
+// <root>/baselines.json and the budgets: <root>/budgets.json, else the
+// repository's scripts/observatory/budgets.json (two folders above the page).
+Response baselinesAndBudgets(const QString &root, const QString &pagePath);
 Response artifact(const QString &root, const QString &runId, const QString &name);
 Response pageFile(const QString &pagePath, const QString &file);
 } // namespace Observatory

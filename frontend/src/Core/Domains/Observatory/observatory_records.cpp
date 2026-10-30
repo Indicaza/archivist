@@ -69,6 +69,39 @@ Summary readSummary(const QString &runDirectory)
 
     return {document.isArray() ? QJsonValue(document.array()) : QJsonValue(document.object()), QString()};
 }
+struct JsonFile
+{
+    bool found = false;
+    QJsonValue value;  // null when missing or unreadable
+    QString error;
+};
+
+JsonFile readJsonFile(const QString &path)
+{
+    QFile file(path);
+
+    if (!file.exists()) {
+        return {};
+    }
+
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {true, QJsonValue(), QFileInfo(path).fileName() + QStringLiteral(" can't be read: ") + file.errorString()};
+    }
+
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
+
+    if (error.error != QJsonParseError::NoError) {
+        return {true, QJsonValue(), QFileInfo(path).fileName() + QStringLiteral(" can't be read: ") + error.errorString()};
+    }
+
+    return {true, document.isArray() ? QJsonValue(document.array()) : QJsonValue(document.object()), QString()};
+}
+
+QJsonValue orNull(const QString &text)
+{
+    return text.isEmpty() ? QJsonValue() : QJsonValue(text);
+}
 } // namespace
 
 QString defaultRoot()
@@ -129,6 +162,7 @@ const QStringList &pageFiles()
         QStringLiteral("filter.mjs"),
         QStringLiteral("normalize.mjs"),
         QStringLiteral("preview.mjs"),
+        QStringLiteral("regression.mjs"),
     };
     return files;
 }
@@ -168,6 +202,27 @@ Response runsListing(const QString &root)
     }
 
     const QJsonObject body{{QStringLiteral("root"), root}, {QStringLiteral("runs"), runs}};
+    return {200, jsonType(), QJsonDocument(body).toJson(QJsonDocument::Compact), securityHeaders()};
+}
+
+Response baselinesAndBudgets(const QString &root, const QString &pagePath)
+{
+    const JsonFile baselines = readJsonFile(QDir(root).filePath(QStringLiteral("baselines.json")));
+    QString budgetsPath = QDir(root).filePath(QStringLiteral("budgets.json"));
+    JsonFile budgets = readJsonFile(budgetsPath);
+
+    if (!budgets.found && !pagePath.isEmpty()) {
+        budgetsPath = QDir::cleanPath(QDir(pagePath).filePath(QStringLiteral("../../budgets.json")));
+        budgets = readJsonFile(budgetsPath);
+    }
+
+    const QJsonObject body{
+        {QStringLiteral("baselines"), baselines.value},
+        {QStringLiteral("baselinesError"), orNull(baselines.error)},
+        {QStringLiteral("budgets"), budgets.value},
+        {QStringLiteral("budgetsSource"), budgets.found ? QJsonValue(budgetsPath) : QJsonValue()},
+        {QStringLiteral("budgetsError"), budgets.found ? orNull(budgets.error) : QJsonValue(QStringLiteral("no budgets file"))},
+    };
     return {200, jsonType(), QJsonDocument(body).toJson(QJsonDocument::Compact), securityHeaders()};
 }
 
@@ -250,6 +305,10 @@ Response handle(const QString &root, const QString &pagePath, const QString &rel
 {
     if (relativePath == QStringLiteral("api/runs")) {
         return runsListing(root);
+    }
+
+    if (relativePath == QStringLiteral("api/baselines")) {
+        return baselinesAndBudgets(root, pagePath);
     }
 
     static const QRegularExpression artifactPattern(QStringLiteral("^api/runs/([^/]+)/artifacts/([^/]+)$"));

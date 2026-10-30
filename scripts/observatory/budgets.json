@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "about": "Performance budgets for Observatory baseline comparisons. Starting values to tune, not agreed targets. Copy this file to <Observatory folder>/budgets.json to change them on one machine only. Per metric: direction (which way is better), regressionPercent (how much worse counts), optional improvementPercent, minAbsoluteMs (smaller changes never count), minSamples (runs needed on each side). Metric keys and categories are listed in scripts/observatory/README.md.",
+  "defaults": {
+    "minSamples": 3,
+    "missingData": "insufficient-evidence",
+    "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType"]
+  },
+  "categories": {
+    "build:clean": {
+      "metrics": {
+        "totalMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 5000 },
+        "phase.configure": { "direction": "lower", "regressionPercent": 25, "minAbsoluteMs": 1000 },
+        "phase.native-build": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 5000 },
+        "phase.ide-bundle": { "direction": "lower", "regressionPercent": 25, "minAbsoluteMs": 2000 }
+      }
+    },
+    "build:incremental": {
+      "metrics": {
+        "totalMs": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 1000 },
+        "phase.configure": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 500 },
+        "phase.native-build": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 1000 }
+      }
+    },
+    "build:no-change": {
+      "metrics": {
+        "totalMs": { "direction": "lower", "regressionPercent": 25, "minAbsoluteMs": 500 },
+        "phase.configure": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 300 },
+        "phase.native-build": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 300 }
+      }
+    },
+    "ui:sidebar": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion"],
+      "metrics": {
+        "settled.median": { "direction": "lower", "regressionPercent": 10, "minAbsoluteMs": 2 },
+        "settled.p95": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 4 },
+        "state.median": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 2 },
+        "frameGap.median": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 4 },
+        "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
+      },
+      "steps": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 3 }
+    },
+    "ui:workspace": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion"],
+      "metrics": {
+        "settled.median": { "direction": "lower", "regressionPercent": 10, "minAbsoluteMs": 2 },
+        "settled.p95": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 4 },
+        "state.median": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 2 },
+        "frameGap.median": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 4 },
+        "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
+      },
+      "steps": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 3 }
+    }
+  }
+}

@@ -2,6 +2,7 @@
 // Read-only: it never writes to the runs directory.
 import { readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runsDir } from "../storage.mjs";
 import { normalizeRun, unreadableRun } from "./public/normalize.mjs";
 
@@ -41,6 +42,34 @@ export async function listRawRuns(root) {
     return { runId, summary, error };
   }));
   return runs.sort((a, b) => b.runId.localeCompare(a.runId));
+}
+
+// The repository's budgets; <root>/budgets.json overrides them on one machine.
+export const REPOSITORY_BUDGETS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "budgets.json");
+
+async function readJsonFile(file) {
+  try {
+    return { value: JSON.parse(await readFile(file, "utf8")), error: null, found: true };
+  } catch (error) {
+    if (error.code === "ENOENT") return { value: null, error: null, found: false };
+    return { value: null, error: `${path.basename(file)} can't be read: ${error.message}`, found: true };
+  }
+}
+
+// For the dashboard's Baselines page: both files as stored. The page checks
+// them itself (regression.mjs), like it does run summaries.
+export async function readBaselinesAndBudgets(root) {
+  const baselines = await readJsonFile(path.join(root, "baselines.json"));
+  const local = await readJsonFile(path.join(root, "budgets.json"));
+  const budgetsSource = local.found ? path.join(root, "budgets.json") : REPOSITORY_BUDGETS;
+  const budgets = local.found ? local : await readJsonFile(REPOSITORY_BUDGETS);
+  return {
+    baselines: baselines.value,
+    baselinesError: baselines.error,
+    budgets: budgets.value,
+    budgetsSource: budgets.found ? budgetsSource : null,
+    budgetsError: budgets.error ?? (budgets.found ? null : "no budgets file"),
+  };
 }
 
 // Every run, normalized, newest first. Unreadable runs are listed, not dropped.

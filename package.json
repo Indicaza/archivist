@@ -57,6 +57,7 @@
     "observatory:build": "npm run check-node && node scripts/observatory/cli.mjs build",
     "observatory:ui": "npm run check-node && node scripts/observatory/cli.mjs ui",
     "observatory:dashboard": "npm run check-node && node scripts/observatory/cli.mjs dashboard",
+    "observatory:check": "npm run check-node && node scripts/observatory/cli.mjs check",
     "test:observatory": "node --test \"scripts/observatory/test/*.test.mjs\"",
     "core:migrations": "npm run build -w backend && node scripts/core-migrations.mjs",
     "test:ai-tools": "npm run check-node && npm run build -w backend && node scripts/test-ai-tools.mjs",

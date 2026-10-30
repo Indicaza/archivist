@@ -5,6 +5,8 @@
 //   node scripts/observatory/cli.mjs ui [--scenario <name>] [--skip-build] [--keep-profile]
 //   node scripts/observatory/cli.mjs show [runId]
 //   node scripts/observatory/cli.mjs dashboard [--port <n>] [--no-open]
+//   node scripts/observatory/cli.mjs baseline set|list|remove|compare ...
+//   node scripts/observatory/cli.mjs check [--no-collect] [--strict] [--repeat <n>]
 import { copyFile, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +22,7 @@ import {
 } from "./ui-lab.mjs";
 import { spawn } from "node:child_process";
 import { createDashboardServer } from "./dashboard/server.mjs";
+import { baselineCommand, checkReport, compareAfterRun, loadBudgets } from "./comparisons.mjs";
 import { formatUiSummary } from "./ui-report.mjs";
 import { summarizeActions } from "./ui-stats.mjs";
 import {
@@ -37,6 +40,19 @@ const USAGE = `Archivist Observatory
   npm run observatory:ui [-- --scenario sidebar|workspace] [--skip-build] [--keep-profile]
   npm run observatory -- show [runId]
   npm run observatory:dashboard [-- --port <n>] [--no-open]
+
+  npm run observatory -- baseline set <run-id> [<run-id> ...] [--note <text>]
+  npm run observatory -- baseline list
+  npm run observatory -- baseline remove <category>
+  npm run observatory -- baseline compare <run-id> [<run-id> ...] [--json]
+  npm run observatory:check [-- --no-collect] [--strict] [--repeat <n>]
+                            [--scenario <name>] [--skip-build] [--json] [--budgets <file>]
+
+  check records a build and each UI scenario (--repeat times), then compares
+  every category that has a baseline with its newest compatible runs.
+  --no-collect only compares runs already recorded. Exit codes: 0 done
+  (including inconclusive results), 1 a functional failure, 5 a confirmed
+  regression with --strict.
 
 Records are stored in $ARCHIVIST_OBSERVATORY_DIR, or by default
 ${observatoryRoot()}`;
@@ -120,7 +136,7 @@ async function scenarioNames() {
   return (await readdir(SCENARIO_DIR)).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -5)).sort();
 }
 
-async function uiCommand(options) {
+async function uiCommand(options, collected = []) {
   const available = await scenarioNames();
   const names = options.scenario ? [options.scenario] : available;
   const unknown = names.filter((name) => !available.includes(name));
@@ -147,7 +163,8 @@ async function uiCommand(options) {
 
   let exitCode = 0;
   for (const name of names) {
-    const result = await uiScenarioCommand(name, { ...options, binary, buildRunId });
+    const { exitCode: result, runId } = await uiScenarioCommand(name, { ...options, binary, buildRunId });
+    collected.push(runId);
     exitCode ||= result;
     if (result === 130) {
       break;
@@ -273,7 +290,7 @@ async function uiScenarioCommand(name, options) {
   }
   await writeJsonAtomic(summaryPath, summary);
   console.log(formatUiSummary(summary, { summaryPath, eventsPath, logPath }));
-  return summary.exitCode;
+  return { exitCode: summary.exitCode, runId };
 }
 
 async function ingestRuntimeCommand(file, options) {
@@ -369,6 +386,37 @@ async function showCommand(runId) {
   return 0;
 }
 
+// Opt-in performance check: record (unless --no-collect), then compare
+// everything that has a baseline. Inconclusive results never fail it.
+async function checkCommand(options) {
+  const root = observatoryRoot();
+  if (options.collect) {
+    let repeat = Number(options.repeat ?? NaN);
+    if (options.repeat !== undefined && (!Number.isInteger(repeat) || repeat < 1 || repeat > 20)) {
+      console.error("--repeat must be a whole number from 1 to 20.");
+      return 2;
+    }
+    if (!Number.isInteger(repeat)) {
+      // Enough runs for the budgets' evidence rule, by default.
+      const { budgets } = await loadBudgets(root, options.budgets);
+      repeat = Math.max(1, ...Object.values(budgets.categories).filter((entry) => entry.metrics["settled.median"]).map((entry) => entry.minSamples));
+    }
+    let skipBuild = options["skip-build"];
+    for (let round = 1; round <= repeat; round += 1) {
+      console.log(`\nObservatory check: UI round ${round} of ${repeat}`);
+      const collected = [];
+      const exitCode = await uiCommand({ ...options, "skip-build": skipBuild, label: options.label ?? "check" }, collected);
+      // The first round builds (unless --skip-build); later rounds reuse it.
+      skipBuild = true;
+      if (exitCode === 130 || (exitCode !== 0 && !collected.length)) {
+        console.error("Collection stopped; comparing what was recorded so far.");
+        break;
+      }
+    }
+  }
+  return checkReport(root, options);
+}
+
 const DEFAULT_DASHBOARD_PORT = 4317;
 
 async function dashboardCommand(options) {
@@ -420,6 +468,13 @@ async function main(argv) {
       timeout: { type: "string" },
       app: { type: "string" },
       port: { type: "string" },
+      note: { type: "string" },
+      json: { type: "boolean", default: false },
+      strict: { type: "boolean", default: false },
+      collect: { type: "boolean", default: true },
+      compare: { type: "boolean", default: true },
+      repeat: { type: "string" },
+      budgets: { type: "string" },
       open: { type: "boolean", default: true },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -430,10 +485,21 @@ async function main(argv) {
     return command || values.help ? 0 : 2;
   }
   switch (command) {
-    case "build":
-      return (await buildCommand(values)).exitCode;
-    case "ui":
-      return uiCommand(values);
+    case "build": {
+      const build = await buildCommand(values);
+      if (build.exitCode === 0 && values.compare) await compareAfterRun(observatoryRoot(), [build.runId]);
+      return build.exitCode;
+    }
+    case "ui": {
+      const collected = [];
+      const exitCode = await uiCommand(values, collected);
+      if (collected.length && values.compare) await compareAfterRun(observatoryRoot(), collected);
+      return exitCode;
+    }
+    case "baseline":
+      return baselineCommand(observatoryRoot(), positionals.slice(1), values);
+    case "check":
+      return checkCommand(values);
     case "ingest-runtime":
       return ingestRuntimeCommand(argument, values);
     case "show":

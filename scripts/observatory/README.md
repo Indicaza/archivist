@@ -5,7 +5,7 @@ so a change's effect on build time can be compared run to run. This is the
 pieces so far: build capture, the UI Lab (scripted UI scenarios timed in a
 real, isolated app instance), and an import of the existing
 `archivist.wells.timing` runtime logs, plus a local dashboard to browse and
-compare the records.
+compare the records, and baselines that flag regressions.
 
 ## Run a capture
 
@@ -272,7 +272,7 @@ as `unreadable`, and summaries from a newer `schemaVersion` are listed but not
 interpreted. Missing measurements show as `—` and are never filled in.
 
 How it's put together: the page (`dashboard/public/`) does all the reading,
-comparing and filtering itself. A host only answers two requests, and
+comparing and filtering itself. A host only answers three requests, and
 Archivist's IDE host (`frontend/src/Core/Domains/Observatory`) answers them
 exactly like the Node server (`dashboard/server.mjs`):
 
@@ -280,6 +280,7 @@ exactly like the Node server (`dashboard/server.mjs`):
 | ------- | ------ |
 | `GET api/runs` | `{ root, runs: [{ runId, summary, error }] }`, newest first; `summary` is `summary.json` as stored, or `null` with the reason in `error` |
 | `GET api/runs/<runId>/artifacts/<name>` | The text of an artifact the run's summary lists under `artifacts` (up to 32 MB) |
+| `GET api/baselines` | `{ baselines, baselinesError, budgets, budgetsSource, budgetsError }`: `baselines.json` and the budgets in effect, as stored |
 
 Safety, in both hosts: they listen on 127.0.0.1 only, answer GET only, reject
 requests whose Host isn't `127.0.0.1`/`localhost` (so another website can't
@@ -302,6 +303,84 @@ node scripts/observatory/test/fixtures/dashboard-runs.mjs /tmp/observatory-fixtu
 ARCHIVIST_OBSERVATORY_DIR=/tmp/observatory-fixtures npm run observatory:dashboard
 ```
 
+## Baselines and regressions
+
+A baseline is a group of successful runs you choose as "how fast this was".
+Later runs of the same kind are compared with it, and each metric gets a
+verdict. Nothing is ever promoted to a baseline automatically.
+
+```bash
+# Pick runs (ids are in the dashboard or runs/). Three or more is best.
+npm run observatory -- baseline set <run-id> <run-id> <run-id> --note "main before the sidebar rewrite"
+npm run observatory -- baseline list
+npm run observatory -- baseline compare <run-id> [<run-id> ...] [--json]
+npm run observatory -- baseline remove <category>
+
+# Collect UI runs (3 rounds by default), then compare every baseline.
+npm run observatory:check
+npm run observatory:check -- --no-collect          # compare only
+npm run observatory:check -- --scenario sidebar --repeat 5
+npm run observatory:check -- --strict               # exit 5 on a confirmed regression
+```
+
+`observatory:build` and `observatory:ui` also compare automatically when a
+baseline exists for what they recorded (`--no-compare` turns that off). That
+comparison is informational and never changes the command's exit code.
+`check` collects UI runs only; build categories are compared from builds you
+recorded with `observatory:build`.
+
+**Categories.** Each baseline covers one kind of workload, so a clean build
+is never compared with an incremental one:
+`build:clean`, `build:incremental`, `build:no-change` (from the build's
+classification) and `ui:sidebar`, `ui:workspace`.
+
+**Where it lives.** `<Observatory folder>/baselines.json` holds one entry
+per category: its run ids, the commit, branch, machine, build configuration
+and scenario version they came from, the metric definitions version, and
+your note. Replacing or removing a baseline moves the old entry to the
+file's `history`; runs themselves are never changed or deleted. A damaged
+or newer-version file is reported and left untouched. Every comparison is
+saved to `<Observatory folder>/reports/<id>/report.json` (machine-readable,
+schema `archivist.observatory.regression-report` v1) and `report.txt`.
+
+**Budgets.** `scripts/observatory/budgets.json` sets, per category and
+metric: which direction is better, the percent and absolute change that
+counts (a change must pass both), the minimum runs on each side, which
+environment fields must match (`compatibility`), and what a missing metric
+means (`missingData`: `insufficient-evidence` or `ignore`). Copy it to
+`<Observatory folder>/budgets.json` to use your own, or pass
+`--budgets <file>`. Unknown categories, metrics or fields are reported, not
+silently ignored. The file is versioned (`schemaVersion`).
+
+Metric keys: `totalMs`, `phase.ide-bundle`, `phase.configure`,
+`phase.build-plan`, `phase.native-build` (builds); `settled.median`,
+`settled.p95`, `state.median`, `frameGap.median`, `appDurationMs` (UI), plus
+`steps` for each UI scenario step's settled median.
+
+**How a verdict is reached.** For each metric, the median of the baseline
+runs is compared with the median of the newest compatible successful runs
+since the baseline.
+
+| Verdict | When |
+| ------- | ---- |
+| Regression / Improvement | at least `minSamples` runs on each side, the change passes both budget thresholds, and every candidate run is beyond every baseline run (no overlap) |
+| No meaningful change | the change is within the budget |
+| Needs more runs (insufficient evidence) | too few runs, the metric wasn't measured, or past the budget but the groups overlap ("over budget, unconfirmed") |
+| Incompatible | the machine, build type, scenario/driver version or metric definitions differ from the baseline's |
+
+This is a rule of thumb for noisy local timings, not a statistical
+significance test, and the reports say so. Failed runs never count as
+performance data; they are listed separately as functional failures.
+
+**Exit codes** (`baseline compare`, `check`): 0 ok (including regressions
+and inconclusive results, unless `--strict`), 1 a functional failure or an
+error, 2 usage, 5 a confirmed regression under `--strict`.
+
+The dashboard's **Baselines** page shows each category's baseline, what it
+was compared with, every metric's verdict, slowest-step changes and a trend
+chart with the baseline runs marked. It is read-only: baselines are set from
+the command line.
+
 ## Code
 
 | File | Responsibility |
@@ -318,15 +397,20 @@ ARCHIVIST_OBSERVATORY_DIR=/tmp/observatory-fixtures npm run observatory:dashboar
 | `ui-stats.mjs` | Median, p95 and max over UI actions |
 | `ui-report.mjs` | The UI Lab terminal summary |
 | `ui-scenarios/` | Scenario definitions |
+| `baselines.mjs` | Reading, setting and removing baselines (`baselines.json`) |
+| `budgets.json` | Default regression budgets |
+| `comparisons.mjs` | `baseline` and `check` commands, saved reports |
+| `regression-report.mjs` | The regression terminal summary |
 | `dashboard/server.mjs` | The browser dashboard's local, read-only server |
 | `dashboard/records.mjs` | Reading runs and artifacts from disk for that server |
 | `dashboard/public/` | The page: plain JavaScript, no dependencies |
-| `dashboard/public/data.js` | The page's data layer over the two host requests |
+| `dashboard/public/data.js` | The page's data layer over the host requests |
 | `dashboard/public/normalize.mjs` | One run's summary into the flat record the page uses |
 | `dashboard/public/compare.mjs` | Baseline vs candidate: blockers, warnings, deltas |
+| `dashboard/public/regression.mjs` | Baseline comparison rules and the report (shared by the CLI and the page) |
 | `dashboard/public/filter.mjs` | Run filters |
 | `dashboard/public/preview.mjs` | Paging and searching a log |
-| `frontend/src/Core/Domains/Observatory/` | The same two requests, served inside Archivist |
+| `frontend/src/Core/Domains/Observatory/` | The same requests, served inside Archivist |
 | `frontend/qml/App/Workbench/Observatory/` | The Observatory panel |
 
 ## Testing the collector

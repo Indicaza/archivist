@@ -77,6 +77,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 24px; outline: none; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .mono { font-family: var(--mono); font-size: 12px; }
+.mono.path { overflow-wrap: anywhere; }
 .grid { display: grid; gap: 16px; }
 .cards { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .two { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
@@ -106,6 +107,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover td { background: var(--surface-2); }
 td.wrap { white-space: normal; min-width: 220px; }
+td.wrap:last-child { min-width: 260px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: end; }
 .filters label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 input, select, button {
@@ -133,6 +135,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .tabs button.active { background: var(--accent-soft); border-color: var(--accent); }
 .verdict-better { color: var(--good); }
+.verdict-regression { color: var(--bad); }
+.verdict-improvement { color: var(--good); }
+code.cmd { display: inline-block; font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; user-select: all; overflow-wrap: anywhere; }
 .verdict-worse { color: var(--bad); }
 .picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; align-items: end; }
 .picker select { width: 100%; }
