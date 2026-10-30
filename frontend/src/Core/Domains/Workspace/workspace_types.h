@@ -354,6 +354,11 @@ struct WellRecord
     QPointF position{0.5, 1.0};
     Orientation orientation = Orientation::Horizontal;
     WellForm form = WellForm::Linear;
+    // Reactive (the default): `position` is a share of the free workspace
+    // (what the sidebar, the chat dock and the composer leave), so the Well
+    // moves with the layout. Fixed: a share of the whole window; it stays
+    // put whatever moves.
+    bool fixed = false;
     QList<WellEntry> entries;
 };
 

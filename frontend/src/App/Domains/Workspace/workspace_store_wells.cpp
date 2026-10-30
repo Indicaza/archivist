@@ -286,6 +286,18 @@ QVariantMap WorkspaceStore::setWellEntryPinned(const QString &entryId, bool pinn
     return {{QStringLiteral("ok"), true}, {QStringLiteral("entryId"), entryId}};
 }
 
+bool WorkspaceStore::setWellFixed(const QString &wellId, bool fixed, double x, double y)
+{
+    const int before = m_model.revision();
+    if (!m_model.setWellFixed(wellId, fixed).ok || !m_model.setWellPosition(wellId, QPointF(x, y)).ok) {
+        return false;
+    }
+    if (m_model.revision() != before) {
+        publish();
+    }
+    return true;
+}
+
 bool WorkspaceStore::setWellPosition(const QString &wellId, double x, double y)
 {
     const int before = m_model.revision();

@@ -254,6 +254,8 @@ public:
     OpResult moveWellEntry(QString entryId, int index);
     // Moves a Well within its window (`position` as a share, clamped 0..1).
     OpResult setWellPosition(QString wellId, const QPointF &position);
+    // Reactive or fixed (see WellRecord::fixed).
+    OpResult setWellFixed(QString wellId, bool fixed);
 
     // ---- geometry and navigation ----------------------------------------
 

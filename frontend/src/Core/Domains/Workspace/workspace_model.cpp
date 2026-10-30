@@ -2939,6 +2939,20 @@ OpResult WorkspaceModel::setWellPosition(QString wellId, const QPointF &position
     return OpResult::success();
 }
 
+OpResult WorkspaceModel::setWellFixed(QString wellId, bool fixed)
+{
+    WellRecord *record = mutableWell(wellId);
+    if (!record) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well: ") + wellId);
+    }
+    if (record->fixed == fixed) {
+        return OpResult::success();
+    }
+    record->fixed = fixed;
+    bump();
+    return OpResult::success();
+}
+
 QStringList WorkspaceModel::validate() const
 {
     QStringList problems;

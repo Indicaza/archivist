@@ -376,6 +376,33 @@ private slots:
         QCOMPARE(s.model.setWellPosition(QStringLiteral("nope"), QPointF()).code, QStringLiteral("NOT_FOUND"));
     }
 
+    void aWellIsReactiveOrFixedAndKeepsIt()
+    {
+        Setup s;
+        // Reactive by default: it follows the layout.
+        QVERIFY(!s.model.well(WorkspaceModel::kMainWellId)->fixed);
+        QVERIFY(!Wells::wellsList(s.model).first().toMap().value("fixed").toBool());
+        const int before = s.model.revision();
+        QVERIFY(s.model.setWellFixed(WorkspaceModel::kMainWellId, true).ok);
+        QVERIFY(s.model.revision() != before);
+        QVERIFY(Wells::wellsList(s.model).first().toMap().value("fixed").toBool());
+        // Saying it again changes nothing.
+        const int same = s.model.revision();
+        QVERIFY(s.model.setWellFixed(WorkspaceModel::kMainWellId, true).ok);
+        QCOMPARE(s.model.revision(), same);
+        QCOMPARE(s.model.setWellFixed(QStringLiteral("nope"), true).code, QStringLiteral("NOT_FOUND"));
+
+        // Saved and read back; a snapshot without the flag is reactive.
+        const QJsonObject snapshot = Codec::encodeSnapshot(s.model);
+        WorkspaceModel restored(counter());
+        QVERIFY(Codec::decodeSnapshot(snapshot, ViewTypeRegistry::withBuiltIns(), restored).ok);
+        QVERIFY(restored.well(WorkspaceModel::kMainWellId)->fixed);
+        QVERIFY(s.model.setWellFixed(WorkspaceModel::kMainWellId, false).ok);
+        WorkspaceModel reactive(counter());
+        QVERIFY(Codec::decodeSnapshot(Codec::encodeSnapshot(s.model), ViewTypeRegistry::withBuiltIns(), reactive).ok);
+        QVERIFY(!reactive.well(WorkspaceModel::kMainWellId)->fixed);
+    }
+
     void goingBackToAnEarlierStateUndoesAMinimize()
     {
         Setup s;

@@ -620,6 +620,7 @@ QJsonArray encodeWells(const WorkspaceModel &model)
             {QStringLiteral("entries"), entries},
         };
         if (!well.surfaceId.isEmpty()) object.insert(QStringLiteral("surface"), well.surfaceId);
+        if (well.fixed) object.insert(QStringLiteral("fixed"), true);
         wells.append(object);
     }
     return wells;
@@ -664,6 +665,7 @@ QList<WellRecord> decodeWells(
         if (parseWellForm(object.value(QStringLiteral("form")).toString(), &form)) {
             well.form = form;
         }
+        well.fixed = object.value(QStringLiteral("fixed")).toBool(false);
         QSet<QString> resources;
         for (const QJsonValue &entryValue : object.value(QStringLiteral("entries")).toArray()) {
             const QJsonObject entryObject = entryValue.toObject();
