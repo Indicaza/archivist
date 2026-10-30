@@ -259,6 +259,13 @@ npm run qt:configure
 npm run qt:run
 ```
 
+Record a development build's phase timings, Git state and toolchain in a
+local Observatory run (see `scripts/observatory/README.md`):
+
+```bash
+npm run observatory:build
+```
+
 Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
 
 ```bash
