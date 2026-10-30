@@ -2,7 +2,8 @@
 // renders them; never writes anything. All text is set with textContent.
 import { lineChart, stackedBars } from "./charts.js";
 import { compareRuns, SAME_WITHIN_PCT } from "./compare.mjs";
-import { artifactPreview, artifactUrl, compare, loadRuns, runDetails, runEvents } from "./data.js";
+import { artifactPreview, artifactUrl, compare, loadBaselines, loadRuns, runDetails, runEvents } from "./data.js";
+import { buildReport, categoryLabel, categoryOf, resolveBudgets } from "./regression.mjs";
 import { filterRuns } from "./filter.mjs";
 
 const view = document.getElementById("view");
@@ -366,6 +367,11 @@ async function runPage(runId) {
           Object.entries(summary.runtimeTiming.summary ?? {}).map(([operation, stats]) => ({ cells: [operation, stats.field, stats.count, ms(stats.meanMs), ms(stats.maxMs)] })))));
     }
   }
+  const category = categoryOf(run);
+  if (category) {
+    parts.push(h("p", { class: "muted small" }, `Use as the ${categoryLabel(category)} baseline (with other runs if you have them): `,
+      h("code", { class: "cmd" }, `npm run observatory -- baseline set ${run.runId}`)));
+  }
   if (data.artifacts.length) {
     parts.push(artifactsSection(run.runId, data.artifacts));
   }
@@ -488,6 +494,131 @@ async function comparePage(params) {
   return parts;
 }
 
+// ---- baselines and regressions --------------------------------------------------
+
+const VERDICT_TEXT = {
+  regression: ["Regression", "bad"],
+  improvement: ["Improvement", "good"],
+  "no-meaningful-change": ["No meaningful change", ""],
+  "insufficient-evidence": ["Needs more runs", "warn"],
+  incompatible: ["Incompatible", "bad"],
+  "not-measured": ["Not measured", ""],
+};
+
+function verdictPill(verdict, overBudget = false) {
+  const [text, tone] = VERDICT_TEXT[verdict] ?? [verdict, ""];
+  return h("span", { class: `pill ${tone}` }, overBudget && verdict !== "regression" ? `${text} · over budget` : text);
+}
+
+function groupText(group, unit) {
+  if (!group?.n) return "—";
+  const fmt = (value) => (unit === "ms" ? ms(value) : String(value));
+  return h("span", {}, fmt(group.median), h("br"), h("span", { class: "muted small" }, group.n === 1 ? "1 run" : `${group.n} runs, ${fmt(group.min)}–${fmt(group.max)}`));
+}
+
+function changeText(metric) {
+  if (metric.delta == null) return h("span", { class: "muted" }, "—");
+  const sign = metric.delta > 0 ? "+" : "";
+  const worse = metric.direction === "lower" ? metric.delta > 0 : metric.delta < 0;
+  const value = metric.unit === "ms" ? `${sign}${ms(metric.delta)}` : `${sign}${metric.delta}`;
+  return h("span", { class: metric.delta === 0 ? "" : worse ? "verdict-worse" : "verdict-better" },
+    `${value}${metric.deltaPercent == null ? "" : ` (${sign}${metric.deltaPercent}%)`}`);
+}
+
+function metricRows(metrics) {
+  return metrics.filter((metric) => metric.verdict !== "not-measured").map((metric) => ({
+    cells: [metric.label, groupText(metric.baseline, metric.unit), groupText(metric.candidate, metric.unit), changeText(metric),
+      `${metric.direction === "lower" ? "lower" : "higher"} is better · ${metric.budget.regressionPercent}%${metric.budget.minAbsolute ? ` and ${metric.budget.minAbsolute} ms` : ""} · ${metric.budget.minSamples}+ runs`,
+      verdictPill(metric.verdict, metric.overBudget), h("span", { class: "small" }, metric.reasons.join("; "))],
+  }));
+}
+
+const METRIC_HEADERS = ["Metric", { label: "Baseline", num: true }, { label: "Latest", num: true }, { label: "Change", num: true }, { label: "Budget", wrap: true }, "Verdict", { label: "Why", wrap: true }];
+
+function idLinks(ids) {
+  return ids.map((id, index) => [index ? ", " : "", h("a", { href: `#/run/${id}`, class: "mono" }, id)]);
+}
+
+// The headline metric of a category over its recent runs, baseline runs
+// drawn as their own line.
+function categoryTrend(category, entry) {
+  const headline = category.startsWith("build:") ? (run) => run.build?.totalMs : (run) => run.ui?.settled?.medianMs;
+  const runs = chronological(state.runs.filter((run) => categoryOf(run) === category)).slice(-30);
+  if (runs.length < 2) return null;
+  const inBaseline = new Set(entry?.runIds ?? []);
+  const point = (run, x) => ({ x, y: OK.has(run.status) ? headline(run) ?? null : null, failed: !OK.has(run.status), href: `#/run/${run.runId}`,
+    title: `${when(run.createdAt)} · ${run.status}${inBaseline.has(run.runId) ? " · baseline" : ""}\n${ms(headline(run) ?? null)}\n${gitText(run)}` });
+  const series = [
+    { name: "Baseline runs", color: "var(--series-2)", points: runs.map(point).filter((_, x) => inBaseline.has(runs[x].runId)) },
+    { name: "Other runs", color: "var(--series-1)", points: runs.map(point).filter((_, x) => !inBaseline.has(runs[x].runId)) },
+  ];
+  return [lineChart({ count: runs.length, format: axisMs, series }),
+    legend([["Baseline runs", "var(--series-2)"], ["Other runs", "var(--series-1)"], ["Failed run (not plotted)", "var(--bad)"]]),
+    h("p", { class: "muted small" }, category.startsWith("build:") ? "Total build time" : "Median settled action latency", ", oldest to newest.")];
+}
+
+async function baselinesPage() {
+  const files = await loadBaselines();
+  const parts = [h("div", { class: "page-head" }, h("h2", {}, "Baselines and regressions"))];
+  parts.push(h("p", { class: "muted" },
+    "Each workload is compared with its own baseline: the newest compatible successful runs since the baseline, against the baseline's runs. ",
+    "A change counts as a regression or improvement only with enough runs on each side, past its budget, and with no overlap between the two groups' runs. ",
+    "That is a rule of thumb, not a significance test. Failed runs are listed apart, as functional failures."));
+  if (files.baselinesError) parts.push(h("div", { class: "notice bad" }, `Baselines: ${files.baselinesError}`));
+  if (files.budgetsError) parts.push(h("div", { class: "notice bad" }, `Budgets: ${files.budgetsError}`));
+  const budgets = resolveBudgets(files.budgets);
+  if (budgets.problems.length) {
+    parts.push(h("div", { class: "notice warn" }, h("strong", {}, "Budget problems (those entries are ignored)"), h("ul", {}, budgets.problems.map((problem) => h("li", {}, problem)))));
+  }
+  const report = buildReport({ runs: state.runs, baselines: files.baselines ?? { baselines: {} }, budgets, source: { budgets: files.budgetsSource } });
+  const s = report.summary;
+  parts.push(h("div", { class: "grid cards" },
+    h("div", { class: "card" }, h("h3", {}, "Confirmed regressions"), h("div", { class: "big" }, String(s.regressions))),
+    h("div", { class: "card" }, h("h3", {}, "Confirmed improvements"), h("div", { class: "big" }, String(s.improvements))),
+    h("div", { class: "card" }, h("h3", {}, "Past budget, unconfirmed"), h("div", { class: "big" }, String(s.unconfirmedOverBudget))),
+    h("div", { class: "card" }, h("h3", {}, "Functional failures"), h("div", { class: "big" }, String(s.functionalFailures)))));
+  if (files.budgetsSource) parts.push(h("p", { class: "muted small" }, "Budgets from ", h("span", { class: "mono path" }, files.budgetsSource)));
+
+  const entries = files.baselines?.baselines ?? {};
+  for (const category of report.categories) {
+    const entry = entries[category.category];
+    const section = [h("h3", {}, category.label, " ", category.status === "no-baseline" ? h("span", { class: "pill" }, "No baseline") : verdictPill(category.verdict))];
+    if (!entry) {
+      section.push(empty(`No ${category.label} baseline.`, h("span", {}, "Pick successful runs and set them: ",
+        h("code", { class: "cmd" }, "npm run observatory -- baseline set <run-id> [<run-id> ...]"))));
+      parts.push(h("section", {}, section));
+      continue;
+    }
+    const ref = entry.reference ?? {};
+    section.push(h("div", { class: "grid cards" },
+      h("div", { class: "card" }, h("h3", {}, "Baseline"), kv([["Runs", idLinks(entry.runIds)], ["Source", `${ref.branch ?? "detached"} @ ${shortSha(ref.commit)}${ref.dirty ? " · dirty" : ""}`],
+        ["Machine", ref.machine?.cpuModel], ["Build type", ref.config?.buildType], ["Scenario", ref.scenario ? `${ref.scenario.id} v${ref.scenario.version}` : null],
+        ["Set", when(entry.setAt)], ["Note", entry.note]])),
+      h("div", { class: "card" }, h("h3", {}, "Compared with"), category.candidate.runIds.length
+        ? kv([["Runs", idLinks(category.candidate.runIds)], ["Source", `${category.candidate.branches.join(", ") || "?"} @ ${category.candidate.commits.map(shortSha).join(", ") || "?"}`]])
+        : h("p", { class: "muted" }, "No runs recorded since the baseline."))));
+    if (category.reasons.length) {
+      section.push(h("div", { class: `notice ${category.verdict === "incompatible" ? "bad" : "warn"}` }, h("ul", {}, category.reasons.map((reason) => h("li", {}, reason)))));
+    }
+    if (category.functional.failedRuns.length) {
+      section.push(h("div", { class: "notice bad" }, h("strong", {}, "Functional failures (not counted as performance)"),
+        h("ul", {}, category.functional.failedRuns.map((failure) => h("li", {}, h("a", { href: `#/run/${failure.runId}` }, failure.runId), ` ${failure.status}${failure.error ? `: ${failure.error}` : ""}`)))));
+    }
+    if (category.skipped.length) {
+      section.push(h("div", { class: "notice" }, h("strong", {}, "Left out"),
+        h("ul", {}, category.skipped.map((skip) => h("li", {}, h("a", { href: `#/run/${skip.runId}` }, skip.runId), ` ${skip.reason}`)))));
+    }
+    if (category.metrics.length) section.push(table(METRIC_HEADERS, metricRows(category.metrics)));
+    if (category.steps.length) {
+      section.push(h("h3", {}, "Steps, slowest first (settled median)"), table(METRIC_HEADERS, metricRows(category.steps.slice(0, 8))));
+    }
+    const trend = categoryTrend(category.category, entry);
+    if (trend) section.push(h("div", { class: "card" }, trend));
+    parts.push(h("section", {}, section));
+  }
+  return parts;
+}
+
 // ---- data and routing ---------------------------------------------------------
 
 function go(hash) {
@@ -510,6 +641,7 @@ async function render() {
     else if (section === "runs") content = runsPage(params);
     else if (section === "run") content = await runPage(path.split("/")[2] ?? "");
     else if (section === "compare") content = await comparePage(params);
+    else if (section === "baselines") content = await baselinesPage();
     else content = overview();
   } catch (error) {
     content = empty(`Something went wrong: ${error.message}`);

@@ -281,6 +281,14 @@ Archivist, pick **Observatory Here** from a panel's menu (or press
 npm run observatory:dashboard
 ```
 
+Mark chosen runs as a baseline, then check later changes against it
+(regressions are reported; add `--strict` to fail on them):
+
+```bash
+npm run observatory -- baseline set <run-id> <run-id> <run-id>
+npm run observatory:check
+```
+
 Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
 
 ```bash

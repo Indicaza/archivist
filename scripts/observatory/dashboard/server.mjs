@@ -1,11 +1,13 @@
 // The dashboard's local server for `npm run observatory:dashboard`: the page
-// plus two read-only endpoints. Archivist serves the same page and the same
-// two endpoints from its own IDE host (frontend/src/Core/Domains/Observatory),
+// plus three read-only endpoints. Archivist serves the same page and the same
+// endpoints from its own IDE host (frontend/src/Core/Domains/Observatory),
 // so the page works the same in a browser and inside the app.
 //
 //   GET api/runs                          { root, runs: [{ runId, summary, error }] }
 //   GET api/runs/<runId>/artifacts/<name> the artifact's text, if the run's
 //                                         summary lists it under `artifacts`
+//   GET api/baselines                     { baselines, baselinesError, budgets,
+//                                           budgetsSource, budgetsError }
 //
 // Binds to 127.0.0.1, answers GET/HEAD only, accepts only localhost Host
 // headers, and serves nothing else from disk.
@@ -13,7 +15,7 @@ import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { artifactFile, artifactPath, listRawRuns, MAX_ARTIFACT_BYTES, readRunSummary, RUN_ID } from "./records.mjs";
+import { artifactFile, artifactPath, listRawRuns, MAX_ARTIFACT_BYTES, readBaselinesAndBudgets, readRunSummary, RUN_ID } from "./records.mjs";
 
 export const PAGE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 // Every file the page is made of. Nothing outside this list is served.
@@ -27,6 +29,7 @@ export const PAGE_FILES = {
   "filter.mjs": "text/javascript; charset=utf-8",
   "normalize.mjs": "text/javascript; charset=utf-8",
   "preview.mjs": "text/javascript; charset=utf-8",
+  "regression.mjs": "text/javascript; charset=utf-8",
 };
 
 const SECURITY_HEADERS = {
@@ -90,6 +93,9 @@ export function createDashboardServer({ root, port }) {
       }
       if (url.pathname === "/api/runs") {
         return send(response, 200, { root, runs: await listRawRuns(root) });
+      }
+      if (url.pathname === "/api/baselines") {
+        return send(response, 200, await readBaselinesAndBudgets(root));
       }
       const match = url.pathname.match(/^\/api\/runs\/([^/]+)\/artifacts\/([^/]+)$/);
       if (match) {
