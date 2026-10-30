@@ -92,16 +92,34 @@ export function isAlive(pid) {
 
 export function processCommand(pid) {
   return new Promise((resolve) => {
-    execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 5000 }, (error, stdout) => resolve(error ? null : stdout.trim()));
+    // -ww: never cut the command line short (macOS ps otherwise trims it to
+    // the terminal width, which would hide the job id).
+    execFile("ps", ["-ww", "-o", "command=", "-p", String(pid)], { timeout: 5000 }, (error, stdout) => resolve(error ? null : stdout.trim()));
   });
 }
 
 // True only for a live process that is this job's runner. A pid alone could
 // have been reused by an unrelated program after the runner exited.
 export async function ownsProcess(pid, jobId) {
-  if (!isAlive(pid)) return false;
-  const command = await processCommand(pid);
-  return Boolean(command && command.includes("job-run") && command.includes(jobId));
+  return (await processOwnership(pid, jobId)) === "owned";
+}
+
+// "owned" (this job's runner), "gone" (no such process), "other" (the pid now
+// belongs to another program) or "unknown" (alive, but ps couldn't say, e.g.
+// on a busy machine). Only "gone" and "other" prove the runner has stopped.
+export async function processOwnership(pid, jobId) {
+  if (!isAlive(pid)) return "gone";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const command = await processCommand(pid);
+    if (command) return command.includes("job-run") && command.includes(jobId) ? "owned" : "other";
+    if (!isAlive(pid)) return "gone";
+  }
+  return "unknown";
+}
+
+async function runnerStopped(pid, jobId) {
+  const state = await processOwnership(pid, jobId);
+  return state === "gone" || state === "other";
 }
 
 // ---- the one-UI-test-at-a-time lock -------------------------------------------
@@ -117,7 +135,7 @@ async function readLock(root) {
 async function lockIsStale(holder) {
   if (!holder) return true;
   if (!holder.pid) return Date.now() - Date.parse(holder.since ?? 0) > START_GRACE_MS;
-  if (holder.owner === "job") return !(await ownsProcess(holder.pid, holder.jobId));
+  if (holder.owner === "job") return runnerStopped(holder.pid, holder.jobId);
   return !isAlive(holder.pid);
 }
 
@@ -222,7 +240,12 @@ export async function refreshJob(root, jobId) {
   if (!ACTIVE.has(job.status)) return loaded;
   const young = Date.now() - Date.parse(job.createdAt ?? 0) < START_GRACE_MS;
   if (!job.pid && young) return loaded;
-  if (job.pid && (await ownsProcess(job.pid, job.jobId))) return loaded;
+  if (job.pid && !(await runnerStopped(job.pid, job.jobId))) return loaded;
+  // The runner saves its final status just before it exits, so read the
+  // record again: it may have finished while we were checking.
+  const latest = await readJob(root, jobId);
+  if (!latest?.job || !ACTIVE.has(latest.job.status)) return latest;
+  if (latest.job.updatedAt !== job.updatedAt) return refreshJob(root, jobId);
   setStatus(job, "interrupted", {
     error: "The test runner stopped without finishing (it was killed, or the computer slept or restarted). Runs it recorded are kept.",
     current: null,
@@ -240,6 +263,10 @@ export async function cancelJob(root, jobId) {
   if (!loaded.job) return { error: "unreadable-record", message: loaded.error };
   const { job } = loaded;
   if (!ACTIVE.has(job.status)) return { error: "not-running", job };
+  // Re-read so a status the runner saved a moment ago isn't overwritten.
+  const fresh = (await readJob(root, jobId))?.job;
+  if (fresh && !ACTIVE.has(fresh.status)) return { error: "not-running", job: fresh };
+  Object.assign(job, fresh ?? {});
   job.cancelRequestedAt ??= new Date().toISOString();
   await writeJob(root, job);
   if (job.pid && (await ownsProcess(job.pid, job.jobId))) {

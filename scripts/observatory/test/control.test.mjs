@@ -185,13 +185,14 @@ describe("test jobs", () => {
     // Wait until the app is running its scenario.
     for (let i = 0; i < 100; i += 1) {
       const status = await dispatch(ctx, "observatory.tests.status", { jobId });
-      if (status.result.job.progress.current?.runId) break;
+      if (status.result.job.progress.current?.actionsPlanned != null) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     const running = await dispatch(ctx, "observatory.tests.status", { jobId });
     assert.equal(running.result.job.status, "running");
     assert.equal(running.result.job.progress.current.phase, "running scenario");
-    assert.equal(running.result.job.progress.current.actionsPlanned, null);
+    assert.equal(running.result.job.progress.current.actionsPlanned, 4);
+    assert.equal(running.result.job.progress.current.actionsDone, 0);
 
     const second = await dispatch(ctx, "observatory.tests.run", { scenario: "sidebar" });
     assert.equal(second.error.code, "busy");
@@ -204,10 +205,13 @@ describe("test jobs", () => {
       const cancelled = await dispatch(ctx, "observatory.tests.cancel", { jobId });
       assert.ok(cancelled.ok);
       const done = await waitForJob(root, jobId);
-      assert.equal(done.result.job.status, "cancelled");
+      assert.equal(done.result.job.status, "cancelled", JSON.stringify(done.result.job.history));
       assert.equal(done.result.job.results[0].status, "interrupted");
       assert.ok(done.result.job.cancelRequestedAt);
-      assert.equal(isAlive(started.result.job.pid ?? done.result.job.pid), false);
+      // The runner saves its final status just before it exits.
+      const runnerPid = started.result.job.pid ?? done.result.job.pid;
+      for (let i = 0; i < 50 && isAlive(runnerPid); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(isAlive(runnerPid), false);
       assert.equal(isAlive(bystander.pid), true, "an unrelated process was signalled");
       // The cancelled run's record survives and can be reported on.
       const report = await dispatch(ctx, "observatory.reports.generate", { runId: done.result.job.runs[0].runId });
