@@ -317,6 +317,15 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   floating panels (below the drag picture) and moves anywhere in the window
   when dragged by the space around its spheres, snapping to the centre line
   and edges.
+- **Keeping it quick.** Minimizing and restoring change the model in well
+  under a millisecond; the cost is in what the screen rebuilds. So a tab
+  strip changes only the tab that came or went (`TabStrip.js`), menus are
+  built the first time they open, and panels borrow their Monaco page from
+  a small warm pool in `DockWorkspace` (two kept, let go after ten idle
+  minutes): a panel put in the Well gives its page back, and the panel
+  coming back takes it, so the editor doesn't start again. Set
+  `QT_LOGGING_RULES="archivist.wells.timing=true"` to log each minimize and
+  restore, and where publishing spent its time.
 - **Whole panels.** A panel's menu or its header button puts the whole panel
   away as one entry (`Wells::minimizeAnchor`): its name, flags, active tab and
   views in tab order. A click brings it back as it was, at its old place

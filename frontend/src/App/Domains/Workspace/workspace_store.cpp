@@ -15,6 +15,8 @@
 #include <QJsonObject>
 #include <QSet>
 
+Q_LOGGING_CATEGORY(lcWellTiming, "archivist.wells.timing", QtWarningMsg)
+
 using namespace Workspace;
 
 namespace
@@ -310,6 +312,23 @@ QSizeF WorkspaceStore::surfaceSize(const QString &surfaceId) const
 
 void WorkspaceStore::publish()
 {
+    // Where publishing spends its time, QML's reactions included (they run
+    // inside these signals). Off unless archivist.wells.timing is on.
+    const bool timing = lcWellTiming().isDebugEnabled();
+    QElapsedTimer clock;
+    if (timing) {
+        clock.start();
+    }
+    qint64 stamp = 0;
+    QStringList stages;
+    auto lap = [&](const char *stage) {
+        if (!timing) {
+            return;
+        }
+        const qint64 now = clock.nsecsElapsed();
+        stages.append(QStringLiteral("%1 %2").arg(QLatin1String(stage)).arg((now - stamp) / 1e6, 0, 'f', 2));
+        stamp = now;
+    };
     QList<QVariantMap> viewRows;
     const QString focusedAnchor = m_model.focusedAnchorId();
     const QString target = m_model.targetAnchorId();
@@ -398,8 +417,10 @@ void WorkspaceStore::publish()
         viewRows.append(row);
     }
 
+    lap("geometry");
     m_views->setRows(viewRows);
     m_lastViewRects = lastRects;
+    lap("views");
 
     for (auto it = m_anchorModels.cbegin(); it != m_anchorModels.cend(); ++it) {
         publishSurface(it.key());
@@ -409,6 +430,8 @@ void WorkspaceStore::publish()
             publishSurface(it.key());
         }
     }
+
+    lap("panels");
 
     // Keep document buffers in step with the editor views that show them.
     QHash<QString, QString> wanted; // view -> document
@@ -436,11 +459,13 @@ void WorkspaceStore::publish()
     }
 
     noteFocusHistory();
+    lap("documents");
 
     const bool modelChanged = m_publishedModelRevision != m_model.revision();
     m_publishedModelRevision = m_model.revision();
     ++m_revision;
     emit revisionChanged();
+    lap("revision");
 
     const QStringList floating = floatingSurfaceIds() + QStringList{QStringLiteral("|")} + panelSurfaceIds()
         + QStringList{QStringLiteral("|")} + sidebarSurfaceIds();
@@ -449,10 +474,16 @@ void WorkspaceStore::publish()
         emit surfacesChanged();
     }
 
+    lap("surfaces");
+
     if (modelChanged) {
         scheduleSave();
         // An anchor the composer was docked in may be gone.
         normalizeComposer();
+    }
+    lap("composer");
+    if (timing) {
+        qCDebug(lcWellTiming).noquote() << "publish:" << stages.join(QStringLiteral(", ")) << "ms";
     }
 }
 

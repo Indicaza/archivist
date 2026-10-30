@@ -2,11 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import Archivist.Services 1.0
 import "../../Icons"
+import "TabStrip.js" as TabStrip
 
 // One Anchor: a dockable tab group. The tab strip moves single views; the
 // panel label at its left (name, grip, menu) moves the whole Anchor. The content area below the strip
 // is left to the workspace's view layer, except for editors, which share one
-// Monaco page per Anchor (DockEditorHost).
+// Monaco page per Anchor (DockEditorHost, lent by the workspace's pool).
 //
 // An Anchor can be named, locked (layout and/or content) and switched to a
 // shelf, where a compact picker replaces the tabs. All of that lives in the
@@ -93,6 +94,73 @@ Item {
             editorHostWanted = true
         }
     }
+    onEditorHostWantedChanged: attachEditorPage()
+
+    // The tab strip's model, keyed by view id: only the tabs that came,
+    // went or moved change, so the others (and their state) are left alone.
+    ListModel {
+        id: tabModel
+    }
+
+    function syncTabs() {
+        var current = []
+        for (var index = 0; index < tabModel.count; index += 1) {
+            current.push(tabModel.get(index).viewId)
+        }
+        var wanted = (root.viewIds || []).map(String)
+        var ops = TabStrip.changes(current, wanted)
+        for (var step = 0; step < ops.length; step += 1) {
+            var op = ops[step]
+            if (op.op === "remove") {
+                tabModel.remove(op.at)
+            } else if (op.op === "insert") {
+                tabModel.insert(op.at, { viewId: op.id })
+            } else {
+                tabModel.move(op.from, op.to, 1)
+            }
+        }
+    }
+    onViewIdsChanged: syncTabs()
+
+    // ---- The editor page ----
+    // Every editor in this panel shows in one Monaco page. Pages come from
+    // the workspace's pool and go back to it when the panel goes (put in the
+    // Well, closed, folded away), so a panel coming back takes a warm page
+    // instead of starting the editor again.
+    property var editorPool: null
+    property Item editorPage: null
+
+    function openEditorLocation(filePath, lineNumber, columnNumber) {
+        root.workspace.openLocation(filePath, lineNumber, columnNumber)
+    }
+    function previewEditorView(viewId) {
+        Docking.setViewType(viewId, "archivist.preview")
+    }
+
+    function attachEditorPage() {
+        if (!root.editorHostWanted || root.editorPage !== null) {
+            return
+        }
+        root.editorPool = root.workspace.editorPagePool()
+        var page = root.editorPool.takeEditorPage(editorSlot, root.anchorId)
+        page.anchorId = Qt.binding(function() { return root.anchorId })
+        page.viewId = Qt.binding(function() { return root.activeTypeId === "archivist.editor" ? root.activeViewId : "" })
+        page.shown = Qt.binding(function() { return root.activeTypeId === "archivist.editor" && root.visible })
+        page.fileLocationRequested.connect(root.openEditorLocation)
+        page.previewRequested.connect(root.previewEditorView)
+        root.editorPage = page
+    }
+
+    function releaseEditorPage() {
+        var page = root.editorPage
+        if (page === null) {
+            return
+        }
+        root.editorPage = null
+        page.fileLocationRequested.disconnect(root.openEditorLocation)
+        page.previewRequested.disconnect(root.previewEditorView)
+        root.editorPool.parkEditorPage(page)
+    }
 
     x: rectX
     y: rectY
@@ -170,9 +238,13 @@ Item {
             arrivalAnimation.start()
         }
         root.workspace.registerAnchor(root.anchorId, root)
+        syncTabs()
         editorHostWanted = hasEditors
     }
-    Component.onDestruction: root.workspace.unregisterAnchor(root.anchorId, root)
+    Component.onDestruction: {
+        releaseEditorPage()
+        root.workspace.unregisterAnchor(root.anchorId, root)
+    }
 
     function viewInfo(viewId) {
         Docking.revision
@@ -196,7 +268,7 @@ Item {
 
     // The editor page is the content for editor views.
     function editorHost() {
-        return editorLoader.item
+        return root.editorPage
     }
 
     Rectangle {
@@ -245,7 +317,7 @@ Item {
 
             objectName: "dock.anchor.label"
 
-            readonly property bool active: labelArea.containsMouse || labelArea.pressed || panelMenu.visible
+            readonly property bool active: labelArea.containsMouse || labelArea.pressed || root.panelMenuOpen
             readonly property real nameRoom: Math.max(36, root.width * (root.compactHeader ? 0.38 : 0.3))
 
             x: 3
@@ -261,7 +333,7 @@ Item {
                 anchors.topMargin: 3
                 anchors.bottomMargin: 3
                 radius: root.theme.radiusSmall
-                color: labelArea.pressed || panelMenu.visible ? root.theme.activeBg
+                color: labelArea.pressed || root.panelMenuOpen ? root.theme.activeBg
                     : labelArea.containsMouse ? root.theme.hoverBg : "transparent"
 
                 Behavior on color { ColorAnimation { duration: root.theme.reducedMotion ? 0 : 90 } }
@@ -355,14 +427,14 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 preventStealing: dragging
-                ToolTip.visible: containsMouse && !pressed && !panelMenu.visible && !root.renaming
+                ToolTip.visible: containsMouse && !pressed && !root.panelMenuOpen && !root.renaming
                 ToolTip.delay: 700
                 ToolTip.text: (root.lockSummary.length > 0 ? root.lockSummary + "\n" : "")
                     + (root.contextLabel.length > 0 ? "New items open in " + root.contextLabel + "\n" : "")
                     + "Double-click to rename" + (root.layoutLocked ? "" : ", drag to move")
 
                 function openMenu() {
-                    panelMenu.popup(label, 0, label.height - 2)
+                    root.openPanelMenu(label, 0, label.height - 2)
                 }
 
                 onPressed: function(mouse) {
@@ -519,7 +591,7 @@ Item {
                     root.workspace.notePointerFocus()
                     Docking.focusAnchor(root.anchorId)
                     if (mouse.button === Qt.RightButton) {
-                        panelMenu.popup()
+                        root.openPanelMenu(null, 0, 0)
                         return
                     }
                     pressPoint = Qt.point(mouse.x, mouse.y)
@@ -565,18 +637,18 @@ Item {
                 Repeater {
                     id: tabRepeater
 
-                    model: root.viewIds
+                    // Keyed by view (see syncTabs): a tab coming or going
+                    // leaves the others as they are.
+                    model: tabModel
 
                     delegate: DockTab {
-                        required property string modelData
                         required property int index
 
                         theme: root.theme
                         workspace: root.workspace
                         anchorId: root.anchorId
-                        viewId: modelData
                         tabIndex: index
-                        active: modelData === root.activeViewId
+                        active: viewId === root.activeViewId
                         anchorFocused: root.isFocused
                         height: tabRow.height
                         // Tabs after the insertion point step aside.
@@ -812,203 +884,222 @@ Item {
         }
     }
 
-    // The common actions first; everything else under More.
-    DockMenu {
-        id: panelMenu
-
-        // Worked out as the menu opens, not on every layout change.
-        property bool canReturn: false
-        property bool tabPinned: false
-        property bool leftOnTop: false
-
-        theme: root.theme
-        onAboutToShow: {
-            canReturn = Docking.canReturnToPrevious("anchor", root.anchorId)
-            tabPinned = root.activeViewId.length > 0 && Docking.isViewPinned(root.activeViewId)
-            leftOnTop = Docking.surface(root.surfaceId).leaveOnTop === true
+    // The common actions first; everything else under More. Built the first
+    // time it's opened, so a panel is quick to make (restoring a panel from
+    // the Well makes one).
+    readonly property bool panelMenuOpen: panelMenuLoader.item !== null && panelMenuLoader.item.visible
+    function openPanelMenu(item, x, y) {
+        panelMenuLoader.active = true
+        if (item) {
+            panelMenuLoader.item.popup(item, x, y)
+        } else {
+            panelMenuLoader.item.popup()
         }
+    }
 
-        DockMenuItem {
-            theme: root.theme
-            text: "Rename…"
-            shortcutText: "F2"
-            onTriggered: root.startRename()
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Lock in Place"
-            shortcutText: "position and size"
-            checkable: true
-            checked: root.layoutLocked
-            onTriggered: Docking.setAnchorLayoutLocked(root.anchorId, !root.layoutLocked)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: root.switchable ? "Show as Tabs" : "Show as Shelf"
-            onTriggered: Docking.setAnchorSwitchable(root.anchorId, !root.switchable)
-        }
-        DockMenuSeparator { theme: root.theme }
-        DockMenuItem { theme: root.theme; text: "Split Right"; shortcutText: "Ctrl+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "right") }
-        DockMenuItem { theme: root.theme; text: "Split Down"; shortcutText: "Ctrl+Shift+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "bottom") }
-        DockMenuItem {
-            theme: root.theme
-            text: root.isMaximized ? "Restore Layout" : "Maximize"
-            shortcutText: "Ctrl+Shift+Enter"
-            onTriggered: Docking.toggleMaximize(root.anchorId)
-        }
-        DockMenuItem {
-            objectName: "magnet.returnToPrevious"
-            theme: root.theme
-            text: "Return to Previous Position"
-            visible: panelMenu.canReturn
-            onTriggered: root.workspace.returnToPrevious("anchor", root.anchorId)
-        }
-        DockMenuSeparator { theme: root.theme }
-        // Gravity Well: put the panel away, keep its tab handy, or keep a
-        // floating panel out when you work elsewhere.
-        DockMenuItem {
-            objectName: "well.minimizePanel"
-            theme: root.theme
-            text: "Minimize to Well"
-            visible: root.viewIds.length > 0
-            enabled: !root.layoutLocked
-            onTriggered: root.workspace.minimizeAnchor(root.anchorId)
-        }
-        DockMenuItem {
-            objectName: "well.pinTab"
-            theme: root.theme
-            text: panelMenu.tabPinned ? "Unpin Tab from Well" : "Keep Tab in Well"
-            visible: root.activeViewId.length > 0 && String((root.activeInfo.resource || {}).kind || "").length > 0
-            onTriggered: Docking.setViewPinned(root.activeViewId, !panelMenu.tabPinned)
-        }
-        DockMenuItem {
-            objectName: "well.leaveOnTop"
-            theme: root.theme
-            text: "Leave on Top"
-            shortcutText: "stays out"
-            checkable: true
-            checked: panelMenu.leftOnTop
-            visible: root.workspace.isPanel && !root.workspace.isInSidebar
-            onTriggered: Docking.setSurfaceLeaveOnTop(root.surfaceId, !panelMenu.leftOnTop)
-        }
-        DockMenuSeparator { theme: root.theme }
+    Loader {
+        id: panelMenuLoader
 
-        DockMenu {
-            id: moreMenu
-
-            theme: root.theme
-            title: "More"
-            width: 280
-
-            DockMenuItem {
-                theme: root.theme
-                text: "Use Automatic Name"
-                visible: root.name.length > 0
-                onTriggered: Docking.renameAnchor(root.anchorId, "")
-            }
-            DockMenuItem {
-                theme: root.theme
-                text: "Lock Content"
-                shortcutText: "keeps its items"
-                checkable: true
-                checked: root.contentLocked
-                onTriggered: Docking.setAnchorContentLocked(root.anchorId, !root.contentLocked)
-            }
-            DockMenuItem {
-                id: docsPurposeItem
-
-                // Re-read when preferences change.
-                readonly property bool forDocs: Docking.workspacePreferences, Docking.anchorPurpose(root.anchorId) === "documentation"
-
-                theme: root.theme
-                text: "Use for Documentation"
-                shortcutText: "reference opens here"
-                checkable: true
-                checked: forDocs
-                onTriggered: {
-                    if (forDocs) {
-                        var preferences = Docking.workspacePreferences
-                        for (var i = 0; i < preferences.length; ++i) {
-                            if (preferences[i].key === "area_purpose" && preferences[i].anchorId === root.anchorId) {
-                                Docking.forgetPreference(preferences[i].id)
-                            }
-                        }
-                    } else {
-                        Docking.setPreference("area_purpose", "documentation", root.anchorId, true)
-                    }
-                }
-            }
-            DockMenuItem {
-                theme: root.theme
-                text: root.isTarget ? "Stop Opening New Files Here" : "Open New Files Here"
-                onTriggered: Docking.toggleTargetAnchor(root.anchorId)
-            }
-
-            // Where new terminals (and other new items) opened from this panel go.
+        active: false
+        sourceComponent: Component {
             DockMenu {
-                id: worktreeMenu
+                id: panelMenu
+
+                // Worked out as the menu opens, not on every layout change.
+                property bool canReturn: false
+                property bool tabPinned: false
+                property bool leftOnTop: false
 
                 theme: root.theme
-                title: "New Items Open In"
-                width: 280
+                onAboutToShow: {
+                    canReturn = Docking.canReturnToPrevious("anchor", root.anchorId)
+                    tabPinned = root.activeViewId.length > 0 && Docking.isViewPinned(root.activeViewId)
+                    leftOnTop = Docking.surface(root.surfaceId).leaveOnTop === true
+                }
 
                 DockMenuItem {
                     theme: root.theme
-                    text: "Follow Context"
-                    shortcutText: "default"
+                    text: "Rename…"
+                    shortcutText: "F2"
+                    onTriggered: root.startRename()
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: "Lock in Place"
+                    shortcutText: "position and size"
                     checkable: true
-                    checked: root.contextLibraryId.length === 0
-                    onTriggered: Docking.setAnchorLibrary(root.anchorId, "")
+                    checked: root.layoutLocked
+                    onTriggered: Docking.setAnchorLayoutLocked(root.anchorId, !root.layoutLocked)
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: root.switchable ? "Show as Tabs" : "Show as Shelf"
+                    onTriggered: Docking.setAnchorSwitchable(root.anchorId, !root.switchable)
+                }
+                DockMenuSeparator { theme: root.theme }
+                DockMenuItem { theme: root.theme; text: "Split Right"; shortcutText: "Ctrl+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "right") }
+                DockMenuItem { theme: root.theme; text: "Split Down"; shortcutText: "Ctrl+Shift+\\"; enabled: !root.layoutLocked; onTriggered: root.workspace.splitAnchor(root.anchorId, "bottom") }
+                DockMenuItem {
+                    theme: root.theme
+                    text: root.isMaximized ? "Restore Layout" : "Maximize"
+                    shortcutText: "Ctrl+Shift+Enter"
+                    onTriggered: Docking.toggleMaximize(root.anchorId)
+                }
+                DockMenuItem {
+                    objectName: "magnet.returnToPrevious"
+                    theme: root.theme
+                    text: "Return to Previous Position"
+                    visible: panelMenu.canReturn
+                    onTriggered: root.workspace.returnToPrevious("anchor", root.anchorId)
+                }
+                DockMenuSeparator { theme: root.theme }
+                // Gravity Well: put the panel away, keep its tab handy, or keep a
+                // floating panel out when you work elsewhere.
+                DockMenuItem {
+                    objectName: "well.minimizePanel"
+                    theme: root.theme
+                    text: "Minimize to Well"
+                    visible: root.viewIds.length > 0
+                    enabled: !root.layoutLocked
+                    onTriggered: root.workspace.minimizeAnchor(root.anchorId)
+                }
+                DockMenuItem {
+                    objectName: "well.pinTab"
+                    theme: root.theme
+                    text: panelMenu.tabPinned ? "Unpin Tab from Well" : "Keep Tab in Well"
+                    visible: root.activeViewId.length > 0 && String((root.activeInfo.resource || {}).kind || "").length > 0
+                    onTriggered: Docking.setViewPinned(root.activeViewId, !panelMenu.tabPinned)
+                }
+                DockMenuItem {
+                    objectName: "well.leaveOnTop"
+                    theme: root.theme
+                    text: "Leave on Top"
+                    shortcutText: "stays out"
+                    checkable: true
+                    checked: panelMenu.leftOnTop
+                    visible: root.workspace.isPanel && !root.workspace.isInSidebar
+                    onTriggered: Docking.setSurfaceLeaveOnTop(root.surfaceId, !panelMenu.leftOnTop)
                 }
                 DockMenuSeparator { theme: root.theme }
 
-                Instantiator {
-                    model: LibraryStore.libraries || []
-                    delegate: DockMenuItem {
-                        required property var modelData
+                DockMenu {
+                    id: moreMenu
+
+                    theme: root.theme
+                    title: "More"
+                    width: 280
+
+                    DockMenuItem {
+                        theme: root.theme
+                        text: "Use Automatic Name"
+                        visible: root.name.length > 0
+                        onTriggered: Docking.renameAnchor(root.anchorId, "")
+                    }
+                    DockMenuItem {
+                        theme: root.theme
+                        text: "Lock Content"
+                        shortcutText: "keeps its items"
+                        checkable: true
+                        checked: root.contentLocked
+                        onTriggered: Docking.setAnchorContentLocked(root.anchorId, !root.contentLocked)
+                    }
+                    DockMenuItem {
+                        id: docsPurposeItem
+
+                        // Re-read when preferences change.
+                        readonly property bool forDocs: Docking.workspacePreferences, Docking.anchorPurpose(root.anchorId) === "documentation"
 
                         theme: root.theme
-                        text: root.workspace.libraryLabel(String(modelData.id || ""))
+                        text: "Use for Documentation"
+                        shortcutText: "reference opens here"
                         checkable: true
-                        checked: root.contextLibraryId === String(modelData.id || "")
-                        onTriggered: Docking.setAnchorLibrary(root.anchorId, String(modelData.id || ""))
+                        checked: forDocs
+                        onTriggered: {
+                            if (forDocs) {
+                                var preferences = Docking.workspacePreferences
+                                for (var i = 0; i < preferences.length; ++i) {
+                                    if (preferences[i].key === "area_purpose" && preferences[i].anchorId === root.anchorId) {
+                                        Docking.forgetPreference(preferences[i].id)
+                                    }
+                                }
+                            } else {
+                                Docking.setPreference("area_purpose", "documentation", root.anchorId, true)
+                            }
+                        }
                     }
-                    onObjectAdded: function(index, object) { worktreeMenu.insertItem(index + 2, object) }
-                    onObjectRemoved: function(index, object) { worktreeMenu.removeItem(object) }
+                    DockMenuItem {
+                        theme: root.theme
+                        text: root.isTarget ? "Stop Opening New Files Here" : "Open New Files Here"
+                        onTriggered: Docking.toggleTargetAnchor(root.anchorId)
+                    }
+
+                    // Where new terminals (and other new items) opened from this panel go.
+                    DockMenu {
+                        id: worktreeMenu
+
+                        theme: root.theme
+                        title: "New Items Open In"
+                        width: 280
+
+                        DockMenuItem {
+                            theme: root.theme
+                            text: "Follow Context"
+                            shortcutText: "default"
+                            checkable: true
+                            checked: root.contextLibraryId.length === 0
+                            onTriggered: Docking.setAnchorLibrary(root.anchorId, "")
+                        }
+                        DockMenuSeparator { theme: root.theme }
+
+                        Instantiator {
+                            model: LibraryStore.libraries || []
+                            delegate: DockMenuItem {
+                                required property var modelData
+
+                                theme: root.theme
+                                text: root.workspace.libraryLabel(String(modelData.id || ""))
+                                checkable: true
+                                checked: root.contextLibraryId === String(modelData.id || "")
+                                onTriggered: Docking.setAnchorLibrary(root.anchorId, String(modelData.id || ""))
+                            }
+                            onObjectAdded: function(index, object) { worktreeMenu.insertItem(index + 2, object) }
+                            onObjectRemoved: function(index, object) { worktreeMenu.removeItem(object) }
+                        }
+                    }
+
+                    DockMenuSeparator { theme: root.theme }
+                    DockMenuItem {
+                        objectName: "magnet.floatAnchor"
+                        theme: root.theme
+                        text: "Float Panel"
+                        visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1)
+                        enabled: !root.layoutLocked
+                        onTriggered: root.workspace.floatAnchor(root.anchorId)
+                    }
+                    DockMenuItem {
+                        theme: root.theme
+                        text: "Move Panel to New Window"
+                        visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.isPanel || root.workspace.anchorCount > 1)
+                        enabled: !root.layoutLocked
+                        onTriggered: root.workspace.detachAnchor(root.anchorId)
+                    }
+                    DockMenuItem {
+                        theme: root.theme
+                        text: root.workspace.isPanel ? "Dock Panel in Main Layout" : "Return Panel to Main Window"
+                        visible: root.workspace.isFloating
+                        enabled: !root.layoutLocked
+                        onTriggered: root.workspace.returnToMainWindow("anchor", root.anchorId)
+                    }
+                }
+
+                DockMenuSeparator { theme: root.theme }
+                DockMenuItem {
+                    theme: root.theme
+                    text: root.layoutLocked ? "Close Panel (locked in place)" : "Close Panel"
+                    enabled: !root.layoutLocked
+                    onTriggered: root.workspace.closeAnchor(root.anchorId)
                 }
             }
-
-            DockMenuSeparator { theme: root.theme }
-            DockMenuItem {
-                objectName: "magnet.floatAnchor"
-                theme: root.theme
-                text: "Float Panel"
-                visible: root.viewIds.length > 0 && (!root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1)
-                enabled: !root.layoutLocked
-                onTriggered: root.workspace.floatAnchor(root.anchorId)
-            }
-            DockMenuItem {
-                theme: root.theme
-                text: "Move Panel to New Window"
-                visible: root.viewIds.length > 0 && (!root.workspace.isFloating || root.workspace.isPanel || root.workspace.anchorCount > 1)
-                enabled: !root.layoutLocked
-                onTriggered: root.workspace.detachAnchor(root.anchorId)
-            }
-            DockMenuItem {
-                theme: root.theme
-                text: root.workspace.isPanel ? "Dock Panel in Main Layout" : "Return Panel to Main Window"
-                visible: root.workspace.isFloating
-                enabled: !root.layoutLocked
-                onTriggered: root.workspace.returnToMainWindow("anchor", root.anchorId)
-            }
-        }
-
-        DockMenuSeparator { theme: root.theme }
-        DockMenuItem {
-            theme: root.theme
-            text: root.layoutLocked ? "Close Panel (locked in place)" : "Close Panel"
-            enabled: !root.layoutLocked
-            onTriggered: root.workspace.closeAnchor(root.anchorId)
         }
     }
 
@@ -1078,30 +1169,19 @@ Item {
         }
     }
 
-    Loader {
-        id: editorLoader
+    // Where this panel's editor page sits (see attachEditorPage).
+    Item {
+        id: editorSlot
+
+        objectName: "dock.anchor.editorSlot"
 
         x: 1
         y: root.headerHeight
         width: parent.width - 2
         height: Math.max(0, parent.height - root.headerHeight - 1)
-        active: root.editorHostWanted
         visible: root.activeTypeId === "archivist.editor"
         // Its tab is carried away: the editor isn't drawn here meanwhile.
         opacity: root.workspace.liftedViewId.length > 0 && root.workspace.liftedViewId === root.activeViewId ? 0 : 1
-
-        sourceComponent: DockEditorHost {
-            theme: root.theme
-            anchorId: root.anchorId
-            viewId: root.activeTypeId === "archivist.editor" ? root.activeViewId : ""
-            shown: root.activeTypeId === "archivist.editor" && root.visible
-            onFileLocationRequested: function(filePath, lineNumber, columnNumber) {
-                root.workspace.openLocation(filePath, lineNumber, columnNumber)
-            }
-            onPreviewRequested: function(viewId) {
-                Docking.setViewType(viewId, "archivist.preview")
-            }
-        }
     }
 
     // Presses anywhere in the content focus this Anchor without taking the

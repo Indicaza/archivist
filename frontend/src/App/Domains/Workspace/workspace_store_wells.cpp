@@ -62,12 +62,16 @@ QVariantMap WorkspaceStore::minimizeView(const QString &viewId)
     }
     const QString title = view->title.isEmpty() ? QStringLiteral("a tab") : QStringLiteral("“%1”").arg(view->title);
     HistoryStep step = historyStep(QStringLiteral("Minimized %1").arg(title));
+    QElapsedTimer clock;
+    clock.start();
     const OpResult result = Wells::minimize(m_model, viewId);
     if (!result.ok) {
         return failed(result);
     }
     recordStep(std::move(step));
+    const qint64 model = clock.nsecsElapsed();
     publish();
+    qCDebug(lcWellTiming).noquote() << "minimize" << title << "model" << model / 1e6 << "ms, publish" << (clock.nsecsElapsed() - model) / 1e6 << "ms";
     return {{QStringLiteral("ok"), true}, {QStringLiteral("entryId"), result.createdId}};
 }
 
@@ -175,15 +179,21 @@ QVariantMap WorkspaceStore::restoreMinimizedView(const QString &viewId)
     const QString title = name.isEmpty() ? QStringLiteral("a tab") : QStringLiteral("“%1”").arg(name);
     HistoryStep step = historyStep(QStringLiteral("Restored %1").arg(title));
     const QString previous = m_model.focusedAnchorId();
+    QElapsedTimer clock;
+    clock.start();
     const Wells::Restored restored = Wells::restore(m_model, viewId);
     if (!restored.result.ok) {
         return failed(restored.result);
     }
     recordStep(std::move(step));
+    const qint64 model = clock.nsecsElapsed();
     publish();
+    const qint64 published = clock.nsecsElapsed();
     // One floating panel out at a time: the one it replaces goes back.
     tuckAwayFloatingPanels(previous);
     emit viewFocused(viewId);
+    qCDebug(lcWellTiming).noquote() << "restore" << title << restored.how << "model" << model / 1e6
+        << "ms, publish" << (published - model) / 1e6 << "ms, after" << (clock.nsecsElapsed() - published) / 1e6 << "ms";
     return wellResult(restored);
 }
 

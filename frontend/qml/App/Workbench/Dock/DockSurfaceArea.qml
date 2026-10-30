@@ -57,6 +57,8 @@ Item {
     function closeOtherViews(viewId) { workspace.closeOtherViews(viewId) }
     function minimizeView(viewId) { workspace.minimizeView(viewId) }
     function minimizeAnchor(anchorId) { workspace.minimizeAnchor(anchorId) }
+    // Editor pages are shared across windows: the workspace keeps them.
+    function editorPagePool() { return workspace }
     function revealView(viewId) { workspace.revealView(viewId) }
     function openChat(anchorId) { workspace.openChat(anchorId) }
     function openTerminal(anchorId) { workspace.openTerminal(anchorId) }

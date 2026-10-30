@@ -187,7 +187,7 @@ Item {
             if (mouse.button === Qt.MiddleButton) {
                 root.workspace.closeView(root.viewId)
             } else if (mouse.button === Qt.RightButton) {
-                tabMenu.popup()
+                root.openMenu()
             }
         }
         onCanceled: {
@@ -239,99 +239,113 @@ Item {
         }
     }
 
-    DockMenu {
-        id: tabMenu
+    // Built the first time it's opened: a tab is cheap to make, and the tab
+    // strip changes often (a tab put away or brought back from the Well).
+    function openMenu() {
+        tabMenuLoader.active = true
+        tabMenuLoader.item.popup()
+    }
 
-        // Worked out as the menu opens, not on every layout change.
-        property bool canReturn: false
-        property bool pinned: false
+    Loader {
+        id: tabMenuLoader
 
-        theme: root.theme
-        onAboutToShow: {
-            canReturn = Docking.canReturnToPrevious("view", root.viewId)
-            pinned = Docking.isViewPinned(root.viewId)
-        }
+        active: false
+        sourceComponent: Component {
+            DockMenu {
+                id: tabMenu
 
-        DockMenuItem { theme: root.theme; text: "Close"; shortcutText: "Ctrl+W"; onTriggered: root.workspace.closeView(root.viewId) }
-        DockMenuItem { theme: root.theme; text: "Close Others"; onTriggered: root.workspace.closeOtherViews(root.viewId) }
-        DockMenuItem {
-            objectName: "well.minimize"
-            theme: root.theme
-            text: "Minimize to Well"
-            onTriggered: root.workspace.minimizeView(root.viewId)
-        }
-        DockMenuItem {
-            objectName: "well.pin"
-            theme: root.theme
-            text: tabMenu.pinned ? "Unpin from Well" : "Keep in Well"
-            visible: (root.resource.kind || "").length > 0
-            onTriggered: Docking.setViewPinned(root.viewId, !tabMenu.pinned)
-        }
-        DockMenuSeparator { theme: root.theme }
-        DockMenuItem {
-            objectName: "magnet.returnToPrevious"
-            theme: root.theme
-            text: "Return to Previous Position"
-            visible: tabMenu.canReturn
-            onTriggered: root.workspace.returnToPrevious("view", root.viewId)
-        }
-        DockMenuItem { theme: root.theme; text: "Split Right"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "right") }
-        DockMenuItem { theme: root.theme; text: "Split Down"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "bottom") }
-        DockMenuItem {
-            objectName: "magnet.floatView"
-            theme: root.theme
-            text: "Float"
-            visible: !root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
-            onTriggered: root.workspace.floatView(root.viewId)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Move to New Window"
-            visible: !root.workspace.isFloating || root.workspace.isPanel || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
-            onTriggered: root.workspace.detachView(root.viewId)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: root.workspace.isPanel ? "Dock in Main Layout" : "Return to Main Window"
-            visible: root.workspace.isFloating
-            onTriggered: root.workspace.returnToMainWindow("view", root.viewId)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Open Second View to the Right"
-            visible: root.typeId !== "archivist.terminal" && root.typeId !== "archivist.welcome"
-            onTriggered: Docking.duplicateView(root.viewId, "right")
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Maximize Panel"
-            shortcutText: "Ctrl+Shift+Enter"
-            onTriggered: Docking.toggleMaximize(root.anchorId)
-        }
-        DockMenuSeparator { theme: root.theme; visible: root.resource.kind === "document" }
-        DockMenuItem {
-            theme: root.theme
-            text: root.typeId === "archivist.editor" ? "Show Rendered" : "Edit Source"
-            visible: root.typeId === "archivist.editor" && root.hasRenderedForm
-                || root.typeId === "archivist.preview" && Boolean(root.details.textual)
-            onTriggered: Docking.setViewType(
-                root.viewId,
-                root.typeId === "archivist.editor" ? "archivist.preview" : "archivist.editor"
-            )
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Save"
-            shortcutText: "Ctrl+S"
-            visible: root.documentId.length > 0
-            enabled: root.dirty
-            onTriggered: Documents.save(root.documentId)
-        }
-        DockMenuItem {
-            theme: root.theme
-            text: "Reveal in Library"
-            visible: root.resource.kind === "document"
-            onTriggered: root.workspace.revealView(root.viewId)
+                // Worked out as the menu opens, not on every layout change.
+                property bool canReturn: false
+                property bool pinned: false
+
+                theme: root.theme
+                onAboutToShow: {
+                    canReturn = Docking.canReturnToPrevious("view", root.viewId)
+                    pinned = Docking.isViewPinned(root.viewId)
+                }
+
+                DockMenuItem { theme: root.theme; text: "Close"; shortcutText: "Ctrl+W"; onTriggered: root.workspace.closeView(root.viewId) }
+                DockMenuItem { theme: root.theme; text: "Close Others"; onTriggered: root.workspace.closeOtherViews(root.viewId) }
+                DockMenuItem {
+                    objectName: "well.minimize"
+                    theme: root.theme
+                    text: "Minimize to Well"
+                    onTriggered: root.workspace.minimizeView(root.viewId)
+                }
+                DockMenuItem {
+                    objectName: "well.pin"
+                    theme: root.theme
+                    text: tabMenu.pinned ? "Unpin from Well" : "Keep in Well"
+                    visible: (root.resource.kind || "").length > 0
+                    onTriggered: Docking.setViewPinned(root.viewId, !tabMenu.pinned)
+                }
+                DockMenuSeparator { theme: root.theme }
+                DockMenuItem {
+                    objectName: "magnet.returnToPrevious"
+                    theme: root.theme
+                    text: "Return to Previous Position"
+                    visible: tabMenu.canReturn
+                    onTriggered: root.workspace.returnToPrevious("view", root.viewId)
+                }
+                DockMenuItem { theme: root.theme; text: "Split Right"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "right") }
+                DockMenuItem { theme: root.theme; text: "Split Down"; onTriggered: Docking.splitView(root.viewId, root.anchorId, "bottom") }
+                DockMenuItem {
+                    objectName: "magnet.floatView"
+                    theme: root.theme
+                    text: "Float"
+                    visible: !root.workspace.isPanel || root.workspace.isInSidebar || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+                    onTriggered: root.workspace.floatView(root.viewId)
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: "Move to New Window"
+                    visible: !root.workspace.isFloating || root.workspace.isPanel || root.workspace.anchorCount > 1 || (Docking.anchor(root.anchorId).views || []).length > 1
+                    onTriggered: root.workspace.detachView(root.viewId)
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: root.workspace.isPanel ? "Dock in Main Layout" : "Return to Main Window"
+                    visible: root.workspace.isFloating
+                    onTriggered: root.workspace.returnToMainWindow("view", root.viewId)
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: "Open Second View to the Right"
+                    visible: root.typeId !== "archivist.terminal" && root.typeId !== "archivist.welcome"
+                    onTriggered: Docking.duplicateView(root.viewId, "right")
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: "Maximize Panel"
+                    shortcutText: "Ctrl+Shift+Enter"
+                    onTriggered: Docking.toggleMaximize(root.anchorId)
+                }
+                DockMenuSeparator { theme: root.theme; visible: root.resource.kind === "document" }
+                DockMenuItem {
+                    theme: root.theme
+                    text: root.typeId === "archivist.editor" ? "Show Rendered" : "Edit Source"
+                    visible: root.typeId === "archivist.editor" && root.hasRenderedForm
+                        || root.typeId === "archivist.preview" && Boolean(root.details.textual)
+                    onTriggered: Docking.setViewType(
+                        root.viewId,
+                        root.typeId === "archivist.editor" ? "archivist.preview" : "archivist.editor"
+                    )
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: "Save"
+                    shortcutText: "Ctrl+S"
+                    visible: root.documentId.length > 0
+                    enabled: root.dirty
+                    onTriggered: Documents.save(root.documentId)
+                }
+                DockMenuItem {
+                    theme: root.theme
+                    text: "Reveal in Library"
+                    visible: root.resource.kind === "document"
+                    onTriggered: root.workspace.revealView(root.viewId)
+                }
+            }
         }
     }
 }

@@ -10,7 +10,9 @@
 #include "Core/Domains/Workspace/workspace_preferences.h"
 #include "Core/Domains/Workspace/workspace_wells.h"
 
+#include <QElapsedTimer>
 #include <QHash>
+#include <QLoggingCategory>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
@@ -25,6 +27,9 @@
 #include <QVariantMap>
 
 #include <functional>
+
+// Timings for minimizing and restoring (QT_LOGGING_RULES="archivist.wells.timing=true").
+Q_DECLARE_LOGGING_CATEGORY(lcWellTiming)
 
 class DocumentStore;
 
