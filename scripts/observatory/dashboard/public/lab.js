@@ -3,7 +3,7 @@
 // Every action calls the same control operations an agent calls through
 // the CLI (../../control/operations.mjs); nothing starts unless a person
 // presses a button.
-import { control, hasControlKey, loadBaselines, runDetails, runEvents, runLogText, runScenario } from "./data.js";
+import { control, hasControlKey, liveArtifacts, loadBaselines, runDetails, runEvents, runLogText, runScenario } from "./data.js";
 import { comparisonMarkdown, diagnosticReport } from "./diagnostic.mjs";
 import { empty, h, kv, ms, statusPill, table, when } from "./dom.js";
 import { makeRedactor } from "./redact.mjs";
@@ -64,14 +64,15 @@ async function categoryFor(runId, withRunIds = []) {
 export async function reportFor(runId, withRunIds = []) {
   const { summary } = runDetails(runId);
   if (!summary) throw new Error("This run's summary can't be read, so there is nothing to report.");
-  const [events, scenario, logText, category] = await Promise.all([
+  const [events, scenario, logText, category, live] = await Promise.all([
     runEvents(runId).then((value) => value.actions).catch(() => null),
     runScenario(runId),
     runLogText(runId),
     categoryFor(runId, withRunIds),
+    summary.kind === "live-session" ? liveArtifacts(runId) : null,
   ]);
   const redact = makeRedactor({ root: context.getState().root || null });
-  return diagnosticReport({ runId, summary, events, scenario, category, logText, redact });
+  return diagnosticReport({ runId, summary, events, scenario, category, logText, live, redact });
 }
 
 function copyButton(label, makeText) {
@@ -101,6 +102,8 @@ function copyButton(label, makeText) {
   }, label);
   return h("div", { class: "copy-ai" }, h("div", { class: "row" }, button, status), preview);
 }
+
+export { copyText };
 
 export function copyForAiButton(runId, { withRunIds = [], label = "Copy for AI" } = {}) {
   return copyButton(label, async () => (await reportFor(runId, withRunIds)).markdown);

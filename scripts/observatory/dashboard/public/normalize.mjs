@@ -62,6 +62,31 @@ function uiMetrics(summary) {
   };
 }
 
+// A live recording's headline figures (the app's flight recorder).
+function liveMetrics(summary) {
+  const live = summary.live ?? {};
+  const stats = live.stats ?? {};
+  const windows = stats.frames?.windows ?? [];
+  const busiest = windows.reduce((best, window) => (!best || (window.frames ?? 0) > (best.frames ?? 0) ? window : best), null);
+  const spikes = Array.isArray(live.spikes) ? live.spikes : [];
+  return {
+    durationMs: num(live.durationMs),
+    requestedDurationS: num(live.requestedDurationS),
+    stopReason: live.stopReason ?? null,
+    startedBy: live.startedBy ?? null,
+    partial: live.partial === true,
+    windows: windows.length,
+    frames: num(stats.frames?.total),
+    frameP95Ms: num(busiest?.whileDrawing?.p95Ms),
+    frameGaps: spikes.filter((spike) => spike.type === "frame-gap").length,
+    stalls: num(stats.eventLoop?.stalls),
+    maxDelayMs: num(stats.eventLoop?.maxDelayMs),
+    worstMs: spikes.length ? Math.max(...spikes.map((spike) => num(spike.durationMs) ?? 0)) : null,
+    cpuMeanPercent: num(stats.cpu?.meanPercent),
+    rssGrowthBytes: num(stats.memory?.growthRssBytes),
+  };
+}
+
 // The flat record the dashboard lists, filters and compares.
 export function normalizeRun(runId, summary) {
   const problems = [];
@@ -122,6 +147,8 @@ export function normalizeRun(runId, summary) {
     record.build = buildMetrics(summary);
   } else if (supported && kind === "ui-scenario") {
     record.ui = uiMetrics(summary);
+  } else if (supported && kind === "live-session") {
+    record.live = liveMetrics(summary);
   } else if (supported && kind === "runtime-log") {
     record.runtime = { events: num(summary.timing?.recognizedEvents), summary: summary.timing?.summary ?? {} };
   }
@@ -132,7 +159,7 @@ export function normalizeRun(runId, summary) {
 // summary can't be read.
 export function kindFromId(runId) {
   const kind = runId.split("-").slice(2, -1).join("-");
-  return kind === "build" ? "build" : kind.startsWith("ui-") ? "ui-scenario" : kind === "runtime" ? "runtime-log" : "unknown";
+  return kind === "build" ? "build" : kind.startsWith("ui-") ? "ui-scenario" : kind === "runtime" ? "runtime-log" : kind === "live" ? "live-session" : "unknown";
 }
 
 // A run whose summary.json could not be read at all.

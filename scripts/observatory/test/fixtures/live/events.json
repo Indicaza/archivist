@@ -1,0 +1,123 @@
+{
+    "definitions": {
+        "annotation": "A note added during the recording with Add marker.",
+        "marker": "Something happened at atMs; no duration is claimed.",
+        "span": "An operation with a measured start and end (durationMs)."
+    },
+    "events": [
+        {
+            "atMs": 1.81,
+            "category": "recording",
+            "durationMs": null,
+            "endMs": null,
+            "fields": {
+                "appState": "active",
+                "startedBy": "panel"
+            },
+            "kind": "marker",
+            "name": "start",
+            "ok": null
+        },
+        {
+            "atMs": 303.09,
+            "category": "sidebar",
+            "durationMs": null,
+            "endMs": null,
+            "fields": {
+                "section": "files"
+            },
+            "kind": "marker",
+            "name": "open",
+            "ok": null
+        },
+        {
+            "atMs": 504.02,
+            "category": "sidebar",
+            "durationMs": 301.14,
+            "endMs": 805.17,
+            "kind": "span",
+            "name": "resize",
+            "ok": true
+        },
+        {
+            "atMs": 1006.2,
+            "category": "workspace",
+            "durationMs": 90.29,
+            "endMs": 1096.49,
+            "fields": {
+                "geometry": 2.1,
+                "panels": 1.2,
+                "views": 84.5
+            },
+            "kind": "span",
+            "name": "publish",
+            "ok": true
+        },
+        {
+            "atMs": 1896.79,
+            "category": "note",
+            "durationMs": null,
+            "endMs": null,
+            "kind": "annotation",
+            "name": "felt slow",
+            "ok": null
+        },
+        {
+            "atMs": 2297.97,
+            "category": "magnet",
+            "durationMs": 40.39,
+            "endMs": 2338.36,
+            "fields": {
+                "into": "float"
+            },
+            "kind": "span",
+            "name": "undock",
+            "ok": true
+        },
+        {
+            "atMs": 2838.92,
+            "category": "workspace",
+            "durationMs": 10.32,
+            "endMs": 2849.24,
+            "fields": {
+                "viewType": "editor"
+            },
+            "kind": "span",
+            "name": "switch-tab",
+            "ok": true
+        },
+        {
+            "atMs": 3350.17,
+            "category": "chat",
+            "durationMs": 320.22,
+            "endMs": 3670.4,
+            "kind": "span",
+            "name": "switch-conversation",
+            "ok": true
+        },
+        {
+            "atMs": 4772.97,
+            "category": "sidebar",
+            "durationMs": null,
+            "endMs": null,
+            "kind": "marker",
+            "name": "close",
+            "ok": null
+        },
+        {
+            "atMs": 5273.63,
+            "category": "recording",
+            "durationMs": null,
+            "endMs": null,
+            "fields": {
+                "reason": "user"
+            },
+            "kind": "marker",
+            "name": "stop",
+            "ok": null
+        }
+    ],
+    "measurementVersion": 1,
+    "schema": "archivist.observatory.live-events",
+    "schemaVersion": 1
+}

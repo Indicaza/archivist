@@ -68,7 +68,7 @@ export async function artifactPreview(runId, name, options) {
 }
 
 export async function runEvents(runId) {
-  if (!runDetails(runId).artifacts.includes("events")) throw new Error("This run has no UI events.");
+  if (!runDetails(runId).artifacts.includes("events") || runDetails(runId).summary?.kind === "live-session") throw new Error("This run has no UI events.");
   const { text } = await artifactText(runId, "events");
   let events;
   try {
@@ -160,4 +160,59 @@ export async function control(operation, input = {}) {
 export function compare(a, b) {
   const runs = [record(a), record(b)];
   return { runs, comparison: compareRuns(runs[0], runs[1]) };
+}
+
+// ---- live recorder ----------------------------------------------------------------
+// The page always calls api/live/<op>. Inside Archivist that is the app's own
+// recorder (same origin, the panel's key); from the browser dashboard the
+// server runs the observatory.live.* operations, which reach the app only
+// while "Let agents record" is on. Only the app can change agent access.
+
+let liveInApp = false;
+
+export function liveIsInApp() {
+  return liveInApp;
+}
+
+export async function live(operation, input = {}) {
+  if (!controlKey) return { ok: false, error: { code: "controls-disabled", message: "This page has no control key." } };
+  let response;
+  try {
+    response = await fetch(`api/live/${encodeURIComponent(operation)}`, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-Observatory-Token": controlKey },
+      body: JSON.stringify(input),
+    });
+  } catch (error) {
+    return { ok: false, error: { code: "app-unreachable", message: `No answer: ${error.message}` } };
+  }
+  const body = await response.json().catch(() => null);
+  if (!body || typeof body.ok !== "boolean") {
+    return { ok: false, error: { code: "internal", message: errorMessage(body, response.status) } };
+  }
+  if (operation === "status" && body.ok) liveInApp = Object.hasOwn(body.result ?? {}, "agentAccess");
+  return body;
+}
+
+const liveCache = new Map();
+
+// metrics.json and events.json of a recording (null when missing or unreadable).
+export async function liveArtifacts(runId) {
+  const { artifacts, summary } = runDetails(runId);
+  const key = `${runId}:${summary?.finishedAt ?? ""}`;
+  if (liveCache.has(key)) return liveCache.get(key);
+  const read = async (name) => {
+    if (!artifacts.includes(name)) return null;
+    try {
+      const response = await fetch(artifactUrl(runId, name), { cache: "no-store" });
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null;
+    }
+  };
+  const [metrics, events] = await Promise.all([read("metrics"), read("events")]);
+  const value = { metrics, events };
+  if (summary?.status !== "running") liveCache.set(key, value);
+  return value;
 }

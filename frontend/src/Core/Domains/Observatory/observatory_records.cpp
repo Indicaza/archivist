@@ -167,6 +167,8 @@ const QStringList &pageFiles()
         QStringLiteral("diagnostic.mjs"),
         QStringLiteral("dom.js"),
         QStringLiteral("lab.js"),
+        QStringLiteral("live.mjs"),
+        QStringLiteral("live-page.js"),
     };
     return files;
 }

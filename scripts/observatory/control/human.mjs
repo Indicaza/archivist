@@ -28,6 +28,33 @@ function jobLines(job) {
   return lines;
 }
 
+function liveStatusLines(result) {
+  if (result.available === false) return [`Live recorder not reachable (${result.reason}): ${result.message}`];
+  if (result.recording) {
+    return [`Recording ${result.runId}${result.label ? ` "${result.label}"` : ""}: ${ms(result.elapsedMs)} of ${result.durationSeconds} s (started by ${result.startedBy})`,
+      `  ${result.frames ?? 0} frames, ${result.events ?? 0} events, ${result.windows ?? 0} windows so far`];
+  }
+  return [`Live recorder ${result.state}.${result.lastRun ? ` Last recording: ${result.lastRun}` : ""}`];
+}
+
+function liveOverviewLines(recording) {
+  if (!recording) return ["No recording."];
+  const h = recording.headline ?? {};
+  return [
+    `${recording.runId} ${recording.status}${recording.partial ? " (partial)" : ""}${recording.label ? ` "${recording.label}"` : ""}, ${ms(recording.durationMs)}, stopped by ${recording.stopReason ?? "?"}`,
+    `  ${recording.summary}`,
+    `  Frames ${h.frames ?? "?"}, interval p95 ${ms(h.busiestWindowP95Ms)}, longest UI-thread delay ${ms(h.maxEventLoopDelayMs)}, CPU mean ${h.cpuMeanPercent ?? "n/a"}%`,
+  ];
+}
+
+function spikeLines(spikes) {
+  if (!spikes.length) return ["  No notable moments."];
+  return spikes.flatMap((spike) => [
+    `  #${spike.id} at ${(spike.atMs / 1000).toFixed(2)} s: ${spike.type} ${ms(spike.durationMs)} (${spike.windowLabel})`,
+    ...spike.observedTogether.slice(0, 3).map((line) => `      ${line}`),
+  ]);
+}
+
 export function formatResponse(response) {
   if (!response.ok) return `Error (${response.error.code}): ${response.error.message}`;
   const result = response.result;
@@ -59,6 +86,24 @@ export function formatResponse(response) {
     case "observatory.reports.export":
       return [`Evidence for ${result.manifest.runId}:`, `  ${result.zip}`, `  ${result.dir}/ (${result.manifest.files.length} files, start with report.md)`,
         result.manifest.redaction.rawLogsIncluded ? "  Includes the full, unredacted log." : "  Redacted; no raw logs."].join("\n");
+    case "observatory.live.status":
+    case "observatory.live.start":
+    case "observatory.live.stop":
+    case "observatory.live.mark":
+      return liveStatusLines(result).join("\n");
+    case "observatory.live.wait":
+      return liveOverviewLines(result.recording).join("\n");
+    case "observatory.live.list":
+      return result.recordings.length
+        ? result.recordings.map((run) => `${run.runId} ${run.status}${run.partial ? " (partial)" : ""} ${ms(run.durationMs)}${run.label ? ` "${run.label}"` : ""}: ${run.frameGaps ?? 0} frame gaps, ${run.stalls ?? 0} stalls`).join("\n")
+        : "No live recordings yet.";
+    case "observatory.live.get":
+      return [...liveOverviewLines(result), "  Worst moments:", ...spikeLines(result.worst)].join("\n");
+    case "observatory.live.spikes":
+      return [`${result.total} notable moments in ${result.runId}:`, ...spikeLines(result.spikes)].join("\n");
+    case "observatory.live.compare":
+      if (!result.compatible) return [`Not comparable:`, ...result.blockers.map((line) => `  ${line}`)].join("\n");
+      return [`${result.baseRunId} → ${result.runId}`, ...result.metrics.map((m) => `  ${m.label}: ${m.base ?? "n/a"} → ${m.candidate ?? "n/a"}${m.delta != null ? ` (${m.delta >= 0 ? "+" : ""}${m.delta})` : ""}`), ...result.notes.map((note) => `  Note: ${note}`)].join("\n");
     default:
       return JSON.stringify(result, null, 2);
   }

@@ -6,6 +6,7 @@
 // missing evidence, and never names a cause: a slow step is a measurement,
 // not a diagnosis. Raw logs are never included; at most a few redacted
 // error lines.
+import { liveCommands, liveFacts, liveMarkdown } from "./live.mjs";
 import { normalizeRun } from "./normalize.mjs";
 import { logExcerpt } from "./redact.mjs";
 
@@ -186,8 +187,12 @@ function missingEvidence(run, facts, comparison, hasEvents) {
     missing.push("Timings are wall-clock measurements from the in-app driver on one machine, under whatever else was running.");
   } else if (run.kind === "build") {
     missing.push("Per-file compile costs come from .ninja_log; there is no compiler time trace.");
+  } else if (run.kind === "live-session") {
+    missing.push(...(facts.liveMissing ?? []));
   }
-  if (!comparison) missing.push("No baseline comparison: either no baseline is set for this kind of run or it wasn't loaded.");
+  if (run.kind === "live-session") {
+    missing.push("Live recordings have no baseline: what you do while recording differs each time. Compare two recordings with `live compare` after repeating the same interaction.");
+  } else if (!comparison) missing.push("No baseline comparison: either no baseline is set for this kind of run or it wasn't loaded.");
   else if (comparison.status !== "compared") missing.push(`Baseline comparison not made: ${comparison.reasons.join("; ") || comparison.status}.`);
   else if (comparison.candidateRunIds.length < 3) missing.push("Fewer than 3 runs on the candidate side: differences are unconfirmed.");
   if (run.source?.dirty) missing.push(`The working tree was dirty (${facts.identity.changedFiles ?? "some"} changed files): the commit alone does not identify the code that ran.`);
@@ -200,6 +205,8 @@ function reproduce(run) {
     commands.push(`npm run observatory:ui -- --scenario ${run.ui.scenarioId} --skip-build`);
   } else if (run.kind === "build") {
     commands.push("npm run observatory:build");
+  } else if (run.kind === "live-session") {
+    return liveCommands(run.runId);
   }
   commands.push(`npm run observatory -- show ${run.runId} --json`, `npm run observatory -- report ${run.runId}`, `npm run observatory -- export ${run.runId}`);
   return commands;
@@ -208,7 +215,8 @@ function reproduce(run) {
 // The report's data. `category` is this run's category from regression.mjs
 // buildReport (optional); `events` the run's ui-events.json actions;
 // `scenario` its scenario.json; `logText` a log to take error lines from.
-export function diagnosticFacts({ runId, summary, events = null, scenario = null, category = null, logText = null, redact = (text) => text }) {
+// `live` is { metrics, events } (metrics.json, events.json) for a live recording.
+export function diagnosticFacts({ runId, summary, events = null, scenario = null, category = null, logText = null, live = null, redact = (text) => text }) {
   const run = normalizeRun(runId, summary);
   const facts = {
     schema: DIAGNOSTIC_SCHEMA,
@@ -222,6 +230,7 @@ export function diagnosticFacts({ runId, summary, events = null, scenario = null
   };
   if (run.supported && run.kind === "ui-scenario") Object.assign(facts, uiFacts(run, summary, events, scenario, redact));
   else if (run.supported && run.kind === "build") Object.assign(facts, buildFacts(run, summary, redact));
+  else if (run.supported && run.kind === "live-session") Object.assign(facts, liveFacts(summary, live ?? {}, redact));
   else facts.results = { status: run.status, error: run.error ? redact(run.error) : null };
   if (logText) {
     const excerpt = logExcerpt(logText, redact);
@@ -229,6 +238,7 @@ export function diagnosticFacts({ runId, summary, events = null, scenario = null
   }
   facts.comparison = comparisonFacts(category);
   facts.missingEvidence = missingEvidence(run, facts, facts.comparison, Array.isArray(events));
+  delete facts.liveMissing;
   facts.reproduce = reproduce(run);
   facts.artifacts = Object.entries(summary?.artifacts ?? {}).filter(([, file]) => typeof file === "string").map(([name, file]) => ({ name, file }));
   return facts;
@@ -265,7 +275,7 @@ function comparisonLines(comparison) {
 
 export function diagnosticMarkdown(facts) {
   const id = facts.identity;
-  const title = facts.kind === "ui-scenario" ? facts.experiment?.scenario ?? "UI scenario" : facts.kind === "build" ? "Build" : facts.kind;
+  const title = facts.kind === "ui-scenario" ? facts.experiment?.scenario ?? "UI scenario" : facts.kind === "build" ? "Build" : facts.kind === "live-session" ? "Live recording" : facts.kind;
   const out = [`# Archivist Observatory: ${title} (${facts.status})`, "",
     `Observatory record \`${facts.runId}\`. Everything below is measured unless a section says otherwise. Paths and secrets are redacted.`, "",
     "## Identity",
@@ -296,10 +306,13 @@ export function diagnosticMarkdown(facts) {
     out.push("", "## Experiment", `- Build kind: ${e.classification ?? "unclassified"}${e.classificationBasis ? ` (${e.classificationBasis})` : ""}, IDE bundle cache ${e.ideCacheReused === true ? "reused" : e.ideCacheReused === false ? "rebuilt" : "unknown"}, ${e.plannedWorkSteps ?? "?"} planned compile/link steps`);
     out.push("", "## Result", `- Status: ${r.status}, total ${ms(r.totalMs)}${r.failedPhase ? `, failed in ${r.failedPhase}` : ""}`);
     out.push(`- Phases: ${r.phases.map((phase) => `${phase.name} ${ms(phase.durationMs)}${phase.status !== "success" ? ` (${phase.status})` : ""}`).join(", ")}`);
+  } else if (facts.kind === "live-session" && facts.experiment) {
+    liveMarkdown(facts, out);
   } else {
     out.push("", "## Result", `- Status: ${facts.results?.status}${facts.results?.error ? `: ${facts.results.error}` : ""}`);
   }
 
+  if (facts.kind === "live-session") return finishMarkdown(facts, out);
   out.push("", "## Baseline comparison", ...comparisonLines(facts.comparison));
 
   const ev = facts.evidence ?? {};
@@ -332,6 +345,11 @@ export function diagnosticMarkdown(facts) {
   if (ev.correlations?.length) {
     out.push("", "## Observed together (correlation, not a cause)", ...ev.correlations.map((line) => `- ${line}`));
   }
+  return finishMarkdown(facts, out);
+}
+
+function finishMarkdown(facts, out) {
+  const ev = facts.evidence ?? {};
   if (ev.codePaths?.length) {
     out.push("", "## Hypotheses (not verified)", "- Where to look first: how the scenario drives the failed or slowest steps, from its definition (not from a trace):");
     for (const path of ev.codePaths) out.push(`  - ${path.op}: ${path.how}`);

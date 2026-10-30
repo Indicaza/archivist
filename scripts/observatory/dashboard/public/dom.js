@@ -51,6 +51,7 @@ export function kindLabel(run) {
   if (run.kind === "build") return "Build";
   if (run.kind === "ui-scenario") return run.ui?.scenarioName ?? "UI scenario";
   if (run.kind === "runtime-log") return "Runtime log";
+  if (run.kind === "live-session") return run.label ? `Live recording: ${run.label}` : "Live recording";
   return run.kind;
 }
 

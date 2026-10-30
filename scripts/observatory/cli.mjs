@@ -75,6 +75,24 @@ for a versioned JSON envelope on stdout and nothing else):
   npm run observatory -- export <run-id> [--raw-logs]      (evidence .zip)
   npm run observatory:dashboard -- --control               (Test Lab in the browser)
 
+Live recordings (the app's flight recorder; Observatory > Live in Archivist):
+
+  npm run observatory -- live status
+  npm run observatory -- live record [--duration 15|30|60|120] [--label <text>]
+                                       (start, wait for the end, print the result)
+  npm run observatory -- live start [--duration <s>] [--label <text>]
+  npm run observatory -- live mark <note>
+  npm run observatory -- live stop
+  npm run observatory -- live wait [--timeout <s>]
+  npm run observatory -- live list [--limit <n>]
+  npm run observatory -- live get <run-id>
+  npm run observatory -- live spikes <run-id> [--limit <n>]
+  npm run observatory -- live window <run-id> --from <ms> --to <ms>
+  npm run observatory -- live compare <base-run-id> <run-id>
+
+  status/record/start/mark/stop/wait reach the running Archivist only while
+  "Let agents record" is on in its Observatory > Live panel.
+
   Exit codes: 0 ok, 1 failed, 2 invalid input, 4 another UI test is running;
   tests run --wait: 0 completed, 1 failed, 70 interrupted, 124 timed out,
   130 cancelled.
@@ -525,6 +543,49 @@ async function testsCommand(action, args, values) {
   return 2;
 }
 
+async function liveCommand(action, args, values) {
+  const duration = values.duration ?? undefined;
+  switch (action ?? "status") {
+    case "status":
+      return runOperation("observatory.live.status", {}, values);
+    case "start":
+      return runOperation("observatory.live.start", { durationSeconds: duration, label: values.label }, values);
+    case "stop":
+      return runOperation("observatory.live.stop", {}, values);
+    case "mark":
+      return runOperation("observatory.live.mark", { label: args.join(" ") || values.label }, values);
+    case "wait":
+      return runOperation("observatory.live.wait", { timeoutSeconds: values.timeout }, values);
+    case "record": {
+      const print = values.json ? jsonStdout() : null;
+      const ctx = controlContext();
+      let response = await dispatch(ctx, "observatory.live.start", { durationSeconds: duration, label: values.label });
+      if (response.ok) {
+        const seconds = response.result.durationSeconds ?? 30;
+        console.error(`Recording ${response.result.runId} for ${seconds} s. Use Archivist now; it stops by itself.`);
+        response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: Math.min(300, seconds + 60) });
+      }
+      if (print) print(response);
+      else if (response.ok) console.log(formatResponse(response));
+      else console.error(formatResponse(response));
+      return responseExitCode(response);
+    }
+    case "list":
+      return runOperation("observatory.live.list", { limit: values.limit }, values);
+    case "get":
+      return runOperation("observatory.live.get", { runId: args[0] }, values);
+    case "spikes":
+      return runOperation("observatory.live.spikes", { runId: args[0], limit: values.limit }, values);
+    case "window":
+      return runOperation("observatory.live.window", { runId: args[0], fromMs: values.from, toMs: values.to }, values);
+    case "compare":
+      return runOperation("observatory.live.compare", { baseRunId: args[0], runId: args[1] }, values);
+    default:
+      console.error(`Unknown live action "${action}". Use status, record, start, mark, stop, wait, list, get, spikes, window or compare.`);
+      return 2;
+  }
+}
+
 async function runsCommand(action, args, values) {
   if (action === "list" || !action) {
     return runOperation("observatory.runs.list", { kind: values.kind, scenario: values.scenario, status: values.status, limit: values.limit }, values);
@@ -719,6 +780,9 @@ async function main(argv) {
       status: { type: "string" },
       limit: { type: "string" },
       tail: { type: "string" },
+      duration: { type: "string" },
+      from: { type: "string" },
+      to: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -769,6 +833,8 @@ async function main(argv) {
       return testsCommand(argument, positionals.slice(2), values);
     case "runs":
       return runsCommand(argument, positionals.slice(2), values);
+    case "live":
+      return liveCommand(argument, positionals.slice(2), values);
     case "report": {
       if (values.json) return runOperation("observatory.reports.generate", { runId: argument }, values);
       const response = await dispatch(controlContext(), "observatory.reports.generate", { runId: argument });
