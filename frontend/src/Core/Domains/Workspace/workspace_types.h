@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QList>
+#include <QPointF>
 #include <QRectF>
 #include <QString>
 #include <QStringList>
@@ -250,6 +251,88 @@ struct DropTarget
 
     [[nodiscard]] bool isValid() const { return !surfaceId.isEmpty(); }
     [[nodiscard]] bool isSurfaceEdge() const { return anchorId.isEmpty() && edge != Edge::Center; }
+};
+
+// Where a magnet sits now: recorded at pickup so it can be put back
+// (Magnets::placeOf, Magnets::planReturn), and kept for a minimized view so
+// it can be restored.
+struct Place
+{
+    DragSource source;
+    QString surfaceId;
+    QString anchorId;     // views: the anchor it was a tab of
+    int index = -1;       // views: its tab position
+    // Where its anchor sat in the split tree, as a drop target that
+    // recreates it: beside a neighbour, or along the window's edge.
+    DropTarget beside;
+    // Its share of that split (0 when it filled the window), so it comes
+    // back the same size.
+    double share = 0;
+    Orientation splitOrientation = Orientation::Horizontal;
+    // The anchor was alone in a floating window: going back reopens one.
+    bool aloneInFloatingWindow = false;
+    bool inMainWindow = false; // that floating surface was a panel in the main window
+    QString sidebarSlot;       // ...or docked in the sidebar
+    QRectF windowGeometry;
+    QString screenName;
+
+    [[nodiscard]] bool isValid() const { return source.kind != DragSource::Kind::None && !surfaceId.isEmpty(); }
+};
+
+// ---- Gravity Wells -----------------------------------------------------
+//
+// A Gravity Well is a small collection of references kept within reach: views
+// put away (minimized) and resources pinned for quick access. It owns no
+// resource and no view record of its own: a minimized view stays a view of
+// the model, with the same id and resource, only parked in a Well instead of
+// a panel. One entry stands for one resource, so a pinned resource and its
+// minimized view never show as two icons.
+
+// A view put away in a Well, and where it came from.
+struct MinimizedView
+{
+    QString viewId;
+    Place place;
+};
+
+struct WellEntry
+{
+    QString id;
+    // What it stands for. Empty for a view with no resource (a welcome page):
+    // that entry is the view's alone.
+    ResourceRef resource;
+    // How to open it again when nothing shows it (a pinned resource).
+    QString typeId;
+    QString title;
+    bool pinned = false;
+    // Its views put away here, oldest first. An entry that is not pinned
+    // always has at least one.
+    QList<MinimizedView> minimized;
+};
+
+// How a Well lays out its entries. Only Linear is drawn today; the rest are
+// room to grow (the geometry lives in QML, the model only names it).
+enum class WellForm
+{
+    Linear,
+};
+
+[[nodiscard]] QString wellFormName(WellForm form);
+[[nodiscard]] bool parseWellForm(const QString &name, WellForm *form);
+
+struct WellRecord
+{
+    QString id;
+    // The window it floats in; empty is the main window, whatever its
+    // surface id (applying a layout gives the main window a new one).
+    QString surfaceId;
+    // Where it sits, as a share of its window: the middle of its long side,
+    // so it stays put relative to the window as the window resizes. The
+    // default is the bottom centre.
+    QPointF position{0.5, 1.0};
+    Orientation orientation = Orientation::Horizontal;
+    WellForm form = WellForm::Linear;
+    QList<WellEntry> entries;
 };
 
 struct SplitterHandle

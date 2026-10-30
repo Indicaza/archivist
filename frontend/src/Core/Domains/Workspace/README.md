@@ -34,7 +34,8 @@ resource; neither owns it.
 
 - Every mutation is a transaction: it succeeds and leaves the model valid, or
   fails and leaves it byte-for-byte unchanged.
-- `validate()` checks the invariants: each view in exactly one anchor, each
+- `validate()` checks the invariants: each view in exactly one anchor (or
+  minimized in exactly one Gravity Well entry, never both), each
   anchor in exactly one leaf, splits with ≥2 children and sizes summing to 1, no
   same-orientation nesting, exactly one primary surface that is never empty.
 - Only `closeView` / `closeAnchor` remove views. Callers guard those against
@@ -247,6 +248,57 @@ everything with no history entry.
   (`magnetReturnDuration`).
 - **Tokens**: all timings live in `Theme.qml` (`magnet*`). With reduced
   motion every one of them jumps: no springs, tremor, overshoot or nudge.
+
+## Gravity Wells (`workspace_wells`)
+
+A Gravity Well keeps work within reach without keeping it on screen: views
+put away (minimized) and resources pinned for quick access. It owns nothing.
+
+- **References, not copies.** A minimized view is still a view of the model,
+  with the same id, resource and view state; it sits in a Well entry instead
+  of a panel (`WorkspaceModel::minimizeView`). Its resource is untouched, so
+  a buffer keeps its unsaved edits, a terminal keeps its process, a chat and
+  its agent run keep going. The store keeps publishing it (hidden, in no
+  window), so its live content stays parked like a background tab's.
+- **One entry per resource.** Minimizing a pinned resource joins its pinned
+  entry; two minimized views of one resource share an entry (the latest
+  comes back first). An entry with no resource (a welcome page) is that
+  view's alone. What a click does follows the entry's state
+  (`Wells::entryState`, `Wells::activate`):
+
+  ```text
+  minimized (pinned or not)   restore its latest minimized view
+  pinned, shown in a panel    bring that view forward
+  pinned, nothing shows it    open it again (its pinned view type)
+  ```
+
+  Recent resources and running agents are shown by the UI from what it
+  already knows; they aren't entries.
+- **Where it goes back.** Minimizing records the view's place the way a
+  Magnet pickup does (`Magnets::placeOf`), and the place is saved with the
+  entry, so restore works after a restart. `Wells::restore`: its own panel
+  if it's still there, at its old tab position (`original`); else where that
+  panel sat, beside its old neighbour or along the window edge with its old
+  share, or as its own floating panel or window, the way Return to Previous
+  Position does it (`returned`); else a panel in the main window showing the
+  same kind of content, or the panel new content goes to (`fallback`).
+  Never nowhere.
+- **Closing, minimizing, suspending.** Closing a minimized view closes it
+  (the usual unsaved-work guard first); a pinned entry stays. Minimizing
+  never suspends anything. A process doesn't outlive the app: after a
+  restart a minimized terminal comes back the way a terminal tab does.
+- **History and persistence.** Wells are part of the model's data, so
+  minimize, restore and pin are ordinary workspace steps (undo and redo put
+  the whole state back, Wells included) and they are saved in the
+  Collection's snapshot (`session.wells`). Minimized views are also written
+  with the session's views, in no panel, so an older Archivist opens them
+  as tabs instead of losing them. Applying a layout and putting an
+  arrangement back leave what is put away put away.
+- **Placement.** One Well per project for now, the main window's
+  (`WorkspaceModel::kMainWellId`), at a position stored as a share of the
+  window (bottom centre by default) so it stays put as the window resizes.
+  `WellForm` and `orientation` leave room for vertical, arc, circular and
+  collapsed forms; only the linear one is drawn.
 
 ## The sidebar
 

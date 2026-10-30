@@ -109,29 +109,9 @@ struct StripHit
 // panel).
 [[nodiscard]] OpResult canFloat(const WorkspaceModel &model, const DragSource &source);
 
-// Where a magnet sits now, recorded at pickup so it can be put back.
-struct Place
-{
-    DragSource source;
-    QString surfaceId;
-    QString anchorId;     // views: the anchor it was a tab of
-    int index = -1;       // views: its tab position
-    // Where its anchor sat in the split tree, as a drop target that
-    // recreates it: beside a neighbour, or along the window's edge.
-    DropTarget beside;
-    // Its share of that split (0 when it filled the window), so it comes
-    // back the same size.
-    double share = 0;
-    Orientation splitOrientation = Orientation::Horizontal;
-    // The anchor was alone in a floating window: going back reopens one.
-    bool aloneInFloatingWindow = false;
-    bool inMainWindow = false; // that floating surface was a panel in the main window
-    QString sidebarSlot;       // ...or docked in the sidebar
-    QRectF windowGeometry;
-    QString screenName;
-
-    [[nodiscard]] bool isValid() const { return source.kind != DragSource::Kind::None && !surfaceId.isEmpty(); }
-};
+// Where a magnet sits now, recorded at pickup so it can be put back (the
+// record lives with the other value types: Gravity Wells keep one too).
+using Place = Workspace::Place;
 
 [[nodiscard]] Place placeOf(const WorkspaceModel &model, const DragSource &source);
 

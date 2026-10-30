@@ -2707,6 +2707,166 @@ private slots:
         QCOMPARE(agentAreas(store).size(), 3);
     }
 
+    // ---- Gravity Wells -------------------------------------------------
+
+    void minimizingKeepsWorkAliveAndUndoes()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        disk.files.insert(QStringLiteral("lib-main:b.cpp"), QStringLiteral("beta"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("wells-minimize"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        const QString docB = store.view(b).value("resource").toMap().value("id").toString();
+        QVERIFY(documents.applyEdits(docB, b, 1, insertAt(0, ">")).value("ok").toBool());
+        QVERIFY(documents.isDirty(docB));
+
+        const QVariantMap minimized = store.minimizeView(b);
+        QVERIFY2(minimized.value("ok").toBool(), qPrintable(minimized.value("error").toString()));
+        QVERIFY(store.isViewMinimized(b));
+        QCOMPARE(store.undoSummary(), QStringLiteral("Minimized “b.cpp”"));
+
+        // Still a view (hidden, in no window), its buffer and edit kept.
+        const QVariantMap row = store.viewRow(b);
+        QCOMPARE(row.value("isHidden").toBool(), true);
+        QCOMPARE(row.value("surfaceId").toString(), QString());
+        QVERIFY(documents.holders(docB).contains(b));
+        QCOMPARE(documents.snapshot(docB).value("text").toString(), QStringLiteral(">beta"));
+        QVERIFY(store.view(b).value("minimized").toBool());
+
+        const QVariantList wells = store.wells();
+        QCOMPARE(wells.size(), 1);
+        const QVariantList entries = wells.first().toMap().value("entries").toList();
+        QCOMPARE(entries.size(), 1);
+        QCOMPARE(entries.first().toMap().value("state").toString(), QStringLiteral("minimized"));
+        QCOMPARE(entries.first().toMap().value("title").toString(), QStringLiteral("b.cpp"));
+
+        // Undo puts it back in its tab; redo puts it away again.
+        QVERIFY(store.undo());
+        QVERIFY(!store.isViewMinimized(b));
+        QCOMPARE(store.view(b).value("anchorId").toString(), store.view(a).value("anchorId").toString());
+        QVERIFY(store.redo());
+        QVERIFY(store.isViewMinimized(b));
+        QCOMPARE(documents.snapshot(docB).value("text").toString(), QStringLiteral(">beta"));
+
+        // Restoring is a step of its own.
+        const QVariantMap restored = store.restoreMinimizedView(b);
+        QVERIFY2(restored.value("ok").toBool(), qPrintable(restored.value("error").toString()));
+        QCOMPARE(restored.value("how").toString(), QStringLiteral("original"));
+        QCOMPARE(store.undoSummary(), QStringLiteral("Restored “b.cpp”"));
+        QVERIFY(store.viewRow(b).value("isActive").toBool());
+        QVERIFY(documents.isDirty(docB));
+    }
+
+    void openingSomethingPutAwayBringsItBack()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-open"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        QVERIFY(store.minimizeView(b).value("ok").toBool());
+
+        // The same resource asked for again: that view, not a copy.
+        QCOMPARE(store.viewsForResource(QStringLiteral("document"), documentResource("b.cpp").value("id").toString()), QStringList{b});
+        QCOMPARE(store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp"), b);
+        QVERIFY(!store.isViewMinimized(b));
+
+        // Activating a minimized view restores it too.
+        QVERIFY(store.minimizeView(b).value("ok").toBool());
+        QVERIFY(store.activateView(b));
+        QVERIFY(!store.isViewMinimized(b));
+        QVERIFY(store.viewRow(b).value("isActive").toBool());
+    }
+
+    void closingSomethingPutAwayStillAsksAboutUnsavedWork()
+    {
+        FakeDisk disk;
+        disk.files.insert(QStringLiteral("lib-main:a.cpp"), QStringLiteral("alpha"));
+        DocumentStore documents;
+        disk.attach(documents);
+        WorkspaceStore store;
+        store.setDocumentStore(&documents);
+        store.setCollection(QStringLiteral("wells-close"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        const QString a = store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString docA = store.view(a).value("resource").toMap().value("id").toString();
+        QVERIFY(documents.applyEdits(docA, a, 1, insertAt(0, "!")).value("ok").toBool());
+        QVERIFY(store.minimizeView(a).value("ok").toBool());
+
+        QVariantMap closed = store.closeView(a, false);
+        QVERIFY(!closed.value("ok").toBool());
+        QVERIFY(store.isViewMinimized(a));
+        closed = store.closeView(a, true);
+        QVERIFY(closed.value("ok").toBool());
+        QVERIFY(store.view(a).isEmpty());
+        QVERIFY(store.wells().first().toMap().value("entries").toList().isEmpty());
+    }
+
+    void pinsAndClicksDoWhatTheEntryShows()
+    {
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-pins"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+        const QString b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+        const QVariantMap pinned = store.setViewPinned(b, true);
+        QVERIFY(pinned.value("ok").toBool());
+        const QString entryId = pinned.value("entryId").toString();
+        QCOMPARE(store.undoSummary(), QStringLiteral("Pinned “b.cpp”"));
+
+        QVERIFY(store.closeView(b, true).value("ok").toBool());
+        QVariantMap entry = store.wells().first().toMap().value("entries").toList().first().toMap();
+        QCOMPARE(entry.value("state").toString(), QStringLiteral("pinnedClosed"));
+
+        QSignalSpy opened(&store, &WorkspaceStore::viewOpened);
+        const QVariantMap clicked = store.activateWellEntry(entryId);
+        QVERIFY2(clicked.value("ok").toBool(), qPrintable(clicked.value("error").toString()));
+        QCOMPARE(clicked.value("how").toString(), QStringLiteral("opened"));
+        QCOMPARE(opened.count(), 1);
+        entry = store.wells().first().toMap().value("entries").toList().first().toMap();
+        QCOMPARE(entry.value("state").toString(), QStringLiteral("pinnedOpen"));
+        QCOMPARE(store.wells().first().toMap().value("entries").toList().size(), 1);
+
+        QVERIFY(store.setWellEntryPinned(entryId, false).value("ok").toBool());
+        QVERIFY(store.wells().first().toMap().value("entries").toList().isEmpty());
+    }
+
+    void theWellSurvivesARestart()
+    {
+        QSettings settings;
+        settings.remove(QStringLiteral("workspace/collections/wells-restart/docking/snapshot"));
+        QString b;
+        {
+            WorkspaceStore store;
+            store.setCollection(QStringLiteral("wells-restart"));
+            store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+            store.openView(QStringLiteral("archivist.editor"), documentResource("a.cpp"), "a.cpp");
+            b = store.openView(QStringLiteral("archivist.editor"), documentResource("b.cpp"), "b.cpp");
+            QVERIFY(store.setViewPinned(b, true).value("ok").toBool());
+            QVERIFY(store.minimizeView(b).value("ok").toBool());
+            QVERIFY(store.setWellPosition(QStringLiteral("well.main"), 0.2, 0.75));
+            store.saveNow();
+        }
+
+        WorkspaceStore store;
+        store.setCollection(QStringLiteral("wells-restart"));
+        store.setSurfaceSize(store.primarySurfaceId(), 1200, 800);
+        QVERIFY(store.isViewMinimized(b));
+        const QVariantMap well = store.wells().first().toMap();
+        QCOMPARE(well.value("x").toDouble(), 0.2);
+        QCOMPARE(well.value("y").toDouble(), 0.75);
+        const QVariantMap entry = well.value("entries").toList().first().toMap();
+        QVERIFY(entry.value("pinned").toBool());
+        QCOMPARE(entry.value("state").toString(), QStringLiteral("minimized"));
+        QCOMPARE(store.restoreMinimizedView(b).value("how").toString(), QStringLiteral("original"));
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

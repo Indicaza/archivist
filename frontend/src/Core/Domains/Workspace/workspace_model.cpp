@@ -59,6 +59,23 @@ bool parseOrientation(const QString &name, Orientation *orientation)
     return false;
 }
 
+QString wellFormName(WellForm form)
+{
+    switch (form) {
+    case WellForm::Linear: return QStringLiteral("linear");
+    }
+    return QStringLiteral("linear");
+}
+
+bool parseWellForm(const QString &name, WellForm *form)
+{
+    if (name == QStringLiteral("linear")) {
+        *form = WellForm::Linear;
+        return true;
+    }
+    return false;
+}
+
 Orientation orientationForEdge(Edge edge)
 {
     return edge == Edge::Top || edge == Edge::Bottom ? Orientation::Vertical : Orientation::Horizontal;
@@ -155,6 +172,7 @@ WorkspaceModel::WorkspaceModel(IdGenerator generator)
     const QString surfaceId = createSurface({}, {});
     m_surfaces[surfaceId].primary = true;
     ensurePrimaryHasAnchor();
+    ensureMainWell();
     m_focusedAnchorId = anchorIds(surfaceId).value(0);
 }
 
@@ -858,6 +876,16 @@ OpResult WorkspaceModel::closeView(QString viewId, Origin origin)
             return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
         }
 
+        // A minimized view closes from its Well (pinned, its entry stays).
+        if (const QString entryId = entryOfMinimizedView(viewId); !entryId.isEmpty()) {
+            WellEntry *entry = mutableEntry(entryId);
+            entry->minimized.removeIf([&](const MinimizedView &minimized) { return minimized.viewId == viewId; });
+            dropEntryIfUnused(entryId);
+            m_views.remove(viewId);
+            bump();
+            return OpResult::success();
+        }
+
         const QString anchorId = m_anchorOfView.value(viewId);
 
         if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
@@ -876,6 +904,10 @@ OpResult WorkspaceModel::activateView(QString viewId)
 {
     if (!m_views.contains(viewId)) {
         return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
+    }
+
+    if (isMinimized(viewId)) {
+        return OpResult::failure(QStringLiteral("MINIMIZED"), QStringLiteral("It's put away in a Gravity Well: restore it first."));
     }
 
     const QString anchorId = m_anchorOfView.value(viewId);
@@ -917,6 +949,17 @@ OpResult WorkspaceModel::setViewResource(QString viewId, const ResourceRef &reso
         return locked;
     }
 
+    // Pins and minimized entries follow the resource (a rename keeps them).
+    const ResourceRef before = m_views[viewId].resource;
+    if (!before.isEmpty()) {
+        for (WellRecord &well : m_wells) {
+            for (WellEntry &entry : well.entries) {
+                if (entry.resource.key() == before.key()) {
+                    entry.resource = resource;
+                }
+            }
+        }
+    }
     m_views[viewId].resource = resource;
     bump();
     return OpResult::success();
@@ -2500,6 +2543,321 @@ QString WorkspaceModel::cycleAnchor(const QString &anchorId, int step) const
 
 // ---- whole model -------------------------------------------------------------
 
+// ---- Gravity Wells -------------------------------------------------------
+
+void WorkspaceModel::ensureMainWell()
+{
+    for (const WellRecord &well : std::as_const(m_wells)) {
+        if (well.id == kMainWellId) {
+            return;
+        }
+    }
+    WellRecord well;
+    well.id = kMainWellId;
+    m_wells.prepend(well);
+}
+
+const WellRecord *WorkspaceModel::well(const QString &wellId) const
+{
+    for (const WellRecord &well : m_wells) {
+        if (well.id == wellId) {
+            return &well;
+        }
+    }
+    return nullptr;
+}
+
+WellRecord *WorkspaceModel::mutableWell(const QString &wellId)
+{
+    for (WellRecord &well : m_wells) {
+        if (well.id == wellId) {
+            return &well;
+        }
+    }
+    return nullptr;
+}
+
+const WellEntry *WorkspaceModel::wellEntry(const QString &entryId) const
+{
+    for (const WellRecord &well : m_wells) {
+        for (const WellEntry &entry : well.entries) {
+            if (entry.id == entryId) {
+                return &entry;
+            }
+        }
+    }
+    return nullptr;
+}
+
+WellEntry *WorkspaceModel::mutableEntry(const QString &entryId)
+{
+    for (WellRecord &well : m_wells) {
+        for (WellEntry &entry : well.entries) {
+            if (entry.id == entryId) {
+                return &entry;
+            }
+        }
+    }
+    return nullptr;
+}
+
+QString WorkspaceModel::wellOfEntry(const QString &entryId) const
+{
+    for (const WellRecord &well : m_wells) {
+        for (const WellEntry &entry : well.entries) {
+            if (entry.id == entryId) {
+                return well.id;
+            }
+        }
+    }
+    return {};
+}
+
+QString WorkspaceModel::entryOfMinimizedView(const QString &viewId) const
+{
+    if (viewId.isEmpty() || m_anchorOfView.contains(viewId)) {
+        return {};
+    }
+    for (const WellRecord &well : m_wells) {
+        for (const WellEntry &entry : well.entries) {
+            for (const MinimizedView &minimized : entry.minimized) {
+                if (minimized.viewId == viewId) {
+                    return entry.id;
+                }
+            }
+        }
+    }
+    return {};
+}
+
+const MinimizedView *WorkspaceModel::minimizedView(const QString &viewId) const
+{
+    const WellEntry *entry = wellEntry(entryOfMinimizedView(viewId));
+    if (!entry) {
+        return nullptr;
+    }
+    for (const MinimizedView &minimized : entry->minimized) {
+        if (minimized.viewId == viewId) {
+            return &minimized;
+        }
+    }
+    return nullptr;
+}
+
+QStringList WorkspaceModel::minimizedViewIds() const
+{
+    QStringList result;
+    for (const WellRecord &well : m_wells) {
+        for (const WellEntry &entry : well.entries) {
+            for (const MinimizedView &minimized : entry.minimized) {
+                result.append(minimized.viewId);
+            }
+        }
+    }
+    return result;
+}
+
+QString WorkspaceModel::wellEntryForResource(const QString &wellId, const ResourceRef &resource) const
+{
+    const WellRecord *record = well(wellId);
+    if (!record || resource.isEmpty()) {
+        return {};
+    }
+    for (const WellEntry &entry : record->entries) {
+        if (entry.resource.key() == resource.key()) {
+            return entry.id;
+        }
+    }
+    return {};
+}
+
+void WorkspaceModel::dropEntryIfUnused(const QString &entryId)
+{
+    for (WellRecord &well : m_wells) {
+        well.entries.removeIf([&](const WellEntry &entry) {
+            return entry.id == entryId && !entry.pinned && entry.minimized.isEmpty();
+        });
+    }
+}
+
+OpResult WorkspaceModel::minimizeView(QString viewId, const Place &place, QString wellId, Origin origin)
+{
+    return transact([&]() {
+        if (!m_views.contains(viewId)) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
+        }
+        if (isMinimized(viewId)) {
+            return OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already put away."));
+        }
+        const QString anchorId = m_anchorOfView.value(viewId);
+        if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
+            return locked;
+        }
+        if (wellId.isEmpty()) {
+            wellId = kMainWellId;
+        }
+        WellRecord *record = mutableWell(wellId);
+        if (!record) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well: ") + wellId);
+        }
+
+        const ViewRecord &view = m_views[viewId];
+        QString entryId = wellEntryForResource(wellId, view.resource);
+        if (entryId.isEmpty()) {
+            WellEntry entry;
+            entry.id = newId(QStringLiteral("we"));
+            entry.resource = view.resource;
+            entry.typeId = view.typeId;
+            entry.title = view.title;
+            entryId = entry.id;
+            record = mutableWell(wellId);
+            record->entries.append(entry);
+        }
+        WellEntry *entry = mutableEntry(entryId);
+        entry->title = view.title.isEmpty() ? entry->title : view.title;
+        entry->minimized.append(MinimizedView{viewId, place});
+
+        removeViewFromAnchor(viewId);
+        collapseIfIncidental(anchorId);
+        if (m_focusedAnchorId == anchorId && !m_anchors.contains(anchorId)) {
+            m_focusedAnchorId.clear();
+        }
+        if (!m_targetAnchorId.isEmpty() && !m_anchors.contains(m_targetAnchorId)) {
+            m_targetAnchorId.clear();
+        }
+        if (m_focusedAnchorId.isEmpty()) {
+            m_focusedAnchorId = anchorIds(primarySurfaceId()).value(0);
+        }
+        bump();
+        return OpResult::success(entryId);
+    });
+}
+
+OpResult WorkspaceModel::unminimizeView(QString viewId, QString anchorId, int index, bool activate)
+{
+    return transact([&]() {
+        const QString entryId = entryOfMinimizedView(viewId);
+        if (entryId.isEmpty()) {
+            return OpResult::failure(QStringLiteral("NOT_MINIMIZED"), QStringLiteral("It isn't put away."));
+        }
+        if (!m_anchors.contains(anchorId)) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+        }
+        WellEntry *entry = mutableEntry(entryId);
+        entry->minimized.removeIf([&](const MinimizedView &minimized) { return minimized.viewId == viewId; });
+        dropEntryIfUnused(entryId);
+        insertViewIntoAnchor(viewId, anchorId, index, activate);
+        bump();
+        return OpResult::success(anchorId);
+    });
+}
+
+OpResult WorkspaceModel::setViewPinned(QString viewId, bool pinned, QString wellId)
+{
+    return transact([&]() {
+        const ViewRecord *view = this->view(viewId);
+        if (!view) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such view: ") + viewId);
+        }
+        if (view->resource.isEmpty()) {
+            return OpResult::failure(QStringLiteral("NOT_PINNABLE"), QStringLiteral("There's nothing to pin here."));
+        }
+        if (wellId.isEmpty()) {
+            const QString minimizedIn = entryOfMinimizedView(viewId);
+            wellId = minimizedIn.isEmpty() ? kMainWellId : wellOfEntry(minimizedIn);
+        }
+        if (!mutableWell(wellId)) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well: ") + wellId);
+        }
+        QString entryId = wellEntryForResource(wellId, view->resource);
+        if (entryId.isEmpty()) {
+            if (!pinned) {
+                return OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It isn't pinned."));
+            }
+            WellEntry entry;
+            entry.id = newId(QStringLiteral("we"));
+            entry.resource = view->resource;
+            entry.typeId = view->typeId;
+            entry.title = view->title;
+            entryId = entry.id;
+            mutableWell(wellId)->entries.append(entry);
+        }
+        WellEntry *entry = mutableEntry(entryId);
+        if (entry->pinned == pinned) {
+            return OpResult::failure(QStringLiteral("NO_CHANGE"), pinned ? QStringLiteral("It's already pinned.") : QStringLiteral("It isn't pinned."));
+        }
+        entry->pinned = pinned;
+        if (pinned) {
+            entry->typeId = view->typeId;
+            entry->title = view->title.isEmpty() ? entry->title : view->title;
+        }
+        dropEntryIfUnused(entryId);
+        bump();
+        return OpResult::success(entryId);
+    });
+}
+
+OpResult WorkspaceModel::setWellEntryPinned(QString entryId, bool pinned)
+{
+    return transact([&]() {
+        WellEntry *entry = mutableEntry(entryId);
+        if (!entry) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well entry: ") + entryId);
+        }
+        if (pinned && entry->resource.isEmpty()) {
+            return OpResult::failure(QStringLiteral("NOT_PINNABLE"), QStringLiteral("There's nothing to pin here."));
+        }
+        if (entry->pinned == pinned) {
+            return OpResult::failure(QStringLiteral("NO_CHANGE"), pinned ? QStringLiteral("It's already pinned.") : QStringLiteral("It isn't pinned."));
+        }
+        entry->pinned = pinned;
+        dropEntryIfUnused(entryId);
+        bump();
+        return OpResult::success(entryId);
+    });
+}
+
+OpResult WorkspaceModel::moveWellEntry(QString entryId, int index)
+{
+    return transact([&]() {
+        WellRecord *record = mutableWell(wellOfEntry(entryId));
+        if (!record) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well entry: ") + entryId);
+        }
+        qsizetype from = -1;
+        for (qsizetype i = 0; i < record->entries.size(); ++i) {
+            if (record->entries.at(i).id == entryId) {
+                from = i;
+            }
+        }
+        const qsizetype to = std::clamp<qsizetype>(index < 0 ? record->entries.size() - 1 : index, 0, record->entries.size() - 1);
+        if (from == to) {
+            return OpResult::failure(QStringLiteral("NO_CHANGE"), QStringLiteral("It's already there."));
+        }
+        record->entries.move(from, to);
+        bump();
+        return OpResult::success(entryId);
+    });
+}
+
+OpResult WorkspaceModel::setWellPosition(QString wellId, const QPointF &position)
+{
+    WellRecord *record = mutableWell(wellId);
+    if (!record) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well: ") + wellId);
+    }
+    if (!std::isfinite(position.x()) || !std::isfinite(position.y())) {
+        return OpResult::failure(QStringLiteral("INVALID_POSITION"), QStringLiteral("That isn't a place in the window."));
+    }
+    const QPointF clamped(std::clamp(position.x(), 0.0, 1.0), std::clamp(position.y(), 0.0, 1.0));
+    if (record->position == clamped) {
+        return OpResult::success();
+    }
+    record->position = clamped;
+    bump();
+    return OpResult::success();
+}
+
 QStringList WorkspaceModel::validate() const
 {
     QStringList problems;
@@ -2633,6 +2991,53 @@ QStringList WorkspaceModel::validate() const
         }
     }
 
+    // Gravity Wells: each minimized view is parked once, never also in a
+    // panel; entries and Wells have unique ids.
+    QSet<QString> wellIds;
+    QSet<QString> entryIds;
+    bool mainWell = false;
+    for (const WellRecord &well : m_wells) {
+        if (well.id.isEmpty() || wellIds.contains(well.id)) {
+            problems.append(QStringLiteral("Well %1 has no id or appears twice").arg(well.id));
+        }
+        wellIds.insert(well.id);
+        mainWell = mainWell || well.id == kMainWellId;
+        if (!well.surfaceId.isEmpty() && !m_surfaces.contains(well.surfaceId)) {
+            problems.append(QStringLiteral("Well %1 is in a missing window").arg(well.id));
+        }
+        QSet<QString> resources;
+        for (const WellEntry &entry : well.entries) {
+            if (entry.id.isEmpty() || entryIds.contains(entry.id)) {
+                problems.append(QStringLiteral("Well entry %1 has no id or appears twice").arg(entry.id));
+            }
+            entryIds.insert(entry.id);
+            if (!entry.resource.isEmpty()) {
+                if (resources.contains(entry.resource.key())) {
+                    problems.append(QStringLiteral("Well %1 shows %2 twice").arg(well.id, entry.resource.key()));
+                }
+                resources.insert(entry.resource.key());
+            }
+            if (!entry.pinned && entry.minimized.isEmpty()) {
+                problems.append(QStringLiteral("Well entry %1 holds nothing").arg(entry.id));
+            }
+            if (entry.resource.isEmpty() && entry.pinned) {
+                problems.append(QStringLiteral("Well entry %1 pins nothing").arg(entry.id));
+            }
+            for (const MinimizedView &minimized : entry.minimized) {
+                if (!m_views.contains(minimized.viewId)) {
+                    problems.append(QStringLiteral("Well entry %1 lists missing view %2").arg(entry.id, minimized.viewId));
+                }
+                if (viewsSeen.contains(minimized.viewId)) {
+                    problems.append(QStringLiteral("view %1 is in two places").arg(minimized.viewId));
+                }
+                viewsSeen.insert(minimized.viewId);
+            }
+        }
+    }
+    if (!mainWell) {
+        problems.append(QStringLiteral("the main Well is missing"));
+    }
+
     if (viewsSeen.size() != m_views.size()) {
         problems.append(QStringLiteral("%1 views are not in any anchor").arg(m_views.size() - viewsSeen.size()));
     }
@@ -2654,6 +3059,7 @@ WorkspaceModel::Data WorkspaceModel::data() const
     result.views = m_views;
     result.focusedAnchorId = m_focusedAnchorId;
     result.targetAnchorId = m_targetAnchorId;
+    result.wells = m_wells;
     return result;
 }
 
@@ -2692,6 +3098,8 @@ QStringList WorkspaceModel::setData(const Data &data)
     candidate.m_views = data.views;
     candidate.m_focusedAnchorId = data.focusedAnchorId;
     candidate.m_targetAnchorId = data.targetAnchorId;
+    candidate.m_wells = data.wells;
+    candidate.ensureMainWell();
     candidate.repairPointers();
 
     const QStringList problems = candidate.validate();
@@ -2710,6 +3118,7 @@ QStringList WorkspaceModel::setData(const Data &data)
         ? candidate.m_focusedAnchorId
         : anchorIds(primarySurfaceId()).value(0);
     m_targetAnchorId = candidate.m_targetAnchorId;
+    m_wells = candidate.m_wells;
     bump();
     return {};
 }

@@ -367,6 +367,37 @@ void WorkspaceStore::publish()
         }
     }
 
+    // Views put away in a Gravity Well keep a row (hidden, in no window), so
+    // their live content (a terminal's page, a preview) stays alive, parked
+    // like a background tab's, instead of being torn down and rebuilt.
+    for (const QString &viewId : m_model.minimizedViewIds()) {
+        const ViewRecord *view = m_model.view(viewId);
+        if (!view) {
+            continue;
+        }
+        // Its last place, as for a hidden tab (never a zero size, which
+        // would squeeze a terminal); after a restart, a plain default.
+        const QRectF last = m_lastViewRects.value(view->id, QRectF(0, 0, 800, 520));
+        QVariantMap row = rectMap(last);
+        lastRects.insert(view->id, last);
+        row.insert(QStringLiteral("viewId"), view->id);
+        row.insert(QStringLiteral("typeId"), view->typeId);
+        row.insert(QStringLiteral("title"), view->title);
+        row.insert(QStringLiteral("resourceKind"), view->resource.kind);
+        row.insert(QStringLiteral("resourceId"), view->resource.id);
+        row.insert(QStringLiteral("collectionId"), view->resource.collectionId);
+        row.insert(QStringLiteral("libraryId"), view->resource.libraryId);
+        row.insert(QStringLiteral("details"), view->resource.details);
+        row.insert(QStringLiteral("viewState"), view->state);
+        row.insert(QStringLiteral("anchorId"), QString());
+        row.insert(QStringLiteral("surfaceId"), QString());
+        row.insert(QStringLiteral("tabIndex"), -1);
+        row.insert(QStringLiteral("isActive"), false);
+        row.insert(QStringLiteral("isFocused"), false);
+        row.insert(QStringLiteral("isHidden"), true);
+        viewRows.append(row);
+    }
+
     m_views->setRows(viewRows);
     m_lastViewRects = lastRects;
 
@@ -382,7 +413,8 @@ void WorkspaceStore::publish()
     // Keep document buffers in step with the editor views that show them.
     QHash<QString, QString> wanted; // view -> document
 
-    for (const QString &viewId : m_model.viewIds()) {
+    // A minimized editor keeps its buffer (and its unsaved changes).
+    for (const QString &viewId : m_model.viewIds() + m_model.minimizedViewIds()) {
         const ViewRecord *view = m_model.view(viewId);
         if (view && isDocumentView(*view)) {
             wanted.insert(viewId, view->resource.id);
@@ -766,6 +798,21 @@ QString WorkspaceStore::openView(const QString &typeId, const QVariantMap &resou
             emit viewFocused(existing);
             return existing;
         }
+
+        // Put away in a Gravity Well: bring that one back instead of a copy.
+        for (const QString &viewId : m_model.minimizedViewIds()) {
+            const ViewRecord *minimized = m_model.view(viewId);
+            if (minimized && minimized->typeId == typeId && minimized->resource.key() == resource.key()) {
+                if (restoreMinimizedView(viewId).value(QStringLiteral("ok")).toBool()) {
+                    if (!title.isEmpty()) {
+                        m_model.setViewTitle(viewId, title);
+                        publish();
+                    }
+                    return viewId;
+                }
+                break;
+            }
+        }
     }
 
     ViewRecord view;
@@ -953,6 +1000,11 @@ QVariantMap WorkspaceStore::closeOtherViews(const QString &viewId, bool force)
 
 bool WorkspaceStore::activateView(const QString &viewId)
 {
+    // Asked for while put away in a Well: it comes back.
+    if (m_model.isMinimized(viewId)) {
+        return restoreMinimizedView(viewId).value(QStringLiteral("ok")).toBool();
+    }
+
     const OpResult result = m_model.activateView(viewId);
 
     if (!result.ok) {
@@ -1077,6 +1129,7 @@ QVariantMap WorkspaceStore::view(const QString &viewId) const
         {QStringLiteral("state"), view->state},
         {QStringLiteral("anchorId"), m_model.anchorOfView(viewId)},
         {QStringLiteral("surfaceId"), m_model.surfaceOfAnchor(m_model.anchorOfView(viewId))},
+        {QStringLiteral("minimized"), m_model.isMinimized(viewId)},
     };
 }
 
@@ -1087,7 +1140,16 @@ QVariantMap WorkspaceStore::viewRow(const QString &viewId) const
 
 QStringList WorkspaceStore::viewsForResource(const QString &kind, const QString &id) const
 {
-    return m_model.viewsForResource(kind, id);
+    // Views in panels first, then any put away in a Well (activating one of
+    // those restores it).
+    QStringList views = m_model.viewsForResource(kind, id);
+    for (const QString &viewId : m_model.minimizedViewIds()) {
+        const ViewRecord *view = m_model.view(viewId);
+        if (view && view->resource.kind == kind && view->resource.id == id) {
+            views.append(viewId);
+        }
+    }
+    return views;
 }
 
 QStringList WorkspaceStore::viewIdsOfType(const QString &typeId) const

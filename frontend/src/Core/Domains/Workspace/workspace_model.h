@@ -20,7 +20,8 @@
 // closeView/closeAnchor, which the caller guards against unsaved work.
 //
 // Invariants (checked by validate()):
-//   - every view is in exactly one anchor;
+//   - every view is in exactly one anchor, or minimized in exactly one
+//     Gravity Well entry (never both);
 //   - every anchor is in exactly one leaf of exactly one surface tree;
 //   - split nodes have at least two children and sizes summing to 1, and no
 //     split has a child split with the same orientation;
@@ -47,7 +48,9 @@ public:
     [[nodiscard]] const SplitNode *node(const QString &nodeId) const;
     [[nodiscard]] QStringList anchorIds() const; // every anchor, tree order
     [[nodiscard]] QStringList anchorIds(const QString &surfaceId) const;
-    [[nodiscard]] QStringList viewIds() const;   // every view, tree order
+    // Every view in a panel, tree order (minimized views are not: see
+    // minimizedViewIds).
+    [[nodiscard]] QStringList viewIds() const;
     [[nodiscard]] QString anchorOfView(const QString &viewId) const;
     [[nodiscard]] QString surfaceOfAnchor(const QString &anchorId) const;
     [[nodiscard]] QString leafOfAnchor(const QString &anchorId) const;
@@ -206,6 +209,44 @@ public:
         double surfaceEdgeBand = 18
     ) const;
 
+    // ---- Gravity Wells ---------------------------------------------------
+    //
+    // A Well holds references: minimized views (still views of this model,
+    // same id and resource, parked instead of in a panel) and pinned
+    // resources. Planning where a restore goes is Wells::restore
+    // (workspace_wells.h); these are the primitives it commits.
+
+    // The main window's Well always exists (id kMainWellId).
+    static inline const QString kMainWellId = QStringLiteral("well.main");
+    [[nodiscard]] QList<WellRecord> wells() const { return m_wells; }
+    [[nodiscard]] const WellRecord *well(const QString &wellId) const;
+    [[nodiscard]] const WellEntry *wellEntry(const QString &entryId) const;
+    [[nodiscard]] QString wellOfEntry(const QString &entryId) const;
+    // The entry a minimized view is parked in (empty when it is in a panel).
+    [[nodiscard]] QString entryOfMinimizedView(const QString &viewId) const;
+    [[nodiscard]] bool isMinimized(const QString &viewId) const { return !entryOfMinimizedView(viewId).isEmpty(); }
+    [[nodiscard]] QStringList minimizedViewIds() const;
+    // The entry that stands for `resource` in `wellId` (empty: none).
+    [[nodiscard]] QString wellEntryForResource(const QString &wellId, const ResourceRef &resource) const;
+    [[nodiscard]] const MinimizedView *minimizedView(const QString &viewId) const;
+
+    // Puts a view away: out of its panel (an incidental panel left empty
+    // folds, as when its last tab is closed), into the entry for its
+    // resource in `wellId` (empty: the main Well), remembering `place`.
+    // Refused for automation and agents when the anchor's content is locked.
+    OpResult minimizeView(QString viewId, const Place &place, QString wellId = {}, Origin origin = Origin::User);
+    // Takes a minimized view back into `anchorId` at `index` (-1: after the
+    // active tab). Its entry goes when it is neither pinned nor holding
+    // another view.
+    OpResult unminimizeView(QString viewId, QString anchorId, int index = -1, bool activate = true);
+    // Pins (or unpins) the resource a view shows, in the Well it is in or
+    // the main Well. Unpinning an entry with no minimized view removes it.
+    OpResult setViewPinned(QString viewId, bool pinned, QString wellId = {});
+    OpResult setWellEntryPinned(QString entryId, bool pinned);
+    OpResult moveWellEntry(QString entryId, int index);
+    // Moves a Well within its window (`position` as a share, clamped 0..1).
+    OpResult setWellPosition(QString wellId, const QPointF &position);
+
     // ---- geometry and navigation ----------------------------------------
 
     [[nodiscard]] LayoutGeometry computeGeometry(const QString &surfaceId, const QSizeF &size, const LayoutMetrics &metrics) const;
@@ -230,6 +271,7 @@ public:
         QHash<QString, ViewRecord> views;
         QString focusedAnchorId;
         QString targetAnchorId;
+        QList<WellRecord> wells;
     };
     [[nodiscard]] Data data() const;
     // Replaces the whole model when `data` is valid; otherwise leaves the
@@ -260,6 +302,10 @@ private:
     void placeSurface(const QString &surfaceId, const QRectF &geometry, const QString &screenName, bool inMainWindow);
     void dropSurfaceIfEmpty(const QString &surfaceId);
     void ensurePrimaryHasAnchor();
+    void ensureMainWell();
+    WellRecord *mutableWell(const QString &wellId);
+    WellEntry *mutableEntry(const QString &entryId);
+    void dropEntryIfUnused(const QString &entryId);
     void repairPointers();
     void layoutNode(const QString &nodeId, const QRectF &rect, const LayoutMetrics &metrics, LayoutGeometry &out) const;
     QSizeF minimumSize(const QString &nodeId, const LayoutMetrics &metrics) const;
@@ -285,6 +331,7 @@ private:
     QHash<QString, QString> m_anchorOfView;
     QString m_focusedAnchorId;
     QString m_targetAnchorId;
+    QList<WellRecord> m_wells;
     int m_revision = 0;
     IdGenerator m_generateId;
 };
