@@ -340,6 +340,32 @@ put away (minimized) and resources pinned for quick access. It owns nothing.
   and it stays inside the window, flipping below when there's no room
   above. It keeps the Well shown while it's up, takes no input, and goes
   at once on a press, a drag, a move, a menu or the Genie.
+- **Glued while things move.** The layout has no motion of its own. Its
+  left edge is the sidebar's edge as drawn and its bottom edge the bottom
+  dock's top as drawn, every frame of their animations, and its right edge
+  is the window's; the main window reports its size to the store in the
+  same frame, so panels never trail their area. View content (previews,
+  chats) sits over its panel as the panel is drawn, riding the panel's own
+  springs; only a terminal keeps its size until a move comes to rest, so
+  its scrollback isn't rewrapped mid-move. The sidebar slides out at its
+  full width rather than squeezing its rows, and is drawn once out of
+  sight at startup so its first open has nothing to build.
+- **Moving with some life.** The sidebar and the bottom dock open, close
+  and resize on a spring (`EdgeSpring`): it keeps its speed when you change
+  your mind mid-move, winds back a touch before it goes, carries past its
+  mark and settles. The layout's edge on the far side from the sidebar
+  stays on the window (which side that is comes from
+  `layout/sidebarSide`, left by default), and its edge next to the sidebar
+  (and its bottom, next to the dock) is theirs as drawn, so the whole
+  layout stretches with them and every panel keeps its share. Panels
+  making room inside it (a split, a close) are drawn by their four edges
+  on springs (`DockAnchor`), nearest first. Dragging an edge or a splitter
+  moves things directly, and startup and reduced motion don't animate.
+  All of it is tunable in one place, `Theme`: `layoutDuration`,
+  `layoutBounce` and `anticipation` for the sidebar and dock;
+  `reflowSpring`, `reflowDamping`, `reflowMass` and `stagger` for panels;
+  `motionSpeed` for everything. They're live from the Motion panel
+  (Ctrl+Alt+Shift+M) and saved.
 - **Keeping it quick.** Minimizing and restoring change the model in well
   under a millisecond; the cost is in what the screen rebuilds. So a tab
   strip changes only the tab that came or went (`TabStrip.js`), menus are

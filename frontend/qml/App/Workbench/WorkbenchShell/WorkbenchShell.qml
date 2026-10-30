@@ -4,6 +4,7 @@ import "ActivityRail"
 import "ExplorerDock"
 import "SidePanelResizeHandle"
 import "StatusBar"
+import "MotionTuner"
 import "../Workspace"
 import "../Dock"
 import "../WorkbenchDock"
@@ -77,7 +78,21 @@ Rectangle {
         maximumExplorerWidth,
         Math.max(theme.explorerMinWidth, explorerWidth)
     )
-    property real explorerExtent: explorerOpen ? clampedExplorerWidth : 0
+    // The sidebar opens and closes on a spring (see EdgeSpring); dragging
+    // its edge moves it directly.
+    readonly property real explorerExtent: explorerSpring.value
+    EdgeSpring {
+        id: explorerSpring
+        theme: root.theme
+        target: root.explorerOpen ? root.clampedExplorerWidth : 0
+        active: root.springLayoutEdges && !root.resizingExplorer
+    }
+    EdgeSpring {
+        id: dockSpring
+        theme: root.theme
+        target: root.clampedDockHeight
+        active: root.springLayoutEdges && !root.resizingDock
+    }
     // Home's sidebar is a side panel like the Explorer: same slot, same
     // edge to drag. Its width and whether it's open are one setting for
     // every project. While the Explorer is open it keeps its width, so
@@ -91,9 +106,13 @@ Rectangle {
         maximumExplorerWidth,
         Math.max(theme.explorerMinWidth, homeSidebarWidth)
     )
-    property real homeSidebarExtent: homeSidebarOpen && (Shell.homeActive || explorerOpen)
-        ? clampedHomeSidebarWidth
-        : 0
+    readonly property real homeSidebarExtent: homeSidebarSpring.value
+    EdgeSpring {
+        id: homeSidebarSpring
+        theme: root.theme
+        target: root.homeSidebarOpen && (Shell.homeActive || root.explorerOpen) ? root.clampedHomeSidebarWidth : 0
+        active: root.springLayoutEdges && !root.resizingHomeSidebar
+    }
     readonly property real maximumDockHeight: Math.max(
         theme.chatDockMinHeight,
         height - theme.statusBarHeight - theme.workspaceMinHeight
@@ -108,7 +127,9 @@ Rectangle {
         theme.messageHorizontalInset,
         (width - theme.transcriptContentWidth) / 2
     )
-    readonly property real explorerRight: theme.activityRailWidth + explorerExtent
+    // Where the sidebar's edge is drawn. A bouncy close can overshoot past
+    // zero; the edge never goes behind the rail.
+    readonly property real explorerRight: theme.activityRailWidth + Math.max(0, explorerExtent)
     readonly property bool explorerEncroachesWorkspace: explorerOpen
         && explorerRight + theme.panelCollisionGap >= centeredContentLeft
     readonly property real attachedDockX: explorerRight
@@ -150,7 +171,9 @@ Rectangle {
         ? explorerRight
         : theme.activityRailWidth
     readonly property real workspacePreviewLeftObstruction: explorerRight
-    readonly property real workspaceBottomObstruction: lerp(clampedDockHeight, 0, compactEase)
+    // The bottom dock's height as drawn (it animates), so the workspace's
+    // bottom edge stays on the dock's top edge every frame.
+    readonly property real workspaceBottomObstruction: lerp(chatDock.height, 0, compactEase)
 
     function lerp(from, to, t) {
         return from + (to - from) * t
@@ -254,7 +277,7 @@ Rectangle {
     Timer {
         id: composerMoveTimer
 
-        interval: 260
+        interval: Math.round(260 * root.theme.motionSpeed)
         onTriggered: root.composerMoving = false
     }
 
@@ -268,22 +291,6 @@ Rectangle {
 
     Behavior on homeReveal {
         enabled: !root.theme.reducedMotion
-        NumberAnimation {
-            duration: root.theme.motionPanel
-            easing.type: Easing.OutCubic
-        }
-    }
-
-    Behavior on explorerExtent {
-        enabled: !root.resizingExplorer
-        NumberAnimation {
-            duration: root.theme.motionPanel
-            easing.type: Easing.OutCubic
-        }
-    }
-
-    Behavior on homeSidebarExtent {
-        enabled: !root.resizingHomeSidebar
         NumberAnimation {
             duration: root.theme.motionPanel
             easing.type: Easing.OutCubic
@@ -631,6 +638,13 @@ Rectangle {
         - statusBar.height
         - root.workspaceBottomObstruction
 
+    // Which side the sidebar is on (it can move to the right later). The
+    // layout's edge on the far side stays on the window; the edge next to
+    // the sidebar is the sidebar's edge as drawn, so it rides the sidebar's
+    // spring, and its bottom rides the dock's.
+    readonly property string sidebarSide: String(WorkspaceState.value("layout/sidebarSide", "left") || "left") === "right" ? "right" : "left"
+    readonly property bool springLayoutEdges: !theme.reducedMotion && !explorerWarm
+
     function revealFileInLibrary(libraryId, fileId, relativePath) {
         Shell.showPanel("navigation.navigator")
         explorerDock.revealFile(libraryId, fileId, relativePath)
@@ -819,6 +833,31 @@ Rectangle {
         }
     }
 
+    // The Motion panel: tune how the app moves, live.
+    Shortcut {
+        objectName: "motion.tuner"
+        sequences: ["Ctrl+Alt+Shift+M"]
+        context: Qt.ApplicationShortcut
+        onActivated: root.motionTunerOpen = !root.motionTunerOpen
+    }
+    property bool motionTunerOpen: false
+
+    Loader {
+        active: root.motionTunerOpen
+        anchors.right: parent.right
+        anchors.rightMargin: 16
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: statusBar.height + 16
+        z: 200
+
+        sourceComponent: MotionTuner {
+            theme: root.theme
+            onToggleSidebarRequested: Shell.setPanelOpen(!Shell.panelOpen)
+            onToggleDockRequested: root.toggleChatMode()
+            onCloseRequested: root.motionTunerOpen = false
+        }
+    }
+
     Shortcut {
         sequences: ["Ctrl+Shift+H"]
         context: Qt.ApplicationShortcut
@@ -863,15 +902,7 @@ Rectangle {
         height: root.workspaceAreaHeight
         sourceComponent: root.legacyWorkspace ? legacyWorkspaceComponent : dockWorkspaceComponent
         visible: !root.workspaceHidden
-
-        Behavior on height {
-            enabled: !root.resizingDock
-
-            NumberAnimation {
-                duration: root.theme.motionPanel
-                easing.type: Easing.OutCubic
-            }
-        }
+        // No motion of its own: it follows the dock's animated edge.
     }
 
     Component {
@@ -879,7 +910,10 @@ Rectangle {
 
         DockWorkspace {
             theme: root.theme
-            leftInset: root.explorerOpen ? root.explorerRight : root.theme.activityRailWidth
+            // The edge next to the sidebar is the sidebar's, as drawn; the
+            // far edge stays on the window.
+            leftInset: root.sidebarSide === "left" ? root.explorerRight : 0
+            rightInset: root.sidebarSide === "right" ? root.explorerRight : 0
             bottomOverlay: root.compactChat ? root.compactOverlay : 0
             composerAnchorId: root.composerAnchorId
             overlayHost: floatingHost
@@ -947,7 +981,7 @@ Rectangle {
         sending: root.homeSending
         visible: root.homeReveal > 0
         reveal: root.homeReveal
-        leftInset: root.homeSidebarExtent
+        leftInset: Math.max(0, root.homeSidebarExtent)
         sidebarShown: root.homeSidebarOpen
         enabled: Shell.homeActive
         z: 40
@@ -983,7 +1017,7 @@ Rectangle {
 
         x: root.theme.activityRailWidth
         y: 0
-        width: root.homeSidebarExtent
+        width: Math.max(0, root.homeSidebarExtent)
         height: parent.height - statusBar.height
         visible: width > 0.5 && root.homeReveal > 0
         opacity: root.homeReveal
@@ -1014,7 +1048,7 @@ Rectangle {
     SidePanelResizeHandle {
         id: homeSidebarResizeHandle
 
-        x: root.theme.activityRailWidth + root.homeSidebarExtent - width / 2
+        x: root.theme.activityRailWidth + Math.max(0, root.homeSidebarExtent) - width / 2
         y: 0
         height: parent.height - statusBar.height
         visible: Shell.homeActive && root.homeSidebarOpen
@@ -1027,24 +1061,52 @@ Rectangle {
         onResetRequested: root.resetHomeSidebarWidth()
     }
 
-    ExplorerDock {
-        id: explorerDock
+    // The sidebar slides out from behind the rail at its full width, so its
+    // rows never reflow while it opens or closes; this slot only reveals
+    // as much of it as is out.
+    Item {
+        id: explorerSlot
 
         x: theme.activityRailWidth
         y: 0
-        width: root.explorerExtent
+        width: Math.max(0, root.explorerExtent)
         height: parent.height - statusBar.height
-        visible: width > 0.5 && !root.workspaceHidden
-        opacity: root.explorerOpen ? 1 : 0
-        theme: root.theme
-        activeViewIndex: root.activeViewIndex
-        dockWorkspace: !root.legacyWorkspace && workspaceLoader.item && workspaceLoader.item.registerSlotZone ? workspaceLoader.item : null
+        visible: !root.workspaceHidden
+        clip: true
         z: 15
-        onCloseRequested: Shell.setPanelOpen(false)
 
-        Behavior on opacity {
-            NumberAnimation { duration: root.theme.motionFast }
+        ExplorerDock {
+            id: explorerDock
+
+            // Past its width (a bouncy open overshooting) it stretches a
+            // little rather than leave a gap by the rail.
+            x: Math.min(0, explorerSlot.width - width)
+            y: 0
+            width: Math.max(root.clampedExplorerWidth, explorerSlot.width)
+            height: parent.height
+            // Drawn once at startup even when closed (see explorerWarm), so
+            // the first open has nothing to build.
+            visible: explorerSlot.width > 0.5 || root.explorerWarm
+            opacity: root.explorerOpen || root.explorerWarm ? 1 : 0
+            theme: root.theme
+            activeViewIndex: root.activeViewIndex
+            dockWorkspace: !root.legacyWorkspace && workspaceLoader.item && workspaceLoader.item.registerSlotZone ? workspaceLoader.item : null
+            onCloseRequested: Shell.setPanelOpen(false)
+
+            Behavior on opacity {
+                NumberAnimation { duration: root.theme.motionFast }
+            }
         }
+    }
+
+    // For the first moments after launch the sidebar is drawn (out of
+    // sight) whether or not it's open: its rows, icons and text are built
+    // and uploaded then, not on the frame it's first opened.
+    property bool explorerWarm: true
+    Timer {
+        interval: 1200
+        running: true
+        onTriggered: root.explorerWarm = false
     }
 
     SidePanelResizeHandle {
@@ -1069,7 +1131,7 @@ Rectangle {
         x: root.attachedDockX
         y: parent.height - statusBar.height - height
         width: parent.width - root.attachedDockX
-        height: root.clampedDockHeight
+        height: Math.max(0, dockSpring.value)
         theme: root.theme
         collectionId:
             CollectionStore.selectedCollectionId
@@ -1091,15 +1153,6 @@ Rectangle {
         Component.onCompleted: root.reportCommandSurface()
         onMessageSubmitted: function(message) {
             ChatStore.sendMessage(message)
-        }
-
-        Behavior on height {
-            enabled: !root.resizingDock
-
-            NumberAnimation {
-                duration: root.theme.motionPanel
-                easing.type: Easing.OutCubic
-            }
         }
     }
 
@@ -1209,9 +1262,9 @@ Rectangle {
             }
         }
 
-        Behavior on x { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on y { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on width { enabled: root.composerMoving; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on x { enabled: root.composerMoving; NumberAnimation { duration: Math.round(220 * root.theme.motionSpeed); easing.type: Easing.OutCubic } }
+        Behavior on y { enabled: root.composerMoving; NumberAnimation { duration: Math.round(220 * root.theme.motionSpeed); easing.type: Easing.OutCubic } }
+        Behavior on width { enabled: root.composerMoving; NumberAnimation { duration: Math.round(220 * root.theme.motionSpeed); easing.type: Easing.OutCubic } }
     }
 
     // Where the composer sits and what it is. Each item's objectName is

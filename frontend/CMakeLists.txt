@@ -290,6 +290,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Topbar/Topbar.qml
         qml/App/Topbar/CodeThemePicker.qml
         qml/App/Workbench/WorkbenchShell/WorkbenchShell.qml
+        qml/App/Workbench/WorkbenchShell/EdgeSpring.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/ActivityRail.qml
         qml/App/Workbench/WorkbenchShell/ActivityRail/RailButton/RailButton.qml
         qml/App/Workbench/WorkbenchShell/SidePanelResizeHandle/SidePanelResizeHandle.qml
@@ -312,6 +313,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/CollectionMembershipCard.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceNavigator/CollectionEditor/ArchivedCollectionsSection.qml
         qml/App/Workbench/WorkbenchShell/StatusBar/StatusBar.qml
+        qml/App/Workbench/WorkbenchShell/MotionTuner/MotionTuner.qml
         qml/App/Workbench/Home/HomeView.qml
         qml/App/Workbench/CompactChat/CompactChatComposer.qml
         qml/App/Workbench/Home/HomeComposer.qml

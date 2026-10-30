@@ -29,7 +29,7 @@ Item {
     // The window that shows this view. Moving a view to another window
     // reparents this item, so its state (a terminal's page) goes along.
     readonly property var surfaceArea: root.workspace.surfaceAreas[root.surfaceId] || null
-    readonly property bool animate: surfaceArea !== null && surfaceArea.animateLayout && !windowJump
+    readonly property bool animate: surfaceArea !== null && surfaceArea.animateLayout && !windowJump && panel === null
     property bool windowJump: false
 
     parent: surfaceArea || parking
@@ -60,10 +60,12 @@ Item {
         settle()
     }
 
-    // The content keeps a settled size: it follows the panel once a move or
-    // resize comes to rest, not every frame of a spring or drag preview.
-    // Terminals especially must never be squeezed (the shell would rewrap
-    // its scrollback).
+    // A terminal keeps a settled size: it follows the panel once a move or
+    // resize comes to rest, not every frame of a spring or drag preview, so
+    // the shell never rewraps its scrollback mid-move. Everything else
+    // (previews, chats) follows the panel every frame, so it never lags
+    // behind its panel and then jumps.
+    readonly property bool holdsSize: typeId === "archivist.terminal"
     property real settledWidth: 0
     property real settledHeight: 0
 
@@ -95,10 +97,18 @@ Item {
         }
     }
 
-    x: rectX + 1
-    y: rectY + headerHeight
-    width: Math.max(0, rectWidth - 2)
-    height: Math.max(0, rectHeight - headerHeight - 1)
+    // Over its panel as the panel is drawn, frame by frame: it rides the
+    // panel's own springs (and its ripple), so the two never drift apart.
+    // A view with no panel shown (a background or minimized one) keeps its
+    // last place.
+    readonly property Item panel: {
+        var item = isHidden ? null : root.workspace.anchorItems[anchorId]
+        return item && item.parent === root.parent ? item : null
+    }
+    x: panel ? panel.x + 1 : rectX + 1
+    y: panel ? panel.y + headerHeight : rectY + headerHeight
+    width: Math.max(0, (panel ? panel.width : rectWidth) - 2)
+    height: Math.max(0, (panel ? panel.height : rectHeight) - headerHeight - 1)
     visible: shown && width > 1 && height > 1
     // Carried away as a picture: not drawn in its old place meanwhile.
     // Or a Genie trip is drawing it, until it lands.
@@ -119,8 +129,8 @@ Item {
     Loader {
         id: content
 
-        width: root.settledWidth > 0 ? root.settledWidth : parent.width
-        height: root.settledHeight > 0 ? root.settledHeight : parent.height
+        width: root.holdsSize && root.settledWidth > 0 ? root.settledWidth : parent.width
+        height: root.holdsSize && root.settledHeight > 0 ? root.settledHeight : parent.height
         // Created on first show and kept, so switching tabs never reloads.
         active: root.everShown && root.typeId !== "archivist.editor"
         sourceComponent: {
