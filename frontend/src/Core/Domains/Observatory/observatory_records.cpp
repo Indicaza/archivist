@@ -163,6 +163,10 @@ const QStringList &pageFiles()
         QStringLiteral("normalize.mjs"),
         QStringLiteral("preview.mjs"),
         QStringLiteral("regression.mjs"),
+        QStringLiteral("redact.mjs"),
+        QStringLiteral("diagnostic.mjs"),
+        QStringLiteral("dom.js"),
+        QStringLiteral("lab.js"),
     };
     return files;
 }

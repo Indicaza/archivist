@@ -28,6 +28,9 @@ class IdeServer final : public QObject
     Q_PROPERTY(bool ready READ ready NOTIFY stateChanged)
     // The Observatory dashboard page (see Core/Domains/Observatory).
     Q_PROPERTY(QUrl observatoryUrl READ observatoryUrl NOTIFY stateChanged)
+    // This session's key for the Observatory test controls. Only the
+    // Observatory panel passes it to its page; see Observatory/observatory_control.h.
+    Q_PROPERTY(QString observatoryControlToken READ observatoryControlToken CONSTANT)
 
 public:
     explicit IdeServer(QObject *parent = nullptr);
@@ -40,6 +43,7 @@ public:
 
     [[nodiscard]] QUrl url() const;
     [[nodiscard]] QUrl observatoryUrl() const;
+    [[nodiscard]] QString observatoryControlToken() const;
     [[nodiscard]] bool ready() const;
     [[nodiscard]] quint16 port() const;
 
@@ -56,6 +60,7 @@ private:
     CoreDatabase m_database;
     QString m_databasePath;
     QString m_distributionPath;
+    QByteArray m_observatoryControlToken;
     TerminalSessionManager *m_terminals = nullptr;
     LanguageSupportService *m_languageSupport = nullptr;
     QThreadPool m_pool;

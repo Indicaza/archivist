@@ -289,6 +289,15 @@ npm run observatory -- baseline set <run-id> <run-id> <run-id>
 npm run observatory:check
 ```
 
+Run those UI tests from Observatory's **Test Lab** (built into the panel; in
+a browser use `npm run observatory:dashboard -- --control`), and press
+**Copy for AI** on any result to paste a short diagnostic report into a
+coding agent. Agents get the same controls as JSON:
+
+```bash
+npm run observatory -- capabilities --json
+```
+
 Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
 
 ```bash

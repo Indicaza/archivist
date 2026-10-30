@@ -2,9 +2,11 @@
 // renders them; never writes anything. All text is set with textContent.
 import { lineChart, stackedBars } from "./charts.js";
 import { compareRuns, SAME_WITHIN_PCT } from "./compare.mjs";
-import { artifactPreview, artifactUrl, compare, loadBaselines, loadRuns, runDetails, runEvents } from "./data.js";
+import { artifactPreview, artifactUrl, compare, initControl, loadBaselines, loadRuns, runDetails, runEvents } from "./data.js";
 import { buildReport, categoryLabel, categoryOf, resolveBudgets } from "./regression.mjs";
 import { filterRuns } from "./filter.mjs";
+import { axisMs, empty, gitText, h, kindLabel, kv, legend, ms, OK, runLink, shortSha, statusPill, table, when } from "./dom.js";
+import { comparisonCopyButton, configureLab, copyForAiButton, exportButton, labPage } from "./lab.js";
 
 const view = document.getElementById("view");
 const state = { runs: [], options: {}, root: "", error: null };
@@ -16,88 +18,6 @@ const PHASES = [
   ["native-build", "Native build", "var(--series-1)"],
 ];
 const SCENARIO_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)"];
-const OK = new Set(["success", "passed"]);
-
-// ---- small helpers --------------------------------------------------------
-
-function h(tag, props = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [name, value] of Object.entries(props ?? {})) {
-    if (value == null || value === false) continue;
-    if (name === "class") node.className = value;
-    else if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
-    // Through the CSSOM: the page's CSP blocks style attributes.
-    else if (name === "style") node.style.cssText = value;
-    else node.setAttribute(name, value === true ? "" : String(value));
-  }
-  for (const child of children.flat(Infinity)) {
-    if (child == null || child === false) continue;
-    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
-  }
-  return node;
-}
-
-function ms(value) {
-  if (value == null) return "—";
-  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(Math.abs(value) >= 10000 ? 1 : 2)} s`;
-  return `${value.toFixed(Math.abs(value) >= 100 ? 0 : 1)} ms`;
-}
-
-function axisMs(value) {
-  return value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} s` : `${Math.round(value)} ms`;
-}
-
-function when(iso) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function shortSha(sha) {
-  return sha ? sha.slice(0, 9) : "—";
-}
-
-function statusPill(status) {
-  const tone = OK.has(status) ? "good" : ["failure", "failed", "crashed", "error", "unreadable", "refused", "timeout"].includes(status) ? "bad" : "warn";
-  return h("span", { class: `pill ${tone}` }, status);
-}
-
-function kindLabel(run) {
-  if (run.kind === "build") return "Build";
-  if (run.kind === "ui-scenario") return run.ui?.scenarioName ?? "UI scenario";
-  if (run.kind === "runtime-log") return "Runtime log";
-  return run.kind;
-}
-
-function gitText(run) {
-  const branch = run.source?.branch ?? "detached";
-  return `${branch} @ ${shortSha(run.source?.commit)}${run.source?.dirty ? " · dirty" : ""}`;
-}
-
-function runLink(run, text) {
-  return h("a", { href: `#/run/${run.runId}` }, text ?? when(run.createdAt));
-}
-
-function empty(message, hint) {
-  return h("div", { class: "empty" }, h("p", {}, message), hint ? h("p", {}, hint) : null);
-}
-
-function kv(pairs) {
-  return h("dl", { class: "kv" }, pairs.filter(([, value]) => value != null && value !== "").map(([key, value]) => [h("dt", {}, key), h("dd", {}, value)]));
-}
-
-function table(headers, rows, { onRow } = {}) {
-  return h("div", { class: "table-wrap" }, h("table", {},
-    h("thead", {}, h("tr", {}, headers.map((header) => h("th", { class: header.num ? "num" : null }, header.label ?? header)))),
-    h("tbody", {}, rows.map((row) => h("tr", {
-      class: onRow ? "clickable" : null,
-      onclick: onRow ? (event) => { if (!event.target.closest("a, input, button")) onRow(row.source); } : null,
-    }, row.cells.map((cell, index) => h("td", { class: headers[index]?.num ? "num" : headers[index]?.wrap ? "wrap" : null }, cell)))))));
-}
-
-function legend(items) {
-  return h("div", { class: "legend" }, items.map(([name, color]) => h("span", {}, h("i", { style: `background:${color}` }), name)));
-}
 
 function chronological(runs) {
   return [...runs].sort((a, b) => a.runId.localeCompare(b.runId));
@@ -338,6 +258,7 @@ async function runPage(runId) {
   if (run.error) {
     parts.push(h("div", { class: "notice bad" }, run.error));
   }
+  if (summary) parts.push(h("div", { class: "card actions-card" }, copyForAiButton(run.runId), exportButton(run.runId)));
   parts.push(h("div", { class: "grid cards" },
     h("div", { class: "card" }, h("h3", {}, "Run"), kv([["Started", when(run.createdAt)], ["Finished", when(run.finishedAt)], ["Label", run.label], ["Schema", run.schemaVersion]])),
     h("div", { class: "card" }, h("h3", {}, "Source"), kv([["Branch", run.source?.branch ?? "detached"], ["Commit", h("span", { class: "mono" }, run.source?.commit ?? "—")], ["Working tree", run.source?.dirty == null ? "unknown" : run.source.dirty ? "dirty" : "clean"]])),
@@ -612,6 +533,7 @@ async function baselinesPage() {
     if (category.steps.length) {
       section.push(h("h3", {}, "Steps, slowest first (settled median)"), table(METRIC_HEADERS, metricRows(category.steps.slice(0, 8))));
     }
+    section.push(comparisonCopyButton(category));
     const trend = categoryTrend(category.category, entry);
     if (trend) section.push(h("div", { class: "card" }, trend));
     parts.push(h("section", {}, section));
@@ -642,6 +564,7 @@ async function render() {
     else if (section === "run") content = await runPage(path.split("/")[2] ?? "");
     else if (section === "compare") content = await comparePage(params);
     else if (section === "baselines") content = await baselinesPage();
+    else if (section === "lab") content = await labPage();
     else content = overview();
   } catch (error) {
     content = empty(`Something went wrong: ${error.message}`);
@@ -664,6 +587,8 @@ async function refresh() {
 }
 
 function start() {
+  initControl();
+  configureLab({ getState: () => state, refresh });
   document.getElementById("refresh").addEventListener("click", refresh);
   window.addEventListener("hashchange", render);
   refresh();

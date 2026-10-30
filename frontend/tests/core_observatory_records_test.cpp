@@ -1,3 +1,4 @@
+#include "Core/Domains/Observatory/observatory_control.h"
 #include "Core/Domains/Observatory/observatory_records.h"
 
 #include <QDir>
@@ -156,6 +157,41 @@ private slots:
         QVERIFY(Observatory::isRunId(QString::fromLatin1(Build)));
         QVERIFY(!Observatory::isRunId(QStringLiteral("../20261021T090000-000Z-build-00000b")));
         QVERIFY(!Observatory::isRunId(QString()));
+    }
+
+    // The panel's test controls: the key, the operation names, and the hand-off
+    // to scripts/observatory (the controller itself is tested in Node).
+    void controlKeysAndOperationNames()
+    {
+        const QByteArray key = Observatory::newControlToken();
+        QVERIFY(key.size() >= 32);
+        QVERIFY(key != Observatory::newControlToken());
+        QVERIFY(Observatory::sameControlToken(key, key));
+        QVERIFY(!Observatory::sameControlToken(key.left(key.size() - 1) + "x", key));
+        QVERIFY(!Observatory::sameControlToken(QByteArray(), QByteArray()));
+        QVERIFY(Observatory::isControlOperationName(QStringLiteral("observatory.tests.run")));
+        QVERIFY(Observatory::isControlOperationName(QStringLiteral("observatory.capabilities")));
+        QVERIFY(!Observatory::isControlOperationName(QStringLiteral("observatory.tests.run; rm -rf /")));
+        QVERIFY(!Observatory::isControlOperationName(QStringLiteral("../cli.mjs")));
+        QVERIFY(!Observatory::isControlOperationName(QStringLiteral("--help")));
+
+        const Observatory::Response refused = Observatory::runControlOperation(m_root.path(), QStringLiteral("--eval"), "{}");
+        QCOMPARE(refused.status, 404);
+        QCOMPARE(json(refused).value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString(), QStringLiteral("unknown-operation"));
+    }
+
+    void runsControlOperationsThroughTheScript()
+    {
+        if (Observatory::controlScriptPath().isEmpty() || Observatory::nodeExecutable().isEmpty()) {
+            QSKIP("Needs a development build and node on PATH.");
+        }
+        const QJsonObject list = json(Observatory::runControlOperation(m_root.path(), QStringLiteral("observatory.scenarios.list"), "{}"));
+        QVERIFY(list.value(QStringLiteral("ok")).toBool());
+        QVERIFY(!list.value(QStringLiteral("result")).toObject().value(QStringLiteral("scenarios")).toArray().isEmpty());
+
+        const QJsonObject bad = json(Observatory::runControlOperation(m_root.path(), QStringLiteral("observatory.tests.run"), R"({"repeat":99})"));
+        QVERIFY(!bad.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(bad.value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toString(), QStringLiteral("invalid-input"));
     }
 
     void rootFollowsTheEnvironment()
