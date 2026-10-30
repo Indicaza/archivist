@@ -75,6 +75,7 @@ Item {
     function sourceLost() { workspace.sourceLost() }
     readonly property string liftedAnchorId: workspace.liftedAnchorId || ""
     readonly property string liftedViewId: workspace.liftedViewId || ""
+    readonly property var genieHidden: workspace.genieHidden || ({})
     function detachView(viewId) { workspace.detachView(viewId, root) }
     function detachAnchor(anchorId) { workspace.detachAnchor(anchorId, root) }
     function floatView(viewId) { workspace.floatView(viewId) }

@@ -85,14 +85,27 @@ Item {
 
     // Its only panel is carried away as a picture: the whole floating
     // panel lifts out with it (still alive, it holds the pointer).
+    // Or a Genie trip is bringing its only panel back from the Well: the
+    // frame waits for the picture too.
     readonly property bool lifted: {
-        var anchorId = root.workspace.liftedAnchorId || ""
-        if (anchorId.length === 0) {
-            return false
+        var hidden = root.workspace.genieHidden || ({})
+        var anchorIds = [root.workspace.liftedAnchorId || ""]
+        for (var key in hidden) {
+            if (key.indexOf("a:") === 0) {
+                anchorIds.push(key.slice(2))
+            }
         }
-        var item = root.workspace.anchorItems[anchorId]
-        return item !== undefined && item !== null && item.surfaceId === root.surfaceId
-            && Number(root.info.anchorCount || 0) === 1
+        for (var index = 0; index < anchorIds.length; index += 1) {
+            if (anchorIds[index].length === 0) {
+                continue
+            }
+            var item = root.workspace.anchorItems[anchorIds[index]]
+            if (item !== undefined && item !== null && item.surfaceId === root.surfaceId
+                    && Number(root.info.anchorCount || 0) === 1) {
+                return true
+            }
+        }
+        return false
     }
 
     x: frame.x

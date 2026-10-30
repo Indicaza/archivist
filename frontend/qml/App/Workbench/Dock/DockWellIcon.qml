@@ -32,6 +32,79 @@ Item {
 
     signal menuRequested(var entry, Item source, real x, real y)
 
+    // The sphere's own reactions. Minimizing: it swells open as the panel
+    // is drawn in (approach), then a hard squash, a springy settle, a flash
+    // and a ripple as it lands (arrive). Restoring: a quick dip under the
+    // click (press), then it pops as the panel pours out (emit).
+    property real swell: 0
+    property real squash: 0
+    property real dip: 0
+    property real flash: 0
+    property real ripple: 1
+
+    function react(kind, duration) {
+        if (root.theme.reducedMotion) {
+            return
+        }
+        if (kind === "approach") {
+            arrival.stop()
+            approach.duration = Math.max(120, Math.round((duration || root.theme.genieMinimizeDuration) * 0.9))
+            approach.restart()
+        } else if (kind === "arrive") {
+            approach.stop()
+            arrival.restart()
+        } else {
+            press.restart()
+        }
+    }
+
+    ParallelAnimation {
+        id: approach
+
+        property int duration: 300
+
+        NumberAnimation { target: root; property: "swell"; to: 0.38; duration: approach.duration; easing.type: Easing.InQuad }
+        NumberAnimation { target: root; property: "flash"; to: 0.55; duration: approach.duration; easing.type: Easing.InCubic }
+    }
+
+    ParallelAnimation {
+        id: arrival
+
+        SequentialAnimation {
+            ParallelAnimation {
+                NumberAnimation { target: root; property: "squash"; to: 0.3; duration: 70; easing.type: Easing.OutQuad }
+                NumberAnimation { target: root; property: "swell"; to: 0.12; duration: 70; easing.type: Easing.OutQuad }
+            }
+            ParallelAnimation {
+                NumberAnimation { target: root; property: "squash"; to: 0; duration: root.theme.wellArrivalDuration - 70; easing.type: Easing.OutElastic; easing.amplitude: 1.1; easing.period: 0.32 }
+                NumberAnimation { target: root; property: "swell"; to: 0; duration: root.theme.wellArrivalDuration - 70; easing.type: Easing.OutElastic; easing.amplitude: 1; easing.period: 0.4 }
+            }
+        }
+        SequentialAnimation {
+            NumberAnimation { target: root; property: "flash"; to: 1; duration: 60 }
+            NumberAnimation { target: root; property: "flash"; to: 0; duration: 420; easing.type: Easing.OutQuad }
+        }
+        NumberAnimation { target: root; property: "ripple"; from: 0; to: 1; duration: 520; easing.type: Easing.OutCubic }
+    }
+
+    SequentialAnimation {
+        id: press
+
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "dip"; to: 0.2; duration: 55; easing.type: Easing.OutQuad }
+            NumberAnimation { target: root; property: "flash"; to: 0.8; duration: 55 }
+        }
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "dip"; to: 0; duration: 90; easing.type: Easing.OutQuad }
+            NumberAnimation { target: root; property: "swell"; to: 0.34; duration: 90; easing.type: Easing.OutQuad }
+            NumberAnimation { target: root; property: "ripple"; from: 0; to: 1; duration: 480; easing.type: Easing.OutCubic }
+        }
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "swell"; to: 0; duration: 380; easing.type: Easing.OutElastic; easing.amplitude: 1; easing.period: 0.38 }
+            NumberAnimation { target: root; property: "flash"; to: 0; duration: 360; easing.type: Easing.OutQuad }
+        }
+    }
+
     x: slot.x
     y: slot.y
     width: slot.size
@@ -118,10 +191,18 @@ Item {
         scale: root.drawnScale
         // Grows away from the window edge, like a Dock icon.
         transformOrigin: root.vertical ? Item.Center : root.growDown ? Item.Top : Item.Bottom
-        transform: Translate {
-            x: root.vertical ? 0 : root.drawnShift
-            y: root.vertical ? root.drawnShift : (root.growDown ? root.lift : -root.lift)
-        }
+        transform: [
+            Scale {
+                origin.x: tile.width / 2
+                origin.y: root.growDown ? 0 : tile.height
+                xScale: (1 + root.swell + root.squash) * (1 - root.dip)
+                yScale: (1 + root.swell - root.squash) * (1 - root.dip)
+            },
+            Translate {
+                x: root.vertical ? 0 : root.drawnShift
+                y: root.vertical ? root.drawnShift : (root.growDown ? root.lift : -root.lift)
+            }
+        ]
 
         // Its shadow on the surface below.
         WellGlow {
@@ -132,6 +213,32 @@ Item {
             color: "#000000"
             strength: root.hovered ? 0.62 : 0.5
             transform: Scale { origin.x: root.orb * 0.575; origin.y: root.orb * 0.575; yScale: 0.26 }
+        }
+
+        // The pull's light around it, and the ripple when it lands or
+        // lets go.
+        WellGlow {
+            visible: root.flash > 0.01
+            width: root.orb * 2.6
+            height: width
+            x: (parent.width - width) / 2
+            y: (parent.height - height) / 2
+            color: root.theme.accentBright
+            strength: root.flash * 0.6
+            core: 0.15
+        }
+
+        Rectangle {
+            visible: root.ripple < 0.999
+            width: root.orb
+            height: width
+            radius: width / 2
+            anchors.centerIn: parent
+            color: "transparent"
+            border.width: 2
+            border.color: root.theme.accentBright
+            opacity: (1 - root.ripple) * 0.75
+            scale: 1 + root.ripple * 1.5
         }
 
         Item {
@@ -275,7 +382,7 @@ Item {
                 root.menuRequested(root.entry, root, mouse.x, mouse.y)
                 return
             }
-            Docking.activateWellEntry(root.entryId)
+            root.workspace.restoreFromWell(root.entryId)
         }
     }
 

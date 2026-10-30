@@ -169,6 +169,7 @@ Item {
     visible: !isHidden && width > 1 && height > 1
     // Carried as a picture: lifted out of its place (see DockWorkspace).
     readonly property bool lifted: root.workspace.liftedAnchorId === root.anchorId
+        || root.workspace.genieHidden["a:" + root.anchorId] === true
     opacity: (isVacating || lifted ? 0 : isDragSource ? 0.45 : 1) * arrival
 
     // A panel that appears in a running workspace eases in (fade and a
@@ -264,6 +265,17 @@ Item {
             }
         }
         return tabRepeater.count
+    }
+
+    // The tab showing a view (for the Genie's picture of a tab).
+    function tabItem(viewId) {
+        for (var index = 0; index < tabRepeater.count; index += 1) {
+            var tab = tabRepeater.itemAt(index)
+            if (tab && tab.viewId === viewId) {
+                return tab
+            }
+        }
+        return null
     }
 
     // The editor page is the content for editor views.
@@ -1181,7 +1193,8 @@ Item {
         height: Math.max(0, parent.height - root.headerHeight - 1)
         visible: root.activeTypeId === "archivist.editor"
         // Its tab is carried away: the editor isn't drawn here meanwhile.
-        opacity: root.workspace.liftedViewId.length > 0 && root.workspace.liftedViewId === root.activeViewId ? 0 : 1
+        opacity: root.workspace.liftedViewId.length > 0 && root.workspace.liftedViewId === root.activeViewId
+            || root.workspace.genieHidden["v:" + root.activeViewId] === true ? 0 : 1
     }
 
     // Presses anywhere in the content focus this Anchor without taking the

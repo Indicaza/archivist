@@ -118,20 +118,37 @@ void WorkspaceStore::tuckAwayFloatingPanels(const QString &previousFocus)
         || m_model.surfaceOfAnchor(m_model.focusedAnchorId()) == surfaceId) {
         return;
     }
+    if (m_tuckAnimated) {
+        emit tuckRequested(surfaceId);
+        return;
+    }
+    tuckAway(surfaceId);
+}
+
+QVariantList WorkspaceStore::tuckAway(const QString &surfaceId)
+{
+    QVariantList tucked;
+    if (m_drag.kind != DragSource::Kind::None || !tucksAway(surfaceId)
+        || m_model.surfaceOfAnchor(m_model.focusedAnchorId()) == surfaceId) {
+        return tucked;
+    }
     const QStringList anchors = m_model.anchorIds(surfaceId);
     QStringList names;
     for (const QString &anchorId : anchors) {
         names.append(m_model.anchorDisplayName(anchorId));
     }
     HistoryStep step = historyStep(QStringLiteral("Tucked “%1” into the Well").arg(names.join(QStringLiteral(", "))));
-    bool changed = false;
     for (const QString &anchorId : anchors) {
-        changed = Wells::minimizeAnchor(m_model, anchorId).ok || changed;
+        const OpResult result = Wells::minimizeAnchor(m_model, anchorId);
+        if (result.ok) {
+            tucked.append(QVariantMap{{QStringLiteral("anchorId"), anchorId}, {QStringLiteral("entryId"), result.createdId}});
+        }
     }
-    if (changed) {
+    if (!tucked.isEmpty()) {
         recordStep(std::move(step));
         publish();
     }
+    return tucked;
 }
 
 bool WorkspaceStore::dropIntoWell(const DragSource &source, const QString &wellId, bool allowed)

@@ -108,6 +108,7 @@ Item {
     // toward it, while it moves, while its menu is open, and for a moment
     // after something lands in it.
     readonly property bool held: dragging || moving || entryMenu.visible || landing.running
+        || root.workspace.genieActive === true
     readonly property bool engaged: proximity.engaged && !dragging
     readonly property real level: held ? 1 : proximity.level
     // How visible it is, eased.
@@ -378,7 +379,32 @@ Item {
         opacity: root.shown * 0.8
     }
 
+    // An entry's sphere, as drawn now, in `item`'s coordinates (empty when
+    // it isn't here). The Genie flies to and from it.
+    function sphereRect(entryId, item) {
+        for (var index = 0; index < icons.count; index += 1) {
+            var icon = icons.itemAt(index)
+            if (icon && icon.entryId === entryId) {
+                var size = icon.orb * Math.max(0.5, icon.tileScale)
+                var centre = icon.mapToItem(item, icon.width / 2 + icon.tileShift, icon.height / 2)
+                return Qt.rect(centre.x - size / 2, centre.y - size / 2, size, size)
+            }
+        }
+        return Qt.rect(0, 0, 0, 0)
+    }
+
+    function react(entryId, kind, duration) {
+        for (var index = 0; index < icons.count; index += 1) {
+            var icon = icons.itemAt(index)
+            if (icon && icon.entryId === entryId) {
+                icon.react(kind, duration)
+            }
+        }
+    }
+
     Repeater {
+        id: icons
+
         model: root.empty ? 0 : root.entries.length
 
         delegate: DockWellIcon {
@@ -414,7 +440,7 @@ Item {
         DockMenuItem {
             theme: root.theme
             text: entryMenu.entryState === "minimized" ? "Restore" : entryMenu.entryState === "pinnedOpen" ? "Show" : "Open"
-            onTriggered: Docking.activateWellEntry(String(entryMenu.entry.entryId || ""))
+            onTriggered: root.workspace.restoreFromWell(String(entryMenu.entry.entryId || ""))
         }
         DockMenuSeparator { theme: root.theme; visible: !entryMenu.entry.panel }
         DockMenuItem {

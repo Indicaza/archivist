@@ -355,6 +355,14 @@ public:
     Q_INVOKABLE bool setSurfaceLeaveOnTop(const QString &surfaceId, bool leaveOnTop);
     // Whether floating panels tuck away at all (on by default).
     Q_INVOKABLE void setFloatingPanelsTuckAway(bool tuck) { m_tuckFloatingPanels = tuck; }
+    // When the UI animates tucking (the Genie), a floating panel about to
+    // tuck asks first (tuckRequested), so a picture of it can be taken
+    // while it's still there; the UI then calls tuckAway.
+    Q_INVOKABLE void setTuckAnimated(bool animated) { m_tuckAnimated = animated; }
+    // Tucks a floating panel's surface away now, if it still should (not
+    // focused, not left on top, no drag). One workspace step.
+    // [{anchorId, entryId}] for what went in.
+    Q_INVOKABLE QVariantList tuckAway(const QString &surfaceId);
     // Puts a minimized view back where it was (or the fallback). One step.
     // {ok, code, error, viewId, anchorId, how}.
     Q_INVOKABLE QVariantMap restoreMinimizedView(const QString &viewId);
@@ -496,6 +504,8 @@ signals:
     void viewClosed(const QString &viewId, const QString &typeId, const QVariantMap &resource);
     void workspaceRestored(const QString &collectionId, bool fromSnapshot);
     void operationFailed(const QString &message);
+    // A floating panel's surface should tuck away (see setTuckAnimated).
+    void tuckRequested(const QString &surfaceId);
     void layoutsChanged();
     // A layout was applied from the picker or a shortcut (not by undo).
     void layoutApplied(const QString &layoutId, const QString &name);
@@ -589,6 +599,7 @@ private:
     QString m_slotTarget;
     QString m_wellTarget;
     bool m_tuckFloatingPanels = true;
+    bool m_tuckAnimated = false;
     QStringList m_sidebarSlots;
     bool m_sidebarSlotsKnown = false;
     void adoptOrphanSidebarSurfaces();

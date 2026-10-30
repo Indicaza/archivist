@@ -301,6 +301,15 @@ QtObject {
     readonly property real wellDormantOpacity: 0.06
     readonly property int wellRevealDuration: 160
     readonly property int wellSettleDuration: 320
+    // The Genie: a panel funnelling into its sphere, and back out. Long
+    // enough to read, front-loaded so it never feels slow: the pinch shows
+    // on the first frame.
+    readonly property int genieMinimizeDuration: 430
+    readonly property int genieRestoreDuration: 360
+    readonly property int genieReducedDuration: 170
+    // The sphere taking it in: a hard squash, then a springy settle, a
+    // flash and a ripple.
+    readonly property int wellArrivalDuration: 460
     // Cancelled or refused: back where it came from, no overshoot.
     readonly property int magnetReturnDuration: 260
     // The pull felt near a dock zone: it starts this many zone-widths away

@@ -382,6 +382,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/Dock/DockWell.qml
         qml/App/Workbench/Dock/DockWellIcon.qml
         qml/App/Workbench/Dock/WellGlow.qml
+        qml/App/Workbench/Dock/DockGenie.qml
         qml/App/Workbench/Dock/WellGeometry.js
         qml/App/Workbench/Dock/TabStrip.js
         qml/App/Workbench/TerminalDock/TerminalDock.qml
@@ -389,6 +390,9 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/ArtifactDrawer/ArtifactDrawer.qml
         qml/App/Workbench/ArtifactDrawer/ContextInspector/ContextInspector.qml
     RESOURCES
+        qml/App/Workbench/Dock/shaders/genie.vert.qsb
+        qml/App/Workbench/Dock/shaders/genie.frag.qsb
+        qml/App/Workbench/Dock/shaders/genie_shadow.frag.qsb
         qml/App/Files/Renderers/Assets/checkerboard.svg
         qml/App/Icons/THIRD_PARTY_ICONS.md
         ${ARCHIVIST_ICON_ASSETS}
