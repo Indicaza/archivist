@@ -176,6 +176,8 @@ public:
     // Docks a floating surface into a sidebar slot (empty: out of the
     // sidebar, as a floating panel). A slot holds one surface.
     OpResult setSurfaceSidebarSlot(QString surfaceId, QString slot);
+    // Keeps a floating panel out instead of tucking it into the Well.
+    OpResult setSurfaceLeaveOnTop(QString surfaceId, bool leaveOnTop);
     // The surface docked in a sidebar slot, if any.
     [[nodiscard]] QString surfaceInSidebarSlot(const QString &slot) const;
     // Closes a floating window. Its views move into the primary surface's
@@ -235,6 +237,12 @@ public:
     // resource in `wellId` (empty: the main Well), remembering `place`.
     // Refused for automation and agents when the anchor's content is locked.
     OpResult minimizeView(QString viewId, const Place &place, QString wellId = {}, Origin origin = Origin::User);
+    // Puts a whole panel away as one entry: its views (tab order kept, each
+    // remembering `place` with its own tab position) and what the panel was
+    // (name, locks, active tab). The panel goes, unless it is the main
+    // window's last one, which stays (empty) to take them back. Refused
+    // when it is locked in place, or for automation when its content is.
+    OpResult minimizeAnchor(QString anchorId, const Place &place, QString wellId = {}, Origin origin = Origin::User);
     // Takes a minimized view back into `anchorId` at `index` (-1: after the
     // active tab). Its entry goes when it is neither pinned nor holding
     // another view.

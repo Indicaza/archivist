@@ -64,6 +64,9 @@ class WorkspaceStore final : public QObject
     // panel in the target window would move (reflow: from -> to). Nothing
     // in it is committed: the drop is the one commit.
     Q_PROPERTY(QVariantMap dragState READ dragState NOTIFY dragChanged)
+    // The Well the pointer is over: letting go puts what's carried away in
+    // it ("" when not over one).
+    Q_PROPERTY(QString dragWellId READ dragWellId NOTIFY dragChanged)
     // Why the current target refuses the drop ("" when it doesn't).
     Q_PROPERTY(QString dropRefusal READ dropRefusal NOTIFY dragChanged)
     // Floating surfaces with a window of their own.
@@ -128,6 +131,7 @@ public:
     [[nodiscard]] QString focusedViewId() const;
     [[nodiscard]] QAbstractItemModel *views() const { return m_views; }
     [[nodiscard]] bool dragActive() const { return m_drag.kind != Workspace::DragSource::Kind::None; }
+    [[nodiscard]] QString dragWellId() const { return m_wellTarget; }
     [[nodiscard]] QString dragKind() const;
     [[nodiscard]] QString dragId() const { return m_drag.id; }
     [[nodiscard]] QVariantMap dropTarget() const;
@@ -311,6 +315,8 @@ public:
     // Over an empty sidebar slot: a drop docks it there (no dwell: an empty
     // spot is aimed at on purpose).
     Q_INVOKABLE void updateDragOverSlot(const QString &slot);
+    // The pointer is over a Well: dropping puts the tab or panel away there.
+    Q_INVOKABLE void updateDragOverWell(const QString &wellId);
     // Drops onto a validated target (checked again against the layout as
     // it is now) as one workspace step: undo puts everything back.
     Q_INVOKABLE bool finishDrag();
@@ -331,9 +337,19 @@ public:
     // Every Well and its entries, for QML (read it alongside `revision`).
     [[nodiscard]] Q_INVOKABLE QVariantList wells() const;
     [[nodiscard]] Q_INVOKABLE bool isViewMinimized(const QString &viewId) const;
+    // Whether the view's resource is pinned in the main Well.
+    [[nodiscard]] Q_INVOKABLE bool isViewPinned(const QString &viewId) const;
     // Puts a view away in the main Well. One workspace step.
     // {ok, code, error, entryId}.
     Q_INVOKABLE QVariantMap minimizeView(const QString &viewId);
+    // Puts a whole panel away as one entry. One workspace step.
+    // {ok, code, error, entryId}.
+    Q_INVOKABLE QVariantMap minimizeAnchor(const QString &anchorId);
+    // A floating panel tucks itself into the Well when the person works
+    // elsewhere, unless it is left on top. Saved; not a history step.
+    Q_INVOKABLE bool setSurfaceLeaveOnTop(const QString &surfaceId, bool leaveOnTop);
+    // Whether floating panels tuck away at all (on by default).
+    Q_INVOKABLE void setFloatingPanelsTuckAway(bool tuck) { m_tuckFloatingPanels = tuck; }
     // Puts a minimized view back where it was (or the fallback). One step.
     // {ok, code, error, viewId, anchorId, how}.
     Q_INVOKABLE QVariantMap restoreMinimizedView(const QString &viewId);
@@ -566,10 +582,18 @@ private:
     int m_dockDwellMs = 220;
     int m_aimSerial = 0;
     QString m_slotTarget;
+    QString m_wellTarget;
+    bool m_tuckFloatingPanels = true;
     QStringList m_sidebarSlots;
     bool m_sidebarSlotsKnown = false;
     void adoptOrphanSidebarSurfaces();
     void leaveSlot();
+    // After focus moved: floating panels in the main window that lost it
+    // (and aren't left on top) go into the Well. One step for all of them.
+    void tuckAwayFloatingPanels(const QString &previousFocus);
+    // The end of a drag let go over a Well (the drag is already reset).
+    bool dropIntoWell(const Workspace::DragSource &source, const QString &wellId, bool allowed);
+    [[nodiscard]] bool tucksAway(const QString &surfaceId) const;
     void aimAt(const Workspace::DropTarget &target);
     void stopAiming();
     bool floatAllowed();

@@ -1011,8 +1011,10 @@ bool WorkspaceStore::activateView(const QString &viewId)
         return false;
     }
 
+    const QString previous = m_model.focusedAnchorId();
     m_model.focusAnchor(m_model.anchorOfView(viewId));
     publish();
+    tuckAwayFloatingPanels(previous);
     emit viewFocused(viewId);
     return true;
 }
@@ -1209,7 +1211,11 @@ bool WorkspaceStore::focusAnchor(const QString &anchorId)
         return true;
     }
 
+    const QString previous = m_model.focusedAnchorId();
     const bool ok = check(m_model.focusAnchor(anchorId));
+    if (ok) {
+        tuckAwayFloatingPanels(previous);
+    }
     if (ok && !focusedViewId().isEmpty()) {
         emit viewFocused(focusedViewId());
     }
@@ -1615,8 +1621,9 @@ bool WorkspaceStore::floatAllowed()
 
 void WorkspaceStore::leaveSlot()
 {
-    if (!m_slotTarget.isEmpty()) {
+    if (!m_slotTarget.isEmpty() || !m_wellTarget.isEmpty()) {
         m_slotTarget.clear();
+        m_wellTarget.clear();
         m_dropAllowed = false;
         m_dragPhase = Magnets::Phase::Free;
         emit dragChanged();
@@ -1636,6 +1643,7 @@ void WorkspaceStore::updateDragOverSlot(const QString &slot)
         m_dragDetached = false;
     }
     setDropTarget({});
+    m_wellTarget.clear();
     m_slotTarget = slot;
     const QString holder = m_model.surfaceInSidebarSlot(slot);
     const QString sourceAnchor = m_drag.kind == DragSource::Kind::View ? m_model.anchorOfView(m_drag.id) : m_drag.id;
@@ -1650,9 +1658,36 @@ void WorkspaceStore::updateDragOverSlot(const QString &slot)
     emit dragChanged();
 }
 
+void WorkspaceStore::updateDragOverWell(const QString &wellId)
+{
+    if (m_drag.kind == DragSource::Kind::None || wellId == m_wellTarget) {
+        return;
+    }
+    if (wellId.isEmpty()) {
+        leaveSlot();
+        return;
+    }
+    stopAiming();
+    m_dragDetached = false;
+    setDropTarget({});
+    m_slotTarget.clear();
+    m_wellTarget = wellId;
+    // A panel locked in place can't go; anything else can.
+    const QString sourceAnchor = m_drag.kind == DragSource::Kind::View ? m_model.anchorOfView(m_drag.id) : m_drag.id;
+    const AnchorRecord *anchor = m_model.anchor(sourceAnchor);
+    const bool locked = m_drag.kind == DragSource::Kind::Anchor && anchor && anchor->layoutLocked;
+    m_dropAllowed = !locked && m_model.well(wellId);
+    m_dropRefusal = m_dropAllowed ? OpResult::success()
+                                  : OpResult::failure(QStringLiteral("LAYOUT_LOCKED"), QStringLiteral("It's locked in place."));
+    m_dragPhase = m_dropAllowed ? Magnets::Phase::Preview : Magnets::Phase::Invalid;
+    ++m_dragPreviewSerial;
+    emit dragChanged();
+}
+
 bool WorkspaceStore::dropFloats() const
 {
     return m_drag.kind != DragSource::Kind::None && !m_dropTarget.isValid() && !m_dragDetached && m_slotTarget.isEmpty()
+        && m_wellTarget.isEmpty()
         && m_floatRect.isValid() && m_floatAllowed == 1;
 }
 
@@ -1837,6 +1872,7 @@ void WorkspaceStore::resetDrag()
     m_aimTimer.stop();
     m_aimTarget = {};
     m_slotTarget.clear();
+    m_wellTarget.clear();
 }
 
 bool WorkspaceStore::finishDrag()
@@ -1847,12 +1883,20 @@ bool WorkspaceStore::finishDrag()
 
     const DragSource source = m_drag;
     const DropTarget target = m_dropTarget;
+    const QString previousFocus = m_model.focusedAnchorId();
     bool allowed = m_dropAllowed;
     OpResult refusal = m_dropRefusal;
     const bool detached = m_dragDetached;
     const QRectF detachRect = m_detachRect;
     const QString detachScreen = m_detachScreen;
     const Magnets::Place origin = m_dragOrigin;
+    // Over a Well: it's put away there.
+    const QString well = m_wellTarget;
+    if (!well.isEmpty()) {
+        const bool wellAllowed = m_dropAllowed;
+        resetDrag();
+        return dropIntoWell(source, well, wellAllowed);
+    }
     // Over an empty sidebar slot: it docks there.
     const QString slot = m_slotTarget;
     // No dock target: it floats as a panel where it was let go.
@@ -1967,6 +2011,7 @@ bool WorkspaceStore::finishDrag()
     publish();
     emit dragChanged();
     if (ok) {
+        tuckAwayFloatingPanels(previousFocus);
         emit dragFinished(QStringLiteral("committed"), details);
     } else if (target.isValid() || detached || floating || !slot.isEmpty()) {
         details.insert(QStringLiteral("code"), refusal.code);
@@ -2099,6 +2144,7 @@ QVariantMap WorkspaceStore::surface(const QString &surfaceId) const
         {QStringLiteral("windowMaximized"), record->windowMaximized},
         {QStringLiteral("inMainWindow"), record->inMainWindow},
         {QStringLiteral("sidebarSlot"), record->sidebarSlot},
+        {QStringLiteral("leaveOnTop"), record->leaveOnTop},
         {QStringLiteral("anchorCount"), int(anchorIds.size())},
         {QStringLiteral("viewCount"), viewCount},
     };

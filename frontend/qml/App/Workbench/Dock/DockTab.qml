@@ -9,6 +9,8 @@ import "../../Files/FileIdentity.js" as FileIdentity
 Item {
     id: root
 
+    objectName: "dock.tab"
+
     required property var theme
     required property var workspace
     required property string anchorId
@@ -242,12 +244,29 @@ Item {
 
         // Worked out as the menu opens, not on every layout change.
         property bool canReturn: false
+        property bool pinned: false
 
         theme: root.theme
-        onAboutToShow: canReturn = Docking.canReturnToPrevious("view", root.viewId)
+        onAboutToShow: {
+            canReturn = Docking.canReturnToPrevious("view", root.viewId)
+            pinned = Docking.isViewPinned(root.viewId)
+        }
 
         DockMenuItem { theme: root.theme; text: "Close"; shortcutText: "Ctrl+W"; onTriggered: root.workspace.closeView(root.viewId) }
         DockMenuItem { theme: root.theme; text: "Close Others"; onTriggered: root.workspace.closeOtherViews(root.viewId) }
+        DockMenuItem {
+            objectName: "well.minimize"
+            theme: root.theme
+            text: "Minimize to Well"
+            onTriggered: root.workspace.minimizeView(root.viewId)
+        }
+        DockMenuItem {
+            objectName: "well.pin"
+            theme: root.theme
+            text: tabMenu.pinned ? "Unpin from Well" : "Keep in Well"
+            visible: (root.resource.kind || "").length > 0
+            onTriggered: Docking.setViewPinned(root.viewId, !tabMenu.pinned)
+        }
         DockMenuSeparator { theme: root.theme }
         DockMenuItem {
             objectName: "magnet.returnToPrevious"

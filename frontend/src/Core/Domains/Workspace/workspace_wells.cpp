@@ -1,5 +1,6 @@
 #include "Core/Domains/Workspace/workspace_wells.h"
 
+#include "Core/Domains/Workspace/workspace_commands.h"
 #include "Core/Domains/Workspace/workspace_magnets.h"
 
 namespace Workspace::Wells
@@ -51,7 +52,10 @@ QString fallbackAnchor(const WorkspaceModel &model, const QString &typeId)
     return model.targetAnchorId();
 }
 
-Restored restore(WorkspaceModel &model, const QString &viewId)
+namespace
+{
+// One view back where it was (see restore()).
+Restored restoreOne(WorkspaceModel &model, const QString &viewId)
 {
     Restored out;
     out.viewId = viewId;
@@ -108,6 +112,89 @@ Restored restore(WorkspaceModel &model, const QString &viewId)
     return out;
 }
 
+// A whole panel back: its first tab goes back the way a single view does
+// (into the panel if it's still there, else where the panel sat), the rest
+// join it in their old order, and a panel made for them gets back what the
+// old one was (name, locks, active tab).
+Restored restorePanel(WorkspaceModel &model, const WellEntry &entry)
+{
+    Restored out;
+    if (entry.minimized.isEmpty()) {
+        out.result = OpResult::failure(QStringLiteral("NOT_MINIMIZED"), QStringLiteral("It isn't put away."));
+        return out;
+    }
+    WorkspaceModel work = model;
+    const QString lead = entry.minimized.first().viewId;
+    const QStringList before = work.anchorIds();
+    out = restoreOne(work, lead);
+    if (!out.result.ok) {
+        return out;
+    }
+    const QString anchorId = work.anchorOfView(lead);
+    QString previous = lead;
+    for (qsizetype index = 1; index < entry.minimized.size(); ++index) {
+        const QString viewId = entry.minimized.at(index).viewId;
+        const AnchorRecord *anchor = work.anchor(anchorId);
+        const int at = int(anchor->views.indexOf(previous)) + 1;
+        const OpResult joined = work.unminimizeView(viewId, anchorId, at, false);
+        if (!joined.ok) {
+            out.result = joined;
+            return out;
+        }
+        previous = viewId;
+    }
+
+    const MinimizedPanel &info = entry.panelInfo;
+    const bool fresh = !before.contains(anchorId) || anchorId == info.anchorId;
+    if (fresh) {
+        if (!info.name.isEmpty()) {
+            work.renameAnchor(anchorId, info.name);
+        }
+        if (!info.roles.isEmpty()) {
+            work.setAnchorRoles(anchorId, info.roles);
+        }
+        if (!info.libraryId.isEmpty()) {
+            work.setAnchorLibrary(anchorId, info.libraryId);
+        }
+        if (info.pinned) {
+            work.setAnchorPinned(anchorId, true);
+        }
+        if (info.switchable) {
+            work.setAnchorSwitchable(anchorId, true);
+        }
+        if (info.contentLocked) {
+            work.setAnchorContentLocked(anchorId, true);
+        }
+    }
+    const QString active = work.anchor(anchorId)->views.contains(info.activeViewId) ? info.activeViewId : lead;
+    work.activateView(active);
+    work.focusAnchor(anchorId);
+    out.viewId = active;
+    out.anchorId = anchorId;
+    model = work;
+    return out;
+}
+} // namespace
+
+Restored restore(WorkspaceModel &model, const QString &viewId)
+{
+    const WellEntry *entry = model.wellEntry(model.entryOfMinimizedView(viewId));
+    if (entry && entry->panel) {
+        const WellEntry copy = *entry;
+        return restorePanel(model, copy);
+    }
+    return restoreOne(model, viewId);
+}
+
+OpResult minimizeAnchor(WorkspaceModel &model, const QString &anchorId, const QString &wellId, Origin origin)
+{
+    if (!model.anchor(anchorId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("That panel is gone."));
+    }
+    const Place place = Magnets::placeOf(model, DragSource::anchor(anchorId));
+    return model.minimizeAnchor(anchorId, place, wellId, origin);
+}
+
 Restored activate(WorkspaceModel &model, const QString &entryId)
 {
     Restored out;
@@ -120,7 +207,7 @@ Restored activate(WorkspaceModel &model, const QString &entryId)
 
     switch (entryState(model, entry)) {
     case EntryState::Minimized:
-        return restore(model, entry.minimized.last().viewId);
+        return entry.panel ? restorePanel(model, entry) : restore(model, entry.minimized.last().viewId);
     case EntryState::PinnedOpen: {
         // The view showing it in the focused panel wins; else the first.
         const QStringList views = openViews(model, entry);
@@ -169,7 +256,15 @@ QVariantList wellsList(const WorkspaceModel &model)
             for (const MinimizedView &view : entry.minimized) {
                 minimized.append(view.viewId);
             }
-            const ViewRecord *latest = entry.minimized.isEmpty() ? nullptr : model.view(entry.minimized.last().viewId);
+            const ViewRecord *latest = entry.minimized.isEmpty() ? nullptr
+                : model.view(entry.panel && model.view(entry.panelInfo.activeViewId) && model.isMinimized(entry.panelInfo.activeViewId)
+                                 ? entry.panelInfo.activeViewId
+                                 : entry.minimized.last().viewId);
+            QStringList titles;
+            for (const MinimizedView &view : entry.minimized) {
+                const ViewRecord *record = model.view(view.viewId);
+                titles.append(record ? record->title : QString());
+            }
             entries.append(QVariantMap{
                 {QStringLiteral("entryId"), entry.id},
                 {QStringLiteral("state"), entryStateName(entryState(model, entry))},
@@ -178,9 +273,14 @@ QVariantList wellsList(const WorkspaceModel &model)
                 {QStringLiteral("minimizedViewIds"), minimized},
                 {QStringLiteral("openViewIds"), openViews(model, entry)},
                 {QStringLiteral("typeId"), latest ? latest->typeId : entry.typeId},
-                {QStringLiteral("title"), latest && !latest->title.isEmpty() ? latest->title : entry.title},
+                {QStringLiteral("title"), entry.panel ? entry.title : latest && !latest->title.isEmpty() ? latest->title : entry.title},
                 {QStringLiteral("resourceKind"), entry.resource.kind},
                 {QStringLiteral("resourceId"), entry.resource.id},
+                // For its icon and name (a file's extension, a chat's id).
+                {QStringLiteral("resource"), Commands::resourceToMap(latest ? latest->resource : entry.resource)},
+                // A whole panel put away: its tabs come back together.
+                {QStringLiteral("panel"), entry.panel},
+                {QStringLiteral("viewTitles"), titles},
             });
         }
         wells.append(QVariantMap{

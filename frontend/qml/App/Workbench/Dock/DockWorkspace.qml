@@ -718,6 +718,22 @@ Item {
         }
     }
 
+    // Puts a tab away in the Gravity Well (it keeps running).
+    function minimizeView(viewId) {
+        var result = Docking.minimizeView(viewId)
+        if (!result.ok && result.error) {
+            toast.show(String(result.error))
+        }
+    }
+
+    // Puts a whole panel away in the Gravity Well, as one icon.
+    function minimizeAnchor(anchorId) {
+        var result = Docking.minimizeAnchor(anchorId)
+        if (!result.ok && result.error) {
+            toast.show(String(result.error))
+        }
+    }
+
     function closeOtherViews(viewId) {
         var result = Docking.closeOtherViews(viewId, false)
         if (result.needsConfirmation) {
@@ -871,6 +887,10 @@ Item {
     // anchor's committed rect (not where its spring is right now), or the
     // floating frame. Empty when it landed in a window of its own.
     function landingRect(details) {
+        var into = (details.target || {}).well
+        if (into) {
+            return wellLandingRect(String(into))
+        }
         var surfaceId = String(details.surfaceId || "")
         if (surfaceId.length > 0 && Docking.surface(surfaceId).inMainWindow === true && root.floatFrame.width > 0) {
             return root.floatFrame
@@ -1177,6 +1197,14 @@ Item {
         carryLayer.pointerHere = inLayer.x >= 0 && inLayer.y >= 0 && inLayer.x <= panelLayer.width && inLayer.y <= panelLayer.height
         if (root.liveSurfaceId.length === 0) {
             updateFloatFrame(globalPoint)
+        }
+
+        // Over a Gravity Well: letting go puts it away there.
+        var wellId = wellAt(globalPoint)
+        if (wellId.length > 0) {
+            clearDragHere()
+            Docking.updateDragOverWell(wellId)
+            return
         }
 
         if (!target || target === area) {
@@ -1756,6 +1784,79 @@ Item {
             enabled: !root.theme.reducedMotion
             SpringAnimation { spring: root.theme.motionSpring; damping: root.theme.motionDamping; epsilon: 0.2 }
         }
+    }
+
+    // Gravity Wells over this window's layout (WorkspaceStore). The main
+    // Well has no surface of its own: it belongs to the main window.
+    readonly property var wellRows: {
+        Docking.revision
+        var all = Docking.wells()
+        var here = []
+        for (var index = 0; index < all.length; index += 1) {
+            var surfaceId = String(all[index].surfaceId || "")
+            if (surfaceId.length === 0 || surfaceId === root.surfaceId) {
+                here.push(all[index])
+            }
+        }
+        return here
+    }
+
+    // Over everything in the window (the layout, the sidebar, floating
+    // panels), under what a drag carries: it can go anywhere, and a tab or
+    // panel can be dropped on it.
+    Item {
+        id: wellLayer
+
+        objectName: "dock.wellLayer"
+        parent: root.overlayHost || root
+        x: 0
+        y: 0
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
+        z: 5.5
+
+        // Counted, not keyed: a Well's item stays while its entries change.
+        Repeater {
+            id: wellRepeater
+
+            model: root.wellRows.length
+
+            delegate: DockWell {
+                required property int index
+
+                theme: root.theme
+                workspace: root
+                well: root.wellRows[index] || ({})
+            }
+        }
+    }
+
+    // The Well under a global point ("" if none), a little generous so a
+    // quick drop near its edge still counts.
+    function wellAt(globalPoint) {
+        for (var index = 0; index < wellRepeater.count; index += 1) {
+            var item = wellRepeater.itemAt(index)
+            if (!item || !item.visible) {
+                continue
+            }
+            var point = item.mapFromGlobal(globalPoint.x, globalPoint.y)
+            var reach = theme.px(10)
+            if (point.x >= -reach && point.y >= -reach && point.x <= item.width + reach && point.y <= item.height + reach) {
+                return item.wellId
+            }
+        }
+        return ""
+    }
+
+    // Where a drop into a Well lands, in the carry layer.
+    function wellLandingRect(wellId) {
+        for (var index = 0; index < wellRepeater.count; index += 1) {
+            var item = wellRepeater.itemAt(index)
+            if (item && item.wellId === wellId) {
+                return item.landingRect(carryLayer)
+            }
+        }
+        return Qt.rect(0, 0, 0, 0)
     }
 
     // Where view content waits while its window is being made.

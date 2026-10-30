@@ -45,8 +45,11 @@ struct Restored
     QString how;
 };
 
-// Puts a minimized view back.
+// Puts a minimized view back. A view of a minimized panel brings the whole
+// panel back (its tabs in order, its active tab, its name and locks).
 Restored restore(WorkspaceModel &model, const QString &viewId);
+// Puts a whole panel away in `wellId` (empty: the main Well) as one entry.
+OpResult minimizeAnchor(WorkspaceModel &model, const QString &anchorId, const QString &wellId = {}, Origin origin = Origin::User);
 
 // What clicking an entry does, by its state: restore its most recently
 // minimized view, bring forward the panel showing it, or open it again (as

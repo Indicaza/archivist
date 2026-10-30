@@ -1943,6 +1943,20 @@ OpResult WorkspaceModel::setSurfaceSidebarSlot(QString surfaceId, QString slot)
     return OpResult::success(surfaceId);
 }
 
+OpResult WorkspaceModel::setSurfaceLeaveOnTop(QString surfaceId, bool leaveOnTop)
+{
+    if (!m_surfaces.contains(surfaceId)) {
+        return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such window: ") + surfaceId);
+    }
+    SurfaceRecord &record = m_surfaces[surfaceId];
+    if (record.leaveOnTop == leaveOnTop) {
+        return OpResult::success(surfaceId);
+    }
+    record.leaveOnTop = leaveOnTop;
+    bump();
+    return OpResult::success(surfaceId);
+}
+
 QString WorkspaceModel::surfaceInSidebarSlot(const QString &slot) const
 {
     if (slot.isEmpty()) {
@@ -2664,7 +2678,7 @@ QString WorkspaceModel::wellEntryForResource(const QString &wellId, const Resour
         return {};
     }
     for (const WellEntry &entry : record->entries) {
-        if (entry.resource.key() == resource.key()) {
+        if (!entry.panel && entry.resource.key() == resource.key()) {
             return entry.id;
         }
     }
@@ -2730,6 +2744,73 @@ OpResult WorkspaceModel::minimizeView(QString viewId, const Place &place, QStrin
         }
         bump();
         return OpResult::success(entryId);
+    });
+}
+
+OpResult WorkspaceModel::minimizeAnchor(QString anchorId, const Place &place, QString wellId, Origin origin)
+{
+    return transact([&]() {
+        if (!m_anchors.contains(anchorId)) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such anchor: ") + anchorId);
+        }
+        const AnchorRecord anchor = m_anchors.value(anchorId);
+        if (anchor.views.isEmpty()) {
+            return OpResult::failure(QStringLiteral("EMPTY"), QStringLiteral("There's nothing in it to put away."));
+        }
+        if (const OpResult locked = layoutLockFailure(anchorId, QStringLiteral("it can't be minimized")); !locked.ok) {
+            return locked;
+        }
+        if (const OpResult locked = contentLockFailure(anchorId, origin); !locked.ok) {
+            return locked;
+        }
+        if (wellId.isEmpty()) {
+            wellId = kMainWellId;
+        }
+        if (!mutableWell(wellId)) {
+            return OpResult::failure(QStringLiteral("NOT_FOUND"), QStringLiteral("No such Well: ") + wellId);
+        }
+
+        WellEntry entry;
+        entry.id = newId(QStringLiteral("we"));
+        entry.panel = true;
+        entry.title = anchorDisplayName(anchorId);
+        entry.typeId = m_views.value(anchor.activeViewId).typeId;
+        entry.panelInfo.anchorId = anchorId;
+        entry.panelInfo.name = anchor.name;
+        entry.panelInfo.displayName = entry.title;
+        entry.panelInfo.activeViewId = anchor.activeViewId;
+        entry.panelInfo.roles = anchor.roles;
+        entry.panelInfo.libraryId = anchor.libraryId;
+        entry.panelInfo.pinned = anchor.pinned;
+        entry.panelInfo.contentLocked = anchor.contentLocked;
+        entry.panelInfo.switchable = anchor.switchable;
+        for (qsizetype index = 0; index < anchor.views.size(); ++index) {
+            Place viewPlace = place;
+            viewPlace.source = DragSource::view(anchor.views.at(index));
+            viewPlace.anchorId = anchorId;
+            viewPlace.index = int(index);
+            entry.minimized.append(MinimizedView{anchor.views.at(index), viewPlace});
+        }
+        mutableWell(wellId)->entries.append(entry);
+
+        for (const QString &viewId : anchor.views) {
+            removeViewFromAnchor(viewId);
+        }
+        const QString surfaceId = surfaceOfAnchor(anchorId);
+        if (!(m_surfaces.value(surfaceId).primary && anchorIds(surfaceId).size() == 1)) {
+            removeAnchorRecord(anchorId);
+        }
+        if (!m_focusedAnchorId.isEmpty() && !m_anchors.contains(m_focusedAnchorId)) {
+            m_focusedAnchorId.clear();
+        }
+        if (!m_targetAnchorId.isEmpty() && !m_anchors.contains(m_targetAnchorId)) {
+            m_targetAnchorId.clear();
+        }
+        if (m_focusedAnchorId.isEmpty() || m_focusedAnchorId == anchorId) {
+            m_focusedAnchorId = anchorIds(primarySurfaceId()).value(0);
+        }
+        bump();
+        return OpResult::success(entry.id);
     });
 }
 
