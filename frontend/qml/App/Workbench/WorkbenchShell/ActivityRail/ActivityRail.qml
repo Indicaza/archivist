@@ -49,6 +49,7 @@ Rectangle {
                 required property int index
                 required property var modelData
 
+                objectName: "rail." + String(railButton.modelData.id)
                 Layout.alignment: Qt.AlignHCenter
                 theme: root.theme
                 iconName: String(railButton.modelData.icon)

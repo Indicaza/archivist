@@ -55,6 +55,7 @@
     "test:native": "./scripts/qt-test",
     "observatory": "node scripts/observatory/cli.mjs",
     "observatory:build": "npm run check-node && node scripts/observatory/cli.mjs build",
+    "observatory:ui": "npm run check-node && node scripts/observatory/cli.mjs ui",
     "test:observatory": "node --test \"scripts/observatory/test/*.test.mjs\"",
     "core:migrations": "npm run build -w backend && node scripts/core-migrations.mjs",
     "test:ai-tools": "npm run check-node && npm run build -w backend && node scripts/test-ai-tools.mjs",

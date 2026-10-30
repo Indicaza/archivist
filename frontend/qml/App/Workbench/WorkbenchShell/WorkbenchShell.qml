@@ -66,6 +66,8 @@ Rectangle {
     property bool dockCollapsed: false
     property bool workspaceStateRestored: false
     property string workspaceScopeId: ""
+    // The docking workspace (or the legacy one), for the UI Lab.
+    readonly property Item workspaceItem: workspaceLoader.item
 
     readonly property real maximumExplorerWidth: Math.max(
         theme.explorerMinWidth,
@@ -1112,6 +1114,7 @@ Rectangle {
     SidePanelResizeHandle {
         id: explorerResizeHandle
 
+        objectName: "shell.explorerResizeHandle"
         x: root.explorerRight - width / 2
         y: 0
         height: parent.height - statusBar.height
