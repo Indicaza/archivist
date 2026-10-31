@@ -15,7 +15,10 @@ export const AUDIT_SCHEMA_VERSION = 1;
 export const FINDINGS_SCHEMA = "archivist.observatory.findings";
 // Bump when a rule's threshold or meaning changes; findings from audits with
 // another version are not compared one to one.
-export const RULES_VERSION = 1;
+// 2: unattributed time is measured against the response window (v2
+// ui-operations), idle observation steps are never slow steps, and startup
+// phases after the event loop starts are rules of their own.
+export const RULES_VERSION = 2;
 
 export const UI_SCENARIOS = ["startup", "sidebar", "workspace", "chat"];
 
@@ -46,12 +49,13 @@ const SEVERITY_RANK = Object.fromEntries(SEVERITIES.map((name, index) => [name, 
 export const RULES = [
   { id: "ui.failed-actions", subsystem: "ui-lab", title: "Actions failed", when: "Any scenario run did not pass, or any action failed.", severity: "high", basis: "UI Lab action records" },
   { id: "ui.no-operations", subsystem: "instrumentation", title: "No operations reported", when: "The app build didn't report LiveEvents operations to the UI Lab.", severity: "info", basis: "summary.operations.collected" },
-  { id: "ui.slow-step", subsystem: "ui", title: "Slow step", when: "A step's settled latency, median over measured actions, is 100 ms or more (250 ms or more: high).", severity: "medium / high", basis: "settled = input until no frame for the settle window" },
+  { id: "ui.slow-step", subsystem: "ui", title: "Slow step", when: "A step's settled latency, median over measured actions, is 100 ms or more (250 ms or more: high). Idle observation steps (op noop) are not interactions and never count.", severity: "medium / high", basis: "settled = input until the last frame before rendering went quiet" },
   { id: "ui.slow-operation", subsystem: "(from the operation)", title: "Slow operation", when: "An instrumented operation's median inside a step is 50 ms or more (200 ms or more: high).", severity: "medium / high", basis: "LiveEvents spans tagged with the running action" },
   { id: "ui.stalls", subsystem: "ui-thread", title: "Event-loop stalls", when: "The UI Lab probe fired 50 ms or more late during measured actions.", severity: "medium", basis: "50 ms probe on the UI thread" },
-  { id: "ui.unattributed", subsystem: "instrumentation", title: "Time no operation explains", when: "In a step of 50 ms or more, half or more of the action is outside every instrumented operation.", severity: "low", basis: "action time minus the union of its top-level spans" },
+  { id: "ui.unattributed", subsystem: "instrumentation", title: "Time no operation explains", when: "In an interaction whose response window is 50 ms or more, half or more of that window is inside no instrumented operation.", severity: "low", basis: "response window (input to settled) minus the union of the spans inside it; both medians from the same actions (ui-operations v2)" },
   { id: "ui.frame-gap", subsystem: "rendering", title: "Long frame gaps", when: "The longest gap between frames, median over measured actions, is over 33.4 ms (two frames at an assumed 60 Hz).", severity: "low", basis: "frame swaps seen by the driver; 60 Hz is an assumption" },
   { id: "startup.slow-stage", subsystem: "startup", title: "Slow startup stage", when: "A startup stage measured in main() takes 250 ms or more (1000 ms or more: high).", severity: "medium / high", basis: "LiveEvents spans in main()" },
+  { id: "startup.slow-phase", subsystem: "startup", title: "Slow startup phase", when: "The event loop to first frame, or first frame to usable UI, takes 250 ms or more (1000 ms or more: high).", severity: "medium / high", basis: "startup markers and the driver's ready check (ui-operations v2 phases)" },
   { id: "build.failed", subsystem: "build", title: "Build failed", when: "The build did not succeed.", severity: "high", basis: "build phases" },
   { id: "build.missing-evidence", subsystem: "build", title: "No job evidence", when: "The build recorded no per-job evidence (older record, or Ninja's log was unreadable).", severity: "info", basis: "summary.evidence" },
   { id: "build.dominant-unit", subsystem: "compile", title: "One file dominates compile time", when: "One compile takes 20% or more of all compile time and at least 5 s.", severity: "medium", basis: ".ninja_log job times" },
@@ -62,6 +66,9 @@ export const RULES = [
   { id: "build.cache-misses", subsystem: "compiler-cache", title: "Compiler cache mostly missed", when: "A configured ccache or sccache hit under 50% of 10 or more cacheable compiles.", severity: "low", basis: "cache counters before and after the build" },
   { id: "build.cmake-rerun", subsystem: "cmake", title: "CMake ran again", when: "A CMake input changed, so the build re-ran CMake.", severity: "info", basis: "ninja -d explain" },
 ];
+
+export const OBSERVATION_OPS = new Set(["noop"]);
+const STARTUP_PHASE_RULED = new Set(["first-frame", "first-usable"]);
 
 export const RULE_BY_ID = Object.fromEntries(RULES.map((rule) => [rule.id, rule]));
 
@@ -150,11 +157,22 @@ export function evaluateFindings(children) {
       });
     }
 
-    // Steps: settled latency, unattributed time, stalls.
+    // Steps: settled latency, unattributed time, stalls. Observation steps
+    // (the idle after startup) only watch the app, so they are skipped.
+    const observation = new Set();
+    for (const run of passed) {
+      for (const step of run.summary.operations?.steps ?? []) {
+        if (step.kind === "observation") observation.add(`${step.step}:${step.label}`);
+      }
+      for (const step of run.summary.stats?.steps ?? []) {
+        if (OBSERVATION_OPS.has(step.op)) observation.add(`${step.step}:${step.label ?? step.op}`);
+      }
+    }
     const stepKeys = new Map();
     for (const run of passed) {
       for (const step of run.summary.stats?.steps ?? []) {
         const key = `${step.step}:${step.label ?? step.op}`;
+        if (observation.has(key)) continue;
         if (!stepKeys.has(key)) stepKeys.set(key, { step: step.step, label: step.label ?? step.op, values: [] });
         stepKeys.get(key).values.push({ runId: run.runId, ms: step.settledMs?.medianMs ?? null });
       }
@@ -193,9 +211,11 @@ export function evaluateFindings(children) {
           if (!stallStats.has(stepKey)) stallStats.set(stepKey, { step: step.step, label: step.label, values: [] });
           stallStats.get(stepKey).values.push({ runId: run.runId, stalls: step.stalls, runs: step.runs });
         }
-        if (step.unattributedMedianMs != null) {
+        // Only v2 operations measure unattributed time and its window the
+        // same way; older runs are left out rather than compared wrongly.
+        if (step.unattributedMedianMs != null && step.windowMedianMs != null && !observation.has(stepKey)) {
           if (!unattributed.has(stepKey)) unattributed.set(stepKey, { step: step.step, label: step.label, values: [] });
-          unattributed.get(stepKey).values.push({ runId: run.runId, ms: step.unattributedMedianMs });
+          unattributed.get(stepKey).values.push({ runId: run.runId, ms: step.unattributedMedianMs, window: step.windowMedianMs, basis: step.windowBasis });
         }
       }
     }
@@ -239,13 +259,13 @@ export function evaluateFindings(children) {
     }
     for (const [stepKey, entry] of unattributed) {
       const typical = median(entry.values.map((value) => value.ms));
-      const settled = stepKeys.get(stepKey) ? median(stepKeys.get(stepKey).values.map((value) => value.ms)) : null;
-      if (typical == null || settled == null || settled < 50 || typical < settled / 2) continue;
+      const window = median(entry.values.map((value) => value.window));
+      if (typical == null || window == null || window < 50 || typical < window / 2) continue;
       add("ui.unattributed", `${scenario}:${stepKey}`, {
         subsystem: "instrumentation", severity: "low",
-        summary: `${name}, step ${entry.step} (${entry.label}): ${msText(typical)} of ${msText(settled)} is outside every instrumented operation.`,
-        impact: { value: round(typical), unit: "ms", text: `${pct(typical, settled)}% of the step unexplained` },
-        evidence: entry.values.map((value) => ({ runId: value.runId, step: entry.step, text: `unattributed median ${msText(value.ms)}` })),
+        summary: `${name}, step ${entry.step} (${entry.label}): ${msText(typical)} of its ${msText(window)} response window is inside no instrumented operation.`,
+        impact: { value: round(typical), unit: "ms", text: `${pct(typical, window)}% of the response window unexplained` },
+        evidence: entry.values.map((value) => ({ runId: value.runId, step: entry.step, text: `unattributed median ${msText(value.ms)} of a ${msText(value.window)} window (${value.basis})` })),
         confidence: confidence(entry.values.length, passed.length),
         nextStep: "Add a LiveEvents span around the code this step runs (QML bindings, model resets, layout), then audit again.",
         scenario,
@@ -284,6 +304,29 @@ export function evaluateFindings(children) {
           evidence: values.map((value) => ({ runId: value.runId, operation: `startup.${stage}`, text: `${msText(value.ms)}` })),
           confidence: confidence(values.filter((value) => value.ms >= 250).length, values.length),
           nextStep: `Add spans inside ${stage} in main() (or the code it calls) to split it further.`,
+          scenario,
+        });
+      }
+      const phases = new Map();
+      for (const run of passed) {
+        for (const phase of run.summary.operations?.startup?.phases ?? []) {
+          if (!STARTUP_PHASE_RULED.has(phase.id) || phase.ms == null) continue;
+          if (!phases.has(phase.id)) phases.set(phase.id, { label: phase.label, values: [] });
+          phases.get(phase.id).values.push({ runId: run.runId, ms: phase.ms });
+        }
+      }
+      for (const [id, entry] of phases) {
+        const typical = median(entry.values.map((value) => value.ms));
+        if (typical == null || typical < 250) continue;
+        add("startup.slow-phase", id, {
+          subsystem: "startup", severity: typical >= 1000 ? "high" : "medium",
+          summary: `Startup phase "${entry.label}" takes ${msText(typical)}.`,
+          impact: { value: round(typical), unit: "ms", text: `${msText(typical)} median` },
+          evidence: entry.values.map((value) => ({ runId: value.runId, operation: `startup.${id}`, text: msText(value.ms) })),
+          confidence: confidence(entry.values.filter((value) => value.ms >= 250).length, entry.values.length),
+          nextStep: id === "first-frame"
+            ? "This is work QML deferred past the event loop (Component.onCompleted, Loaders, first polish and sync). Add spans or markers in the components created at startup."
+            : "This is what runs between the first frame and the ready check. Look at the operations after first-frame on the startup timeline.",
           scenario,
         });
       }
