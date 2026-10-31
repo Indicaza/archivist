@@ -20,6 +20,7 @@
     "test:library-index": "npm run check-node && node scripts/test-library-index.mjs",
     "test:gravity-wells": "npm run check-node && node scripts/test-gravity-wells.mjs",
     "dev": "./scripts/qt-dev-detached --follow",
+    "dev:qml": "node scripts/qt-qml-dev.mjs",
     "dev:detached": "./scripts/qt-dev-detached",
     "dev:chat-trace": "./scripts/qt-dev-chat-trace",
     "dev:foreground": "./scripts/qt-dev",
