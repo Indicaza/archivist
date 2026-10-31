@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  printf 'Usage: %s <source-directory> <build-directory>\n' "$0" >&2
+  exit 2
+fi
+
+SOURCE_DIR="$1"
+BUILD_DIR="$2"
+CACHE_FILE="$BUILD_DIR/CMakeCache.txt"
+
+[[ -f "$CACHE_FILE" && -f "$BUILD_DIR/build.ninja" ]] || exit 1
+
+grep -Fqx -- "CMAKE_HOME_DIRECTORY:INTERNAL=$SOURCE_DIR" "$CACHE_FILE" || exit 1
+grep -Fqx -- "CMAKE_GENERATOR:INTERNAL=Ninja" "$CACHE_FILE" || exit 1
+grep -Eq -- "^CMAKE_BUILD_TYPE:(STRING|UNINITIALIZED)=Debug$" "$CACHE_FILE" || exit 1

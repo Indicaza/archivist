@@ -50,7 +50,7 @@ scripts `npm run dev` uses:
 | Phase          | Command                                   | What it records                          |
 | -------------- | ----------------------------------------- | ---------------------------------------- |
 | `ide-bundle`   | `node scripts/build-ide.mjs`              | time; whether the cached bundle was used |
-| `configure`    | `scripts/qt-configure`                    | time; whether a stale cache was reset    |
+| `configure`    | `scripts/qt-configure --if-needed`        | compatible cache reuse vs actual configure |
 | `build-plan`   | `cmake --build build/frontend-debug -- -n`| Ninja dry run: steps the build will run  |
 
 **Bookkeeping steps.** CMake re-checks its source globs, and Qt's AUTOMOC
@@ -60,7 +60,7 @@ nothing changed. Observatory counts these apart from real work
 them is `no-change`. The patterns are in `ninja.mjs`.
 | `native-build` | `cmake --build build/frontend-debug`      | time; Ninja progress; `.ninja_log` edges |
 
-`scripts/qt-build` is configure followed by `cmake --build`, so the last two
+`scripts/qt-build` checks for an existing compatible Ninja graph before `cmake --build`, so the last two
 phases are the same build split in two. Nothing is deleted or touched to
 force a clean build. The command exits with the build's own exit code, and a
 failed or interrupted (Ctrl+C) build still writes its report.
@@ -111,7 +111,29 @@ Any value that could not be read is `null`, never a guess. The summary is
 rewritten atomically (temp file + rename) after every phase, so a killed
 capture still leaves the phases it finished.
 
-### What is measured and what is inferred
+### Fast everyday Qt builds
+
+The standard development path now checks whether `build/frontend-debug` has an
+existing Ninja **Debug** graph for the current `frontend` source directory.
+If so, `scripts/qt-build` skips the redundant explicit CMake configure
+command. Ninja still verifies the generated graph and automatically
+regenerates CMake when tracked build inputs change (including
+`CMakeLists.txt` and the configured resource globs). A fresh, incompatible
+or missing graph still gets an explicit CMake configure.
+
+For a fast day-to-day build including cached IDE web assets use
+`npm run build:fast`. `npm run dev` and `npm run dev:detached` also
+use the optimized Qt build automatically. For an intentional manual
+reconfiguration (new Qt install, toolchain, CMake settings or other cache
+variables), use `npm run qt:configure` before the next build.
+`npm run observatory:build` runs the same conditional configuration
+phase and records `explicitConfigureSkipped`. A skipped *explicit*
+configuration does not mean Ninja skipped checking its CMake dependencies.
+
+No production compiler flags, Qt caching settings, native build graph,
+or release packaging are changed by this optimization.
+
+## What is measured and what is inferred
 
 - **Measured:** phase and total durations (Node's monotonic clock), exit
   codes, and `native-build.details.ninjaLog`: the start/end times Ninja

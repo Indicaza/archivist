@@ -36,6 +36,7 @@
     "dev:backend": "npm run dev -w backend",
     "build": "npm run check-node && npm run build:ide && npm run build:frontend",
     "build:frontend": "./scripts/qt-build",
+    "build:fast": "npm run build:ide:cached && ./scripts/qt-build",
     "build:qt": "npm run build:frontend",
     "frontend:configure": "./scripts/qt-configure",
     "qt:configure": "npm run frontend:configure",

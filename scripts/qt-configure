@@ -6,6 +6,16 @@ SOURCE_DIR="$ROOT/frontend"
 BUILD_DIR="$ROOT/build/frontend-debug"
 CACHE_FILE="$BUILD_DIR/CMakeCache.txt"
 
+if [[ $# -gt 1 || ( $# -eq 1 && "${1:-}" != "--if-needed" ) ]]; then
+  printf 'Usage: %s [--if-needed]\n' "$0" >&2
+  exit 2
+fi
+
+if [[ "${1:-}" == "--if-needed" ]] && bash "$ROOT/scripts/qt-build-cache-valid" "$SOURCE_DIR" "$BUILD_DIR"; then
+  printf 'CMake cache compatible; Ninja will check regeneration inputs.\n'
+  exit 0
+fi
+
 if command -v brew >/dev/null 2>&1; then
   QT_PREFIX="$(brew --prefix)"
 else

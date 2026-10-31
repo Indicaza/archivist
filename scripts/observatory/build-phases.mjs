@@ -35,14 +35,14 @@ function ideAnalyzer() {
 
 function configureAnalyzer() {
   let reset = false;
+  let reused = false;
   return {
     line(text) {
-      if (text.includes("Resetting stale frontend CMake cache")) {
-        reset = true;
-      }
+      if (text.includes("Resetting stale frontend CMake cache")) reset = true;
+      if (text.includes("CMake cache compatible; Ninja will check regeneration inputs.")) reused = true;
     },
     details() {
-      return { staleCacheReset: reset };
+      return { staleCacheReset: reset, explicitConfigureSkipped: reused };
     },
   };
 }
@@ -114,7 +114,7 @@ export function archivistBuildPhases({ root, buildDir, evidence = {}, timeTrace 
   };
   return [
     { name: "ide-bundle", command: process.execPath, args: [path.join(root, "scripts", "build-ide.mjs")], display: "node scripts/build-ide.mjs", cwd: root, analyze: ideAnalyzer },
-    timeTrace ? timeTraceConfigure(root, buildDir) : { name: "configure", command: path.join(root, "scripts", "qt-configure"), display: "scripts/qt-configure", cwd: root, analyze: configureAnalyzer },
+    timeTrace ? timeTraceConfigure(root, buildDir) : { name: "configure", command: path.join(root, "scripts", "qt-configure"), args: ["--if-needed"], display: "scripts/qt-configure --if-needed", cwd: root, analyze: configureAnalyzer },
     { name: "build-plan", command: "cmake", args: ["--build", buildDir, "--", "-n", "-d", "explain"], display: `cmake --build ${relativeBuildDir} -- -n -d explain`, cwd: root, analyze: () => planAnalyzer(explain) },
     nativeBuild,
   ];
