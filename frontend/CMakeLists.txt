@@ -214,6 +214,14 @@ endif()
 
 target_link_libraries(archivist-core PUBLIC Qt6::Core Qt6::Network ${ARCHIVIST_SQLITE_TARGET})
 
+option(ARCHIVIST_DEBUG_PCH "Precompile stable Qt headers for local Debug C++ builds" ON)
+
+if(ARCHIVIST_DEBUG_PCH AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_precompile_headers(archivist-core PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/Core/Support/stable_pch.h>"
+    )
+endif()
+
 # forkpty() for the IDE terminal lives in libutil outside macOS.
 if(UNIX AND NOT APPLE)
     target_link_libraries(archivist-core PUBLIC util)
@@ -442,6 +450,15 @@ target_link_libraries(archivist-qt
         Qt6::WebChannel
         Qt6::WebEngineQuick
 )
+
+if(ARCHIVIST_DEBUG_PCH AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_precompile_headers(archivist-qt PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/App/Services/stable_pch.h>"
+    )
+    message(STATUS "Archivist Debug PCH enabled (core and Qt frontend)")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    message(STATUS "Archivist Debug PCH disabled")
+endif()
 
 set_target_properties(archivist-qt PROPERTIES
     MACOSX_BUNDLE TRUE
