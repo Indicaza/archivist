@@ -453,6 +453,7 @@ async function recordingView(runId, runs) {
       result.replaceChildren(comparison.compatible
         ? table(["Measure", { label: "Other", num: true }, { label: "This", num: true }, { label: "Change", num: true }], comparison.metrics.map((metric) => ({ cells: [metric.label, metric.base ?? "—", metric.candidate ?? "—", metric.delta == null ? "—" : `${metric.delta > 0 ? "+" : ""}${metric.delta}`] })))
         : h("div", { class: "notice bad" }, h("strong", {}, "Not comparable"), h("ul", {}, comparison.blockers.map((line) => h("li", {}, line)))),
+      ...(comparison.warnings.length ? [h("div", { class: "notice" }, h("strong", {}, "Read with care"), h("ul", {}, comparison.warnings.map((line) => h("li", {}, line))))] : []),
       h("ul", { class: "muted small" }, comparison.notes.map((note) => h("li", {}, note))));
     });
     parts.push(h("section", {}, h("h3", {}, "Compare"), pick, result));

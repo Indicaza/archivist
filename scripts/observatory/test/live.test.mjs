@@ -85,6 +85,33 @@ describe("live analysis", () => {
     assert.ok(same.notes.some((note) => /significance/.test(note)));
   });
 
+  test("compare warns about what makes two recordings less comparable, and refuses different sampling", () => {
+    const variant = (change) => {
+      const summary = structuredClone(fixture.summary);
+      change(summary);
+      return liveModel({ ...fixture, summary });
+    };
+    const same = compareLive(model, model);
+    assert.ok(same.warnings.some((line) => /same build/.test(line)), "the same build is pointed out");
+
+    const release = variant((summary) => { summary.app.buildType = "release"; summary.environment.platform = "darwin"; summary.environment.osVersion = "15.1"; summary.source.commit = "d".repeat(40); });
+    const warned = compareLive(model, release);
+    assert.equal(warned.compatible, true);
+    assert.ok(warned.warnings.some((line) => /debug build and the other release/.test(line)));
+    assert.ok(warned.warnings.some((line) => /different machines or systems/.test(line)));
+
+    const partial = variant((summary) => { summary.status = "interrupted"; summary.live.partial = true; summary.live.stopReason = "app-ended"; summary.live.durationMs = 1000; summary.live.stats = { ...summary.live.stats, dropped: { frames: 7 } }; });
+    const lines = compareLive(model, partial).warnings;
+    assert.ok(lines.some((line) => /is partial \(stopped by app-ended\)/.test(line)));
+    assert.ok(lines.some((line) => /dropped data at the recorder's limit \(7 frames\)/.test(line)));
+    assert.ok(lines.some((line) => /lengths differ a lot/.test(line)));
+
+    const resampled = variant((summary) => { summary.live.sampleIntervalMs = 250; });
+    const refused = compareLive(model, resampled);
+    assert.equal(refused.compatible, false);
+    assert.ok(refused.blockers.some((line) => /Sampling differs/.test(line)));
+  });
+
   test("normalize knows live recordings", () => {
     assert.equal(kindFromId(LIVE_FIXTURE_ID), "live-session");
     const run = normalizeRun(LIVE_FIXTURE_ID, fixture.summary);
