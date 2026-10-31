@@ -251,8 +251,9 @@ developer loop:
 npm run dev:qml
 ```
 
-This runs the normal cached build once, launches Archivist using QML files
-directly from `frontend/qml/`, then watches that source tree. Editing a
+This runs the normal cached build once, loads the existing `Archivist` QML
+module while redirecting its resource file loads to `frontend/qml/`, then
+watches that source tree. Editing a
 QML, JavaScript or UI asset file restarts only the dev app without running
 CMake, Ninja, resource compilation or C++ linking. To reuse an existing
 binary without any initial build:
