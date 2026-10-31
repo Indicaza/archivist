@@ -13,11 +13,13 @@
 #include <QJsonObject>
 #include <QRandomGenerator>
 #include <QTcpSocket>
+#include <QSemaphore>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QtEndian>
 #include <QtTest>
 #include <atomic>
+#include <vector>
 #include <thread>
 
 using namespace CoreValues;
@@ -456,6 +458,89 @@ private slots:
         server.stop();
         QVERIFY(!QFile::exists(IdeServer::agentAccessFile()));
         QVERIFY(!server.observatoryAgentAccess());
+        qunsetenv("ARCHIVIST_OBSERVATORY_DIR");
+    }
+
+    // Observatory work has its own threads and a cap: with both of them busy
+    // (a slow export, say) the editor's Library requests still answer, extra
+    // Observatory requests are refused with 503 instead of piling up, and the
+    // live operations that would call back into the app are refused at once.
+    void observatoryWorkDoesNotStarveLibraryRequests()
+    {
+        QTemporaryDir records;
+        qputenv("ARCHIVIST_OBSERVATORY_DIR", records.path().toUtf8());
+        IdeServer server;
+        QVERIFY(server.start(m_databasePath, m_distribution));
+        const quint16 port = server.port();
+        const QByteArray panelOrigin = "Origin: " + origin(server);
+        const QByteArray panelKey = "X-Observatory-Token: " + server.observatoryControlToken().toUtf8();
+
+        QSemaphore release;
+        std::atomic_int blocked = 0;
+        for (int index = 0; index < 2; ++index) {
+            server.observatoryPoolForTesting().start([&]() {
+                ++blocked;
+                release.acquire();
+            });
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(blocked.load(), 2, 5000);
+
+        const auto fetch = [&](const QByteArray &method, const QByteArray &target, const QList<QByteArray> &headers = {}, const QByteArray &body = {}) {
+            HttpReply reply;
+            std::atomic_bool done = false;
+            std::thread worker([&]() {
+                reply = request(port, method, target, body, headers);
+                done = true;
+            });
+            QElapsedTimer waited;
+            waited.start();
+            while (!done && waited.elapsed() < 10000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            }
+            worker.join();
+            return reply;
+        };
+
+        QElapsedTimer library;
+        library.start();
+        QCOMPARE(fetch("GET", "/api/libraries/" + m_libraryId.toUtf8() + "/files").status, 200);
+        QVERIFY2(library.elapsed() < 3000, "a Library request waited behind Observatory work");
+
+        // Fill the queue up to the cap; these wait for the blocked threads.
+        std::vector<std::thread> queued;
+        std::vector<int> statuses(IdeServer::kMaxObservatoryRequests, 0);
+        std::atomic_int answered = 0;
+        for (int index = 0; index < IdeServer::kMaxObservatoryRequests; ++index) {
+            queued.emplace_back([&, index]() {
+                statuses[index] = request(port, "GET", "/observatory/api/runs", {}, {}).status;
+                ++answered;
+            });
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(server.observatoryRequestsInFlight(), IdeServer::kMaxObservatoryRequests, 5000);
+
+        HttpReply refused = fetch("GET", "/observatory/api/runs");
+        QCOMPARE(refused.status, 503);
+        refused = fetch("POST", "/observatory/api/control/observatory.tests.status", {panelOrigin, panelKey, "Content-Type: application/json"}, "{}");
+        QCOMPARE(refused.status, 503);
+        QCOMPARE(refused.json().value(QStringLiteral("error")).toMap().value(QStringLiteral("code")).toString(), QStringLiteral("unavailable"));
+
+        // Refused before any thread or script: they belong to api/live.
+        for (const QByteArray &operation : {QByteArray("wait"), QByteArray("start"), QByteArray("status")}) {
+            const HttpReply live = fetch("POST", "/observatory/api/control/observatory.live." + operation, {panelOrigin, panelKey, "Content-Type: application/json"}, "{}");
+            QCOMPARE(live.status, 400);
+            QVERIFY(live.body.contains("/observatory/api/live/"));
+        }
+
+        release.release(2);
+        QTRY_COMPARE_WITH_TIMEOUT(answered.load(), IdeServer::kMaxObservatoryRequests, 10000);
+        for (std::thread &thread : queued) {
+            thread.join();
+        }
+        for (const int status : statuses) {
+            QVERIFY2(status != 503 && status != 0, "a queued Observatory request was dropped");
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(server.observatoryRequestsInFlight(), 0, 5000);
+        server.stop();
         qunsetenv("ARCHIVIST_OBSERVATORY_DIR");
     }
 
