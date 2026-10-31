@@ -111,6 +111,7 @@ export function analyzeOperations(events) {
       step: action.step,
       op: action.op,
       label: action.label,
+      startMs: round(action.startMs),
       durationMs: round(end - t0),
       settledMs: action.settledMs ?? null,
       operations: tree,
@@ -127,15 +128,16 @@ export function analyzeOperations(events) {
   const perStep = new Map();
   for (const action of actions.filter((a) => a.phase === "measured")) {
     const key = `${action.step}\t${action.label ?? action.op}`;
-    if (!perStep.has(key)) perStep.set(key, { step: action.step, label: action.label ?? action.op, runs: 0, ops: new Map(), unattributed: [], stalls: 0 });
+    if (!perStep.has(key)) perStep.set(key, { step: action.step, label: action.label ?? action.op, runs: 0, ops: new Map(), parents: new Map(), unattributed: [], stalls: 0 });
     const entry = perStep.get(key);
     entry.runs += 1;
     entry.unattributed.push(action.unattributedMs);
     entry.stalls += action.stalls.length;
-    const walk = (nodes) => nodes.forEach((node) => {
+    const walk = (nodes, parent) => nodes.forEach((node) => {
       if (!entry.ops.has(node.name)) entry.ops.set(node.name, []);
       entry.ops.get(node.name).push(node.durationMs);
-      if (node.children) walk(node.children);
+      if (parent && !entry.parents.has(node.name)) entry.parents.set(node.name, parent);
+      if (node.children) walk(node.children, node.name);
     });
     walk(action.operations);
   }
@@ -146,7 +148,7 @@ export function analyzeOperations(events) {
     stalls: entry.stalls,
     unattributedMedianMs: round(median(entry.unattributed)),
     operations: [...entry.ops.entries()]
-      .map(([name, values]) => ({ name, n: values.length, medianMs: round(median(values)), maxMs: round(Math.max(...values)) }))
+      .map(([name, values]) => ({ name, parent: entry.parents.get(name) ?? null, n: values.length, medianMs: round(median(values)), maxMs: round(Math.max(...values)) }))
       .sort((a, b) => b.medianMs - a.medianMs),
   }));
 

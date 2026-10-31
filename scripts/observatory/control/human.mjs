@@ -55,6 +55,19 @@ function spikeLines(spikes) {
   ]);
 }
 
+function findingLines(findings) {
+  if (!findings.length) return ["  No rule's threshold was met."];
+  return findings.map((finding) => `  [${finding.severity}] ${finding.summary} (${finding.rule}; ${finding.confidence?.text ?? ""})`);
+}
+
+function auditLines(audit) {
+  if (!audit) return [];
+  const counts = audit.counts ?? {};
+  return [`Audit ${audit.auditId}: ${audit.status}, ${counts.high ?? 0} high, ${counts.medium ?? 0} medium, ${counts.low ?? 0} low, ${counts.info ?? 0} info`,
+    ...(audit.topFindings ?? []).map((finding) => `  [${finding.severity}] ${finding.summary}`),
+    `  More: npm run observatory -- audit report ${audit.auditId}`];
+}
+
 export function formatResponse(response) {
   if (!response.ok) return `Error (${response.error.code}): ${response.error.message}`;
   const result = response.result;
@@ -86,6 +99,26 @@ export function formatResponse(response) {
     case "observatory.reports.export":
       return [`Evidence for ${result.manifest.runId}:`, `  ${result.zip}`, `  ${result.dir}/ (${result.manifest.files.length} files, start with report.md)`,
         result.manifest.redaction.rawLogsIncluded ? "  Includes the full, unredacted log." : "  Redacted; no raw logs."].join("\n");
+    case "observatory.audit.presets":
+      return result.presets.map((preset) => `${preset.id.padEnd(9)} ${preset.name}: ${preset.runs} run${preset.runs === 1 ? "" : "s"}${preset.ready ? "" : ` (not ready: ${preset.blockedBy})`}\n  ${preset.description}`).join("\n");
+    case "observatory.audit.run":
+    case "observatory.audit.cancel":
+      return jobLines(result.job).join("\n");
+    case "observatory.audit.status":
+      return [...jobLines(result.job), ...auditLines(result.audit)].join("\n");
+    case "observatory.audit.list":
+      return result.audits.length ? result.audits.flatMap(auditLines).join("\n") : "No audits yet. Start one: npm run observatory -- audit run --preset quick --wait";
+    case "observatory.audit.findings":
+      return [`${result.findings.length} findings in ${result.auditId} (rules v${result.rulesVersion}):`, ...findingLines(result.findings)].join("\n");
+    case "observatory.audit.compare":
+      if (result.status !== "compared") return `Not compared: ${(result.blockers ?? result.reasons ?? []).join("; ")}`;
+      return [`${result.baselineAuditId} → ${result.auditId}: ${result.verdict}`,
+        ...result.categories.map((category) => `  ${category.label}: ${category.verdict}${category.reasons?.length ? ` (${category.reasons.join("; ")})` : ""}`),
+        `  Findings: ${result.findings.appeared.length} new, ${result.findings.resolved.length} gone, ${result.findings.persisting.length} still there`].join("\n");
+    case "observatory.audit.report":
+      return result.markdown;
+    case "observatory.audit.export":
+      return [`Evidence for audit ${result.manifest.runId}:`, `  ${result.zip}`, `  ${result.dir}/ (${result.manifest.files.length} files, start with report.md)`].join("\n");
     case "observatory.live.status":
     case "observatory.live.start":
     case "observatory.live.stop":

@@ -19,6 +19,7 @@ import { makeRedactor } from "../dashboard/public/redact.mjs";
 import { buildReport, categoryOf } from "../dashboard/public/regression.mjs";
 import { collectSource } from "../metadata.mjs";
 import { findAppBinary, overallTimeoutMs } from "../ui-lab.mjs";
+import { auditOperations } from "./audit.mjs";
 import { exportEvidence, loadRunEvidence } from "./evidence.mjs";
 import { ACTIVE, cancelJob, JOB_ID, JOB_STATUSES, listJobIds, MAX_REPEAT, refreshJob, runProgress, startJob } from "./jobs.mjs";
 import { LIVE_DURATIONS, LIVE_ERROR_CODES, LIVE_HTTP_STATUS, liveOperations, MAX_WINDOW_MS } from "./live-operations.mjs";
@@ -181,6 +182,7 @@ function compactRun(run) {
   }
   if (run.live) Object.assign(base, { durationMs: run.live.durationMs, stopReason: run.live.stopReason, partial: run.live.partial, frameGaps: run.live.frameGaps, stalls: run.live.stalls, worstMs: run.live.worstMs });
   if (run.build) Object.assign(base, { classification: run.build.classification, totalMs: run.build.totalMs, failedPhase: run.build.failedPhase });
+  if (run.audit) Object.assign(base, { preset: run.audit.preset, jobId: run.audit.jobId, runIds: run.audit.runIds, findings: run.audit.counts });
   return base;
 }
 
@@ -247,6 +249,17 @@ async function jobView(ctx, job) {
   return view;
 }
 
+// Starts a test job (scenarios, optional build, optional audit) and returns its view.
+async function startTests(ctx, request) {
+  const target = await describeTarget(ctx);
+  if (!target.exists && !request.build) throw new ControlError("no-binary", "No Archivist app has been built in build/frontend-debug. Run it with build: true, or npm run observatory:build first.");
+  const started = await startJob(ctx.root, request, { cliPath: ctx.cliPath, target, env: ctx.env });
+  if (started.busy) {
+    throw new ControlError("busy", started.busy.jobId ? `Job ${started.busy.jobId} is running a UI test.` : "A UI test started from the command line is running.", { holder: started.busy });
+  }
+  return jobView(ctx, started.job);
+}
+
 // ---- the operations -------------------------------------------------------------------
 
 const RUN_ID_PATTERN = RUN_ID.source;
@@ -296,13 +309,7 @@ export const OPERATIONS = {
       if (!chosen.every((id) => scenarios.some((entry) => entry.id === id))) {
         throw new ControlError("invalid-input", `Unknown scenario "${input.scenario}". Available: all, ${scenarios.map((entry) => entry.id).join(", ")}.`);
       }
-      const target = await describeTarget(ctx);
-      if (!target.exists && !input.build) throw new ControlError("no-binary", "No Archivist app has been built in build/frontend-debug. Run it with build: true, or npm run observatory:build first.");
-      const started = await startJob(ctx.root, { scenarios: chosen, repeat: input.repeat, build: input.build }, { cliPath: ctx.cliPath, target, env: ctx.env });
-      if (started.busy) {
-        throw new ControlError("busy", started.busy.jobId ? `Job ${started.busy.jobId} is running a UI test.` : "A UI test started from the command line is running.", { holder: started.busy });
-      }
-      return { job: await jobView(ctx, started.job) };
+      return { job: await startTests(ctx, { scenarios: chosen, repeat: input.repeat, build: input.build }) };
     },
   },
   "observatory.tests.status": {
@@ -343,7 +350,7 @@ export const OPERATIONS = {
       for (const id of ids) {
         const loaded = await refreshJob(ctx.root, id);
         jobs.push(loaded?.job
-          ? { jobId: id, status: loaded.job.status, createdAt: loaded.job.createdAt, finishedAt: loaded.job.finishedAt, scenarios: loaded.job.plan?.scenarios, repeat: loaded.job.plan?.repeat, runIds: loaded.job.runs.map((entry) => entry.runId), error: loaded.job.error }
+          ? { jobId: id, status: loaded.job.status, createdAt: loaded.job.createdAt, finishedAt: loaded.job.finishedAt, scenarios: loaded.job.plan?.scenarios, repeat: loaded.job.plan?.repeat, audit: loaded.job.request?.audit ?? null, auditRunId: loaded.job.auditRunId ?? null, runIds: loaded.job.runs.map((entry) => entry.runId), error: loaded.job.error }
           : { jobId: id, status: "unreadable", error: loaded?.error ?? null });
       }
       return { jobs };
@@ -351,9 +358,9 @@ export const OPERATIONS = {
   },
   "observatory.runs.list": {
     description: "Recorded runs, newest first, as compact records (status, identity and headline measurements).",
-    cli: "npm run observatory -- runs list [--kind build|ui-scenario|runtime-log|live-session] [--scenario <id>] [--status <s>] [--limit <n>] --json",
+    cli: "npm run observatory -- runs list [--kind build|ui-scenario|runtime-log|live-session|audit] [--scenario <id>] [--status <s>] [--limit <n>] --json",
     input: {
-      kind: { type: "string", enum: ["build", "ui-scenario", "runtime-log", "live-session"] },
+      kind: { type: "string", enum: ["build", "ui-scenario", "runtime-log", "live-session", "audit"] },
       scenario: { type: "string", pattern: SCENARIO_ID.source },
       status: { type: "string", pattern: "^[a-z-]{1,20}$" },
       limit: { type: "integer", min: 1, max: 500, default: 20 },
@@ -468,6 +475,7 @@ export const OPERATIONS = {
     },
   },
   ...liveOperations({ ControlError, requireRun, runIdPattern: RUN_ID_PATTERN }),
+  ...auditOperations({ ControlError, requireRun, runIdPattern: RUN_ID_PATTERN, describeTarget, scenarioDefinitions, startTests, jobView }),
 };
 
 // One call: validate, run, wrap. Never throws.

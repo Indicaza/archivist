@@ -43,6 +43,8 @@ export const PAGE_FILES = {
   "lab.js": "text/javascript; charset=utf-8",
   "live.mjs": "text/javascript; charset=utf-8",
   "live-page.js": "text/javascript; charset=utf-8",
+  "audit.mjs": "text/javascript; charset=utf-8",
+  "audit-page.js": "text/javascript; charset=utf-8",
 };
 
 const SECURITY_HEADERS = {

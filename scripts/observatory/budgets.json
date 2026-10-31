@@ -50,6 +50,25 @@
         "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
       },
       "steps": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 3 }
+    },
+    "ui:chat": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion"],
+      "metrics": {
+        "settled.median": { "direction": "lower", "regressionPercent": 10, "minAbsoluteMs": 2 },
+        "settled.p95": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 4 },
+        "state.median": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 2 },
+        "frameGap.median": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 4 },
+        "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
+      },
+      "steps": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 3 }
+    },
+    "ui:startup": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion"],
+      "metrics": {
+        "startup.firstFrame": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 50 },
+        "startup.eventLoop": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 50 },
+        "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
+      }
     }
   }
 }

@@ -23,6 +23,8 @@ console.log("archivist.wells.timing: minimize “Lab B” model 0.02 ms, publish
 // "slow": a run whose app reports operations (LiveEvents) like a current
 // build, with one deliberately slow operation in step 1 of every measured
 // iteration, and an event-loop stall while it runs.
+// FAKE_APP_SCALE stretches the slow operations, to stand in for a slowdown.
+const SCALE = Number(process.env.FAKE_APP_SCALE || 1);
 const RUN_START = 1500;
 const span = (category, name, startMs, durationMs, action, fields) => ({ kind: "span", category, name, startMs: RUN_START + startMs, endMs: RUN_START + startMs + durationMs, ok: true, action, ...(fields ? { fields } : {}) });
 const slowOperations = () => {
@@ -37,9 +39,9 @@ const slowOperations = () => {
   for (let index = 0; index < 4; index += 1) {
     const t0 = index * 400;
     if (index % 2 === 1) {
-      operations.push(span("chat", "open-conversation", t0 + 1, 260, index, { messages: 160 }));
+      operations.push(span("chat", "open-conversation", t0 + 1, 260 * SCALE, index, { messages: 160 }));
       operations.push(span("chat", "load-message-page", t0 + 5, 30, index, { messages: 160 }));
-      operations.push(span("chat", "publish-messages", t0 + 40, 210, index, { messages: 160 }));
+      operations.push(span("chat", "publish-messages", t0 + 40, 210 * SCALE, index, { messages: 160 }));
       stalls.push({ atMs: RUN_START + t0 + 45, lateMs: 190, action: index });
     } else {
       operations.push(span("workspace", "switch-tab", t0 + 1, 4, index));
@@ -49,7 +51,7 @@ const slowOperations = () => {
 };
 
 if (mode === "slow") {
-  const slowAction = (index, phase) => ({ ...action(index, phase, true, index % 2 ? 280 : 20), startMs: index * 400, endMs: index * 400 + (index % 2 ? 300 : 30) });
+  const slowAction = (index, phase) => ({ ...action(index, phase, true, index % 2 ? 280 * SCALE : 20), startMs: index * 400, endMs: index * 400 + (index % 2 ? 300 * SCALE : 30) });
   writeFileSync(output, JSON.stringify({ ...report("passed", [slowAction(0, "setup"), slowAction(1, "warmup"), slowAction(2, "measured"), slowAction(3, "measured")]), readyMs: 0, clock: { source: "LiveEvents::nowNs", runStartMs: RUN_START }, operations: slowOperations() }));
   process.exit(0);
 } else if (mode === "pass") {
