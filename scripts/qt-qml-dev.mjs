@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync, watch } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isQmlRuntimeFile, qtBinaryCandidates, sourceQmlDirectory } from "./qml-dev-utils.mjs";
+import { refreshDevQmlTree } from "./qml-dev-stage.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = sourceQmlDirectory(root);
@@ -41,6 +44,11 @@ if (stopped !== 0) {
   process.exit(stopped);
 }
 
+const stageDirectory = await mkdtemp(path.join(os.tmpdir(), "archivist-qml-dev-"));
+const stagedSource = path.join(stageDirectory, "qml");
+await refreshDevQmlTree(source, stagedSource);
+console.log("[QML dev] Prepared module-aware QML mirror outside the repository.");
+
 let app = null;
 let watcher = null;
 let debounce = null;
@@ -53,7 +61,7 @@ function startApp() {
   console.log("\n[QML dev] Launching Archivist from working-tree QML (no native rebuild on QML edits).");
   const child = spawn(binary, [], {
     cwd: root,
-    env: { ...process.env, ARCHIVIST_QML_SOURCE_DIR: source },
+    env: { ...process.env, ARCHIVIST_QML_SOURCE_DIR: stagedSource },
     stdio: "inherit",
   });
   app = child;
@@ -95,8 +103,11 @@ async function restartLoop() {
       restartPending = false;
       console.log("[QML dev] Reloading QML — restarting the app, skipping CMake/Ninja.");
       await stopApp();
+      await refreshDevQmlTree(source, stagedSource);
       startApp();
     }
+  } catch (error) {
+    console.error(`[QML dev] Unable to prepare QML source mirror: ${error.message}`);
   } finally {
     restarting = false;
     if (restartPending && !shuttingDown) void restartLoop();
@@ -116,6 +127,7 @@ async function shutdown(signal) {
   clearTimeout(debounce);
   watcher?.close();
   await stopApp();
+  await rm(stageDirectory, { recursive: true, force: true });
   process.exit(signal === "SIGINT" ? 130 : 0);
 }
 
