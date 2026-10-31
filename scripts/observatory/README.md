@@ -860,6 +860,29 @@ or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
 | `provider` (Provider Latency Audit) | ai-provider, 1 round, real provider | Provider latency. Refused without `--allow-provider-calls`; the page asks first. |
 | `complete` | `build`, then `ui` and the offline AI scenarios against what it built | Everything that makes no API calls. |
 
+**macOS background UI Lab.** By default the Observatory runner launches its
+disposable-profile test instances as non-focusing accessory windows using
+a test-only AppKit/Qt window policy. It requests that macOS move the test
+window to the active Space instead of switching you to another desktop.
+Synthetic UI actions do not need mouse focus. The test window remains
+renderable rather than being hidden or minimized, but macOS can throttle
+fully obscured windows: **background frame/settling results are not a
+substitute for foreground graphics benchmarks**. Background and foreground
+runs receive distinct scenario versions so they are not silently compared.
+If a foreground, frame-accurate run is needed, opt out for that command with
+`ARCHIVIST_UI_LAB_FOREGROUND=1 npm run observatory -- audit run --preset ui --wait`.
+Do not use `QT_QPA_PLATFORM=offscreen` for normal graphics profiling.
+
+**Fast local feedback.** Use
+`npm run observatory -- audit run --preset smoke --wait` to skip the
+build and run one short round of startup, sidebar, workspace and offline
+AI pipeline. Its scenario versions differ from full runs because it
+disables warm-up iterations and caps repetitions and settling waits. It
+is a functional/diagnostic spot check, **not** statistically reliable
+regression evidence. To run all scenarios but only once, use
+`npm run observatory -- audit run --preset complete --repeat 1 --wait`.
+Use the original Complete preset when you really need repeatable comparisons.
+
 Build presets never clean or delete anything: the build is the normal
 incremental build (a first-ever build is a full one because nothing exists
 yet). `--repeat` changes the rounds. The audit's own record is a run of
