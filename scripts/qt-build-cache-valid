@@ -14,4 +14,4 @@ CACHE_FILE="$BUILD_DIR/CMakeCache.txt"
 
 grep -Fqx -- "CMAKE_HOME_DIRECTORY:INTERNAL=$SOURCE_DIR" "$CACHE_FILE" || exit 1
 grep -Fqx -- "CMAKE_GENERATOR:INTERNAL=Ninja" "$CACHE_FILE" || exit 1
-grep -Fqx -- "CMAKE_BUILD_TYPE:STRING=Debug" "$CACHE_FILE" || exit 1
+grep -Eq -- "^CMAKE_BUILD_TYPE:(STRING|UNINITIALIZED)=Debug$" "$CACHE_FILE" || exit 1
