@@ -87,7 +87,7 @@ test("an unknown scenario is a usage error", async () => {
       (error, stdout, stderr) => resolve({ code: error ? error.code : 0, stderr }));
   });
   assert.equal(result.code, 2);
-  assert.match(result.stderr, /Available: sidebar, workspace/);
+  assert.match(result.stderr, /Available: chat, sidebar, startup, workspace/);
 });
 
 test("the lab environment isolates the profile and drops Archivist switches", () => {
@@ -138,8 +138,8 @@ test("statistics use measured actions only and leave p95 out for small samples",
 
 test("scenario definitions are complete and use known operations", async () => {
   const dir = path.join(HERE, "..", "ui-scenarios");
-  const ops = new Set(["click", "dragSidebarEdge", "returnToWorkspace", "setPanelOpen", "openView", "applyLayout", "activateView", "minimizeView", "restoreView", "noop"]);
-  const expectations = new Set(["panelOpen", "panelId", "homeActive", "sidebarSettled", "explorerWidth", "currentLayoutId", "focusedView", "minimized", "viewsOpen", "genieIdle"]);
+  const ops = new Set(["click", "dragSidebarEdge", "returnToWorkspace", "setPanelOpen", "openView", "applyLayout", "activateView", "minimizeView", "restoreView", "noop", "seedChats", "refreshChats", "selectChat"]);
+  const expectations = new Set(["panelOpen", "panelId", "homeActive", "sidebarSettled", "explorerWidth", "currentLayoutId", "focusedView", "minimized", "viewsOpen", "genieIdle", "seeded", "chatsListed", "chatShown"]);
   for (const file of await readdir(dir)) {
     const scenario = JSON.parse(await readFile(path.join(dir, file), "utf8"));
     assert.equal(`${scenario.id}.json`, file);
@@ -153,4 +153,43 @@ test("scenario definitions are complete and use known operations", async () => {
       }
     }
   }
+});
+
+// The UI acceptance test: an app run with a deliberately slow operation in
+// step 1. The slow operation, its parent, the stall during it and startup
+// all come back on one timeline, attributed to the right action.
+test("operations inside each action are attributed, nested and not double-counted", async () => {
+  const root = await tempDir();
+  const result = await runUi("slow", root);
+  assert.equal(result.code, 0, result.stderr);
+  const { dir, summary } = await onlyRun(root);
+  assert.equal(summary.operations.collected, true);
+  assert.equal(summary.operations.slowest[0].name, "chat.open-conversation");
+  assert.ok(summary.operations.slowest.some((op) => op.name === "chat.publish-messages" && op.durationMs === 210 && op.action === 3));
+  const step = summary.operations.steps.find((entry) => entry.step === 1);
+  assert.equal(step.runs, 1, "measured iterations only");
+  assert.equal(step.operations[0].name, "chat.open-conversation");
+  assert.equal(step.stalls, 1);
+  assert.equal(summary.operations.startup.stages[0].name, "qt-init");
+  assert.equal(summary.operations.startup.firstFrameMs, 1380);
+  assert.equal(summary.operations.startup.readyMs, 1500);
+  assert.equal(summary.artifacts.operations, "ui-operations.json");
+
+  const artifact = JSON.parse(await readFile(path.join(dir, "ui-operations.json"), "utf8"));
+  const action = artifact.actions.find((entry) => entry.index === 3);
+  const [open] = action.operations;
+  assert.equal(open.name, "chat.open-conversation");
+  assert.deepEqual(open.children.map((child) => child.name), ["chat.load-message-page", "chat.publish-messages"]);
+  assert.equal(open.selfMs, 20, "260 ms minus the 240 ms of its two children");
+  assert.equal(action.coveredMs, 260);
+  assert.equal(action.unattributedMs, 40, "the 300 ms action minus the union of its spans, not the sum");
+  assert.deepEqual(action.stalls, [{ atMs: 45, lateMs: 190 }]);
+});
+
+test("runs from an app that doesn't report operations say so", async () => {
+  const root = await tempDir();
+  await runUi("pass", root);
+  const { summary } = await onlyRun(root);
+  assert.equal(summary.operations.collected, false);
+  assert.equal(summary.artifacts.operations, undefined);
 });

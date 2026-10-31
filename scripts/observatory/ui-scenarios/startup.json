@@ -1,0 +1,21 @@
+{
+  "id": "startup",
+  "version": 1,
+  "name": "Startup",
+  "description": "Starts Archivist in a fresh disposable profile and waits until the workspace is ready for input. The startup stages main() reports (Qt, core runtime and database migrations, AI runtime, IDE host, QML load, first frame) are on the run's operations timeline; one short idle step follows.",
+  "initialConditions": "Fresh disposable profile (empty database, so migrations run), 1280x840 window. The binary and the operating system's file cache are whatever the previous run left: a first-launch-after-boot cold start is not reproduced.",
+  "workload": { "profile": "fresh", "osFileCache": "not flushed" },
+  "methods": { "noop": "none: the step only lets rendering settle after ready" },
+  "seed": null,
+  "warmupIterations": 0,
+  "iterations": 1,
+  "actionTimeoutMs": 5000,
+  "settleQuietMs": 300,
+  "readyTimeoutMs": 60000,
+  "timeoutMs": 120000,
+  "setup": [],
+  "steps": [
+    { "op": "noop", "label": "idle after ready", "expect": {} }
+  ],
+  "teardown": []
+}

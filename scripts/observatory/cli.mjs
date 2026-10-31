@@ -14,6 +14,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { collectBuildEvidence } from "./build-evidence.mjs";
 import { summarizeTraces } from "./time-trace.mjs";
+import { analyzeOperations } from "./ui-operations.mjs";
 import { archivistBuildPhases, buildConditionsBefore, classifyBuild } from "./build-phases.mjs";
 import { exitCodeFor, runCapture } from "./capture.mjs";
 import { collectMachine, collectSource, collectToolchain } from "./metadata.mjs";
@@ -360,6 +361,13 @@ async function uiScenarioCommand(name, options) {
     firstFailure: actions.find((action) => !action.ok) ?? null,
   };
   summary.stats = summarizeActions(actions);
+  // What happened inside each action (LiveEvents spans, stalls), if this app build reports them.
+  const operations = analyzeOperations(events);
+  summary.operations = operations.summary;
+  if (operations.artifact) {
+    await writeJsonAtomic(path.join(dir, "ui-operations.json"), operations.artifact);
+    summary.artifacts.operations = "ui-operations.json";
+  }
   summary.runtimeTiming = {
     category: "archivist.wells.timing",
     relationship: "same-process",

@@ -83,7 +83,7 @@ describe("capabilities and validation", () => {
     assert.deepEqual(Object.keys(body.result.errorCodes), Object.keys(ERROR_CODES));
     assert.equal(body.result.limits.concurrentUiTests, 1);
     assert.equal(body.result.target.exists, true);
-    assert.deepEqual(body.result.scenarios.map((entry) => entry.id), ["sidebar", "workspace"]);
+    assert.deepEqual(body.result.scenarios.map((entry) => entry.id), ["chat", "sidebar", "startup", "workspace"]);
   });
 
   test("scenarios are listed with what they do and how many actions they plan", async () => {
