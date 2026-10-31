@@ -11,7 +11,7 @@
 // survives a restart of the machine; such jobs show as interrupted.
 import { execFile, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { makeRunId, writeJsonAtomic } from "../storage.mjs";
 
@@ -123,6 +123,16 @@ async function runnerStopped(pid, jobId) {
 }
 
 // ---- the one-UI-test-at-a-time lock -------------------------------------------
+//
+// The lock is <root>/jobs/ui-lock.json, created with O_EXCL ("wx"): only one
+// process can create it. Taking over a stale lock (its holder is proven
+// gone) is the racy part, because several processes can judge the same lock
+// stale at once. So the lock file is identified by its inode and birth time,
+// and only the process that also creates ui-lock.takeover-<that identity>
+// (O_EXCL again) may delete it, and only if the lock is still that same
+// file. Everyone then races on "wx" again and exactly one wins.
+
+const TAKEOVER_MARKER_STALE_MS = 30000;
 
 async function readLock(root) {
   try {
@@ -132,28 +142,69 @@ async function readLock(root) {
   }
 }
 
-async function lockIsStale(holder) {
-  if (!holder) return true;
-  if (!holder.pid) return Date.now() - Date.parse(holder.since ?? 0) > START_GRACE_MS;
+// { holder (parsed, or null if unreadable), id (which file this is), ageMs } or null if there's no lock.
+async function inspectLock(root) {
+  let info;
+  try {
+    info = await stat(lockFile(root));
+  } catch {
+    return null;
+  }
+  return { holder: await readLock(root), id: `${info.ino}-${Math.round(info.birthtimeMs || info.ctimeMs)}`, ageMs: Date.now() - info.mtimeMs };
+}
+
+async function lockIsStale(lock) {
+  const holder = lock.holder;
+  // Unreadable: a holder that crashed while writing it, or one writing it right now.
+  if (!holder) return lock.ageMs > 5000;
+  if (!holder.pid) {
+    if (holder.takenBy && !isAlive(holder.takenBy)) return true;
+    return Date.now() - Date.parse(holder.since ?? 0) > START_GRACE_MS;
+  }
   if (holder.owner === "job") return runnerStopped(holder.pid, holder.jobId);
   return !isAlive(holder.pid);
+}
+
+// Deletes the lock only if it is still the file `id`, and only one process at a time.
+async function takeOver(root, id) {
+  const marker = path.join(jobsDir(root), `ui-lock.takeover-${id}`);
+  try {
+    await writeFile(marker, `${process.pid}\n`, { flag: "wx" });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    // Someone else is taking it over. A marker left by a process that died mid-takeover is cleared later.
+    const info = await stat(marker).catch(() => null);
+    if (info && Date.now() - info.mtimeMs > TAKEOVER_MARKER_STALE_MS) await rm(marker, { force: true });
+    return;
+  }
+  try {
+    const current = await inspectLock(root);
+    if (current?.id === id) await rm(lockFile(root), { force: true });
+  } finally {
+    await rm(marker, { force: true });
+  }
 }
 
 // holder: { owner: "job" | "cli", jobId?, pid, since }. Returns { ok } or
 // { ok: false, holder } when another UI test is running.
 export async function acquireLock(root, holder) {
   await mkdir(jobsDir(root), { recursive: true });
-  const value = { ...holder, since: holder.since ?? new Date().toISOString() };
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // A job's lock gets its runner's pid once that has started; until then
+  // takenBy (the process that took the lock) shows whether it is still alive.
+  const value = { ...holder, takenBy: process.pid, since: holder.since ?? new Date().toISOString() };
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       await writeFile(lockFile(root), `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" });
       return { ok: true };
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
     }
-    const current = await readLock(root);
-    if (!(await lockIsStale(current))) return { ok: false, holder: current };
-    await rm(lockFile(root), { force: true });
+    const current = await inspectLock(root);
+    if (current) {
+      if (!(await lockIsStale(current))) return { ok: false, holder: current.holder ?? { unreadable: true } };
+      await takeOver(root, current.id);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5 + Math.random() * 20));
   }
   return { ok: false, holder: await readLock(root) };
 }

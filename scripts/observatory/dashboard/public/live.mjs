@@ -116,6 +116,27 @@ export function liveModel({ runId = null, summary = {}, metrics = null, events =
     spikes,
     hasMetrics: Boolean(metrics),
     hasEvents: Boolean(events),
+    identity: identityOf(summary),
+  };
+}
+
+// What a comparison needs to know about where a recording was made.
+function identityOf(summary) {
+  const app = summary?.app ?? {};
+  const environment = summary?.environment ?? {};
+  const text = (value) => (typeof value === "string" && value ? value : null);
+  return {
+    appVersion: text(app.version),
+    buildType: text(app.buildType),
+    qtRuntimeVersion: text(app.qtRuntimeVersion),
+    binary: app.binaryBytes != null || app.binaryModifiedAt ? `${app.binaryBytes ?? "?"} bytes, built ${app.binaryModifiedAt ?? "?"}` : null,
+    commit: text(summary?.source?.commit),
+    dirty: summary?.source?.dirty === true,
+    platform: text(environment.platform),
+    osVersion: text(environment.osVersion),
+    architecture: text(environment.architecture),
+    logicalCpus: num(environment.logicalCpus),
+    cpuModel: text(environment.cpuModel),
   };
 }
 
@@ -335,14 +356,58 @@ const HEADLINE_LABELS = {
   rssGrowthBytesPerMinute: "Resident memory growth per minute",
 };
 
-export function compareLive(base, candidate) {
+// Differences that make two recordings' numbers less comparable. Blockers
+// change what a number means; warnings are for the reader (and an agent) to
+// weigh. Neither is a judgement of the code.
+function compatibility(base, candidate) {
   const blockers = [];
+  const warnings = [];
   if (base.measurementVersion !== candidate.measurementVersion) {
     blockers.push(`Measurement versions differ (${base.measurementVersion} vs ${candidate.measurementVersion}).`);
+  }
+  if (base.probeIntervalMs !== candidate.probeIntervalMs || base.sampleIntervalMs !== candidate.sampleIntervalMs) {
+    blockers.push(`Sampling differs (probe ${base.probeIntervalMs} vs ${candidate.probeIntervalMs} ms, resources ${base.sampleIntervalMs} vs ${candidate.sampleIntervalMs} ms).`);
   }
   for (const model of [base, candidate]) {
     if (!model.stats) blockers.push(`${model.runId} has no statistics (status ${model.status}).`);
   }
+  const a = base.identity ?? {};
+  const b = candidate.identity ?? {};
+  const differs = (key) => a[key] != null && b[key] != null && a[key] !== b[key];
+  const unknown = (key) => (a[key] == null) !== (b[key] == null);
+  if (differs("buildType")) warnings.push(`One is a ${a.buildType} build and the other ${b.buildType}: debug builds are much slower, so the difference says little about the code.`);
+  else if (unknown("buildType")) warnings.push("Only one recording says whether it was a debug or release build.");
+  if (["platform", "osVersion", "architecture", "logicalCpus", "cpuModel"].some(differs)) {
+    warnings.push(`Made on different machines or systems (${[a.platform, a.osVersion, a.architecture, a.logicalCpus && `${a.logicalCpus} CPUs`].filter(Boolean).join(" ")} vs ${[b.platform, b.osVersion, b.architecture, b.logicalCpus && `${b.logicalCpus} CPUs`].filter(Boolean).join(" ")}).`);
+  }
+  if (differs("qtRuntimeVersion")) warnings.push(`Different Qt versions (${a.qtRuntimeVersion} vs ${b.qtRuntimeVersion}).`);
+  if (differs("appVersion")) warnings.push(`Different app versions (${a.appVersion} vs ${b.appVersion}).`);
+  if (a.commit && a.commit === b.commit && !a.dirty && !b.dirty && a.binary && a.binary === b.binary) {
+    warnings.push("Both recordings are of the same build: any difference comes from what was done during them, or from the machine.");
+  } else if (a.dirty || b.dirty) {
+    warnings.push(`${[a.dirty && base.runId, b.dirty && candidate.runId].filter(Boolean).join(" and ")} had uncommitted changes, so its commit doesn't fully identify the code.`);
+  }
+  for (const model of [base, candidate]) {
+    if (model.partial || (model.status && model.status !== "completed")) warnings.push(`${model.runId} is ${model.partial ? "partial" : model.status} (stopped by ${model.stopReason ?? "?"}): it may not cover the same activity.`);
+    const dropped = Object.entries(model.stats?.dropped ?? {}).filter(([, count]) => count > 0);
+    if (dropped.length) warnings.push(`${model.runId} dropped data at the recorder's limit (${dropped.map(([kind, count]) => `${count} ${kind}`).join(", ")}).`);
+    if (model.events.some((event) => event.category === "app" && event.name === "state" && event.fields?.state && event.fields.state !== "active")) {
+      warnings.push(`${model.runId}: the app left the foreground during the recording, which can inflate event-loop delays.`);
+    }
+  }
+  if (base.durationMs && candidate.durationMs) {
+    const ratio = Math.max(base.durationMs, candidate.durationMs) / Math.min(base.durationMs, candidate.durationMs);
+    if (ratio > 1.5) warnings.push(`Their lengths differ a lot (${ms(base.durationMs)} vs ${ms(candidate.durationMs)}); per-minute figures are comparable, totals are not.`);
+  }
+  const windowSet = (model) => model.windows.map((window) => `${window.className ?? "?"} ${window.width ?? "?"}x${window.height ?? "?"}`).sort().join(", ");
+  if (windowSet(base) !== windowSet(candidate)) {
+    warnings.push(`Different windows were recorded (${windowSet(base) || "none"} vs ${windowSet(candidate) || "none"}); frame figures follow the busiest window.`);
+  }
+  return { blockers, warnings };
+}
+
+export function compareLive(base, candidate) {
+  const { blockers, warnings } = compatibility(base, candidate);
   const a = headline(base);
   const b = headline(candidate);
   const metrics = Object.keys(HEADLINE_LABELS).map((key) => ({
@@ -355,6 +420,7 @@ export function compareLive(base, candidate) {
   return {
     compatible: blockers.length === 0,
     blockers,
+    warnings,
     baseRunId: base.runId,
     runId: candidate.runId,
     metrics: blockers.length ? [] : metrics,

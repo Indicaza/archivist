@@ -88,7 +88,7 @@ function copyButton(label, makeText) {
         const text = await makeText();
         const copied = await copyText(text);
         status.textContent = copied
-          ? `Copied ${Math.round(text.length / 100) / 10} KB of Markdown. Paths and secrets are redacted.`
+          ? `Copied ${Math.round(text.length / 100) / 10} KB of Markdown. Paths and common secret formats are redacted; read it before sharing.`
           : "Couldn't reach the clipboard; the report is below to copy by hand.";
         preview.replaceChildren(h("summary", {}, "Show the report"), h("pre", { class: "log report" }, text));
         preview.hidden = false;

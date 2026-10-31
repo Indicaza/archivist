@@ -593,7 +593,10 @@ async function refresh() {
     state.runs = data.runs;
     state.options = data.options;
     state.root = data.root;
-    document.getElementById("root-path").textContent = `Reading ${data.root}`;
+    const { total, omitted } = data.listing;
+    document.getElementById("root-path").textContent = omitted
+      ? `Reading ${data.root} · showing ${(total - omitted).toLocaleString()} of ${total.toLocaleString()} runs, the newest and those baselines use (the CLI reads all of them)`
+      : `Reading ${data.root}`;
   } catch (error) {
     state.error = error.message;
   }

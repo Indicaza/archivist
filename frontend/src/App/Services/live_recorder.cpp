@@ -16,6 +16,7 @@
 #include <QRegularExpression>
 
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -565,7 +566,13 @@ void LiveRecorder::sample()
     const qint64 now = LiveEvents::nowNs();
     Live::Sample sample;
     sample.ns = now;
-    sample.cpuPercent = ProcessMetrics::cpuPercent(m_lastReading, reading, now - m_lastReadingNs);
+    // CPU over less than half a sample interval is mostly noise: the first
+    // sample, taken right as recording starts, came out at 100-200 %.
+    // Measurement version 2 leaves it unknown instead.
+    const qint64 wallNs = now - m_lastReadingNs;
+    sample.cpuPercent = wallNs * 2 >= static_cast<qint64>(m_sampleTimer.interval()) * 1000000LL
+        ? ProcessMetrics::cpuPercent(m_lastReading, reading, wallNs)
+        : std::numeric_limits<double>::quiet_NaN();
     sample.rssBytes = reading.rssBytes;
     sample.footprintBytes = reading.footprintBytes;
     sample.threads = reading.threads;
