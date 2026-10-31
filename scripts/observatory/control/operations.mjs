@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { readBaselines } from "../baselines.mjs";
 import { loadBudgets } from "../comparisons.mjs";
-import { artifactFile, listRawRuns, loadRuns, MAX_ARTIFACT_BYTES, readRunSummary, RUN_ID } from "../dashboard/records.mjs";
+import { artifactFile, listRunIds, loadRuns, loadRunsById, MAX_ARTIFACT_BYTES, readRunSummary, RUN_ID } from "../dashboard/records.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
 import { normalizeRun } from "../dashboard/public/normalize.mjs";
 import { makeRedactor } from "../dashboard/public/redact.mjs";
@@ -184,11 +184,14 @@ function compactRun(run) {
   return base;
 }
 
+// Reads only the runs it compares: the candidates and their categories' baselines.
 async function comparisonFor(ctx, groups) {
-  const [runs, baselines, budgets] = await Promise.all([loadRuns(ctx.root), readBaselines(ctx.root), loadBudgets(ctx.root)]);
-  if (baselines.error) return { report: null, problem: baselines.error, runs };
+  const [baselines, budgets] = await Promise.all([readBaselines(ctx.root), loadBudgets(ctx.root)]);
+  if (baselines.error) return { report: null, problem: baselines.error };
+  const baselineIds = Object.keys(groups).flatMap((category) => baselines.data?.baselines?.[category]?.runIds ?? []);
+  const runs = await loadRunsById(ctx.root, [...Object.values(groups).flat(), ...baselineIds]);
   const report = buildReport({ runs, baselines: baselines.data, budgets: budgets.budgets, candidates: groups, source: { budgets: budgets.source } });
-  return { report, runs };
+  return { report };
 }
 
 function groupByCategory(runs, runIds) {
@@ -203,7 +206,7 @@ function groupByCategory(runs, runIds) {
 
 // The category analysis for a run (compared alone, or with `withRunIds`).
 async function categoryForRun(ctx, runId, withRunIds = []) {
-  const runs = await loadRuns(ctx.root);
+  const runs = await loadRunsById(ctx.root, [runId, ...withRunIds]);
   const run = runs.find((entry) => entry.runId === runId);
   const category = run && categoryOf(run);
   if (!category) return null;
@@ -230,7 +233,8 @@ async function jobView(ctx, job) {
   } else if (job.current) {
     view.progress.current = job.current;
   }
-  const runs = await loadRuns(ctx.root);
+  // Only the job's own runs: this is polled every second while a job runs.
+  const runs = await loadRunsById(ctx.root, job.runs.map((entry) => entry.runId));
   view.results = job.runs.map((entry) => {
     const run = runs.find((candidate) => candidate.runId === entry.runId);
     return run ? compactRun(run) : { runId: entry.runId, status: "missing" };
@@ -356,6 +360,11 @@ export const OPERATIONS = {
     },
     sideEffects: "none",
     async run(ctx, input) {
+      if (!input.kind && !input.scenario && !input.status) {
+        // Unfiltered: count the folders, read only the newest `limit`.
+        const ids = await listRunIds(ctx.root);
+        return { total: ids.length, runs: (await loadRunsById(ctx.root, ids.slice(0, input.limit))).map(compactRun) };
+      }
       const all = await loadRuns(ctx.root);
       const runs = all
         .filter((run) => !input.kind || run.kind === input.kind)
@@ -411,10 +420,10 @@ export const OPERATIONS = {
     input: { runIds: { type: "array", items: { pattern: RUN_ID_PATTERN }, minItems: 1, maxItems: 50, required: true } },
     sideEffects: "none",
     async run(ctx, input) {
-      const runs = await listRawRuns(ctx.root);
-      const missing = input.runIds.filter((id) => !runs.some((run) => run.runId === id));
+      const present = new Set(await listRunIds(ctx.root));
+      const missing = input.runIds.filter((id) => !present.has(id));
       if (missing.length) throw new ControlError("not-found", `No run ${missing.join(", ")}.`);
-      const normalized = await loadRuns(ctx.root);
+      const normalized = await loadRunsById(ctx.root, input.runIds);
       const groups = groupByCategory(normalized, input.runIds);
       const uncategorized = input.runIds.filter((id) => !Object.values(groups).flat().includes(id));
       if (!Object.keys(groups).length) throw new ControlError("invalid-input", "None of these runs has a baseline category (only classified builds and UI scenario runs do).");

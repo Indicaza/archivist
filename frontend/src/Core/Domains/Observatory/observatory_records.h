@@ -50,7 +50,11 @@ QList<QByteArray> securityHeaders();
 // `relativePath` is the request path after "/observatory/", decoded.
 Response handle(const QString &root, const QString &pagePath, const QString &relativePath);
 
-Response runsListing(const QString &root);
+// The page's run list: the newest kMaxListedRuns runs plus any baselines.json
+// names, newest first, with { total, omitted, limit } so the page can say how
+// many it left out. Keep in step with MAX_LISTED_RUNS in dashboard/records.mjs.
+inline constexpr int kMaxListedRuns = 2000;
+Response runsListing(const QString &root, int limit = kMaxListedRuns);
 // <root>/baselines.json and the budgets: <root>/budgets.json, else the
 // repository's scripts/observatory/budgets.json (two folders above the page).
 Response baselinesAndBudgets(const QString &root, const QString &pagePath);

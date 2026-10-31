@@ -6,7 +6,7 @@
 //
 // operations.mjs owns the envelope, validation and error type; it passes them
 // in here so the two modules don't import each other.
-import { loadRuns } from "../dashboard/records.mjs";
+import { listRunIds, loadRunsById } from "../dashboard/records.mjs";
 import { compareLive, liveModel, LONG_GAP_MS, operationSummary, rangeDetail, spikesWithContext, summarySentence, headline, windowLabel } from "../dashboard/public/live.mjs";
 import { loadRunEvidence } from "./evidence.mjs";
 import { callLive, LiveAccessError } from "./live.mjs";
@@ -158,7 +158,10 @@ export function liveOperations({ ControlError, requireRun, runIdPattern }) {
       input: { limit: { type: "integer", min: 1, max: 200, default: 20 } },
       sideEffects: "none",
       async run(ctx, input) {
-        const runs = (await loadRuns(ctx.root)).filter((run) => run.kind === "live-session");
+        // Live recordings' folders are named <time>-live-<hex> (the app's
+        // recovery relies on the same), so only those summaries are read.
+        const ids = (await listRunIds(ctx.root)).filter((id) => id.includes("-live-"));
+        const runs = (await loadRunsById(ctx.root, ids)).filter((run) => run.kind === "live-session");
         return {
           total: runs.length,
           recordings: runs.slice(0, input.limit).map((run) => ({ runId: run.runId, status: run.status, createdAt: run.createdAt, label: run.label, problems: run.problems ?? [], ...(run.live ?? {}) })),

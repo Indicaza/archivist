@@ -35,7 +35,9 @@ export async function loadRuns() {
   cachedText = null;
   for (const entry of body.runs ?? []) raw.set(entry.runId, entry);
   const runs = [...raw.keys()].sort().reverse().map(record);
-  return { root: body.root ?? "", runs, options: filterOptions(runs) };
+  // A long history is cut to the newest runs (plus those baselines name).
+  const omitted = Number.isInteger(body.omitted) && body.omitted > 0 ? body.omitted : 0;
+  return { root: body.root ?? "", runs, options: filterOptions(runs), listing: { total: body.total ?? runs.length, omitted } };
 }
 
 export function runDetails(runId) {
