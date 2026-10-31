@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ArchivistQt VERSION 0.1.0 LANGUAGES CXX)
 
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -421,6 +425,11 @@ qt_add_qml_module(archivist-qt
         qml/App/Icons/THIRD_PARTY_ICONS.md
         ${ARCHIVIST_ICON_ASSETS}
 )
+
+if(APPLE)
+    target_sources(archivist-qt PRIVATE src/App/Services/ui_lab_mac.mm src/App/Services/ui_lab_mac.h)
+    target_link_libraries(archivist-qt PRIVATE "-framework AppKit")
+endif()
 
 target_link_libraries(archivist-qt
     PRIVATE
