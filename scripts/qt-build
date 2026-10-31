@@ -4,5 +4,5 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT/build/frontend-debug"
 
-"$ROOT/scripts/qt-configure"
+"$ROOT/scripts/qt-configure" --if-needed
 cmake --build "$BUILD_DIR"
