@@ -1,0 +1,528 @@
+{
+    "events": [
+        {
+            "atMs": 2.53,
+            "category": "ai",
+            "durationMs": 0.12,
+            "endMs": 2.65,
+            "id": 2,
+            "kind": "span",
+            "name": "queue-wait",
+            "ok": null,
+            "parent": 1,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 2.53,
+            "category": "ai",
+            "durationMs": 14.92,
+            "endMs": 17.45,
+            "id": 1,
+            "kind": "span",
+            "name": "start-chat-run",
+            "ok": true,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 15.49,
+            "category": "ai",
+            "durationMs": 267.34,
+            "endMs": 282.83,
+            "fields": {
+                "eventWriteMaxMs": 1.82,
+                "eventWriteMs": 7.36,
+                "eventWrites": 8,
+                "inputTokens": 321,
+                "model": "gpt-5-mini",
+                "outcome": "completed",
+                "outputTokens": 7,
+                "provider": "openai",
+                "rounds": 2,
+                "runId": "732a412f-ae9c-4f1e-aceb-f4802179e5fa",
+                "toolCalls": 1,
+                "toolRounds": 1
+            },
+            "id": 3,
+            "kind": "span",
+            "name": "run",
+            "ok": true,
+            "parent": 1,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 17.46,
+            "category": "ai",
+            "durationMs": 5.62,
+            "endMs": 23.08,
+            "id": 15,
+            "kind": "span",
+            "name": "callback-delay",
+            "ok": null,
+            "parent": 1,
+            "thread": "main"
+        },
+        {
+            "atMs": 17.58,
+            "category": "ai",
+            "durationMs": 9.98,
+            "endMs": 27.56,
+            "fields": {
+                "estimatedTokens": 229,
+                "instructionChars": 4695,
+                "tools": 6
+            },
+            "id": 4,
+            "kind": "span",
+            "name": "prepare",
+            "ok": true,
+            "parent": 3,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 17.59,
+            "category": "ai",
+            "durationMs": 0.23,
+            "endMs": 17.82,
+            "fields": {
+                "messages": 2
+            },
+            "id": 5,
+            "kind": "span",
+            "name": "conversation-load",
+            "ok": true,
+            "parent": 4,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 19.21,
+            "category": "ai",
+            "durationMs": 0.24,
+            "endMs": 19.44,
+            "fields": {
+                "sources": 0,
+                "warnings": 0
+            },
+            "id": 6,
+            "kind": "span",
+            "name": "attachments",
+            "ok": true,
+            "parent": 4,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 19.46,
+            "category": "ai",
+            "durationMs": 1.11,
+            "endMs": 20.56,
+            "fields": {
+                "contextIncluded": true,
+                "files": 1,
+                "skipped": false,
+                "sources": 1,
+                "warnings": 0
+            },
+            "id": 7,
+            "kind": "span",
+            "name": "retrieval",
+            "ok": true,
+            "parent": 4,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 19.53,
+            "category": "retrieval",
+            "durationMs": 0.82,
+            "endMs": 20.35,
+            "fields": {
+                "candidates": 1,
+                "rows": 1
+            },
+            "id": 8,
+            "kind": "span",
+            "name": "library-search",
+            "ok": null,
+            "parent": 7,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 19.71,
+            "category": "retrieval",
+            "durationMs": 0.39,
+            "endMs": 20.09,
+            "fields": {
+                "limit": 50,
+                "rows": 1
+            },
+            "id": 9,
+            "kind": "span",
+            "name": "fts-query",
+            "ok": true,
+            "parent": 8,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 20.1,
+            "category": "retrieval",
+            "durationMs": 0.22,
+            "endMs": 20.32,
+            "fields": {
+                "candidates": 1,
+                "rows": 1
+            },
+            "id": 10,
+            "kind": "span",
+            "name": "rank",
+            "ok": true,
+            "parent": 8,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 20.37,
+            "category": "retrieval",
+            "durationMs": 0.12,
+            "endMs": 20.49,
+            "fields": {
+                "candidates": 1,
+                "included": 1,
+                "omitted": 0,
+                "tokens": 72
+            },
+            "id": 11,
+            "kind": "span",
+            "name": "select",
+            "ok": true,
+            "parent": 7,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 22.89,
+            "category": "ai",
+            "durationMs": 0.12,
+            "endMs": 23,
+            "fields": {
+                "compiler": "recent-history",
+                "estimatedTokens": 229,
+                "included": 2,
+                "omitted": 0,
+                "providerMessages": 2,
+                "sourceMessages": 2,
+                "version": 1,
+                "warnings": 0
+            },
+            "id": 12,
+            "kind": "span",
+            "name": "context-compile",
+            "ok": true,
+            "parent": 4,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 22.91,
+            "category": "context",
+            "durationMs": 0.07,
+            "endMs": 22.99,
+            "fields": {
+                "compiler": "recent-history",
+                "messages": 2,
+                "version": 1
+            },
+            "id": 13,
+            "kind": "span",
+            "name": "strategy",
+            "ok": null,
+            "parent": 12,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 22.95,
+            "category": "context",
+            "durationMs": 0.02,
+            "endMs": 22.98,
+            "fields": {
+                "eligible": 2,
+                "estimatedTokens": 229,
+                "selected": 2
+            },
+            "id": 14,
+            "kind": "span",
+            "name": "assemble",
+            "ok": null,
+            "parent": 13,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 27.68,
+            "category": "ai",
+            "durationMs": 117.39,
+            "endMs": 145.07,
+            "fields": {
+                "attempts": 2,
+                "bytesReceived": 404,
+                "bytesSent": 17792,
+                "deltas": 0,
+                "endpoint": "responses",
+                "events": 3,
+                "longGaps": 0,
+                "maxGapMs": 30.96,
+                "round": 0,
+                "toolCalls": 1
+            },
+            "id": 16,
+            "kind": "span",
+            "name": "provider-round",
+            "ok": true,
+            "parent": 3,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 27.73,
+            "category": "ai",
+            "durationMs": 0.1,
+            "endMs": 27.83,
+            "fields": {
+                "bytes": 8896
+            },
+            "id": 17,
+            "kind": "span",
+            "name": "request-serialize",
+            "ok": true,
+            "parent": 16,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 27.85,
+            "category": "ai",
+            "durationMs": 6.69,
+            "endMs": 34.53,
+            "fields": {
+                "attempt": 1,
+                "bytesReceived": 28,
+                "bytesSent": 8896,
+                "endpoint": "responses",
+                "error": "http-status",
+                "retry": true,
+                "status": 503
+            },
+            "id": 18,
+            "kind": "span",
+            "name": "http-attempt",
+            "ok": false,
+            "parent": 16,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 34.44,
+            "category": "ai",
+            "durationMs": null,
+            "endMs": null,
+            "fields": {
+                "status": 503
+            },
+            "kind": "marker",
+            "name": "first-byte",
+            "ok": null,
+            "parent": 18,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 34.56,
+            "category": "ai",
+            "durationMs": 5.26,
+            "endMs": 39.82,
+            "fields": {
+                "afterAttempt": 1,
+                "waitMs": 5
+            },
+            "id": 19,
+            "kind": "span",
+            "name": "retry-wait",
+            "ok": true,
+            "parent": 16,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 39.86,
+            "category": "ai",
+            "durationMs": 0.1,
+            "endMs": 39.95,
+            "fields": {
+                "bytes": 8896
+            },
+            "id": 20,
+            "kind": "span",
+            "name": "request-serialize",
+            "ok": true,
+            "parent": 16,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 39.96,
+            "category": "ai",
+            "durationMs": 105.06,
+            "endMs": 145.02,
+            "fields": {
+                "attempt": 2,
+                "bytesReceived": 376,
+                "bytesSent": 8896,
+                "endpoint": "responses",
+                "events": 3,
+                "status": 200
+            },
+            "id": 21,
+            "kind": "span",
+            "name": "http-attempt",
+            "ok": true,
+            "parent": 16,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 84.1,
+            "category": "ai",
+            "durationMs": null,
+            "endMs": null,
+            "fields": {
+                "status": 200
+            },
+            "kind": "marker",
+            "name": "first-byte",
+            "ok": null,
+            "parent": 21,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 145.1,
+            "category": "ai",
+            "durationMs": 7.17,
+            "endMs": 152.27,
+            "fields": {
+                "calls": 1,
+                "resultBytes": 376,
+                "round": 0
+            },
+            "id": 22,
+            "kind": "span",
+            "name": "tool-round",
+            "ok": true,
+            "parent": 3,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 145.15,
+            "category": "ai",
+            "durationMs": 7.08,
+            "endMs": 152.23,
+            "fields": {
+                "argumentBytes": 22,
+                "callId": "call_resp_1",
+                "resultBytes": 376,
+                "round": 0,
+                "serializeMs": 0.11,
+                "tool": "list_directory"
+            },
+            "id": 23,
+            "kind": "span",
+            "name": "tool",
+            "ok": true,
+            "parent": 22,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 152.32,
+            "category": "ai",
+            "durationMs": 124.13,
+            "endMs": 276.45,
+            "fields": {
+                "attempts": 1,
+                "bytesReceived": 424,
+                "bytesSent": 8430,
+                "deltas": 2,
+                "endpoint": "responses",
+                "events": 4,
+                "inputTokens": 321,
+                "longGaps": 0,
+                "maxGapMs": 30.94,
+                "outputTokens": 7,
+                "round": 1,
+                "toolCalls": 0
+            },
+            "id": 24,
+            "kind": "span",
+            "name": "provider-round",
+            "ok": true,
+            "parent": 3,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 152.39,
+            "category": "ai",
+            "durationMs": 0.13,
+            "endMs": 152.52,
+            "fields": {
+                "bytes": 8430
+            },
+            "id": 25,
+            "kind": "span",
+            "name": "request-serialize",
+            "ok": true,
+            "parent": 24,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 152.53,
+            "category": "ai",
+            "durationMs": 123.85,
+            "endMs": 276.37,
+            "fields": {
+                "attempt": 1,
+                "bytesReceived": 424,
+                "bytesSent": 8430,
+                "endpoint": "responses",
+                "events": 4,
+                "status": 200
+            },
+            "id": 26,
+            "kind": "span",
+            "name": "http-attempt",
+            "ok": true,
+            "parent": 24,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 185.58,
+            "category": "ai",
+            "durationMs": null,
+            "endMs": null,
+            "fields": {
+                "status": 200
+            },
+            "kind": "marker",
+            "name": "first-byte",
+            "ok": null,
+            "parent": 26,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 215.48,
+            "category": "ai",
+            "durationMs": null,
+            "endMs": null,
+            "kind": "marker",
+            "name": "first-delta",
+            "ok": null,
+            "parent": 24,
+            "thread": "ArchivistAI"
+        },
+        {
+            "atMs": 278.38,
+            "category": "ai",
+            "durationMs": 4.38,
+            "endMs": 282.76,
+            "id": 27,
+            "kind": "span",
+            "name": "persist",
+            "ok": true,
+            "parent": 3,
+            "thread": "ArchivistAI"
+        }
+    ]
+}

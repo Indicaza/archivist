@@ -27,6 +27,8 @@
 //
 // Steps whose op is "noop" only watch the app (the idle after startup); they
 // are kind "observation", never a user interaction.
+import { analyzeTrace } from "./dashboard/public/trace.mjs";
+
 export const UI_OPERATIONS_SCHEMA = "archivist.observatory.ui-operations";
 export const UI_OPERATIONS_VERSION = 2;
 export const OBSERVATION_OPS = new Set(["noop"]);
@@ -70,6 +72,7 @@ export function spanTree(spans, origin = 0) {
       durationMs: round(span.endMs - span.startMs),
       ok: span.ok ?? null,
       fields: span.fields ?? null,
+      ...(span.thread && span.thread !== "main" ? { thread: span.thread } : {}),
       children: [],
       _start: span.startMs,
       _end: span.endMs,
@@ -178,6 +181,25 @@ export function startupPhases({ spans, startupSpans, eventLoop, firstFrame, read
     span("render-stabilization", "Rendering settling after ready", idleStart, idleTimings?.settledMs != null ? idleStart + idleTimings.settledMs : null, "the idle observation's last frame"),
     span("idle-observation", "Intentional idle observation", idleTimings?.settledMs != null ? idleStart + idleTimings.settledMs : idleStart, idle ? runStart + idle.endMs : null, "the driver's quiet wait; not app work"),
   ];
+}
+
+// The trace in a few numbers per AI turn and the busiest database jobs; the
+// full trees are in the artifact.
+export function traceSummary(trace) {
+  if (!trace?.available) return { available: false, reason: trace?.reason ?? null };
+  return {
+    available: true,
+    schemaVersion: trace.schemaVersion,
+    threads: trace.threads,
+    aiTurns: trace.ai.turns.map((turn) => ({
+      runId: turn.runId, outcome: turn.outcome, durationMs: turn.durationMs, queueWaitMs: turn.queueWaitMs,
+      prepareMs: turn.prepare?.durationMs ?? null, rounds: turn.rounds.length, retries: turn.rounds.reduce((sum, entry) => sum + entry.retries, 0),
+      tools: turn.tools.length, persistMs: turn.persistMs, firstNetworkByteMs: turn.firstNetworkByteMs,
+      firstModelDeltaMs: turn.firstModelDeltaMs, firstVisibleTextMs: turn.firstVisibleTextMs, unattributedMs: turn.unattributedMs,
+      missing: turn.missing,
+    })),
+    db: trace.db.jobs.slice(0, 10),
+  };
 }
 
 // events: the driver's ui-events.json (with `operations` and `clock`).
@@ -295,6 +317,8 @@ export function analyzeOperations(events) {
     stalls: stalls.map((stall) => ({ atMs: round(stall.atMs - runStart), lateMs: round(stall.lateMs), action: stall.action })),
     open: (collected.open ?? []).map((op) => ({ name: `${op.category}.${op.name}`, startMs: round(op.startMs - runStart), action: op.action })),
     dropped: collected.dropped ?? 0,
+    // Trees by cause (span ids and parents), AI turns and database jobs.
+    trace: analyzeTrace(operations, { dropped: collected.dropped ?? 0 }),
   };
   const summary = {
     collected: true,
@@ -309,6 +333,7 @@ export function analyzeOperations(events) {
     startup,
     slowest,
     steps,
+    trace: traceSummary(artifact.trace),
   };
   return { summary, artifact };
 }

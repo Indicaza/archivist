@@ -171,6 +171,7 @@ const QStringList &pageFiles()
         QStringLiteral("live.mjs"),
         QStringLiteral("live-page.js"),
         QStringLiteral("audit.mjs"),
+        QStringLiteral("trace.mjs"),
         QStringLiteral("audit-page.js"),
     };
     return files;

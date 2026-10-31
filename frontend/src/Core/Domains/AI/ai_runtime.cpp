@@ -1632,7 +1632,8 @@ void ChatRunJob::roundFinished(const QString &responseId)
             toolStep.done(output.value(QStringLiteral("ok")).toBool() ? 1 : 0, {
                 {QStringLiteral("resultBytes"), bytes},
                 {QStringLiteral("serializeMs"), std::round((LiveEvents::nowNs() - serializeNs) / 1e4) / 100.0},
-                {QStringLiteral("errorCode"), output.value(QStringLiteral("error")).toMap().value(QStringLiteral("code")).toString().left(32)},
+                {QStringLiteral("errorCode"), output.value(QStringLiteral("ok")).toBool()
+                     ? QVariant() : QVariant(output.value(QStringLiteral("error")).toMap().value(QStringLiteral("code")).toString().left(32))},
             });
         }
         m_toolResultEstimatedTokens += ContextCompilers::estimateTokens(serialized);

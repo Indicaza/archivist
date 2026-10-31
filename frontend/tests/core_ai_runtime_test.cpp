@@ -564,6 +564,12 @@ private slots:
 
         // Never content: not the message, the reply, file names, the key.
         const QByteArray text = QJsonDocument(all).toJson(QJsonDocument::Compact);
+        // The Node trace analysis tests read a trace made exactly this way.
+        if (const QString out = qEnvironmentVariable("ARCHIVIST_TRACE_EXPORT"); !out.isEmpty()) {
+            QFile file(out);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(QJsonDocument(QJsonObject{{QStringLiteral("events"), all}}).toJson(QJsonDocument::Indented));
+        }
         for (const char *secret : {"harbour", "green", "notes.txt", "test-key-secret", "Bearer", "path"}) {
             QVERIFY2(!text.contains(secret), secret);
         }
