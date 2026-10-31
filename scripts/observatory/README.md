@@ -862,12 +862,17 @@ or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
 
 **macOS background UI Lab.** By default the Observatory runner launches its
 disposable-profile test instances as non-focusing accessory windows using
-a test-only AppKit/Qt window policy. It requests that macOS move the test
-window to the active Space instead of switching you to another desktop.
-Synthetic UI actions do not need mouse focus. The test window remains
-renderable rather than being hidden or minimized, but macOS can throttle
-fully obscured windows: **background frame/settling results are not a
-substitute for foreground graphics benchmarks**. Background and foreground
+a test-only AppKit/Qt window policy. It requests that macOS keep the test
+window in the active Space without switching you to another desktop.
+The test window is layered below ordinary application windows, near desktop
+level, so it should not cover your editor or other normal windows. It remains
+visible on the desktop when uncovered, and you can move or minimize it
+normally if needed; synthetic UI actions do not require window focus.
+The window is not hidden or minimized by default because macOS may suspend
+scene-graph rendering for fully obscured windows. **Background frame/settling
+results are not a substitute for foreground graphics benchmarks**; missing
+frames must be reported as missing rather than interpreted as speed.
+Background and foreground
 runs receive distinct scenario versions so they are not silently compared.
 If a foreground, frame-accurate run is needed, opt out for that command with
 `ARCHIVIST_UI_LAB_FOREGROUND=1 npm run observatory -- audit run --preset ui --wait`.
