@@ -837,6 +837,12 @@ export function aiHighlights(children) {
     const entry = (out[id] ??= { name: summary.scenario?.name ?? id, provider: summary.ai?.provider ?? null, runs: 0, turns: [] });
     entry.runs += 1;
     entry.turns.push(...turns);
+    const expected = summary.ai?.provider === "mock" ? summary.ai.expected : null;
+    if (!entry.expected) entry.expected = { retries: expected?.retries === true, streamPauses: expected?.streamPauses === true };
+    else {
+      entry.expected.retries = entry.expected.retries && expected?.retries === true;
+      entry.expected.streamPauses = entry.expected.streamPauses && expected?.streamPauses === true;
+    }
   }
   for (const entry of Object.values(out)) {
     const turns = entry.turns;
@@ -845,6 +851,8 @@ export function aiHighlights(children) {
       turns: turns.length, completed: done.length, cancelled: turns.filter((turn) => turn.outcome === "cancelled").length,
       failed: turns.filter((turn) => turn.outcome === "failed" || turn.outcome === "interrupted").length,
       retries: turns.reduce((sum, turn) => sum + (turn.retries ?? 0), 0), tools: turns.reduce((sum, turn) => sum + (turn.tools ?? 0), 0),
+      retriedTurns: turns.filter((turn) => (turn.retries ?? 0) > 0).length,
+      pausedTurns: turns.filter((turn) => (turn.longStreamGaps ?? 0) > 0).length,
     };
     entry.medians = Object.fromEntries(AI_TIMINGS.map(([key, , read]) => [key, round(median(done.map(read)))]));
     delete entry.turns;
@@ -981,7 +989,7 @@ export function auditMarkdown({ auditRun, summary, comparison = null, redact = (
   }
   const ai = Object.entries(audit.highlights?.ai ?? {});
   if (ai.length) {
-    lines.push("## AI turns", "", "Medians over completed turns, ms from the start of the run (ai.run). Cancelled and failed turns are counted, not timed. A mocked provider's waits are the scenario's script, not a provider's.", "");
+    lines.push("## AI turns", "", "Medians over completed turns. Queued is measured before ai.run; other timestamps are offsets from ai.run start, while Turn (engine) is its duration. The UI publication marker may occur after ai.run ends and is not actual screen paint. Columns are independently aggregated. Cancelled and failed turns are counted, not timed. A mock provider's waits are scripted.", "");
     lines.push(`| Scenario | Provider | Turns | ${AI_TIMINGS.map(([, label]) => label).join(" | ")} |`, `|---|---|---:|${AI_TIMINGS.map(() => "---:").join("|")}|`);
     for (const [, entry] of ai) {
       const counts = entry.counts;
@@ -989,6 +997,17 @@ export function auditMarkdown({ auditRun, summary, comparison = null, redact = (
       lines.push(`| ${entry.name} | ${entry.provider ?? "?"} | ${counts.completed}/${counts.turns}${ended ? ` (${ended})` : ""} | ${AI_TIMINGS.map(([key]) => msText(entry.medians[key])).join(" | ")} |`);
     }
     lines.push("");
+    const expectedChecks = ai.filter(([, entry]) => entry.provider === "mock" && (entry.expected?.retries || entry.expected?.streamPauses));
+    if (expectedChecks.length) {
+      lines.push("## Expected mock fixture events (not performance findings)", "");
+      for (const [, entry] of expectedChecks) {
+        const notes = [];
+        if (entry.expected.retries) notes.push(`${entry.counts.retriedTurns} turns retried`);
+        if (entry.expected.streamPauses) notes.push(`${entry.counts.pausedTurns} turns with stream pauses`);
+        lines.push(`- ${entry.name}: ${notes.join(", ")}. These are deliberately scripted and remain visible in the timeline.`);
+      }
+      lines.push("");
+    }
   }
   if (audit.highlights?.build) {
     const build = audit.highlights.build;
@@ -1029,6 +1048,7 @@ export function blindSpots(audit) {
     "Only code wrapped in LiveEvents spans is named; the rest of an action is reported as unattributed time.",
     "Scenarios run a separate app with a fresh profile and seeded data, not your own library.",
     "GPU and compositor time is not measured; frame gaps are what the driver saw, at an assumed 60 Hz.",
+    "Expected UI transitions retain their timing in the timeline but do not classify animation/wait time as unexplained CPU execution.",
   ];
   const scenarios = audit.plan?.scenarios ?? [];
   if (scenarios.some((id) => AI_SCENARIOS.includes(id))) {
