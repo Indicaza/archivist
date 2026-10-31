@@ -716,6 +716,68 @@ for them (`--raw-logs`, or the checkbox, which asks again).
   the checkout is, so its reports hide repository paths under your home
   folder too. The CLI keeps them as `<repo>/…`.
 
+## Audits: run, find, hand to an AI, rerun
+
+An audit is one press that runs a preset through the same job runner as
+the scripted UI tests, then turns the runs it made into **findings**: what
+is slow or broken, the rule that says so, the measured numbers and run ids
+behind it, and what to look at next. Record > **Run an audit** on the page,
+or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
+
+| Preset | Runs | Use it for |
+| ------ | ---- | ---------- |
+| `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
+| `ui` (Full UI) | startup, sidebar, workspace, chat, 3 rounds | The UI loop: enough runs to compare two audits. |
+| `build` | one incremental build of `build/frontend-debug` | Why it rebuilt and where the build time goes. |
+| `complete` | `build`, then `ui` against what it built | Both. |
+
+Build presets never clean or delete anything: the build is the normal
+incremental build (a first-ever build is a full one because nothing exists
+yet). `--repeat` changes the rounds. The audit's own record is a run of
+kind `audit` (`summary.json` with `preset`, `jobId`, `children` (run ids),
+`findings`, `counts`, `highlights`, `blindSpots`, `rulesVersion`;
+`findings.json` with the rules). It is written whatever happened, so a
+cancelled or failed audit still lists what finished.
+
+**Findings.** Each has a stable `id` (`rule:subject`, e.g.
+`ui.slow-operation:chat:chat.publish-messages`), `rule`, `title`,
+`subsystem`, `severity` (high, medium, low, info), `impact` (value, unit,
+text), `evidence` (run ids, step, operation), `confidence` and `nextStep`.
+Confidence is not a score: it says in how many of the rounds the rule's
+threshold was met ("in all 3 runs", "in 2 of 3 runs", "one run; rerun to
+confirm"). The rules and thresholds are in `dashboard/public/audit.mjs`
+(`RULES`), listed on every audit page, in Copy for AI and in
+`audit findings --json`; bump `RULES_VERSION` when one changes. A slow
+operation whose own child holds most of its time is reported once, as the
+child, "inside" the parent.
+
+**Comparing audits.** `audit compare <id>` (and the page's "Against the
+previous audit") compares an audit with the previous one of the same
+preset: per scenario and build category, the baseline audit's runs against
+this audit's, with the regression rules and budgets above (at least
+`minSamples` runs on each side, past the budget, no overlap). Different
+presets, rules versions, machines or scenario versions are refused, not
+compared. Findings are matched by id into new, gone and still there; a
+finding near its threshold can flip on noise, and the page says so.
+
+**For agents.** `audit presets | run | status | cancel | list | findings |
+compare | report | timeline <run-id> [--from --to] | operation <run-id>
+<action> | export`, all as `observatory.audit.*` operations with `--json`.
+`audit report` is the Copy for AI Markdown; `audit export` writes the audit
+report plus every run's own report, summary and operation trees.
+
+**On the page.** Record has the audit card (preset chips, Run audit,
+progress with Cancel, the last audit). An audit's page has the finding
+counts and headline numbers, the comparison with the previous audit, the
+findings list (filter by severity, subsystem or text; each opens to its
+impact, rule, evidence and a jump to its operations), "Operations inside
+each action" (pick a run: a strip of actions as wide as they took, the
+actions table, and the operation tree of the selected action with self
+time, unattributed time and stalls), the build diagnostics (jobs, wall vs
+summed time, the longest chain, why it rebuilt, slowest compiles, most
+included headers, the time trace if recorded), the runs, the rules and the
+blind spots. Compare takes two audits too.
+
 ## Live recordings (flight recorder)
 
 Press **Start recording**, use Archivist the way that felt slow, and press
@@ -913,7 +975,10 @@ space and slower unfiltered scans.
   in a real app, and `--time-trace` on the Archivist tree have only been
   compiled and unit-tested here (the UiLab collector and chat seeding run
   for real in `ui-lab-test`; build evidence runs for real against a small
-  CMake project in `test/build-evidence.test.mjs`).
+  CMake project in `test/build-evidence.test.mjs`). Audits run end to end
+  here with the stand-in app (`test/audit.test.mjs`), including a regression
+  from doubled operation times; a `build` or `complete` preset against the
+  real Archivist tree has not been run.
 
 ## Code
 
@@ -947,6 +1012,9 @@ space and slower unfiltered scans.
 | `control/zip.mjs` | A small ZIP writer for exports |
 | `control/live.mjs` | Reaching the running app's live recorder (agent-access.json, 127.0.0.1 only) |
 | `control/live-operations.mjs` | The `observatory.live.*` operations |
+| `control/audit.mjs` | Writing the audit record when an audit job ends; the `observatory.audit.*` operations |
+| `dashboard/public/audit.mjs` | Presets, findings rules, audit comparison and the audit report (shared by the page and the CLI) |
+| `dashboard/public/audit-page.js` | The audit card on Record, the audit page and audit-to-audit Compare |
 | `dashboard/server.mjs` | The browser dashboard's local, read-only server |
 | `dashboard/records.mjs` | Reading runs and artifacts from disk for that server |
 | `dashboard/public/` | The page: plain JavaScript, no dependencies |

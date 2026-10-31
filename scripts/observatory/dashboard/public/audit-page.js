@@ -75,8 +75,7 @@ export function auditHero() {
       h("p", { class: "small preset-text" }, chosen.description, " ",
         h("span", { class: "muted" }, `${chosen.runs} run${chosen.runs === 1 ? "" : "s"}.`),
         chosen.ready ? null : h("span", { class: "verdict-worse" }, ` Can't run yet: ${chosen.blockedBy}.`)),
-      message ? h("p", { class: "small verdict-worse", role: "status" }, message) : null,
-      last ? lastAudit(last) : null);
+      ...[message ? h("p", { class: "small verdict-worse", role: "status" }, message) : null, last ? lastAudit(last) : null].filter(Boolean));
   };
 
   const run = async (chosen) => {
@@ -301,7 +300,7 @@ function findingsSection(findings) {
 function findingRow(finding) {
   const rule = RULES.find((entry) => entry.id === finding.rule);
   const inspect = finding.evidence?.find((item) => item.step != null || item.operation);
-  return h("details", { class: `finding sev-${finding.severity}` },
+  return h("details", { class: `finding finding-${finding.severity}` },
     h("summary", {},
       severityDot(finding.severity),
       h("span", { class: "finding-main" }, h("span", { class: "finding-title" }, finding.title), h("span", { class: "finding-text" }, finding.summary)),
