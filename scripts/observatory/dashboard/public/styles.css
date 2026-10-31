@@ -473,6 +473,23 @@ tr.on td { background: var(--accent-soft); }
 .op-bar { position: relative; height: 10px; border-radius: 3px; background: var(--surface-3); }
 .op-span { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); min-width: 2px; }
 .op-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.turn-timeline { display: grid; gap: 8px; margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.tt-firsts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-variant-numeric: tabular-nums; }
+.tt-grid { display: grid; gap: 4px; }
+.tt-lane { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px; align-items: start; }
+.tt-label { color: var(--muted); padding-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-ruler { position: relative; height: 16px; border-bottom: 1px solid var(--border); }
+.tt-tick { position: absolute; bottom: 1px; transform: translateX(-50%); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tt-track { position: relative; border-radius: 4px; background: var(--surface-3); min-height: 20px; }
+.tt-bar { position: absolute; height: 16px; min-width: 2px; border-radius: 3px; background: var(--accent); color: var(--bg); font-size: 10.5px; line-height: 16px; overflow: hidden; white-space: nowrap; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.tt-bar > span { padding: 0 4px; font-family: var(--mono); }
+.tt-bar.cat-retrieval { background: var(--good); }
+.tt-bar.cat-context { background: var(--warn); }
+.tt-bar.cat-db { background: color-mix(in srgb, var(--accent) 45%, var(--good)); }
+.tt-bar.cat-chat { background: var(--accent-strong); }
+.tt-bar.waiting { background: repeating-linear-gradient(135deg, var(--surface-2) 0 4px, var(--border-strong) 4px 8px); color: var(--text); }
+.tt-bar.failed { background: var(--bad); }
+.tt-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--text); opacity: 0.8; }
 .chain { margin: 6px 0; padding-left: 22px; }
 .find-cols { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
 .find-col ul { margin: 4px 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
@@ -486,6 +503,7 @@ h4 { margin: 14px 0 6px; font-size: 13px; }
   .finding-meta { grid-column: 2; justify-content: flex-start; }
   .finding-body { padding-left: 14px; }
   .op-row { grid-template-columns: minmax(0, 1fr) 64px; }
+  .tt-lane { grid-template-columns: 64px minmax(0, 1fr); }
   .op-row .op-bar, .op-row .op-num.muted, .op-head > :nth-child(2), .op-head > :nth-child(4) { display: none; }
 }
 @media (max-width: 440px) {

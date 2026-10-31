@@ -47,7 +47,7 @@ const USAGE = `Archivist Observatory
 
   npm run observatory:build [-- --label <text>] [--follow]
   npm run observatory -- ingest-runtime <log> [--label <text>] [--build-run <runId>]
-  npm run observatory:ui [-- --scenario sidebar|workspace|chat|startup] [--skip-build] [--keep-profile]
+  npm run observatory:ui [-- --scenario sidebar|workspace|chat|startup|ai-pipeline|ai-turn] [--skip-build] [--keep-profile]
   npm run observatory -- show [runId]
   npm run observatory:dashboard [-- --port <n>] [--no-open] [--control]
 
@@ -69,7 +69,7 @@ for a versioned JSON envelope on stdout and nothing else):
 
   npm run observatory -- capabilities
   npm run observatory -- scenarios list
-  npm run observatory -- tests run [--scenario sidebar|workspace|chat|startup|all] [--repeat <n>] [--build] [--wait]
+  npm run observatory -- tests run [--scenario sidebar|workspace|chat|startup|ai-pipeline|ai-turn|all] [--repeat <n>] [--build] [--wait]
   npm run observatory -- tests status [<job-id>]
   npm run observatory -- tests cancel <job-id>
   npm run observatory -- tests list
@@ -85,15 +85,17 @@ Audits (one press: build and/or UI scenarios, then findings with the rules
 that produced them; Observatory > Record in the dashboard):
 
   npm run observatory -- audit presets
-  npm run observatory -- audit run --preset quick|ui|build|complete [--repeat <n>] [--wait]
+  npm run observatory -- audit run --preset quick|ui|ai|ai-turn|build|complete [--repeat <n>] [--wait]
+  npm run observatory -- audit run --preset provider --allow-provider-calls  (real provider: asks first, capped)
   npm run observatory -- audit status [<job-id>]
   npm run observatory -- audit cancel <job-id>
   npm run observatory -- audit list [--preset <p>] [--limit <n>]
-  npm run observatory -- audit findings <audit-id> [--severity <s>] [--subsystem <name>]
+  npm run observatory -- audit findings <audit-id> [--severity <s>] [--subsystem <name>] [--finding <id>]
   npm run observatory -- audit compare <audit-id> [<baseline-audit-id>]
   npm run observatory -- audit report <audit-id>          (Markdown for an AI)
   npm run observatory -- audit timeline <run-id> [--from <ms>] [--to <ms>] [--limit <n>]
   npm run observatory -- audit operation <run-id> <action-index>
+  npm run observatory -- audit trace <run-id> [--turn <n>]  (AI turns by cause)
   npm run observatory -- audit export <audit-id> [--raw-logs]
 
   The build and complete presets run an incremental build of
@@ -657,7 +659,16 @@ async function auditCommand(action, args, values) {
     case "list":
       return runOperation("observatory.audit.list", { preset: values.preset, limit: values.limit }, values);
     case "findings":
-      return runOperation("observatory.audit.findings", { auditId: args[0], severity: values.severity, subsystem: values.subsystem }, values);
+      if (values.finding && !values.json) {
+        const response = await dispatch(controlContext(), "observatory.audit.findings", { auditId: args[0], findingId: values.finding });
+        if (!response.ok) {
+          console.error(formatResponse(response));
+          return responseExitCode(response);
+        }
+        process.stdout.write(response.result.markdown);
+        return 0;
+      }
+      return runOperation("observatory.audit.findings", { auditId: args[0], severity: values.severity, subsystem: values.subsystem, findingId: values.finding }, values);
     case "compare":
       return runOperation("observatory.audit.compare", { auditId: args[0], baselineAuditId: args[1] }, values);
     case "report": {
@@ -674,10 +685,22 @@ async function auditCommand(action, args, values) {
       return runOperation("observatory.audit.timeline", { runId: args[0], fromMs: values.from, toMs: values.to, limit: values.limit }, values);
     case "operation":
       return runOperation("observatory.audit.operation", { runId: args[0], action: args[1] }, values);
+    case "trace": {
+      if (values.json) return runOperation("observatory.audit.trace", { runId: args[0], turn: values.turn }, values);
+      const response = await dispatch(controlContext(), "observatory.audit.trace", { runId: args[0], turn: values.turn });
+      if (!response.ok) {
+        console.error(formatResponse(response));
+        return responseExitCode(response);
+      }
+      const result = response.result;
+      if (!result.available) console.log(`No trace: ${result.reason}`);
+      else console.log([...result.turns.map((turn) => turn.summary), result.dropped ? `(${result.dropped} events were dropped while recording)` : null].filter(Boolean).join("\n\n") || "This run traced no AI turns.");
+      return 0;
+    }
     case "export":
       return runOperation("observatory.audit.export", { auditId: args[0], includeRawLogs: values["raw-logs"] }, values);
     default:
-      console.error(`Unknown audit action "${action}". Use presets, run, status, cancel, list, findings, compare, report, timeline, operation or export.`);
+      console.error(`Unknown audit action "${action}". Use presets, run, status, cancel, list, findings, compare, report, timeline, operation, trace or export.`);
       return 2;
   }
 }
@@ -937,6 +960,8 @@ async function main(argv) {
       duration: { type: "string" },
       from: { type: "string" },
       to: { type: "string" },
+      turn: { type: "string" },
+      finding: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });

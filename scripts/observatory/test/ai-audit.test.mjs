@@ -178,8 +178,42 @@ describe("AI audits end to end", () => {
     const root = await tempDir();
     const result = await audit(root, "ai-turn", { OPENAI_API_KEY: "sk-user-key-must-not-reach-the-app", FAKE_AI_KNOBS: JSON.stringify({ retrievalMs: 400 }) });
     assert.equal(result.job.status, "completed", JSON.stringify(result.job));
-    const findings = json(await cli(root, ["audit", "findings", result.job.auditRunId, "--json"])).result.findings;
-    assert.ok(findings.some((finding) => finding.rule === "ai.slow-retrieval"), findings.map((finding) => finding.rule).join());
+    const auditId = result.job.auditRunId;
+    const findings = json(await cli(root, ["audit", "findings", auditId, "--json"])).result.findings;
+    const retrieval = findings.find((finding) => finding.rule === "ai.slow-retrieval");
+    assert.ok(retrieval, findings.map((finding) => finding.rule).join());
+
+    // The selected finding, on its own, for an agent.
+    const single = await cli(root, ["audit", "findings", auditId, "--finding", retrieval.id]);
+    assert.equal(single.code, 0, single.stderr);
+    assert.match(single.stdout, /## \[medium\] Slow Library retrieval/);
+    assert.match(single.stdout, /audit trace .* --json/);
+
+    // The concise report has the AI turns table and the AI blind spots.
+    const report = await cli(root, ["audit", "report", auditId]);
+    assert.match(report.stdout, /## AI turns/);
+    assert.match(report.stdout, /\| Full AI turn \(mocked\) \| mock \| (\d+)\/\1 \|/);
+    assert.match(report.stdout, /local mock provider/);
+
+    // The trace, by cause, from the same operation the page uses.
+    const runId = retrieval.evidence[0].runId;
+    assert.match(runId, /-ui-ai-turn-/, "evidence names the Observatory run, not the AI turn's own id");
+    assert.equal(retrieval.evidence.length, 3, "one line per run");
+    assert.match(retrieval.evidence[0].text, /median 400 ms over 3 turns/);
+    const trace = json(await cli(root, ["audit", "trace", runId, "--json"])).result;
+    assert.equal(trace.available, true);
+    assert.equal(trace.turns.length, 3);
+    assert.match(trace.turns[0].summary, /AI turn .*: completed/);
+    assert.equal(trace.turns[0].tree.name, "ai.run");
+    assert.ok(trace.turns[0].call.children.some((child) => child.name === "ai.queue-wait"));
+    assert.ok(trace.turns[0].tree.children.find((child) => child.name === "ai.prepare").children.every((child) => child.thread === "ArchivistAI"));
+    const text = await cli(root, ["audit", "trace", runId, "--turn", "1"]);
+    assert.match(text.stdout, /first network byte .* first model delta .* first visible text/);
+    assert.equal(json(await cli(root, ["audit", "trace", runId, "--turn", "9", "--json"])).error.code, "not-found");
+
+    // The full bundle carries each run's trace.
+    const exported = json(await cli(root, ["audit", "export", auditId, "--json"])).result;
+    assert.ok(exported.manifest.files.some((file) => /runs\/.*\/ui-operations\.json$/.test(file.path)), JSON.stringify(exported.manifest.files.map((file) => file.path)));
 
     const runs = await readdir(path.join(root, "runs"));
     const child = [];

@@ -111,11 +111,13 @@ function stage(node, from) {
   if (!node) return null;
   return {
     name: node.name,
+    thread: node.thread,
     startMs: since(from, node.startMs),
     durationMs: node.durationMs,
     selfMs: node.selfMs,
     ok: node.ok,
     fields: node.fields,
+    markers: node.markers.map((marker) => ({ name: marker.name, atMs: since(from, marker.startMs), fields: marker.fields })),
     children: node.children.map((child) => stage(child, from)),
   };
 }
@@ -210,6 +212,7 @@ export function aiTurns(rawEvents) {
 
     turns.push({
       runId,
+      action: run.action ?? null,
       thread: run.thread,
       provider: run.fields.provider ?? null,
       model: run.fields.model ?? null,
@@ -256,6 +259,12 @@ export function aiTurns(rawEvents) {
       outlivedMs: run.outlivedMs,
       missing,
       tree: stage(run, run),
+      // The call that queued the run (its queue wait, and the reply's
+      // delivery back on the caller's thread), from the run's start.
+      call: call ? stage(call, run) : null,
+      // What the chat view did, on the UI thread.
+      presentationMarks: mine.filter((event) => event.kind !== "span").map((event) => ({ name: event.name, thread: event.thread, atMs: since(run, event.startMs) })),
+      presentationSpan: presented ? { name: presented.name, thread: presented.thread, startMs: since(run, presented.startMs), durationMs: round(presented.endMs - presented.startMs) } : null,
     });
   }
   return turns;

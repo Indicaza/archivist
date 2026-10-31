@@ -398,13 +398,15 @@ function aiFindings({ scenario, name, passed, add }) {
   for (const run of passed) {
     const trace = run.summary.operations?.trace;
     if (!trace?.available) continue;
-    for (const turn of trace.aiTurns ?? []) turns.push({ runId: run.runId, ...turn });
-    for (const job of trace.db ?? []) db.push({ runId: run.runId, ...job });
+    // runId is the Observatory run (evidence links to it); the turn's own
+    // id is kept as aiRunId.
+    for (const turn of trace.aiTurns ?? []) turns.push({ ...turn, aiRunId: turn.runId, runId: run.runId });
+    for (const job of trace.db ?? []) db.push({ ...job, runId: run.runId });
     if (trace.dropped) dropped.push({ runId: run.runId, n: trace.dropped });
   }
   const injected = providerNote(passed);
   const runsWith = (list) => new Set(list.map((entry) => entry.runId)).size;
-  const evidence = (list, text) => list.map((entry) => ({ runId: entry.runId, operation: "ai.run", text: text(entry) }));
+  const evidence = (list, text) => list.map((entry) => ({ runId: entry.runId, operation: "ai.run", aiRunId: entry.aiRunId ?? null, text: text(entry) }));
 
   if (dropped.length) {
     add("trace.dropped-events", scenario, {
@@ -440,7 +442,7 @@ function aiFindings({ scenario, name, passed, add }) {
         subsystem, severity: typical >= high ? "high" : "medium",
         summary: `${name}: ${label} takes ${msText(typical)} per AI turn (median of ${values.length})${detail ? `; ${detail(values)}` : ""}.`,
         impact: { value: round(typical), unit: "ms", text: `${msText(typical)} median, up to ${msText(Math.max(...values.map((entry) => entry.ms)))}` },
-        evidence: values.map((entry) => ({ runId: entry.turn.runId, operation: "ai.run", text: msText(entry.ms) })),
+        evidence: perRun(values).map((entry) => ({ runId: entry.runId, operation: "ai.run", text: entry.n === 1 ? msText(entry.ms) : `median ${msText(entry.ms)} over ${entry.n} turns (up to ${msText(entry.max)})` })),
         confidence: confidence(runsWith(values.filter((entry) => entry.ms >= medium).map((entry) => entry.turn)), passed.length),
         nextStep: next,
         scenario,
@@ -472,7 +474,8 @@ function aiFindings({ scenario, name, passed, add }) {
         const before = median(values.map((entry) => entry.turn.prepareMs));
         const toByte = median(values.map((entry) => (entry.turn.firstNetworkByteMs != null && entry.turn.prepareMs != null ? entry.turn.firstNetworkByteMs - entry.turn.prepareMs : null)));
         const queue = median(values.map((entry) => entry.turn.queueWaitMs));
-        return `about ${msText(before)} is Archivist preparing the request, about ${msText(toByte)} the wait for the provider's first byte${injected}${queue ? `, plus ${msText(queue)} queued before the turn started` : ""}`;
+        const retried = values.some((entry) => (entry.turn.retries ?? 0) > 0);
+        return `about ${msText(before)} is Archivist preparing the request, about ${msText(toByte)} the wait for the provider's first byte${retried ? " (retries and their waits included)" : ""}${injected}${queue ? `, plus ${msText(queue)} queued before the turn started` : ""}`;
       },
       next: "Compare the provider's first-byte wait with preparation on the turn timeline; retries and their waits sit inside the first round.",
     });
@@ -613,6 +616,16 @@ function aiFindings({ scenario, name, passed, add }) {
       });
     }
   }
+}
+
+// One evidence line per Observatory run, not per turn.
+function perRun(values) {
+  const runs = new Map();
+  for (const entry of values) {
+    if (!runs.has(entry.turn.runId)) runs.set(entry.turn.runId, []);
+    runs.get(entry.turn.runId).push(entry.ms);
+  }
+  return [...runs].map(([runId, list]) => ({ runId, ms: median(list), max: Math.max(...list), n: list.length }));
 }
 
 function describeAttempts(attempts = []) {
@@ -773,6 +786,7 @@ export function auditHighlights(children) {
   return {
     operations,
     scenarios,
+    ai: aiHighlights(children),
     build: build ? {
       status: build.status,
       classification: build.buildConditions?.classification?.value ?? null,
@@ -786,6 +800,56 @@ export function auditHighlights(children) {
       slowest: (evidence?.slowestCompiles ?? []).slice(0, 5).map((job) => ({ name: job.source ?? job.output, durationMs: job.durationMs })),
     } : null,
   };
+}
+
+// AI turns per scenario: medians over completed turns, and how many turns
+// ended each way. Cancelled and failed turns are counted, never timed.
+const AI_TIMINGS = [
+  ["turnMs", "Turn", (turn) => turn.durationMs], ["queueWaitMs", "Queued", (turn) => turn.queueWaitMs], ["prepareMs", "Prepare", (turn) => turn.prepareMs],
+  ["retrievalMs", "Retrieval", (turn) => turn.stages?.retrievalMs], ["contextCompileMs", "Context", (turn) => turn.stages?.contextCompileMs],
+  ["firstNetworkByteMs", "First byte", (turn) => turn.firstNetworkByteMs], ["firstModelDeltaMs", "First model text", (turn) => turn.firstModelDeltaMs],
+  ["firstVisibleTextMs", "First text shown", (turn) => turn.firstVisibleTextMs], ["persistMs", "Save", (turn) => turn.persistMs],
+];
+export function aiHighlights(children) {
+  const out = {};
+  for (const child of children) {
+    const summary = child.summary;
+    const turns = summary?.kind === "ui-scenario" ? summary.operations?.trace?.aiTurns ?? [] : [];
+    if (!turns.length && !summary?.ai) continue;
+    const id = summary.scenario?.id ?? "unknown";
+    const entry = (out[id] ??= { name: summary.scenario?.name ?? id, provider: summary.ai?.provider ?? null, runs: 0, turns: [] });
+    entry.runs += 1;
+    entry.turns.push(...turns);
+  }
+  for (const entry of Object.values(out)) {
+    const turns = entry.turns;
+    const done = turns.filter((turn) => turn.outcome === "completed");
+    entry.counts = {
+      turns: turns.length, completed: done.length, cancelled: turns.filter((turn) => turn.outcome === "cancelled").length,
+      failed: turns.filter((turn) => turn.outcome === "failed" || turn.outcome === "interrupted").length,
+      retries: turns.reduce((sum, turn) => sum + (turn.retries ?? 0), 0), tools: turns.reduce((sum, turn) => sum + (turn.tools ?? 0), 0),
+    };
+    entry.medians = Object.fromEntries(AI_TIMINGS.map(([key, , read]) => [key, round(median(done.map(read)))]));
+    delete entry.turns;
+  }
+  return out;
+}
+
+// One finding on its own, for "Copy this finding" and agents.
+export function findingMarkdown(finding, { auditId = null, redact = (text) => text } = {}) {
+  const rule = RULE_BY_ID[finding.rule];
+  return [
+    `## [${finding.severity}] ${finding.title}`, "",
+    redact(finding.summary), "",
+    `- Rule: \`${finding.rule}\`: ${rule?.when ?? ""}`,
+    `- Basis: ${rule?.basis ?? "?"}`,
+    `- Subsystem: ${finding.subsystem}; ${finding.confidence?.text ?? ""}`,
+    finding.impact ? `- Impact: ${finding.impact.text}` : null,
+    `- Next: ${finding.nextStep}`,
+    finding.evidence?.length ? `- Evidence:\n${finding.evidence.map((item) => `  - ${item.runId ?? ""}${item.operation ? ` ${item.operation}` : ""}${item.step != null ? ` step ${item.step}` : ""}: ${redact(item.text)}`).join("\n")}` : null,
+    auditId ? `\nFrom audit ${auditId}. More: \`npm run observatory -- audit findings ${auditId} --json\`${finding.evidence?.[0]?.runId && finding.rule.startsWith("ai.") ? `, \`audit trace ${finding.evidence[0].runId} --json\`` : ""}.` : null,
+    "",
+  ].filter((line) => line != null).join("\n");
 }
 
 export function countBySeverity(findings) {
@@ -898,6 +962,17 @@ export function auditMarkdown({ auditRun, summary, comparison = null, redact = (
     for (const op of tree.slice(0, 10)) lines.push(`| ${op.name} | ${op.scenario} | ${msText(op.medianMs)} | ${msText(op.maxMs)} | ${op.runs} |`);
     lines.push("");
   }
+  const ai = Object.entries(audit.highlights?.ai ?? {});
+  if (ai.length) {
+    lines.push("## AI turns", "", "Medians over completed turns, ms from the start of the run (ai.run). Cancelled and failed turns are counted, not timed. A mocked provider's waits are the scenario's script, not a provider's.", "");
+    lines.push(`| Scenario | Provider | Turns | ${AI_TIMINGS.map(([, label]) => label).join(" | ")} |`, `|---|---|---:|${AI_TIMINGS.map(() => "---:").join("|")}|`);
+    for (const [, entry] of ai) {
+      const counts = entry.counts;
+      const ended = [counts.cancelled && `${counts.cancelled} cancelled`, counts.failed && `${counts.failed} failed`].filter(Boolean).join(", ");
+      lines.push(`| ${entry.name} | ${entry.provider ?? "?"} | ${counts.completed}/${counts.turns}${ended ? ` (${ended})` : ""} | ${AI_TIMINGS.map(([key]) => msText(entry.medians[key])).join(" | ")} |`);
+    }
+    lines.push("");
+  }
   if (audit.highlights?.build) {
     const build = audit.highlights.build;
     lines.push("## Build", "", `- ${build.classification ?? "?"} build, ${msText(build.totalMs)} total; ${build.jobs ?? "?"} jobs, ${msText(build.wallMs)} wall, ${msText(build.summedMs)} summed across jobs, peak ${build.peakParallel ?? "?"} at once`);
@@ -928,7 +1003,7 @@ export function auditMarkdown({ auditRun, summary, comparison = null, redact = (
   for (const note of blindSpots(audit)) lines.push(`- ${note}`);
   lines.push("", "## Rules", "", "| Rule | Threshold |", "|---|---|");
   for (const rule of RULES) lines.push(`| ${rule.id} | ${rule.when} |`);
-  lines.push("", "To dig further: `npm run observatory -- audit findings <audit-id> --json`, `audit operation <run-id> <action> --json`, `audit timeline <run-id> --json`.", "");
+  lines.push("", "To dig further: `npm run observatory -- audit findings <audit-id> --json`, `audit operation <run-id> <action> --json`, `audit timeline <run-id> --json`, `audit trace <run-id> --json` (AI turns by cause).", "");
   return lines.join("\n");
 }
 
@@ -938,6 +1013,14 @@ export function blindSpots(audit) {
     "Scenarios run a separate app with a fresh profile and seeded data, not your own library.",
     "GPU and compositor time is not measured; frame gaps are what the driver saw, at an assumed 60 Hz.",
   ];
+  const scenarios = audit.plan?.scenarios ?? [];
+  if (scenarios.some((id) => AI_SCENARIOS.includes(id))) {
+    notes.push("AI scenarios answer from a local mock provider: they measure Archivist's own side of a turn (preparation, retrieval, context, database, saving, showing the reply). The mock's delays are scripted, so provider timings there are not a provider's.");
+    notes.push("AI traces carry timings, counts and sizes only. No prompt, reply, tool argument or SQL is recorded, so a slow stage can be located but its content can't be inspected from the audit.");
+  }
+  if (scenarios.some((id) => PROVIDER_SCENARIOS.includes(id))) {
+    notes.push("Provider latency is a few capped requests with synthetic prompts at one moment, over this machine's network; provider latency varies by hour and region.");
+  }
   if ((audit.plan?.repeat ?? 1) < 3) notes.push("Fewer than three rounds: enough to point at something slow, not enough to call a regression.");
   if (audit.plan?.build) notes.push("Build job times come from one build; another build of the same change can differ by seconds.");
   else notes.push("No build in this audit: it measured the binary already in build/frontend-debug.");
