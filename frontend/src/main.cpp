@@ -1,5 +1,8 @@
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFileInfo>
+#include <QDir>
+#include <QUrl>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -359,7 +362,18 @@ int main(int argc, char *argv[])
         // Compiling and creating the QML scene (the window and everything it
         // creates synchronously).
         LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("qml-load"));
-        engine.loadFromModule("Archivist", "App");
+        const QString qmlSourceDir = qEnvironmentVariable("ARCHIVIST_QML_SOURCE_DIR");
+        if (!qmlSourceDir.isEmpty()) {
+            const QString source = QDir(qmlSourceDir).absoluteFilePath(QStringLiteral("App.qml"));
+            if (!QFileInfo::exists(source)) {
+                qCritical().noquote() << "[Dev QML] App.qml does not exist at" << source;
+                return 2;
+            }
+            qInfo().noquote() << "[Dev QML] Loading source files from" << qmlSourceDir;
+            engine.load(QUrl::fromLocalFile(source));
+        } else {
+            engine.loadFromModule("Archivist", "App");
+        }
     }
     LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("enter-event-loop"));
 
