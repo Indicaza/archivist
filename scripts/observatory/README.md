@@ -852,7 +852,7 @@ or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
 
 | Preset | Runs | Use it for |
 | ------ | ---- | ---------- |
-| `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
+| `smoke` | startup, sidebar, workspace, AI pipeline, 1 short round | Fast local check without a build: two measured actions per step, no warm-up. Not a regression test. |\n| `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
 | `ui` (Full UI) | startup, sidebar, workspace, chat, 3 rounds | The UI loop: enough runs to compare two audits. |
 | `build` | one incremental build of `build/frontend-debug` | Why it rebuilt and where the build time goes. |
 | `ai` (AI Pipeline Audit) | ai-pipeline, 3 rounds, local mock provider | Archivist's side of an AI turn. Offline, no API calls. |
