@@ -79,6 +79,12 @@ function uiMetrics(summary) {
       stateMedianMs: num(step.stateMs?.medianMs),
     })),
     wellsEvents: num(summary.runtimeTiming?.recognizedEvents),
+    operationsCollected: summary.operations ? summary.operations.collected === true : null,
+    startup: summary.operations?.startup ? {
+      firstFrameMs: num(summary.operations.startup.firstFrameMs),
+      eventLoopMs: num(summary.operations.startup.eventLoopMs),
+      readyMs: num(summary.operations.startup.readyMs),
+    } : null,
   };
 }
 
@@ -104,6 +110,26 @@ function liveMetrics(summary) {
     worstMs: spikes.length ? Math.max(...spikes.map((spike) => num(spike.durationMs) ?? 0)) : null,
     cpuMeanPercent: num(stats.cpu?.meanPercent),
     rssGrowthBytes: num(stats.memory?.growthRssBytes),
+  };
+}
+
+// An audit (control/audit.mjs): what ran, the runs it made, its findings.
+function auditMetrics(summary) {
+  const findings = Array.isArray(summary.findings) ? summary.findings : [];
+  const count = (severity) => findings.filter((finding) => finding.severity === severity).length;
+  return {
+    preset: summary.preset ?? null,
+    presetName: summary.presetName ?? summary.preset ?? null,
+    jobId: summary.jobId ?? null,
+    jobStatus: summary.jobStatus ?? null,
+    rulesVersion: num(summary.rulesVersion),
+    plan: summary.plan ?? null,
+    runIds: (summary.children ?? []).map((child) => child.runId).filter(Boolean),
+    children: summary.children ?? [],
+    findings,
+    counts: { high: count("high"), medium: count("medium"), low: count("low"), info: count("info"), total: findings.length },
+    highlights: summary.highlights ?? null,
+    durationMs: num(summary.durationMs),
   };
 }
 
@@ -171,6 +197,8 @@ export function normalizeRun(runId, summary) {
     record.live = liveMetrics(summary);
   } else if (supported && kind === "runtime-log") {
     record.runtime = { events: num(summary.timing?.recognizedEvents), summary: summary.timing?.summary ?? {} };
+  } else if (supported && kind === "audit") {
+    record.audit = auditMetrics(summary);
   }
   return record;
 }
@@ -179,7 +207,7 @@ export function normalizeRun(runId, summary) {
 // summary can't be read.
 export function kindFromId(runId) {
   const kind = runId.split("-").slice(2, -1).join("-");
-  return kind === "build" ? "build" : kind.startsWith("ui-") ? "ui-scenario" : kind === "runtime" ? "runtime-log" : kind === "live" ? "live-session" : "unknown";
+  return kind === "build" ? "build" : kind.startsWith("ui-") ? "ui-scenario" : kind === "runtime" ? "runtime-log" : kind === "live" ? "live-session" : kind === "audit" ? "audit" : "unknown";
 }
 
 // A run whose summary.json could not be read at all.

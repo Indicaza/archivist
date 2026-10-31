@@ -65,16 +65,20 @@ export async function loadRunEvidence(root, runId) {
 const sha256 = (buffer) => createHash("sha256").update(buffer).digest("hex");
 
 // category: this run's regression analysis (regression.mjs), or null.
-export async function exportEvidence(root, runId, { category = null, includeRawLogs = false, now = new Date() } = {}) {
+// audit: { markdown, comparison, childRunIds } for an audit run; its bundle
+// holds the audit report and, under runs/<id>/, each run's own report.
+export async function exportEvidence(root, runId, { category = null, includeRawLogs = false, now = new Date(), audit = null } = {}) {
   const evidence = await loadRunEvidence(root, runId);
   if (!evidence.loaded?.summary) {
     return { error: evidence.loaded ? evidence.loaded.error : "No such run." };
   }
   const { summary, dir: runDir } = evidence.loaded;
   const redact = redactorFor(root);
-  const report = diagnosticReport({
-    runId, summary, events: evidence.events, scenario: evidence.scenario, category, logText: evidence.log?.text ?? null, live: evidence.live, redact,
-  });
+  const report = audit
+    ? { markdown: audit.markdown, facts: { schema: "archivist.observatory.audit-facts", schemaVersion: 1, auditId: runId, findings: summary.findings ?? [], counts: summary.counts ?? null, highlights: summary.highlights ?? null, comparison: audit.comparison ?? null } }
+    : diagnosticReport({
+      runId, summary, events: evidence.events, scenario: evidence.scenario, category, logText: evidence.log?.text ?? null, live: evidence.live, redact,
+    });
 
   const exportId = makeRunId("evidence", now);
   const base = path.join(exportsDir(root), exportId);
@@ -103,6 +107,24 @@ export async function exportEvidence(root, runId, { category = null, includeRawL
   }
   if (evidence.scenario) {
     await add("scenario.json", redactJson(evidence.scenario, redact), { role: "scenario", description: "The exact scenario definition that ran." });
+  }
+  if (audit) {
+    if (audit.comparison) {
+      await add("comparison.json", audit.comparison, { role: "comparison", schema: "archivist.observatory.audit-comparison", schemaVersion: 1, description: "This audit compared with the previous audit of the same preset, run by run." });
+    }
+    for (const childId of audit.childRunIds ?? []) {
+      const child = await loadRunEvidence(root, childId);
+      if (!child.loaded?.summary) continue;
+      const childReport = diagnosticReport({
+        runId: childId, summary: child.loaded.summary, events: child.events, scenario: child.scenario, logText: child.log?.text ?? null, live: child.live, redact,
+      });
+      await add(`runs/${childId}/report.md`, childReport.markdown, { role: "run-report", description: `The diagnostic report of run ${childId}.` });
+      await add(`runs/${childId}/summary.json`, redactJson(child.loaded.summary, redact), { role: "run-summary", schemaVersion: child.loaded.summary.schemaVersion ?? null, description: `Run ${childId}'s summary.json, redacted.` });
+      const operations = await readArtifact(child.loaded.dir, child.loaded.summary, "operations");
+      if (operations?.text) {
+        await add(`runs/${childId}/ui-operations.json`, redactJson(parseJson(operations.text), redact), { role: "operations", description: "Every action's operation tree, markers and stalls." });
+      }
+    }
   }
   if (category) {
     await add("comparison.json", category, { role: "comparison", schema: "archivist.observatory.regression-report#category", schemaVersion: 1, description: "This run compared with its baseline." });

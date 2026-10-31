@@ -30,6 +30,7 @@ import { baselineCommand, checkReport, compareAfterRun, loadBudgets } from "./co
 import { formatUiSummary } from "./ui-report.mjs";
 import { acquireLock, readJob, releaseLock, setStatus, writeJob, ACTIVE } from "./control/jobs.mjs";
 import { dispatch, exitCodeFor as responseExitCode, scenarioDefinitions } from "./control/operations.mjs";
+import { writeAuditRecord } from "./control/audit.mjs";
 import { formatResponse } from "./control/human.mjs";
 import { newControlToken } from "./control/gate.mjs";
 import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR, TIME_TRACE_DIR } from "./paths.mjs";
@@ -45,7 +46,7 @@ const USAGE = `Archivist Observatory
 
   npm run observatory:build [-- --label <text>] [--follow]
   npm run observatory -- ingest-runtime <log> [--label <text>] [--build-run <runId>]
-  npm run observatory:ui [-- --scenario sidebar|workspace] [--skip-build] [--keep-profile]
+  npm run observatory:ui [-- --scenario sidebar|workspace|chat|startup] [--skip-build] [--keep-profile]
   npm run observatory -- show [runId]
   npm run observatory:dashboard [-- --port <n>] [--no-open] [--control]
 
@@ -67,7 +68,7 @@ for a versioned JSON envelope on stdout and nothing else):
 
   npm run observatory -- capabilities
   npm run observatory -- scenarios list
-  npm run observatory -- tests run [--scenario sidebar|workspace|all] [--repeat <n>] [--build] [--wait]
+  npm run observatory -- tests run [--scenario sidebar|workspace|chat|startup|all] [--repeat <n>] [--build] [--wait]
   npm run observatory -- tests status [<job-id>]
   npm run observatory -- tests cancel <job-id>
   npm run observatory -- tests list
@@ -78,6 +79,24 @@ for a versioned JSON envelope on stdout and nothing else):
   npm run observatory -- report <run-id>                   (Markdown for an AI)
   npm run observatory -- export <run-id> [--raw-logs]      (evidence .zip)
   npm run observatory:dashboard -- --control               (Test Lab in the browser)
+
+Audits (one press: build and/or UI scenarios, then findings with the rules
+that produced them; Observatory > Record in the dashboard):
+
+  npm run observatory -- audit presets
+  npm run observatory -- audit run --preset quick|ui|build|complete [--repeat <n>] [--wait]
+  npm run observatory -- audit status [<job-id>]
+  npm run observatory -- audit cancel <job-id>
+  npm run observatory -- audit list [--preset <p>] [--limit <n>]
+  npm run observatory -- audit findings <audit-id> [--severity <s>] [--subsystem <name>]
+  npm run observatory -- audit compare <audit-id> [<baseline-audit-id>]
+  npm run observatory -- audit report <audit-id>          (Markdown for an AI)
+  npm run observatory -- audit timeline <run-id> [--from <ms>] [--to <ms>] [--limit <n>]
+  npm run observatory -- audit operation <run-id> <action-index>
+  npm run observatory -- audit export <audit-id> [--raw-logs]
+
+  The build and complete presets run an incremental build of
+  build/frontend-debug; nothing is cleaned or deleted.
 
 Live recordings (the app's flight recorder; Observatory > Live in Archivist):
 
@@ -575,6 +594,65 @@ async function testsCommand(action, args, values) {
   return 2;
 }
 
+async function auditCommand(action, args, values) {
+  switch (action ?? "list") {
+    case "presets":
+      return runOperation("observatory.audit.presets", {}, values);
+    case "run": {
+      const input = { preset: values.preset, repeat: values.repeat ?? undefined };
+      if (!values.wait) return runOperation("observatory.audit.run", input, values);
+      const print = values.json ? jsonStdout() : null;
+      const ctx = controlContext();
+      let response = await dispatch(ctx, "observatory.audit.run", input);
+      if (response.ok) {
+        const { jobId } = response.result.job;
+        console.error(`Audit job ${jobId} started; waiting for it to finish.`);
+        let last = "";
+        do {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          response = await dispatch(ctx, "observatory.audit.status", { jobId });
+          const current = response.result?.job?.progress?.current;
+          const line = current ? `${current.scenario ?? ""}${current.round ? ` round ${current.round}` : ""}: ${current.phase ?? ""}` : response.result?.job?.status;
+          if (line !== last) console.error(line);
+          last = line;
+        } while (response.ok && ACTIVE.has(response.result.job.status));
+      }
+      if (print) print(response);
+      else console.log(formatResponse(response));
+      return response.ok ? JOB_EXIT[response.result.job.status] ?? 1 : responseExitCode(response);
+    }
+    case "status":
+      return runOperation("observatory.audit.status", { jobId: args[0] }, values);
+    case "cancel":
+      return runOperation("observatory.audit.cancel", { jobId: args[0] }, values);
+    case "list":
+      return runOperation("observatory.audit.list", { preset: values.preset, limit: values.limit }, values);
+    case "findings":
+      return runOperation("observatory.audit.findings", { auditId: args[0], severity: values.severity, subsystem: values.subsystem }, values);
+    case "compare":
+      return runOperation("observatory.audit.compare", { auditId: args[0], baselineAuditId: args[1] }, values);
+    case "report": {
+      if (values.json) return runOperation("observatory.audit.report", { auditId: args[0] }, values);
+      const response = await dispatch(controlContext(), "observatory.audit.report", { auditId: args[0] });
+      if (!response.ok) {
+        console.error(formatResponse(response));
+        return responseExitCode(response);
+      }
+      process.stdout.write(response.result.markdown);
+      return 0;
+    }
+    case "timeline":
+      return runOperation("observatory.audit.timeline", { runId: args[0], fromMs: values.from, toMs: values.to, limit: values.limit }, values);
+    case "operation":
+      return runOperation("observatory.audit.operation", { runId: args[0], action: args[1] }, values);
+    case "export":
+      return runOperation("observatory.audit.export", { auditId: args[0], includeRawLogs: values["raw-logs"] }, values);
+    default:
+      console.error(`Unknown audit action "${action}". Use presets, run, status, cancel, list, findings, compare, report, timeline, operation or export.`);
+      return 2;
+  }
+}
+
 async function liveCommand(action, args, values) {
   const duration = values.duration ?? undefined;
   switch (action ?? "status") {
@@ -731,6 +809,15 @@ async function jobRunCommand(jobId) {
     : "completed";
   if (cancelled) job.cancelRequestedAt ??= new Date().toISOString();
   job.current = null;
+  if (job.request.audit) {
+    // The audit is written whatever happened, from the runs that finished.
+    job.current = { phase: "writing findings", scenario: null, round: null, runId: null };
+    await save();
+    const written = await writeAuditRecord(root, job, { repoRoot: ROOT, status });
+    job.auditRunId = written.runId ?? null;
+    if (written.error) job.error = [job.error, `The audit record could not be written: ${written.error}`].filter(Boolean).join(" ");
+    job.current = null;
+  }
   setStatus(job, status, { exitCode: JOB_EXIT[status] });
   await save();
   await releaseLock(root, { jobId });
@@ -787,6 +874,9 @@ async function main(argv) {
     allowNegative: true,
     options: {
       label: { type: "string" },
+      preset: { type: "string" },
+      severity: { type: "string" },
+      subsystem: { type: "string" },
       follow: { type: "boolean", default: false },
       "time-trace": { type: "boolean", default: false },
       "build-run": { type: "string" },
@@ -868,6 +958,8 @@ async function main(argv) {
       return runsCommand(argument, positionals.slice(2), values);
     case "live":
       return liveCommand(argument, positionals.slice(2), values);
+    case "audit":
+      return auditCommand(argument, positionals.slice(2), values);
     case "report": {
       if (values.json) return runOperation("observatory.reports.generate", { runId: argument }, values);
       const response = await dispatch(controlContext(), "observatory.reports.generate", { runId: argument });

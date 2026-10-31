@@ -226,7 +226,8 @@ export async function releaseLock(root, match) {
 
 // ---- lifecycle ------------------------------------------------------------------
 
-// request: { scenarios: [ids], repeat, build }, already validated.
+// request: { scenarios: [ids], repeat, build, audit?: { preset } }, already
+// validated. With audit, the runner writes an audit run when it finishes.
 // Returns { job } or { busy: holder }.
 export async function startJob(root, request, { cliPath, target = null, nodePath = process.execPath, env = process.env }) {
   const jobId = makeRunId("job");
@@ -238,15 +239,16 @@ export async function startJob(root, request, { cliPath, target = null, nodePath
     schema: JOB_SCHEMA,
     schemaVersion: JOB_SCHEMA_VERSION,
     jobId,
-    kind: "ui-test",
+    kind: request.audit ? "audit" : "ui-test",
     createdAt: new Date().toISOString(),
     request,
     target,
-    plan: { scenarios: request.scenarios, repeat: request.repeat, build: request.build, totalRuns: request.scenarios.length * request.repeat },
+    plan: { scenarios: request.scenarios, repeat: request.repeat, build: request.build, audit: request.audit ?? null, totalRuns: request.scenarios.length * request.repeat },
     pid: null,
     current: null,
     runs: [],
     buildRunId: null,
+    auditRunId: null,
     cancelRequestedAt: null,
     error: null,
     exitCode: null,

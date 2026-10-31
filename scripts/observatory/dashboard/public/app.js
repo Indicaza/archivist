@@ -10,6 +10,7 @@ import { filterRuns } from "./filter.mjs";
 import { axisMs, empty, gitText, h, kindLabel, kv, legend, ms, OK, shortSha, statusPill, table, when } from "./dom.js";
 import { comparisonCopyButton, configureLab, copyForAiButton, exportButton, testPanel } from "./lab.js";
 import { configureLive, recorderHero, recordingView } from "./live-page.js";
+import { auditComparison, auditHero, auditView, configureAudit } from "./audit-page.js";
 import { bytes, compareLive, liveModel } from "./live.mjs";
 
 const view = document.getElementById("view");
@@ -25,12 +26,13 @@ const SCENARIO_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)"
 
 // What each kind of run is called and shows at a glance.
 const KINDS = {
+  audit: { name: "Audit", plural: "Audits", glyph: "A" },
   "live-session": { name: "Recording", plural: "Recordings", glyph: "●" },
   build: { name: "Build", plural: "Builds", glyph: "B" },
   "ui-scenario": { name: "UI test", plural: "UI tests", glyph: "T" },
   "runtime-log": { name: "Runtime log", plural: "Runtime logs", glyph: "L" },
 };
-const COMPARABLE = new Set(["live-session", "build", "ui-scenario"]);
+const COMPARABLE = new Set(["audit", "live-session", "build", "ui-scenario"]);
 
 function chronological(runs) {
   return [...runs].sort((a, b) => a.runId.localeCompare(b.runId));
@@ -44,10 +46,12 @@ function byKind(kind) {
 function previousComparable(run) {
   return state.runs.find((other) => other.runId < run.runId && other.kind === run.kind && other.readable && other.supported
     && (OK.has(other.status) || other.status === "completed")
-    && (run.kind !== "ui-scenario" || (other.ui?.scenarioId === run.ui?.scenarioId && other.ui?.scenarioVersion === run.ui?.scenarioVersion))) ?? null;
+    && (run.kind !== "ui-scenario" || (other.ui?.scenarioId === run.ui?.scenarioId && other.ui?.scenarioVersion === run.ui?.scenarioVersion))
+    && (run.kind !== "audit" || other.audit?.preset === run.audit?.preset)) ?? null;
 }
 
 function title(run) {
+  if (run.kind === "audit") return run.label ?? "Audit";
   if (run.kind === "live-session") return run.label ?? "Recording";
   if (run.kind === "ui-scenario") return run.ui?.scenarioName ?? "UI test";
   if (run.kind === "build") return run.label ?? `${run.build?.classification ?? ""} build`.trim();
@@ -58,6 +62,7 @@ function title(run) {
 function figure(run) {
   if (!run.readable) return { value: "—", sub: "can't be read" };
   if (!run.supported) return { value: "—", sub: "newer format" };
+  if (run.audit) return { value: String(run.audit.counts.total), sub: run.audit.counts.high ? `${run.audit.counts.high} high` : run.audit.counts.total === 1 ? "finding" : "findings" };
   if (run.build) return { value: ms(run.build.totalMs), sub: "total" };
   if (run.ui) return { value: ms(run.ui.settled?.medianMs), sub: "median" };
   if (run.live) return { value: ms(run.live.worstMs ?? null), sub: "worst delay" };
@@ -90,7 +95,7 @@ function pageHead(heading, ...rest) {
 async function recordPage(params) {
   const recent = state.runs.filter((run) => run.readable).slice(0, 6);
   return h("div", { class: "record-layout" },
-    h("div", { class: "record-main" }, recorderHero(), await testPanel({ open: params.get("test") === "1" })),
+    h("div", { class: "record-main" }, auditHero(), recorderHero(), await testPanel({ open: params.get("test") === "1" })),
     h("aside", { class: "record-side" },
       h("div", { class: "side-head" }, h("h3", {}, "Latest"), state.runs.length ? h("a", { href: "#/history" }, "All history") : null),
       recent.length ? h("div", { class: "run-list" }, recent.map((run) => runCard(run)))
@@ -314,6 +319,10 @@ async function comparison(a, b) {
     parts.push(h("div", { class: "notice bad" }, `A ${KINDS[base.kind]?.name ?? base.kind} can't be compared with a ${KINDS[candidate.kind]?.name ?? candidate.kind}.`));
     return parts;
   }
+  if (base.kind === "audit") {
+    parts.push(...await auditComparison(base, candidate));
+    return parts;
+  }
   let rows;
   let blockers;
   let warnings;
@@ -358,7 +367,7 @@ async function runPage(runId) {
       h("div", { class: "run-title-row" }, h("h2", {}, title(run)), statusPill(run.status)),
       h("p", { class: "muted small" }, [kind.name, when(run.createdAt), gitText(run)].join(" · "))),
   ];
-  if (summary) {
+  if (summary && run.kind !== "audit") {
     parts.push(h("div", { class: "action-bar" },
       previous ? h("a", { class: "button", href: `#/compare?a=${previous.runId}&b=${run.runId}` }, "Compare with previous") : null,
       COMPARABLE.has(run.kind) ? h("a", { class: "button", href: `#/compare?a=${run.runId}` }, "Compare with…") : null,
@@ -368,6 +377,10 @@ async function runPage(runId) {
   if (run.error) parts.push(h("div", { class: "notice bad" }, run.error));
   if (run.kind === "live-session") {
     parts.push(await recordingView(runId));
+    return parts;
+  }
+  if (run.kind === "audit" && summary && run.audit) {
+    parts.push(...await auditView(run, summary));
     return parts;
   }
   parts.push(...await runDetail(run, summary));
@@ -757,6 +770,7 @@ function start() {
   document.body.dataset.controls = hasControlKey() ? "on" : "off";
   configureLab({ getState: () => state, refresh });
   configureLive({ getState: () => state, refresh: loadOnly, go, onStatus: showStatus });
+  configureAudit({ getState: () => state, refresh: loadOnly, go });
   document.getElementById("refresh").addEventListener("click", refresh);
   window.addEventListener("hashchange", render);
   refresh();

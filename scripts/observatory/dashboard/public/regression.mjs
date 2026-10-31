@@ -37,6 +37,8 @@ export const CATEGORIES = {
   "build:no-change": { label: "No-change build", kind: "build", classification: "no-change" },
   "ui:sidebar": { label: "Sidebar Stress", kind: "ui-scenario", scenario: "sidebar" },
   "ui:workspace": { label: "Workspace Stress", kind: "ui-scenario", scenario: "workspace" },
+  "ui:chat": { label: "Chat", kind: "ui-scenario", scenario: "chat" },
+  "ui:startup": { label: "Startup", kind: "ui-scenario", scenario: "startup" },
 };
 
 // Metric keys a budget can name. Each reads one number from a normalized
@@ -52,6 +54,8 @@ export const METRICS = {
   "state.median": { label: "UI state reached, median", unit: "ms", read: (run) => run.ui?.state?.medianMs },
   "frameGap.median": { label: "Longest frame gap, median", unit: "ms", read: (run) => run.ui?.frameGap?.medianMs },
   appDurationMs: { label: "Scenario duration (app start to exit)", unit: "ms", read: (run) => run.ui?.appDurationMs },
+  "startup.firstFrame": { label: "First frame after main()", unit: "ms", read: (run) => run.ui?.startup?.firstFrameMs },
+  "startup.eventLoop": { label: "Event loop entered after main()", unit: "ms", read: (run) => run.ui?.startup?.eventLoopMs },
 };
 
 function finite(value) {
