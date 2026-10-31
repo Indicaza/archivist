@@ -836,7 +836,7 @@ export function aiHighlights(children) {
   for (const child of children) {
     const summary = child.summary;
     const turns = summary?.kind === "ui-scenario" ? summary.operations?.trace?.aiTurns ?? [] : [];
-    if (!turns.length && !summary?.ai) continue;
+    if (!turns.length) continue;
     const id = summary.scenario?.id ?? "unknown";
     const entry = (out[id] ??= { name: summary.scenario?.name ?? id, provider: summary.ai?.provider ?? null, runs: 0, turns: [] });
     entry.runs += 1;
