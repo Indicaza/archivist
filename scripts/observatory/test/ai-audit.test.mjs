@@ -132,7 +132,7 @@ describe("AI findings: one injected cause, one finding", () => {
   test("slow presentation is the UI's time after the text arrived", () => {
     const finding = one(findingsFor({ shownAfterDeltaMs: 300, flushMaxMs: 40 }), "ai.slow-presentation");
     assert.equal(finding.severity, "high");
-    assert.match(finding.summary, /slowest text flush took 40 ms/);
+    assert.match(finding.summary, /slowest ChatStore text flush took 40 ms/);
   });
 
   test("time no stage explains, missing stages and dropped events are reported, never filled in", () => {

@@ -852,13 +852,41 @@ or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
 
 | Preset | Runs | Use it for |
 | ------ | ---- | ---------- |
-| `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
+| `smoke` | startup, sidebar, workspace, AI pipeline, 1 short round | Fast local check without a build: two measured actions per step, no warm-up. Not a regression test. |\n| `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
 | `ui` (Full UI) | startup, sidebar, workspace, chat, 3 rounds | The UI loop: enough runs to compare two audits. |
 | `build` | one incremental build of `build/frontend-debug` | Why it rebuilt and where the build time goes. |
 | `ai` (AI Pipeline Audit) | ai-pipeline, 3 rounds, local mock provider | Archivist's side of an AI turn. Offline, no API calls. |
 | `ai-turn` (Full AI Turn Audit) | ai-turn, 3 rounds, local mock provider | Every stage of a turn, retries, tools, a cancel. No API calls. |
 | `provider` (Provider Latency Audit) | ai-provider, 1 round, real provider | Provider latency. Refused without `--allow-provider-calls`; the page asks first. |
 | `complete` | `build`, then `ui` and the offline AI scenarios against what it built | Everything that makes no API calls. |
+
+**macOS background UI Lab.** By default the Observatory runner launches its
+disposable-profile test instances as non-focusing accessory windows using
+a test-only AppKit/Qt window policy. It requests that macOS keep the test
+window in the active Space without switching you to another desktop.
+The test window is layered below ordinary application windows, near desktop
+level, so it should not cover your editor or other normal windows. It remains
+visible on the desktop when uncovered, and you can move or minimize it
+normally if needed; synthetic UI actions do not require window focus.
+The window is not hidden or minimized by default because macOS may suspend
+scene-graph rendering for fully obscured windows. **Background frame/settling
+results are not a substitute for foreground graphics benchmarks**; missing
+frames must be reported as missing rather than interpreted as speed.
+Background and foreground
+runs receive distinct scenario versions so they are not silently compared.
+If a foreground, frame-accurate run is needed, opt out for that command with
+`ARCHIVIST_UI_LAB_FOREGROUND=1 npm run observatory -- audit run --preset ui --wait`.
+Do not use `QT_QPA_PLATFORM=offscreen` for normal graphics profiling.
+
+**Fast local feedback.** Use
+`npm run observatory -- audit run --preset smoke --wait` to skip the
+build and run one short round of startup, sidebar, workspace and offline
+AI pipeline. Its scenario versions differ from full runs because it
+disables warm-up iterations, caps repetitions, limits quiet waits to 70 ms and caps waiting for continuous animations to 900 ms after the expected state is reached. State correctness still uses the normal action timeout, and a never-quiet scene reports missing settled-frame evidence. It
+is a functional/diagnostic spot check, **not** statistically reliable
+regression evidence. To run all scenarios but only once, use
+`npm run observatory -- audit run --preset complete --repeat 1 --wait`.
+Use the original Complete preset when you really need repeatable comparisons.
 
 Build presets never clean or delete anything: the build is the normal
 incremental build (a first-ever build is a full one because nothing exists

@@ -4,7 +4,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { classifyRun, labEnvironment, removeProfile } from "../ui-lab.mjs";
+import { classifyRun, labEnvironment, removeProfile, scenarioForRun } from "../ui-lab.mjs";
 import { describe, percentile, summarizeActions } from "../ui-stats.mjs";
 import { tempDir } from "./helpers.mjs";
 
@@ -88,6 +88,24 @@ test("an unknown scenario is a usage error", async () => {
   });
   assert.equal(result.code, 2);
   assert.match(result.stderr, /Available: ai-pipeline, ai-provider, ai-turn, chat, sidebar, startup, workspace/);
+});
+
+test("smoke scenario is shorter and never mutates the canonical workload", () => {
+  const original = { id: "workspace", name: "Workspace", version: 2, initialConditions: "Fresh profile.", warmupIterations: 1, iterations: 5, settleQuietMs: 120 };
+  const fast = scenarioForRun(original, { fast: true, background: true });
+  assert.equal(original.iterations, 5);
+  assert.equal(original.version, 2);
+  assert.equal(fast.iterations, 2);
+  assert.equal(fast.warmupIterations, 0);
+  assert.equal(fast.settleQuietMs, 70);
+  assert.equal(fast.settleTimeoutMs, 900);
+  assert.equal(fast.version, 11002);
+  assert.match(fast.name, /smoke/);
+  assert.match(fast.initialConditions, /frame presentation may differ/);
+  const full = scenarioForRun(original);
+  assert.deepEqual(full, original);
+  assert.notEqual(fast.version, scenarioForRun(original, { fast: true }).version);
+  assert.notEqual(fast.version, scenarioForRun(original, { background: true }).version);
 });
 
 test("the lab environment isolates the profile and drops Archivist switches", () => {

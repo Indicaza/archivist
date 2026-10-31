@@ -27,6 +27,10 @@ export const AI_SCENARIOS = ["ai-pipeline", "ai-turn"];
 export const PROVIDER_SCENARIOS = ["ai-provider"];
 
 export const PRESETS = {
+  smoke: {
+    id: "smoke", name: "Smoke (fast)", scenarios: ["startup", "sidebar", "workspace", "ai-pipeline"], build: false, repeat: 1, fast: true,
+    description: "Fast developer check: one round, two measured interactions per step, no warm-up, shorter quiet waits. No build or paid calls. Not a statistical regression test.",
+  },
   quick: {
     id: "quick", name: "Quick", scenarios: ["startup", "workspace"], build: false, repeat: 1,
     description: "Startup and the workspace scenario, once each. A first look; one round is never enough to call a regression.",
@@ -832,7 +836,7 @@ export function aiHighlights(children) {
   for (const child of children) {
     const summary = child.summary;
     const turns = summary?.kind === "ui-scenario" ? summary.operations?.trace?.aiTurns ?? [] : [];
-    if (!turns.length && !summary?.ai) continue;
+    if (!turns.length) continue;
     const id = summary.scenario?.id ?? "unknown";
     const entry = (out[id] ??= { name: summary.scenario?.name ?? id, provider: summary.ai?.provider ?? null, runs: 0, turns: [] });
     entry.runs += 1;

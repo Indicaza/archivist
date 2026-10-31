@@ -4,6 +4,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QStandardPaths>
 #include <QVariantMap>
 #include <QtEnvironmentVariables>
@@ -33,6 +34,9 @@
 #include "App/Services/interface_scale.h"
 #include "App/Services/live_recorder.h"
 #include "App/Services/ui_lab.h"
+#if defined(Q_OS_MACOS)
+#include "App/Services/ui_lab_mac.h"
+#endif
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
 #include "Core/Domains/Ide/ide_server.h"
@@ -51,6 +55,10 @@ int main(int argc, char *argv[])
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);
+    const bool uiLabBackground = UiLab::requested() && qEnvironmentVariableIsSet("ARCHIVIST_UI_LAB_BACKGROUND");
+#if defined(Q_OS_MACOS)
+    if (uiLabBackground) configureUiLabMacApplication();
+#endif
     const qint64 appNs = LiveEvents::nowNs();
 
     QCoreApplication::setApplicationName("Archivist");
@@ -321,6 +329,7 @@ int main(int argc, char *argv[])
         qEnvironmentVariableIsSet("ARCHIVIST_LEGACY_WORKSPACE")
     );
     diagnostics.insert("uiLab", uiLab != nullptr);
+    diagnostics.insert("uiLabBackground", uiLabBackground);
     engine.rootContext()->setContextProperty("UiLab", uiLab.get());
     engine.rootContext()->setContextProperty(
         "ArchivistDiagnostics",
@@ -337,8 +346,13 @@ int main(int argc, char *argv[])
 
     // Marks when the root object exists inside qml-load, splitting compile
     // and create from what runs after it before loadFromModule returns.
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [](QObject *object, const QUrl &) {
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [uiLabBackground](QObject *object, const QUrl &) {
         LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("qml-root-created"), {}, object ? 1 : 0);
+#if defined(Q_OS_MACOS)
+        if (uiLabBackground) configureUiLabMacWindow(qobject_cast<QQuickWindow *>(object));
+#else
+        Q_UNUSED(uiLabBackground);
+#endif
     });
 
     {

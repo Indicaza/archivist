@@ -36,6 +36,7 @@ Item {
 
     readonly property int actionTimeoutMs: Number(scenario.actionTimeoutMs || 5000)
     readonly property int settleQuietMs: Number(scenario.settleQuietMs || 120)
+    readonly property int settleTimeoutMs: Number(scenario.settleTimeoutMs || scenario.actionTimeoutMs || 5000)
     readonly property int timeoutMs: Number(scenario.timeoutMs || 180000)
     readonly property int readyTimeoutMs: Number(scenario.readyTimeoutMs || 30000)
 
@@ -427,7 +428,7 @@ Item {
         var quietSince = Math.max(last, current.stateAt)
         if (now - quietSince >= settleQuietMs) {
             completeAction(last > current.t0 ? last : null, false)
-        } else if (now - current.t0 > actionTimeoutMs) {
+        } else if (now - current.stateAt > settleTimeoutMs) {
             // Rendering never went quiet (something keeps animating).
             completeAction(null, true)
         }

@@ -13,6 +13,23 @@ import { nowMs } from "./capture.mjs";
 const PROFILE_PREFIX = "archivist-ui-lab-";
 export const EXIT = { passed: 0, failed: 1, usage: 2, refused: 3, error: 70, timeout: 124, interrupted: 130 };
 
+export function scenarioForRun(definition, { fast = false, background = false } = {}) {
+  const scenario = { ...definition };
+  if (fast) {
+    scenario.version += 1000;
+    scenario.name += " (smoke)";
+    scenario.warmupIterations = 0;
+    scenario.iterations = Math.min(2, scenario.iterations ?? 1);
+    scenario.settleQuietMs = Math.min(70, scenario.settleQuietMs ?? 120);
+    scenario.settleTimeoutMs = 900;
+  }
+  if (background) {
+    scenario.version += 10000;
+    scenario.initialConditions += " UI Lab macOS background window (no focus or Spaces switching intended); frame presentation may differ when obscured.";
+  }
+  return scenario;
+}
+
 // The app binary the dev build produces (a bundle on macOS).
 export function appBinaryCandidates(buildDir) {
   return [

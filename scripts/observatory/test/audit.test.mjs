@@ -73,6 +73,10 @@ describe("findings rules", () => {
     const scenarios = (await readdir(SCENARIO_DIR)).map((name) => name.replace(/\.json$/, ""));
     for (const preset of Object.values(PRESETS)) assert.ok(preset.scenarios.every((id) => scenarios.includes(id)), preset.id);
     assert.ok(!PRESETS.build.description.includes("clean build") || /Nothing is cleaned/.test(PRESETS.build.description));
+    assert.equal(PRESETS.smoke.fast, true);
+    assert.equal(PRESETS.smoke.repeat, 1);
+    assert.equal(PRESETS.smoke.build, false);
+    assert.ok(PRESETS.smoke.scenarios.includes("workspace"));
     for (const id of ["startup", "sidebar", "workspace", "chat"]) assert.ok(CATEGORIES[`ui:${id}`], `ui:${id} has a regression category`);
   });
 
