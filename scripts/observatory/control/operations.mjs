@@ -476,5 +476,6 @@ export function exitCodeFor(response) {
   if (response.ok) return 0;
   if (response.error.code === "invalid-input" || response.error.code === "unknown-operation") return 2;
   if (response.error.code === "busy") return 4;
+  if (response.error.code === "timed-out") return 124;
   return 1;
 }

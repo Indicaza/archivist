@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 import { accessFile, callLive, readAccess } from "../control/live.mjs";
-import { dispatch, ERROR_CODES, HTTP_STATUS, OPERATIONS } from "../control/operations.mjs";
+import { dispatch, ERROR_CODES, exitCodeFor, HTTP_STATUS, OPERATIONS } from "../control/operations.mjs";
 import { PAGE_FILES } from "../dashboard/server.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
 import { compareLive, context, liveModel, rangeDetail, spikesWithContext, summarySentence } from "../dashboard/public/live.mjs";
@@ -188,6 +188,83 @@ describe("live operations", () => {
     } finally {
       await app.close();
     }
+  });
+
+  describe("wait, in every recorder state", () => {
+    const withApp = async (options, body) => {
+      const root = await tempDir();
+      const app = await startFakeLiveApp(root, options);
+      try {
+        await body(ctxFor(root), app);
+      } finally {
+        await app.close();
+      }
+    };
+
+    test("idle with no recording since the app started: says so, waits for nothing", () => withApp({}, async (ctx) => {
+      const response = await dispatch(ctx, "observatory.live.wait", {});
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, false);
+      assert.equal(response.result.recording, null);
+      assert.match(response.result.message, /No recording/);
+    }));
+
+    test("idle after a recording: returns that recording by the run id in lastRun (an object, not a string)", () => withApp({}, async (ctx) => {
+      const started = await dispatch(ctx, "observatory.live.start", {});
+      await dispatch(ctx, "observatory.live.stop", {});
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const status = await dispatch(ctx, "observatory.live.status", {});
+      assert.equal(typeof status.result.lastRun, "object");
+      const response = await dispatch(ctx, "observatory.live.wait", {});
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, false);
+      assert.equal(response.result.recording.runId, started.result.runId);
+    }));
+
+    test("while recording until the time limit stops it", () => withApp({ limitMs: 200 }, async (ctx) => {
+      const started = await dispatch(ctx, "observatory.live.start", { durationSeconds: 15 });
+      const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, true);
+      assert.equal(response.result.recording.runId, started.result.runId);
+      assert.equal(response.result.recording.stopReason, "time-limit");
+    }));
+
+    test("during finalizing: waits for the files, then reads them", () => withApp({ finalizeMs: 400 }, async (ctx, app) => {
+      const started = await dispatch(ctx, "observatory.live.start", {});
+      await dispatch(ctx, "observatory.live.stop", {});
+      assert.equal(app.state, "finalizing");
+      const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, true);
+      assert.equal(response.result.recording.runId, started.result.runId);
+    }));
+
+    test("a recording that failed or was interrupted is still returned, marked as such", async () => {
+      await withApp({ outcome: "failed" }, async (ctx) => {
+        const started = await dispatch(ctx, "observatory.live.start", {});
+        await dispatch(ctx, "observatory.live.stop", {});
+        const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+        assert.ok(response.ok, JSON.stringify(response.error));
+        assert.equal(response.result.failed.runId, started.result.runId);
+        assert.equal(response.result.recording.status, "failed");
+      });
+      await withApp({ outcome: "interrupted" }, async (ctx) => {
+        await dispatch(ctx, "observatory.live.start", {});
+        await dispatch(ctx, "observatory.live.stop", {});
+        const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+        assert.equal(response.result.recording.status, "interrupted");
+      });
+    });
+
+    test("runs out with timed-out (exit 124), never a success", () => withApp({}, async (ctx) => {
+      await dispatch(ctx, "observatory.live.start", {});
+      const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 1 });
+      assert.equal(response.ok, false);
+      assert.equal(response.error.code, "timed-out");
+      assert.equal(exitCodeFor(response), 124);
+      await dispatch(ctx, "observatory.live.stop", {});
+    }));
   });
 
   test("bad input is refused before anything reaches the app", async () => {
