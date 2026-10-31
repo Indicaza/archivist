@@ -264,6 +264,54 @@ describe("test jobs", () => {
     }
   });
 
+  describe("the one-UI-test lock under competing processes", () => {
+    const CONTENDER = path.join(HERE, "fixtures", "lock-contender.mjs");
+    const contend = (root, startAt, holdMs) => new Promise((resolve) => {
+      execFile(process.execPath, [CONTENDER, root, String(startAt), String(holdMs)], (error, stdout) => resolve(stdout.trim()));
+    });
+    const round = async (root, count = 10) => {
+      const startAt = Date.now() + 700;
+      return Promise.all(Array.from({ length: count }, () => contend(root, startAt, 900)));
+    };
+
+    test("exactly one of many processes takes over a stale lock", async () => {
+      for (let i = 0; i < 4; i += 1) {
+        const root = await tempDir();
+        await mkdir(path.join(root, "jobs"), { recursive: true });
+        await writeFile(lockFile(root), JSON.stringify({ owner: "cli", pid: 999999, since: "2026-10-30T09:00:00.000Z" }));
+        const results = await round(root);
+        assert.equal(results.filter((result) => result === "won").length, 1, results.join(","));
+      }
+    });
+
+    test("exactly one wins a free lock, and a live holder's lock is never taken", async () => {
+      const root = await tempDir();
+      assert.equal((await round(root)).filter((result) => result === "won").length, 1);
+      assert.equal((await acquireLock(root, { owner: "cli", pid: process.pid })).ok, true);
+      assert.deepEqual([...new Set(await round(root, 6))], ["busy"]);
+      assert.equal(JSON.parse(await readFile(lockFile(root), "utf8")).pid, process.pid);
+    });
+
+    test("a job lock whose taker died before its runner started is stale; a fresh one is not", async () => {
+      const root = await tempDir();
+      await mkdir(path.join(root, "jobs"), { recursive: true });
+      await writeFile(lockFile(root), JSON.stringify({ owner: "job", jobId: "x", pid: null, takenBy: process.pid, since: new Date().toISOString() }));
+      assert.equal((await acquireLock(root, { owner: "cli", pid: process.pid })).ok, false);
+      await writeFile(lockFile(root), JSON.stringify({ owner: "job", jobId: "x", pid: null, takenBy: 999999, since: new Date().toISOString() }));
+      assert.equal((await acquireLock(root, { owner: "cli", pid: process.pid })).ok, true);
+    });
+
+    test("concurrent tests run requests from separate CLI processes start one job", async () => {
+      const root = await tempDir();
+      const results = await Promise.all(Array.from({ length: 5 }, () => cli(root, ["tests", "run", "--scenario", "sidebar", "--json"])));
+      const codes = results.map((result) => json(result)).map((response) => (response.ok ? "ok" : response.error.code));
+      assert.equal(codes.filter((code) => code === "ok").length, 1, codes.join(","));
+      assert.equal(codes.filter((code) => code === "busy").length, 4);
+      const jobId = results.map(json).find((response) => response.ok).result.job.jobId;
+      await waitForJob(root, jobId);
+    });
+  });
+
   test("a damaged job record is reported, not guessed at", async () => {
     const root = await tempDir();
     const jobId = "20261030T090000-000Z-job-0000ff";
