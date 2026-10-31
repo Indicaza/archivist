@@ -36,6 +36,7 @@ Item {
 
     readonly property int actionTimeoutMs: Number(scenario.actionTimeoutMs || 5000)
     readonly property int settleQuietMs: Number(scenario.settleQuietMs || 120)
+    readonly property int settleTimeoutMs: Number(scenario.settleTimeoutMs || scenario.actionTimeoutMs || 5000)
     readonly property int timeoutMs: Number(scenario.timeoutMs || 180000)
     readonly property int readyTimeoutMs: Number(scenario.readyTimeoutMs || 30000)
 
