@@ -46,7 +46,12 @@ test("Ninja regenerates CMake graph when CMakeLists changes, without explicit co
   const build = path.join(root, "build");
   await mkdir(source);
   const lists = path.join(source, "CMakeLists.txt");
-  const definition = (value) => `cmake_minimum_required(VERSION 3.24)\nproject(FastBuild NONE)\nfile(GENERATE OUTPUT "\\${CMAKE_BINARY_DIR}/version.txt" CONTENT "${value}")\n`;
+  const definition = (value) => [
+    "cmake_minimum_required(VERSION 3.24)",
+    "project(FastBuild NONE)",
+    'file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/version.txt" CONTENT "' + value + '")',
+    "",
+  ].join("\\n");
   await writeFile(lists, definition("first"));
   execFileSync("cmake", ["-S", source, "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"], { stdio: "ignore" });
   assert.equal(check(source, build), 0);
