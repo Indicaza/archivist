@@ -232,7 +232,7 @@ export async function providerFor(scenario, { allowProviderCalls = false, upstre
     const mock = await startMockProvider({ behaviour: ai.behaviour ?? null, script: ai.script ?? BEHAVIOURS.fast });
     return {
       env: { OPENAI_BASE_URL: mock.baseUrl, OPENAI_API_KEY: OFFLINE_API_KEY, ARCHIVIST_LOCAL_AI_URL: OFFLINE_BASE_URL },
-      summary: { provider: "mock", behaviour: ai.behaviour ?? "script", calls: "local mock only" },
+      summary: { provider: "mock", behaviour: ai.behaviour ?? "script", calls: "local mock only", expected: { retries: ai.expected?.retries === true, streamPauses: ai.expected?.streamPauses === true } },
       close: async () => {
         const stats = mock.stats();
         await mock.close();

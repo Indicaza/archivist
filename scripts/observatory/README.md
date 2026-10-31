@@ -880,6 +880,14 @@ confirm"). The rules and thresholds are in `dashboard/public/audit.mjs`
 operation whose own child holds most of its time is reported once, as the
 child, "inside" the parent.
 
+**Signal quality.** A step with fewer than two-thirds of repeated runs
+reporting valid settled-frame latency gets an informational
+`ui.sparse-settled` finding rather than a high-severity slowdown. Expected
+sidebar/Gravity Well transitions keep their full durations and traces, but
+their planned animation/settling waits are not labeled unexplained CPU work.
+A detected event-loop stall still remains a finding during these transitions.
+A frame gap is expressed as an interval, not proof of a dropped GPU frame.
+
 **Comparing audits.** `audit compare <id>` (and the page's "Against the
 previous audit") compares an audit with the previous one of the same
 preset: per scenario and build category, the baseline audit's runs against
@@ -913,6 +921,24 @@ blind spots. Compare takes two audits too.
 The AI presets reuse the UI Lab and the audit machinery; the trace
 (`### Traces: AI turns and database jobs` above) is what they read.
 
+**Provider fixture expectations.** The scripted `ai-turn` scenario declares
+that one retry and a long stream pause are deliberate parts of the test.
+Observatory retains both in its timeline and reports them under
+"Expected mock fixture events", but they are not performance warnings.
+Other mocked scenarios, injected test delays without declarations, and
+real-provider calls still produce normal findings. The `ai-pipeline`
+fixture now explicitly requests indexed Library search against 300 synthetic
+notes; its scenario version is 2, so old results are not compared as the
+same workload.
+
+**AI timing boundaries.** `Turn (engine)` is the duration of `ai.run`.
+`Queued` occurs before `ai.run`; first-byte/model-delta/UI-publication
+columns are offsets from `ai.run` start. The first UI text publication
+occurs after ChatStore emits its QML update signal; it is not actual pixel
+presentation, and can occur after the engine run ends. Medians are computed
+per column, so never subtract independent medians as though they came from
+the same request.
+
 **Providers.** Each AI scenario names its provider in `ai.provider`:
 
 - `offline`: the app is pointed at a closed local port. Nothing can leave the machine.
@@ -941,7 +967,7 @@ outcome (completed, retried once, failed with `remote-closed`, failed with
 an HTTP status, two rounds with one tool, cancelled), with the attempts and
 retry waits traced as the native test expects.
 
-**Findings (rules v3).** Read from each run's trace digest
+**Findings (rules v4).** Read from each run's trace digest
 (`summary.operations.trace.aiTurns` and `.db`):
 
 | Rule | When |

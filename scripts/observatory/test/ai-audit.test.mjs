@@ -21,11 +21,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_APP = path.join(HERE, "fixtures", "fake-app.mjs");
 const budgets = JSON.parse(await readFile(path.join(HERE, "..", "budgets.json"), "utf8"));
 
-function summaryFor(knobs = {}, { scenario = "ai-turn", provider = "mock", turns = 3, scale = 1, dropped = 0 } = {}) {
+function summaryFor(knobs = {}, { scenario = "ai-turn", provider = "mock", expected = null, turns = 3, scale = 1, dropped = 0 } = {}) {
   const events = syntheticAiRun({ knobs, turns, scale, dropped });
   return {
     kind: "ui-scenario", status: "passed", scenario: { id: scenario, name: scenario, version: 1 },
-    app: { driverVersion: 2 }, ai: { provider, behaviour: "script" },
+    app: { driverVersion: 2 }, ai: { provider, behaviour: "script", expected },
     actions: { failed: 0 }, stats: summarizeActions(events.actions), operations: analyzeOperations(events).summary,
   };
 }
@@ -38,6 +38,16 @@ const one = (findings, rule) => {
 };
 
 describe("AI findings: one injected cause, one finding", () => {
+  test("offline pipeline fixture explicitly requests indexed Library retrieval", async () => {
+    const fixture = JSON.parse(await readFile(path.join(HERE, "..", "ui-scenarios", "ai-pipeline.json"), "utf8"));
+    assert.ok(fixture.version >= 2);
+    assert.ok(fixture.workload.library.files >= 300);
+    assert.equal(fixture.setup.find((step) => step.op === "seedChats").files, fixture.workload.library.files);
+    for (const step of fixture.steps.filter((step) => step.op === "sendChatMessage")) {
+      assert.match(step.text, /search (?:the )?library/i);
+    }
+  });
+
   test("a healthy turn has no findings", () => {
     assert.deepEqual(rules(findingsFor({})), []);
   });
@@ -85,6 +95,19 @@ describe("AI findings: one injected cause, one finding", () => {
     assert.equal(short.severity, "low");
     assert.match(short.evidence[0].text, /HTTP 503/);
     assert.equal(one(findingsFor({ retry: { status: 429, waitMs: 1200 } }), "ai.retries").severity, "medium");
+  });
+
+  test("expected scripted pauses and retries stay in the trace without becoming performance findings", () => {
+    const knobs = { streamMs: 2600, maxGapMs: 1500, longGaps: 2, retry: { status: 503, waitMs: 50 } };
+    const normal = rules(findingsFor(knobs));
+    assert.ok(normal.includes("ai.retries"));
+    assert.ok(normal.includes("ai.stream-pauses"));
+    const expected = rules(findingsFor(knobs, { expected: { retries: true, streamPauses: true } }));
+    assert.ok(!expected.includes("ai.retries"));
+    assert.ok(!expected.includes("ai.stream-pauses"));
+    const real = rules(findingsFor(knobs, { provider: "real", expected: { retries: true, streamPauses: true } }));
+    assert.ok(real.includes("ai.retries"));
+    assert.ok(real.includes("ai.stream-pauses"));
   });
 
   test("a slow tool is named; many tool rounds are their own finding", () => {

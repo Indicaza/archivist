@@ -47,7 +47,11 @@
         "chunks": 40,
         "gapMs": 100
       }
-    ]
+    ],
+    "expected": {
+      "retries": true,
+      "streamPauses": true
+    }
   },
   "methods": {
     "seedChats": "fixture: UiLab.seedChats writes the conversations, and with files a synthetic Library it then indexes, to the test profile's database",

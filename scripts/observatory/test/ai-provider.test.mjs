@@ -184,6 +184,7 @@ test("the mocked scenarios start their own local mock", async () => {
       assert.match(provider.env.OPENAI_BASE_URL, /^http:\/\/127\.0\.0\.1:\d+\/v1$/);
       assert.ok(!provider.keepKey, "the real key is removed from the app's environment");
       assert.equal(provider.summary.provider, "mock");
+      assert.deepEqual(provider.summary.expected, id === "ai-turn" ? { retries: true, streamPauses: true } : { retries: false, streamPauses: false });
     } finally {
       const stats = await provider.close();
       assert.equal(stats.requests, 0);

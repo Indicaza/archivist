@@ -18,7 +18,7 @@ export const FINDINGS_SCHEMA = "archivist.observatory.findings";
 // 2: unattributed time is measured against the response window (v2
 // ui-operations), idle observation steps are never slow steps, and startup
 // phases after the event loop starts are rules of their own.
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 
 export const UI_SCENARIOS = ["startup", "sidebar", "workspace", "chat"];
 // The AI scenarios that never leave the machine (a local mock provider).
@@ -66,6 +66,7 @@ export const RULES = [
   { id: "ui.failed-actions", subsystem: "ui-lab", title: "Actions failed", when: "Any scenario run did not pass, or any action failed.", severity: "high", basis: "UI Lab action records" },
   { id: "ui.no-operations", subsystem: "instrumentation", title: "No operations reported", when: "The app build didn't report LiveEvents operations to the UI Lab.", severity: "info", basis: "summary.operations.collected" },
   { id: "ui.slow-step", subsystem: "ui", title: "Slow step", when: "A step's settled latency, median over measured actions, is 100 ms or more (250 ms or more: high). Idle observation steps (op noop) are not interactions and never count; chat sends (op sendChatMessage) are AI turns, left to the AI rules.", severity: "medium / high", basis: "settled = input until the last frame before rendering went quiet" },
+  { id: "ui.sparse-settled", subsystem: "instrumentation", title: "Not enough settled-frame samples", when: "A potentially slow step has fewer than two-thirds of repeated runs with a valid settled-frame measurement.", severity: "info", basis: "valid settled measurements vs completed scenario runs" },
   { id: "ui.slow-operation", subsystem: "(from the operation)", title: "Slow operation", when: "An instrumented operation's median inside a step is 50 ms or more (200 ms or more: high). AI turn spans (ai.*) and database queue waits are left to the AI and database rules.", severity: "medium / high", basis: "LiveEvents spans tagged with the running action" },
   { id: "ui.stalls", subsystem: "ui-thread", title: "Event-loop stalls", when: "The UI Lab probe fired 50 ms or more late during measured actions.", severity: "medium", basis: "50 ms probe on the UI thread" },
   { id: "ui.unattributed", subsystem: "instrumentation", title: "Time no operation explains", when: "In an interaction whose response window is 50 ms or more, half or more of that window is inside no instrumented operation.", severity: "low", basis: "response window (input to settled) minus the union of the spans inside it; both medians from the same actions (ui-operations v2)" },
@@ -81,9 +82,9 @@ export const RULES = [
   { id: "ai.slow-tool", subsystem: "tools", title: "Slow tool call", when: "A tool's median duration is 250 ms or more (1000 ms or more: high).", severity: "medium / high", basis: "ai.tool spans" },
   { id: "ai.excess-tool-rounds", subsystem: "ai", title: "Many tool rounds in one turn", when: "A turn ran 4 or more tool rounds.", severity: "medium", basis: "ai.tool-round spans" },
   { id: "ai.first-token-latency", subsystem: "ai", title: "Slow first token", when: "The first model text arrives 1500 ms or more after the turn starts, median over turns (4000 ms or more: high). Split into Archivist's preparation and the wait for the provider.", severity: "medium / high", basis: "ai.first-delta marker, ai.prepare, ai.first-byte marker" },
-  { id: "ai.stream-pauses", subsystem: "provider", title: "Pauses in the stream", when: "A turn's stream had a pause of 1 s or more between provider events.", severity: "medium", basis: "provider round longGaps and maxGapMs (counted per event, never logged per token)" },
-  { id: "ai.retries", subsystem: "provider", title: "Provider requests retried", when: "A provider request was refused and retried (1 s or more of waiting: medium).", severity: "low / medium", basis: "ai.http-attempt and ai.retry-wait spans" },
-  { id: "ai.slow-presentation", subsystem: "ui", title: "Slow to show the reply", when: "The first model text takes 100 ms or more to appear in the chat after it arrived, median over turns (250 ms or more: high).", severity: "medium / high", basis: "ai.first-delta marker vs chat.ai-first-text-shown marker" },
+  { id: "ai.stream-pauses", subsystem: "provider", title: "Pauses in the stream", when: "A turn's stream had a pause of 1 s or more between provider events, excluding explicitly expected mock-fixture pauses.", severity: "medium", basis: "provider round longGaps and maxGapMs (counted per event, never logged per token)" },
+  { id: "ai.retries", subsystem: "provider", title: "Provider requests retried", when: "A provider request was refused and retried, excluding explicitly expected mock-fixture retries (1 s or more of waiting: medium).", severity: "low / medium", basis: "ai.http-attempt and ai.retry-wait spans" },
+  { id: "ai.slow-presentation", subsystem: "ui", title: "Slow to publish initial reply text", when: "The first model text takes 100 ms or more to appear in the chat after it arrived, median over turns (250 ms or more: high).", severity: "medium / high", basis: "ai.first-delta vs ChatStore text publication marker, not actual screen paint" },
   { id: "ai.unattributed", subsystem: "instrumentation", title: "AI turn time no stage explains", when: "50 ms or more, and 20% or more, of a turn is inside no child span of ai.run, median over turns.", severity: "low", basis: "ai.run self time (no child durations are invented)" },
   { id: "ai.missing-instrumentation", subsystem: "instrumentation", title: "AI turn stages not measured", when: "A turn is missing a stage a fully instrumented turn reports.", severity: "info", basis: "trace analysis, expected stages" },
   { id: "trace.dropped-events", subsystem: "instrumentation", title: "Trace events dropped", when: "The recording buffer was full and events were dropped, so totals may be low.", severity: "info", basis: "operations dropped counter" },
@@ -220,7 +221,21 @@ export function evaluateFindings(children) {
     for (const [key, entry] of stepKeys) {
       const typical = median(entry.values.map((value) => value.ms));
       if (typical == null || typical < 100) continue;
-      const seen = entry.values.filter((value) => value.ms >= 100).length;
+      const valid = entry.values.filter((value) => typeof value.ms === "number" && Number.isFinite(value.ms));
+      const minimum = passed.length === 1 ? 1 : Math.ceil(passed.length * 2 / 3);
+      if (valid.length < minimum) {
+        add("ui.sparse-settled", `${scenario}:${key}`, {
+          subsystem: "instrumentation", severity: "info",
+          summary: `${name}, step ${entry.step} (${entry.label}): only ${valid.length} of ${passed.length} runs measured settled-frame latency. The ${msText(typical)} observed value is not sufficient to rank this step as slow.`,
+          impact: null,
+          evidence: entry.values.map((value) => ({ runId: value.runId, step: entry.step, text: `settled ${msText(value.ms)}` })),
+          confidence: confidence(valid.length, passed.length),
+          nextStep: "Inspect missing or timed-out frame settling, active animations and UI-thread stalls before comparing this step.",
+          scenario,
+        });
+        continue;
+      }
+      const seen = valid.filter((value) => value.ms >= 100).length;
       const cause = slowestLeaf(passed, key);
       add("ui.slow-step", `${scenario}:${key}`, {
         subsystem: "ui", severity: typical >= 250 ? "high" : "medium",
@@ -254,7 +269,7 @@ export function evaluateFindings(children) {
         }
         // Only v2 operations measure unattributed time and its window the
         // same way; older runs are left out rather than compared wrongly.
-        if (step.unattributedMedianMs != null && step.windowMedianMs != null && !observation.has(stepKey)) {
+        if (step.unattributedMedianMs != null && step.windowMedianMs != null && !observation.has(stepKey) && !step.expectedTransition) {
           if (!unattributed.has(stepKey)) unattributed.set(stepKey, { step: step.step, label: step.label, values: [] });
           unattributed.get(stepKey).values.push({ runId: run.runId, ms: step.unattributedMedianMs, window: step.windowMedianMs, basis: step.windowBasis });
         }
@@ -317,13 +332,14 @@ export function evaluateFindings(children) {
 
     const gaps = passed.map((run) => ({ runId: run.runId, ms: run.summary.stats?.measured?.frameMaxIntervalMs?.medianMs ?? null }));
     const gap = median(gaps.map((value) => value.ms));
-    if (gap != null && gap > 33.4 && scenario !== "startup") {
+    const validGaps = gaps.filter((value) => typeof value.ms === "number" && Number.isFinite(value.ms));
+    if (gap != null && gap > 33.4 && scenario !== "startup" && validGaps.length >= (passed.length === 1 ? 1 : Math.ceil(passed.length * 2 / 3))) {
       add("ui.frame-gap", scenario, {
         subsystem: "rendering", severity: "low",
-        summary: `${name}: the longest gap between frames is ${msText(gap)} (median over measured actions); at 60 Hz that is ${Math.floor(gap / 16.7)} frames missed.`,
+        summary: `${name}: the longest gap between frames is ${msText(gap)} (median over measured actions); at 60 Hz that spans about ${Math.floor(gap / 16.7)} frame intervals (not a measured dropped-frame count).`,
         impact: { value: round(gap), unit: "ms", text: `${msText(gap)} median longest gap` },
         evidence: gaps.map((value) => ({ runId: value.runId, text: `median longest gap ${msText(value.ms)}` })),
-        confidence: confidence(gaps.filter((value) => value.ms > 33.4).length, gaps.length),
+        confidence: confidence(validGaps.filter((value) => value.ms > 33.4).length, passed.length),
         nextStep: "Frame gaps line up with slow operations or stalls in the same step; the 60 Hz figure is an assumption about the display.",
         scenario,
       });
@@ -405,6 +421,7 @@ function aiFindings({ scenario, name, passed, add }) {
     if (trace.dropped) dropped.push({ runId: run.runId, n: trace.dropped });
   }
   const injected = providerNote(passed);
+  const expectedMock = (kind) => passed.length > 0 && passed.every((run) => run.summary.ai?.provider === "mock" && run.summary.ai?.expected?.[kind] === true);
   const runsWith = (list) => new Set(list.map((entry) => entry.runId)).size;
   const evidence = (list, text) => list.map((entry) => ({ runId: entry.runId, operation: "ai.run", aiRunId: entry.aiRunId ?? null, text: text(entry) }));
 
@@ -483,9 +500,9 @@ function aiFindings({ scenario, name, passed, add }) {
       medium: 100, high: 250, subsystem: "ui", label: "showing the first text after it arrived",
       detail: (values) => {
         const flush = Math.max(0, ...values.map((entry) => entry.turn.presentation?.flushMaxMs ?? 0));
-        return flush ? `the slowest text flush took ${msText(flush)}` : "";
+        return flush >= 1 ? `the slowest ChatStore text flush took ${msText(flush)}` : "ChatStore flush work was under 1 ms; remaining delay includes delivery and batching, not measured screen paint";
       },
-      next: "This is delivery from the AI thread to the chat view and the first flush; look for UI-thread stalls or slow operations at the same time.",
+      next: "The marker is emitted after ChatStore publishes text to QML, before screen paint; inspect queued delivery, batching and correlated UI stalls.",
     });
 
     const tools = new Map();
@@ -524,7 +541,7 @@ function aiFindings({ scenario, name, passed, add }) {
     }
 
     const paused = turns.filter((turn) => (turn.longStreamGaps ?? 0) > 0);
-    if (paused.length) {
+    if (paused.length && !expectedMock("streamPauses")) {
       const longest = Math.max(...paused.map((turn) => turn.maxStreamGapMs ?? 0));
       add("ai.stream-pauses", scenario, {
         subsystem: "provider", severity: "medium",
@@ -538,7 +555,7 @@ function aiFindings({ scenario, name, passed, add }) {
     }
 
     const retried = turns.filter((turn) => (turn.retries ?? 0) > 0);
-    if (retried.length) {
+    if (retried.length && !expectedMock("retries")) {
       const waited = retried.reduce((sum, turn) => sum + (turn.retryWaitMs ?? 0), 0);
       add("ai.retries", scenario, {
         subsystem: "provider", severity: waited >= 1000 ? "medium" : "low",
@@ -805,10 +822,10 @@ export function auditHighlights(children) {
 // AI turns per scenario: medians over completed turns, and how many turns
 // ended each way. Cancelled and failed turns are counted, never timed.
 const AI_TIMINGS = [
-  ["turnMs", "Turn", (turn) => turn.durationMs], ["queueWaitMs", "Queued", (turn) => turn.queueWaitMs], ["prepareMs", "Prepare", (turn) => turn.prepareMs],
+  ["turnMs", "Turn (engine)", (turn) => turn.durationMs], ["queueWaitMs", "Queued", (turn) => turn.queueWaitMs], ["prepareMs", "Prepare", (turn) => turn.prepareMs],
   ["retrievalMs", "Retrieval", (turn) => turn.stages?.retrievalMs], ["contextCompileMs", "Context", (turn) => turn.stages?.contextCompileMs],
   ["firstNetworkByteMs", "First byte", (turn) => turn.firstNetworkByteMs], ["firstModelDeltaMs", "First model text", (turn) => turn.firstModelDeltaMs],
-  ["firstVisibleTextMs", "First text shown", (turn) => turn.firstVisibleTextMs], ["persistMs", "Save", (turn) => turn.persistMs],
+  ["firstVisibleTextMs", "First text published (UI)", (turn) => turn.firstVisibleTextMs], ["persistMs", "Save", (turn) => turn.persistMs],
 ];
 export function aiHighlights(children) {
   const out = {};
@@ -820,6 +837,12 @@ export function aiHighlights(children) {
     const entry = (out[id] ??= { name: summary.scenario?.name ?? id, provider: summary.ai?.provider ?? null, runs: 0, turns: [] });
     entry.runs += 1;
     entry.turns.push(...turns);
+    const expected = summary.ai?.provider === "mock" ? summary.ai.expected : null;
+    if (!entry.expected) entry.expected = { retries: expected?.retries === true, streamPauses: expected?.streamPauses === true };
+    else {
+      entry.expected.retries = entry.expected.retries && expected?.retries === true;
+      entry.expected.streamPauses = entry.expected.streamPauses && expected?.streamPauses === true;
+    }
   }
   for (const entry of Object.values(out)) {
     const turns = entry.turns;
@@ -828,6 +851,8 @@ export function aiHighlights(children) {
       turns: turns.length, completed: done.length, cancelled: turns.filter((turn) => turn.outcome === "cancelled").length,
       failed: turns.filter((turn) => turn.outcome === "failed" || turn.outcome === "interrupted").length,
       retries: turns.reduce((sum, turn) => sum + (turn.retries ?? 0), 0), tools: turns.reduce((sum, turn) => sum + (turn.tools ?? 0), 0),
+      retriedTurns: turns.filter((turn) => (turn.retries ?? 0) > 0).length,
+      pausedTurns: turns.filter((turn) => (turn.longStreamGaps ?? 0) > 0).length,
     };
     entry.medians = Object.fromEntries(AI_TIMINGS.map(([key, , read]) => [key, round(median(done.map(read)))]));
     delete entry.turns;
@@ -964,7 +989,7 @@ export function auditMarkdown({ auditRun, summary, comparison = null, redact = (
   }
   const ai = Object.entries(audit.highlights?.ai ?? {});
   if (ai.length) {
-    lines.push("## AI turns", "", "Medians over completed turns, ms from the start of the run (ai.run). Cancelled and failed turns are counted, not timed. A mocked provider's waits are the scenario's script, not a provider's.", "");
+    lines.push("## AI turns", "", "Medians over completed turns. Queued is measured before ai.run; other timestamps are offsets from ai.run start, while Turn (engine) is its duration. The UI publication marker may occur after ai.run ends and is not actual screen paint. Columns are independently aggregated. Cancelled and failed turns are counted, not timed. A mock provider's waits are scripted.", "");
     lines.push(`| Scenario | Provider | Turns | ${AI_TIMINGS.map(([, label]) => label).join(" | ")} |`, `|---|---|---:|${AI_TIMINGS.map(() => "---:").join("|")}|`);
     for (const [, entry] of ai) {
       const counts = entry.counts;
@@ -972,6 +997,17 @@ export function auditMarkdown({ auditRun, summary, comparison = null, redact = (
       lines.push(`| ${entry.name} | ${entry.provider ?? "?"} | ${counts.completed}/${counts.turns}${ended ? ` (${ended})` : ""} | ${AI_TIMINGS.map(([key]) => msText(entry.medians[key])).join(" | ")} |`);
     }
     lines.push("");
+    const expectedChecks = ai.filter(([, entry]) => entry.provider === "mock" && (entry.expected?.retries || entry.expected?.streamPauses));
+    if (expectedChecks.length) {
+      lines.push("## Expected mock fixture events (not performance findings)", "");
+      for (const [, entry] of expectedChecks) {
+        const notes = [];
+        if (entry.expected.retries) notes.push(`${entry.counts.retriedTurns} turns retried`);
+        if (entry.expected.streamPauses) notes.push(`${entry.counts.pausedTurns} turns with stream pauses`);
+        lines.push(`- ${entry.name}: ${notes.join(", ")}. These are deliberately scripted and remain visible in the timeline.`);
+      }
+      lines.push("");
+    }
   }
   if (audit.highlights?.build) {
     const build = audit.highlights.build;
@@ -1012,6 +1048,7 @@ export function blindSpots(audit) {
     "Only code wrapped in LiveEvents spans is named; the rest of an action is reported as unattributed time.",
     "Scenarios run a separate app with a fresh profile and seeded data, not your own library.",
     "GPU and compositor time is not measured; frame gaps are what the driver saw, at an assumed 60 Hz.",
+    "Expected UI transitions retain their timing in the timeline but do not classify animation/wait time as unexplained CPU execution.",
   ];
   const scenarios = audit.plan?.scenarios ?? [];
   if (scenarios.some((id) => AI_SCENARIOS.includes(id))) {

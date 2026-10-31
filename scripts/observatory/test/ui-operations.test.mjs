@@ -49,6 +49,13 @@ test("span time after the window is reported, overlaps count once", () => {
   assert.deepEqual(result.outlived, [{ name: "chat.b", endsAfterMs: 50 }]);
 });
 
+test("expected transition metadata survives attribution and step aggregation", () => {
+  const result = run([action(0, { expectedTransition: true, startMs: 0, settledMs: 620, endMs: 750, frames: { lastMs: 620 } })], []);
+  assert.equal(result.artifact.actions[0].expectedTransition, true);
+  assert.equal(result.artifact.actions[0].unattributedMs, 620, "the raw duration is retained");
+  assert.equal(result.summary.steps[0].expectedTransition, true);
+});
+
 test("the startup idle step is an observation and startup splits into phases", () => {
   const idle = { index: 0, phase: "measured", iteration: 0, step: 0, op: "noop", label: "idle after ready", ok: true, startMs: 0, endMs: 2310, dispatchMs: 0, stateMs: 0, settledMs: 2010, frames: { lastMs: 2010 } };
   const operations = [

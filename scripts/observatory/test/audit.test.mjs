@@ -102,6 +102,25 @@ describe("findings rules", () => {
     }
   });
 
+  test("a single valid settled-frame sample out of three is a data-quality warning, not a high-severity slowdown", () => {
+    const runs = [2800, null, null].map((ms, n) => ({ runId: `r${n + 1}`, summary: uiSummary({ scenario: "sidebar", steps: [[4, "open sidebar", ms]], frameGap: ms == null ? null : 50 }) }));
+    const findings = evaluateFindings(runs);
+    assert.ok(findings.some((finding) => finding.rule === "ui.sparse-settled"));
+    assert.ok(!findings.some((finding) => finding.rule === "ui.slow-step"));
+    assert.ok(!findings.some((finding) => finding.rule === "ui.frame-gap"));
+    assert.equal(findings.find((finding) => finding.rule === "ui.sparse-settled").severity, "info");
+  });
+
+  test("a measured animation wait remains inspectable but is not diagnosed as unexplained CPU work", () => {
+    const operations = [{ step: 5, label: "minimize b", kind: "interaction", expectedTransition: true, runs: 5, stalls: 0, windowBasis: "state", windowMedianMs: 624, unattributedMedianMs: 614, operations: [] }];
+    const runs = [1, 2, 3].map((n) => ({ runId: `r${n}`, summary: uiSummary({ scenario: "workspace", steps: [[5, "minimize b", 624]], operations }) }));
+    const findings = evaluateFindings(runs);
+    assert.ok(!findings.some((finding) => finding.rule === "ui.unattributed"));
+    assert.ok(findings.some((finding) => finding.rule === "ui.slow-step"));
+    const unmarked = runs.map((run) => ({ ...run, summary: { ...run.summary, operations: { ...run.summary.operations, steps: [{ ...operations[0], expectedTransition: false }] } } }));
+    assert.ok(evaluateFindings(unmarked).some((finding) => finding.rule === "ui.unattributed"));
+  });
+
   test("one run says so; failures, missing operations, unexplained time and frame gaps", () => {
     const single = evaluateFindings([{ runId: "a", summary: uiSummary({ steps: [[0, "x", 150]], operations: [{ step: 0, label: "x", runs: 1, stalls: 0, windowMedianMs: 150, unattributedMedianMs: 120, operations: [] }], frameGap: 50 }) }]);
     assert.equal(single.find((finding) => finding.rule === "ui.slow-step").confidence.level, "single-run");
