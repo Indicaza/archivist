@@ -178,7 +178,7 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
         const missing = preset.scenarios.filter((id) => !scenarios.some((entry) => entry.id === id));
         if (missing.length) throw new ControlError("invalid-input", `The ${preset.name} preset needs scenarios that aren't here: ${missing.join(", ")}.`);
         const repeat = preset.scenarios.length ? input.repeat ?? preset.repeat : 1;
-        const job = await startTests(ctx, { scenarios: preset.scenarios, repeat, build: preset.build, audit: { preset: preset.id }, ...(preset.providerCalls ? { allowProviderCalls: true } : {}) });
+        const job = await startTests(ctx, { scenarios: preset.scenarios, repeat, build: preset.build, audit: { preset: preset.id }, ...(preset.fast ? { fast: true } : {}), ...(preset.providerCalls ? { allowProviderCalls: true } : {}) });
         return { job, preset };
       },
     },
