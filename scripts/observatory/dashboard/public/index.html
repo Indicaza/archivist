@@ -9,25 +9,32 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand">
+    <a class="brand" href="#/record" aria-label="Observatory home">
       <span class="mark" aria-hidden="true"></span>
-      <div>
-        <h1>Observatory</h1>
-        <p class="sub" id="root-path">Archivist development telemetry</p>
-      </div>
-    </div>
-    <nav id="nav" aria-label="Sections">
-      <a href="#/">Overview</a>
-      <a href="#/builds">Builds</a>
-      <a href="#/ui">UI performance</a>
-      <a href="#/runs">Runs</a>
-      <a href="#/compare">Compare</a>
-      <a href="#/baselines">Baselines</a>
-      <a href="#/live">Live</a>
-      <a href="#/lab">Test Lab</a>
-      <button id="refresh" type="button" title="Read the runs again">Refresh</button>
+      <span class="brand-name">Observatory</span>
+    </a>
+    <nav id="nav" class="seg" aria-label="Sections">
+      <a href="#/record" data-tab="record" title="Record">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="10" r="3.6" fill="currentColor"/></svg>
+        <span>Record</span>
+      </a>
+      <a href="#/history" data-tab="history" title="History">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15.5 7.5 10l3 3L17 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>History</span>
+      </a>
+      <a href="#/compare" data-tab="compare" title="Compare">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="8" width="5" height="9" rx="1.2" fill="currentColor" opacity="0.55"/><rect x="12" y="3" width="5" height="14" rx="1.2" fill="currentColor"/></svg>
+        <span>Compare</span>
+      </a>
     </nav>
+    <div class="top-end">
+      <a id="live-chip" class="live-chip" href="#/record" hidden><span class="dot" aria-hidden="true"></span><span class="chip-text">Recording</span></a>
+      <button id="refresh" class="icon-btn" type="button" title="Read the runs again" aria-label="Refresh">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
   </header>
   <main id="view" tabindex="-1"><p class="muted">Loading runs…</p></main>
+  <footer class="foot"><p class="sub" id="root-path">Archivist development telemetry</p></footer>
 </body>
 </html>

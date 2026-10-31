@@ -67,7 +67,11 @@ function conditionWarnings(a, b) {
   return warnings;
 }
 
-function buildComparison(a, b, warnings) {
+function buildComparison(a, b, warnings, blockers = []) {
+  if ((a.build.profiling ?? null) !== (b.build.profiling ?? null)) {
+    blockers.push({ code: "profiling", message: `One build ran with compiler profiling (${a.build.profiling ?? b.build.profiling}), which slows compiles; it can't be compared with a normal build.` });
+    return [];
+  }
   if (differs(a.build.classification, b.build.classification)) {
     warnings.push({
       code: "classification",
@@ -81,6 +85,15 @@ function buildComparison(a, b, warnings) {
     metric("totalMs", "Total build", a.build.totalMs, b.build.totalMs),
     ...Object.keys(PHASE_LABELS).map((name) => metric(`phase.${name}`, PHASE_LABELS[name], a.build.phases[name], b.build.phases[name], { group: "Phases" })),
     metric("ninjaWorkSteps", "Ninja steps run", a.build.ninjaWorkSteps, b.build.ninjaWorkSteps, { unit: "steps" }),
+    ...(a.build.jobs && b.build.jobs ? [
+      metric("jobs.wallMs", "Ninja wall time", a.build.jobs.wallMs, b.build.jobs.wallMs, { group: "Jobs" }),
+      metric("jobs.summedMs", "Summed job time (parallel work added up)", a.build.jobs.summedMs, b.build.jobs.summedMs, { group: "Jobs" }),
+      metric("jobs.criticalPathMs", "Longest dependency chain", a.build.jobs.criticalPathMs, b.build.jobs.criticalPathMs, { group: "Jobs" }),
+      metric("jobs.compiles", "Compiles run", a.build.jobs.compiles, b.build.jobs.compiles, { group: "Jobs", unit: "jobs" }),
+      metric("jobs.compileMs", "Compile time (summed)", a.build.jobs.compileMs, b.build.jobs.compileMs, { group: "Jobs" }),
+      metric("jobs.linkMs", "Link and archive time (summed)", a.build.jobs.linkMs, b.build.jobs.linkMs, { group: "Jobs" }),
+      metric("jobs.autogenMs", "AUTOGEN time (summed)", a.build.jobs.autogenMs, b.build.jobs.autogenMs, { group: "Jobs" }),
+    ] : []),
   ];
 }
 
@@ -131,7 +144,7 @@ export function compareRuns(baseline, candidate) {
   if (!blockers.length) {
     warnings.push(...conditionWarnings(baseline, candidate));
     if (baseline.kind === "build") {
-      metrics = buildComparison(baseline, candidate, warnings);
+      metrics = buildComparison(baseline, candidate, warnings, blockers);
     } else if (baseline.kind === "ui-scenario") {
       metrics = uiComparison(baseline, candidate, blockers, warnings);
     } else {

@@ -6,8 +6,35 @@ pieces so far: build capture, the UI Lab (scripted UI scenarios timed in a
 real, isolated app instance), and an import of the existing
 `archivist.wells.timing` runtime logs, plus a local dashboard to browse and
 compare the records, baselines that flag regressions, and controls that
-let people (the Test Lab) and agents (`--json`) run tests and hand the
+let people (the Record page) and agents (`--json`) run tests and hand the
 results to an AI.
+
+**Architecture in one paragraph.** Every record is a folder under
+`<Observatory folder>/runs/<time>-<kind>-<hex>/` with a `summary.json` and
+the files it lists; there is no database or index, and nothing is uploaded.
+The Node CLI (`cli.mjs`) writes build, UI test and runtime-log runs, and
+holds every control operation (`control/operations.mjs`). The app writes live
+recordings itself (`frontend/src/App/Services/live_recorder.*`) and serves the
+dashboard page from its loopback IDE host at `/observatory/`; for test
+controls it runs `node cli.mjs control <operation>` on two worker threads of
+its own. The same page also runs in a browser from `dashboard/server.mjs`.
+Analysis code under `dashboard/public/*.mjs` is shared by the page and the
+CLI, so both read a run the same way.
+
+## When to use Observatory
+
+- **A build feels slower:** `npm run observatory:build` a few times before and
+  after, then `baseline compare`. It says regression, improvement, no
+  meaningful change, or not enough evidence.
+- **A scripted UI interaction got slower (sidebar, wells, tabs):** run the UI
+  Lab scenario three or more rounds and compare with its baseline.
+- **Something felt janky while using the app:** make a live recording of the
+  same interaction, then `live spikes` and `live compare` with a recording
+  made before the change. One recording each is a hint, not proof.
+- **Handing a problem to an agent:** Copy for AI or Export evidence on the run.
+- **Not for:** profiling (no stack samples: it says *when* the UI thread was
+  busy, not *what* ran), GPU or compositor timing, production telemetry,
+  automatic diagnosis, or comparing a debug build with a release build.
 
 ## Run a capture
 
@@ -100,13 +127,51 @@ capture still leaves the phases it finished.
   classification comes from `.ninja_log` when the build succeeded, and from
   the dry run when it failed.
 
+### Build evidence: every job, and why it rebuilt
+
+Each build also writes `build-evidence.json` (every job, up to 20,000) and
+a compact `evidence` block in `summary.json`. All of it comes from Ninja's
+own records and tools; nothing is guessed:
+
+| Field | Source | What it says |
+| ----- | ------ | ------------ |
+| `jobs` in `build-evidence.json` | `.ninja_log` (this build's lines) | Each job's outputs, start and end (Ninja's clock, ms from Ninja's start), duration, `category` (compile, link, archive, autogen, qml, resources, cmake, other, from the Ninja rule) and `source` file (`ninja -t compdb`) |
+| `evidence.timing` | the jobs | `wallMs` (first start to last end), `summedJobMs` (parallel work added up: **not** wall time), peak and average parallel jobs, the longest job |
+| `evidence.criticalPath` | `ninja -t query` | The longest chain of jobs that ran where each depends on the previous one. **An approximation**: it ignores time a job waited for a free slot and doesn't follow edges through jobs that didn't run |
+| `evidence.rebuild` | `ninja -d explain -n` (the plan phase, before the build) | Why Ninja rebuilt: `causes` are changed inputs Ninja named (header, source, generated, cmake), each with how many outputs and compiles it triggered; an input that was itself rebuilt is a link in a chain, not a cause. `propagated` counts outputs that were dirty only because an input of theirs was rebuilt. `commandLineChanged` and `missingOutputs` are listed apart |
+| `cause.includedBy` | `ninja -t deps` | How many objects include a changed header, by the compiler's own dependency records |
+| `evidence.headers.mostIncluded` | `ninja -t deps` | The repository headers included by the most objects (fan-out) |
+| `evidence.compilerCache` | ccache `--print-stats` / sccache `--show-stats` before and after | Hits, misses and uncacheable compiles **observed during this build**, only when the build is set up with a launcher; `configured: false` otherwise |
+| `evidence.notes` | | What couldn't be established and why |
+
+`build-evidence.json` has `schema: "archivist.observatory.build-evidence"`,
+`schemaVersion: 1`.
+
+**Compiler profiling (opt-in):** `npm run observatory -- build
+--time-trace` builds in its own directory (`build/frontend-time-trace`,
+configured like `scripts/qt-configure` plus Clang's `-ftime-trace`), so the
+normal build's flags never change. The first run is a full build there. It
+writes `time-trace.json` (`archivist.observatory.time-trace` v1): frontend,
+backend and template-instantiation totals, and the headers and templates
+that cost the most across the compiles that ran. Clang only records events
+over 500 µs, and header and template times are inclusive (a header's time
+contains what it includes), so they rank, they don't add up. Each compile
+also gets slower and writes a JSON file next to its object. It needs Clang
+(Apple's Clang on macOS); other compilers are refused. Profiled builds are
+never compared with normal ones.
+
 ### What it cannot tell you yet
 
-- Whether a compiler cache actually hit (only whether one is configured).
+- Compiler-cache numbers when no launcher is configured (Archivist doesn't
+  set one by default).
 - Clean-build times, unless the build directory happened to be empty. A
   deliberate clean-build experiment is future work.
-- `sumOfStepDurationsMs` is not CPU time: steps run in parallel and include
-  waiting. Wall-clock build time is `native-build.durationMs`.
+- `sumOfStepDurationsMs` and `summedJobMs` are not CPU time: jobs run in
+  parallel and include waiting. Wall-clock build time is
+  `native-build.durationMs`.
+- The critical path is an approximation (above), and why a CMake
+  regeneration or AUTOGEN step ran is only as specific as Ninja's explain
+  output (often "output older than most recent input").
 - Durations from one run are noisy; compare several runs on the same machine.
 - Anything about the running app other than imported wells timings.
 
@@ -195,6 +260,162 @@ and the UI state it must `expect`. No randomness (`seed` is null).
   and restore them; verify all four are open. Layouts, tabs and opening are
   store calls; minimize/restore go through the workspace's own functions.
 
+- **chat** (v1): seeds two deterministic conversations into the test
+  profile's database (`UiLab.seedChats`, seed 7: "Lab Big" with 600
+  messages, "Lab Small" with 20; long paragraphs, Markdown lists and code
+  blocks from `UiLab::fixtureMessage`), opens a chat view, then switches
+  between them. `chatShown` waits until the conversation is selected and its
+  first page (160 messages) is in the store; `settledMs` then covers the
+  rendering that follows. Store calls, as the side panel makes them.
+- **startup** (v1): a fresh profile started until the workspace is ready
+  (`readyMs`), with the stages main() reports on the operations timeline.
+  The operating system's file cache is not flushed, so this is a fresh
+  profile, not a first-launch-after-boot cold start.
+
+### Operations inside each action
+
+The app reports its own work through `LiveEvents` (the same spans and
+markers the live recorder sees). In a UI Lab instance, `UiLab` collects
+them from the start, on the same clock the driver times actions with
+(`LiveEvents::nowNs`), and tags each with the action that was running when
+it began. It also runs an event-loop probe (every 50 ms; 50 ms or more late
+is a stall). The live recorder refuses to start in a UI Lab instance, so
+the two never compete for the stream.
+
+The runner turns that into `ui-operations.json`
+(`archivist.observatory.ui-operations` v2) and `summary.operations`:
+
+- **per action:** the spans nested by time (a span inside another is shown
+  as its child; spans from other threads can nest this way without one
+  calling the other, so the tree means "during", not "called by"), each
+  with `selfMs` (its time minus the union of its children), the stalls
+  during it, markers, and its time split up (below), plus spans that began
+  in it and ended after it (`outlived`);
+- **per step:** each operation's median and max over measured iterations,
+  and the median response window and unattributed time, from the same
+  actions;
+- **startup:** `qt-init`, `profile`, `core-runtime` (database and
+  migrations), `ai-runtime`, `ide-host`, `qml-load`, entering the event
+  loop, the first frame after the lab attached, and `readyMs`, all in ms
+  since main() was entered. Time before main() isn't measured. `phases`
+  splits the same time without overlap: native initialization, QML load
+  (synchronous; `qmlLoad` splits it at the `qml-root-created` marker),
+  event loop to first frame (work QML deferred past the event loop), first
+  frame to usable UI, background work after ready, rendering settling, and
+  the intentional idle observation. A phase with no evidence is `null`.
+- **trace:** AI turns and database jobs, built from span ids (see
+  [Traces](#traces-ai-turns-and-database-jobs)).
+
+#### An action's time, split up (v2)
+
+Every time is measured from the action's start:
+
+| Field | Ends when |
+| --- | --- |
+| `timings.dispatchMs` | the call or input returned |
+| `timings.stateMs` | the expected UI state was first seen |
+| `timings.lastFrameMs` | the last frame swapped before rendering went quiet |
+| `timings.settledMs` | max(state, last frame): the response is complete |
+| `timings.renderSettleMs` | settled minus state: rendering catching up |
+| `timings.quietWaitMs` | elapsed minus settled: the driver watching for quiet |
+| `timings.elapsedMs` | the action's whole window (`durationMs`) |
+
+The **response window** (`window`) is input to settled (`basis:
+"settled"`), to state when nothing was drawn, or the whole elapsed time for
+a failed or never-quiet action. `coveredMs` is the union of span time inside
+the window and `unattributedMs` the rest, so `coveredMs + unattributedMs =
+window.ms` exactly and unattributed time can never exceed its window. Span
+time after the window is `afterWindowMs` (before it, `beforeWindowMs`),
+never clipped away silently.
+
+v1 measured unattributed time against the whole elapsed window (which
+holds the 120–300 ms quiet wait) while audits compared it with settled
+time, which is how "2.33 s unexplained of 2.01 s" could happen. Audits
+(rules version 2) only use v2 numbers.
+
+Steps whose op is `noop` (the idle after startup) are `kind:
+"observation"`: they watch the app and are never counted as slow
+interactions.
+
+Instrumented today: startup stages; chat (`open-conversation` from the
+selection to the first page handed to QML, with `load-message-page` on the
+database thread, `map-messages` and `publish-messages`); AI turns, database
+jobs, retrieval and context compilation (see Traces); the workspace, wells,
+sidebar and shell events the recorder already had. Explorer and
+Monaco/WebEngine are not instrumented yet.
+
+### Traces: AI turns and database jobs
+
+`LiveEvents` spans carry an `id`, a `parent` and the `thread` they were made
+on (`main`, `ArchivistAI`, `ArchivistCoreWriter`, `pool`). A `Scope` or
+`Step` is the parent of what its thread does while it is open; work handed
+to another thread names its parent (`ParentScope`, or the id). So a trace
+nests by cause, across threads. A child may outlive its parent (work it
+started); that is reported as `outlivedMs`. `trace.mjs`
+(`archivist.observatory.trace` v1) reads any events with ids, from the UI
+Lab or the live recorder, into trees and into:
+
+**An AI turn** (`ai.run`, root `ai.start-chat-run`):
+
+```
+ai.start-chat-run            the call from the UI thread
+├─ ai.queue-wait             posted until the AI thread ran it
+├─ ai.run                    runId, provider, model, outcome, rounds, tool calls,
+│  │                         run-event writes (count, total, max), provider-reported tokens
+│  ├─ ai.model-catalog       only when the model list is refreshed
+│  ├─ ai.prepare
+│  │  ├─ ai.conversation-load        messages
+│  │  ├─ ai.workspace-describe       when a workspace is attached
+│  │  ├─ ai.attachments              sources, warnings
+│  │  ├─ ai.retrieval                sources, files, skipped
+│  │  │  ├─ retrieval.library-search
+│  │  │  │  ├─ retrieval.fts-query   rows (retrieval.index-repair if it rebuilt)
+│  │  │  │  └─ retrieval.rank        candidates
+│  │  │  └─ retrieval.select         included, omitted, tokens
+│  │  └─ ai.context-compile          compiler, included, omitted, estimatedTokens
+│  │     └─ context.strategy
+│  │        ├─ context.chat-search   candidates (auto-balanced compilers)
+│  │        └─ context.assemble
+│  ├─ ai.provider-round      round, endpoint, attempts, events, deltas, bytes, longest gap,
+│  │  │                      gaps of 1 s or more, tool calls, tokens
+│  │  ├─ ai.request-serialize        bytes
+│  │  ├─ ai.http-attempt             status, bytes sent/received, error (timeout,
+│  │  │  │                           connection-refused, http-status, ...), retry, cancelled
+│  │  │  └─ ai.first-byte (marker)
+│  │  ├─ ai.retry-wait               waitMs
+│  │  └─ ai.first-delta (marker)
+│  ├─ ai.tool-round          round, calls, resultBytes
+│  │  └─ ai.tool             tool, callId, round, argument/result bytes, serializeMs, errorCode
+│  └─ ai.persist
+└─ ai.callback-delay         result posted until the UI thread ran the callback
+chat.ai-first-delta-received, chat.ai-first-text-shown (markers), chat.ai-presentation
+                             on the UI thread, matched by runId: flushes and their time
+```
+
+`aiTurns()` reports, per turn: queue wait, preparation and its stages,
+each round with its attempts (status, retry, error), retry waits, first
+byte and first delta from the round's start, stream statistics, tools,
+persistence, and three different firsts from the run's start: first network
+byte, first model delta and first text shown. Tokens are only what the
+provider reported; no price is computed. `unattributedMs` is the run's time
+no direct child covers, and `missing` names expected stages the trace
+doesn't have (an uninstrumented gap is never shown as zero).
+
+**Database jobs** (`db.write`, `db.read`, `db.run`): `op` is the name the
+caller passed or its class name, never SQL or parameters; `queue-wait`,
+`execute` (on the thread that ran it) and `callback-delay` are children, and
+`rows` is set when the result is a list. `CoreRuntime::read()` runs on the
+calling thread, so an `execute` on `main` is the UI thread blocked;
+`dbJobs()` totals those as `uiThreadSync`. The AI thread's own database
+connection (run events, chat messages) is measured as the run's event
+writes and `ai.persist`, not as `db.*` jobs.
+
+What is never in a trace: API keys, headers, prompts, model output, file
+names or paths, tool arguments or results (only their sizes), SQL or its
+parameters. Each event holds at most 12 short scalar fields; there is no
+per-token event (the stream is counted, not logged). DNS, TCP and TLS times
+are not reported: Qt doesn't expose them, and they are not guessed.
+
 ### What it can't tell you yet
 
 - `settledMs` is when drawing stopped, not when pixels reached the screen
@@ -203,7 +424,12 @@ and the UI state it must `expect`. No randomness (`seed` is null).
 - Drags are sent as a press, 8 moves and a release in one go, not spread
   over frames like a hand.
 - Tab clicks, the layout picker and Magnet drag-and-drop are not driven by
-  input yet; view contents are empty-state Previews, not real documents.
+  input yet; workspace view contents are empty-state Previews, not real
+  documents. There are no Large Library or IDE (Monaco) scenarios yet, and
+  chat scrolling and streaming replies aren't exercised.
+- Operations are only what the app reports through `LiveEvents`: time in
+  QML layout or painting shows up as unattributed or as frames, not as named
+  work.
 - Wells timing lines have no timestamps, so they are attached to the run
   (`runtimeTiming`, same process), not to individual actions.
 - The runner's own logic is tested with a stand-in app; the in-app driver is
@@ -248,26 +474,35 @@ npm run observatory:dashboard -- --port 4400 --no-open
 Both show the same page over the records above. They read them and never
 write, rename or delete anything. Press Ctrl+C to stop the browser version.
 
-- **Overview**: latest build, latest run of each UI scenario, build and UI
-  trends, recent failures, the machine, and "since the previous comparable
-  run" changes.
-- **Builds**: phases per build, cached vs rebuilt IDE bundle, build kind,
-  status, and each build's log.
-- **UI performance**: settled and state latency (median, p95, max) per
-  scenario version, per-step tables for the latest run, failures. This is
-  action latency, not frame time; frame gaps are shown separately.
-- **Compare**: any two runs as baseline and candidate. Shows Git, build
-  configuration, machine and scenario for both, then every metric with the
-  absolute and percentage change and better / worse / about the same
-  (within 2%) / not measured in both. Runs of different kinds, different
-  scenarios or different scenario versions are refused with the reason.
-  Different hardware, OS, build type, compiler, Qt, build kind, IDE cache,
-  dirty trees and failed runs are warned about. It makes no claim of
-  statistical significance: each side is one run.
-- **Runs**: every run, filterable by type, result, scenario, branch, commit,
-  date and text; tick two to compare. A run's page has its metadata,
-  phases or actions, and a searchable, paged preview of its log files with a
-  link to the full file.
+The page has three places, picked from the switch in the top bar:
+
+- **Record**: a big **Record** button with the length (15, 30, 60 or 120 s),
+  an optional name, and the latest runs beside it. **Run a scripted UI
+  test** folds open underneath for the repeatable UI scenarios.
+- **History**: every run as one list, with a chip per kind (recordings,
+  builds, UI tests, runtime logs), a search box (name, branch, commit) and
+  trend charts for the kind shown. Tick two runs of the same kind and press
+  **Compare**.
+- **Compare**: pick a **Before** and an **After** (or swap them). Both runs'
+  Git, build and machine details sit side by side, then a count of better /
+  worse / about the same (within 2%) and paired bars for each measure, with
+  the change. Recordings, builds and UI tests compare with their own kind;
+  different kinds, scenarios, scenario versions, or recordings with a
+  different measurement version or sampling interval are refused with the
+  reason. Different hardware, OS, build type, compiler, Qt, build kind, IDE
+  cache, dirty trees and failed runs are warned about. Each side is one run,
+  so no claim of statistical significance is made. **Regression check**
+  folds open at the bottom (see Baselines).
+
+Every run has its own page: tiles with the headline numbers, the timeline
+for a recording, and folds for phases, steps, details and a searchable,
+paged preview of each log. Its action bar has **Compare with previous**,
+**Compare with…**, **Copy for AI** and **Export evidence**.
+
+The layout follows the panel's shape: side by side when wide, one column when
+narrow, a tighter header when short, and icons only in the switch below
+about 440 px. Old links (`#/builds`, `#/runs`, `#/baselines`, `#/live`,
+`#/lab`, …) still open the matching place.
 
 Runs that never finished show as `incomplete`, summaries that can't be parsed
 as `unreadable`, and summaries from a newer `schemaVersion` are listed but not
@@ -379,26 +614,26 @@ performance data; they are listed separately as functional failures.
 and inconclusive results, unless `--strict`), 1 a functional failure or an
 error, 2 usage, 5 a confirmed regression under `--strict`.
 
-The dashboard's **Baselines** page shows each category's baseline, what it
+The **Regression check** on the dashboard's Compare page shows each category's baseline, what it
 was compared with, every metric's verdict, slowest-step changes and a trend
 chart with the baseline runs marked. It is read-only: baselines are set from
 the command line.
 
-## Controls: Test Lab, agents, Copy for AI
+## Controls: UI tests, agents, Copy for AI
 
 People and agents drive the same controller (`control/operations.mjs`):
-people through the dashboard's **Test Lab** and its buttons, agents through
+people through the dashboard's **Record** page and its buttons, agents through
 the CLI with `--json`. Both start the same jobs, read the same records and
 get the same reports.
 
 ### For people
 
-- **In Archivist:** open the Observatory panel and go to **Test Lab**. Its
-  controls are on already.
+- **In Archivist:** open the Observatory panel and open **Run a scripted UI
+  test** on the Record page. Its controls are on already.
 - **In a browser:** run `npm run observatory:dashboard -- --control` and open
   the link it prints. Without `--control` the dashboard stays read-only.
 
-From the Test Lab you can:
+From there you can:
 
 - Pick All, Sidebar Stress or Workspace Stress, set the number of rounds
   (1–10), and choose whether to build first. Building is off by default, so
@@ -414,8 +649,8 @@ From the Test Lab you can:
   each run.
 
 **Copy for AI** puts a short Markdown report on the clipboard. It is on
-every run page, on Test Lab results, and on every category of the Baselines
-page. **Export evidence** writes a redacted folder and `.zip` for an agent
+every run page, on UI test results, and on every category of the
+Regression check. **Export evidence** writes a redacted folder and `.zip` for an agent
 that can't read your Observatory folder.
 
 ### For agents
@@ -531,6 +766,13 @@ They are marked `redacted: false, sensitive: true`.
 
 Commits and SHA-256 hashes are kept. Nothing is uploaded anywhere.
 
+Redaction is pattern matching, not a guarantee. It misses a secret in a
+format it doesn't know (a short password with no `password=` before it, a
+key in an unusual form) and private text that isn't a path, a name in a
+path, or an e-mail address. Read a report or export before sharing it. The
+manifest says so (`redaction.limits`). Raw logs are left out unless you ask
+for them (`--raw-logs`, or the checkbox, which asks again).
+
 ### How starting tests is protected
 
 - **Read-only by default.** The browser dashboard stays read-only unless
@@ -580,11 +822,73 @@ Commits and SHA-256 hashes are kept. Nothing is uploaded anywhere.
   percentage is invented.
 - **No downloads in the app.** In the in-app panel, Export shows the
   `.zip` path (with a Copy path button) instead of downloading it.
-- **Build tests stay on the command line.** The Test Lab runs UI
+- **Build tests stay on the command line.** The dashboard runs UI
   scenarios; builds are still recorded with `npm run observatory:build`.
 - **Slightly different redaction in the page.** The page doesn't know where
   the checkout is, so its reports hide repository paths under your home
   folder too. The CLI keeps them as `<repo>/…`.
+
+## Audits: run, find, hand to an AI, rerun
+
+An audit is one press that runs a preset through the same job runner as
+the scripted UI tests, then turns the runs it made into **findings**: what
+is slow or broken, the rule that says so, the measured numbers and run ids
+behind it, and what to look at next. Record > **Run an audit** on the page,
+or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
+
+| Preset | Runs | Use it for |
+| ------ | ---- | ---------- |
+| `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
+| `ui` (Full UI) | startup, sidebar, workspace, chat, 3 rounds | The UI loop: enough runs to compare two audits. |
+| `build` | one incremental build of `build/frontend-debug` | Why it rebuilt and where the build time goes. |
+| `complete` | `build`, then `ui` against what it built | Both. |
+
+Build presets never clean or delete anything: the build is the normal
+incremental build (a first-ever build is a full one because nothing exists
+yet). `--repeat` changes the rounds. The audit's own record is a run of
+kind `audit` (`summary.json` with `preset`, `jobId`, `children` (run ids),
+`findings`, `counts`, `highlights`, `blindSpots`, `rulesVersion`;
+`findings.json` with the rules). It is written whatever happened, so a
+cancelled or failed audit still lists what finished.
+
+**Findings.** Each has a stable `id` (`rule:subject`, e.g.
+`ui.slow-operation:chat:chat.publish-messages`), `rule`, `title`,
+`subsystem`, `severity` (high, medium, low, info), `impact` (value, unit,
+text), `evidence` (run ids, step, operation), `confidence` and `nextStep`.
+Confidence is not a score: it says in how many of the rounds the rule's
+threshold was met ("in all 3 runs", "in 2 of 3 runs", "one run; rerun to
+confirm"). The rules and thresholds are in `dashboard/public/audit.mjs`
+(`RULES`), listed on every audit page, in Copy for AI and in
+`audit findings --json`; bump `RULES_VERSION` when one changes. A slow
+operation whose own child holds most of its time is reported once, as the
+child, "inside" the parent.
+
+**Comparing audits.** `audit compare <id>` (and the page's "Against the
+previous audit") compares an audit with the previous one of the same
+preset: per scenario and build category, the baseline audit's runs against
+this audit's, with the regression rules and budgets above (at least
+`minSamples` runs on each side, past the budget, no overlap). Different
+presets, rules versions, machines or scenario versions are refused, not
+compared. Findings are matched by id into new, gone and still there; a
+finding near its threshold can flip on noise, and the page says so.
+
+**For agents.** `audit presets | run | status | cancel | list | findings |
+compare | report | timeline <run-id> [--from --to] | operation <run-id>
+<action> | export`, all as `observatory.audit.*` operations with `--json`.
+`audit report` is the Copy for AI Markdown; `audit export` writes the audit
+report plus every run's own report, summary and operation trees.
+
+**On the page.** Record has the audit card (preset chips, Run audit,
+progress with Cancel, the last audit). An audit's page has the finding
+counts and headline numbers, the comparison with the previous audit, the
+findings list (filter by severity, subsystem or text; each opens to its
+impact, rule, evidence and a jump to its operations), "Operations inside
+each action" (pick a run: a strip of actions as wide as they took, the
+actions table, and the operation tree of the selected action with self
+time, unattributed time and stalls), the build diagnostics (jobs, wall vs
+summed time, the longest chain, why it rebuilt, slowest compiles, most
+included headers, the time trace if recorded), the runs, the rules and the
+blind spots. Compare takes two audits too.
 
 ## Live recordings (flight recorder)
 
@@ -595,11 +899,12 @@ every other run. Agents can do the same through `observatory.live.*`.
 
 ### For people
 
-- Inside Archivist: open the Observatory panel and pick **Live**. Choose a
-  length (15, 30, 60 or 120 s; 30 by default), optionally name it, and press
-  **Start recording**. A red **Recording m:ss** pill shows in the top bar for
-  as long as it runs; clicking it stops the recording.
-- **Add marker** drops a note at that moment ("felt slow here").
+- Inside Archivist: open the Observatory panel; it opens on **Record**.
+  Choose a length (15, 30, 60 or 120 s; 30 by default), optionally name it,
+  and press **Record**. A red dot shows in the top bar for as long as it
+  runs, on every page; clicking it brings you back to **Stop**.
+- **Mark** (or Enter in the note box) drops a note at that moment ("felt
+  slow here").
 - When it stops, the recording opens: a summary sentence, frames per window,
   how late the UI thread answered, CPU, memory, threads, and a timeline with
   one lane per window, the UI thread, CPU, memory and the instrumented
@@ -644,6 +949,12 @@ and only while access is on. Only the panel (same origin, the panel key) can
 turn access on or off. The CLI refuses an address that isn't 127.0.0.1, so
 the key never goes anywhere else. Nothing is uploaded.
 
+Inside the app, the panel's test controls never send `observatory.live.
+status/start/stop/mark/wait` through the Node script: the app refuses them
+on its control route (they belong to `/observatory/api/live/`), because the
+script would call back into the app and `wait` would hold a worker thread
+for minutes. `live wait` is a CLI loop of short `status` calls.
+
 ### What is recorded
 
 A `live-session` run (`<timestamp>-live-<hex>`) with:
@@ -663,6 +974,13 @@ A `live-session` run (`<timestamp>-live-<hex>`) with:
 - **Resources (every 500 ms):** process CPU as % of one core, resident
   memory, macOS memory footprint (`phys_footprint`), thread count. Anything
   the platform doesn't provide is recorded as `null` and listed as missing.
+  CPU is also `null` for a sample taken less than half an interval after the
+  previous reading, which is always the case for the first one.
+- **Measurement version** (`live.measurementVersion`, in `summary.json` and
+  `metrics.json`): 1 was the first recorder; 2 leaves that first CPU sample
+  out (in version 1 it was noise, 181.9 % in the fixture recording, and
+  inflated max and mean CPU). Recordings with different versions, or
+  different probe or sample intervals, are not compared.
 - **Operations:** sidebar open/close/section/resize, workspace publish (with
   the `archivist.wells.timing` stages), layout changes, tab switches, split
   resizes, magnet drags and undocking, wells minimize/restore, chat
@@ -679,24 +997,115 @@ A `live-session` run (`<timestamp>-live-<hex>`) with:
 - One recording at a time; 15/30/60/120 s only; it always stops at the
   length (and on quit). Memory is bounded (200k frames, 20k events, 6k
   probes, 1k samples); anything past that is counted as dropped.
-- Nothing is written on the UI or render threads: a single writer thread
-  saves the stream every second and the final files at the end.
+- Writing happens on a single writer thread (the stream every second, the
+  final files at the end), with one exception: the first `summary.json` is
+  written on the UI thread when recording starts, before anything is
+  measured, so a failure to write can be reported to the caller (1.4–8.7 ms
+  measured on Linux; not measured on macOS).
 - If the app dies while recording, the next launch marks that run
   `interrupted` with `partial: true` and rebuilds what it can from the stream.
-- The Live page itself updates once a second while recording (its
+  A run still `running` more than 5 minutes past its length is finished the
+  same way even if its process id now belongs to another program.
+- The Record page itself updates once a second while recording (its
   indicator is static on purpose). With the panel open, those redraws show up
   as a few frames per second in the recording; close or hide the panel for
   the cleanest numbers.
 - Live recordings have no baseline (what you do differs each time). Use
-  `live compare` on two recordings of the same interaction.
+  `live compare` on two recordings of the same interaction. Besides refusing
+  incompatible recordings, it warns when they come from a debug and a
+  release build, different machines, systems, Qt or app versions, the same
+  build, uncommitted changes, partial or failed recordings, recordings that
+  dropped data, ones where the app left the foreground, very different
+  lengths, or different windows.
 
 ### Overhead
 
 Measured with the real recorder on Linux (Qt 6.4, offscreen software
-rendering, one window redrawing every 16 ms, four alternating 10 s rounds
-with recording off and on): frame interval median 20.5 ms and p95 20.7–20.8
-ms either way, and process CPU 1.8% off vs 1.9% on (of one core). This was
-not measured on macOS or with the real Archivist UI.
+rendering, one window redrawing every 16 ms, alternating rounds with
+recording off and on):
+
+| | Recording off | Recording on |
+| --- | --- | --- |
+| Frame interval, median | 20.47 ms | 20.48–20.49 ms |
+| Frame interval, p95 | 20.71–20.76 ms | 20.72–20.76 ms |
+| Process CPU (% of one core) | 1.6–1.7 % | 1.8–1.9 % |
+
+UI-thread work per recording: `ProcessMetrics::read()` every 500 ms (median
+23 µs, p95 39–60 µs), `start()` median 1.4–1.8 ms and p95 2.7–8.7 ms over
+two measurements, `stop()` 0.13–0.37 ms.
+None of this was measured on macOS or with the real Archivist UI.
+
+The event API itself, before and after span ids (Linux, release build, the
+same minimal sink, three alternating runs, ns per call):
+
+| | Not recording | Recording |
+| --- | --- | --- |
+| `Scope`, before / after | 11–18 / 12–21 | 157–161 / 206–216 |
+| `begin` + `end`, before / after | 7–15 / 10–16 | 200–222 / 263–273 |
+| `marker`, before / after | 5–6 / 6–9 | 122–133 / 166–182 |
+
+Not recording is one atomic load either way (the spread is noise). While
+recording, an id, a parent and a thread label add about 50–60 ns per event.
+A mocked AI turn with a retry and a tool round makes 31 events, about
+30 µs of recording work with the real session sink (about 1 µs per event
+there) against a turn of hundreds of milliseconds.
+
+## Resource limits
+
+| What | Limit | Past it |
+| --- | --- | --- |
+| One live recording | 15/30/60/120 s, one at a time | refused (`busy`) |
+| Recorder memory | 200k frames, 20k events (256 open), 6k probes, 1k samples | counted as dropped; shown in the summary, Copy for AI and `live compare` |
+| Stream read on recovery | 256 MB | the rest is ignored |
+| Artifacts served or read | 32 MB each | refused |
+| Control script answer | 8 MB, 60 s | `internal` error |
+| Observatory requests in the app | 2 worker threads, 8 waiting or running | `503 unavailable` |
+| Runs sent to the dashboard page | newest 2,000 plus those baselines name | the page says how many it left out; the CLI reads all |
+| `live wait` | 300 s | `timed-out` (exit 124) |
+| UI tests | one at a time per Observatory folder | `busy` (exit 4) |
+
+Run folders are never deleted automatically; a long history only costs disk
+space and slower unfiltered scans.
+
+## Reproducing the measurements
+
+- **History scaling:** write N synthetic runs and time the listings.
+  Measured on Linux, median of 5 reads (before → after this change):
+
+  | Runs | Page listing (app) | Page body | `tests status` poll | `runs list` | `live list` |
+  | --- | --- | --- | --- | --- | --- |
+  | 100 | 22 → 14 ms | 0.27 MB | 18 → 1.4 ms | 16 → 4 ms | 17 → 9 ms |
+  | 1,000 | 142 → 154 ms | 2.7 MB | 191 → 1.0 ms | 170 → 5 ms | 161 → 67 ms |
+  | 10,000 | 1,557 → 342 ms | 26.8 → 5.4 MB | 1,826 → 1.5 ms | 1,818 → 20 ms | 1,654 → 612 ms |
+
+  A filtered `runs list` (`--kind`, `--status`, `--scenario`) still reads
+  every summary (1.8 s at 10,000 runs).
+- **Recorder overhead:** a test window redrawing every 16 ms, recorded and
+  not recorded in alternating rounds of the same length, comparing frame
+  intervals and process CPU; the per-call costs above are timed with
+  `QElapsedTimer` around each call.
+- **Diagnostic check:** a scripted session with a 90 ms stall during a
+  `workspace.publish` span and a 320 ms stall during a
+  `chat.switch-conversation` span; `live spikes` lists the 320 ms one first
+  and names the span each occurred during.
+
+## What is and isn't verified
+
+- **Verified here (Linux, Qt 6.4, offscreen):** the Node suite, the native
+  Observatory, recorder, records and IDE host tests, the lock under real
+  competing processes, the control route under saturation, the recorder's
+  overhead and the history scaling above.
+- **Not verified here:** anything on macOS (Qt 6.8, Metal, `phys_footprint`,
+  App Nap throttling), the full Archivist UI, `npm run test:native` as a
+  whole, and the UI Lab against a real `build/frontend-debug`. In
+  particular the new chat and startup scenarios, the startup and chat spans
+  in a real app, and `--time-trace` on the Archivist tree have only been
+  compiled and unit-tested here (the UiLab collector and chat seeding run
+  for real in `ui-lab-test`; build evidence runs for real against a small
+  CMake project in `test/build-evidence.test.mjs`). Audits run end to end
+  here with the stand-in app (`test/audit.test.mjs`), including a regression
+  from doubled operation times; a `build` or `complete` preset against the
+  real Archivist tree has not been run.
 
 ## Code
 
@@ -707,6 +1116,9 @@ not measured on macOS or with the real Archivist UI.
 | `build-phases.mjs` | The Archivist build phases and build classification |
 | `metadata.mjs` | Git, machine and toolchain facts |
 | `ninja.mjs` | Ninja progress output and `.ninja_log` |
+| `build-evidence.mjs` | Every job, rebuild causes, header fan-out, wall vs summed time, dependency chain, compiler-cache counters |
+| `time-trace.mjs` | Summing Clang `-ftime-trace` files (opt-in profiling build) |
+| `ui-operations.mjs` | UI Lab actions opened up into the operations and stalls inside them |
 | `runtime-log.mjs` | Parsing `archivist.wells.timing` lines |
 | `storage.mjs` | Record location, run ids, atomic writes |
 | `report.mjs` | The build terminal summary |
@@ -727,6 +1139,9 @@ not measured on macOS or with the real Archivist UI.
 | `control/zip.mjs` | A small ZIP writer for exports |
 | `control/live.mjs` | Reaching the running app's live recorder (agent-access.json, 127.0.0.1 only) |
 | `control/live-operations.mjs` | The `observatory.live.*` operations |
+| `control/audit.mjs` | Writing the audit record when an audit job ends; the `observatory.audit.*` operations |
+| `dashboard/public/audit.mjs` | Presets, findings rules, audit comparison and the audit report (shared by the page and the CLI) |
+| `dashboard/public/audit-page.js` | The audit card on Record, the audit page and audit-to-audit Compare |
 | `dashboard/server.mjs` | The browser dashboard's local, read-only server |
 | `dashboard/records.mjs` | Reading runs and artifacts from disk for that server |
 | `dashboard/public/` | The page: plain JavaScript, no dependencies |
@@ -736,9 +1151,9 @@ not measured on macOS or with the real Archivist UI.
 | `dashboard/public/regression.mjs` | Baseline comparison rules and the report (shared by the CLI and the page) |
 | `dashboard/public/diagnostic.mjs` | The Copy for AI report (shared by the page and the CLI) |
 | `dashboard/public/redact.mjs` | Redaction for reports and exports |
-| `dashboard/public/lab.js` | The Test Lab page and the Copy for AI / Export buttons |
+| `dashboard/public/lab.js` | The scripted UI test panel and the Copy for AI / Export buttons |
 | `dashboard/public/live.mjs` | Live recording analysis: moments, context, ranges, comparison, report (shared by the page and the CLI) |
-| `dashboard/public/live-page.js` | The Live page: recorder controls and the timeline |
+| `dashboard/public/live-page.js` | The recorder and a recording's page with its timeline |
 | `dashboard/public/dom.js` | The page's DOM and formatting helpers |
 | `dashboard/public/filter.mjs` | Run filters |
 | `dashboard/public/preview.mjs` | Paging and searching a log |
@@ -746,6 +1161,7 @@ not measured on macOS or with the real Archivist UI.
 | `frontend/qml/App/Workbench/Observatory/` | The Observatory panel |
 | `frontend/src/Core/Domains/Observatory/live_*.{h,cpp}`, `process_metrics.*` | The recorder's buffers, statistics, files and process metrics |
 | `frontend/src/App/Services/live_recorder.*` | The recorder service in the app (windows, probes, writer thread) |
+| `frontend/src/App/Services/ui_lab.*` | The UI Lab's hook in the app: clock, frames, input, operations and stalls, chat fixtures |
 
 ## Testing the collector
 

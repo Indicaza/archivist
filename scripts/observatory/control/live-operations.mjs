@@ -6,7 +6,7 @@
 //
 // operations.mjs owns the envelope, validation and error type; it passes them
 // in here so the two modules don't import each other.
-import { loadRuns } from "../dashboard/records.mjs";
+import { listRunIds, loadRunsById } from "../dashboard/records.mjs";
 import { compareLive, liveModel, LONG_GAP_MS, operationSummary, rangeDetail, spikesWithContext, summarySentence, headline, windowLabel } from "../dashboard/public/live.mjs";
 import { loadRunEvidence } from "./evidence.mjs";
 import { callLive, LiveAccessError } from "./live.mjs";
@@ -23,13 +23,15 @@ export const LIVE_ERROR_CODES = {
   "app-not-running": "The Archivist that turned on agent access has quit.",
   "app-unreachable": "Archivist didn't answer on its local address.",
   "io-error": "The app couldn't create or write the recording's folder.",
+  "timed-out": "The recording was still running when the wait ran out.",
   unavailable: "The recorder isn't available in this app.",
 };
 
 export const LIVE_HTTP_STATUS = {
-  "not-recording": 409, "agent-access-off": 409, "app-not-running": 409, "app-unreachable": 502, "io-error": 500, unavailable: 503,
+  "not-recording": 409, "agent-access-off": 409, "app-not-running": 409, "app-unreachable": 502, "timed-out": 504, "io-error": 500, unavailable: 503,
 };
 
+const isBusy = (status) => status.recording === true || status.state === "recording" || status.state === "finalizing";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function liveOperations({ ControlError, requireRun, runIdPattern }) {
@@ -120,23 +122,34 @@ export function liveOperations({ ControlError, requireRun, runIdPattern }) {
       },
     },
     "observatory.live.wait": {
-      description: "Wait until the running recording ends (by its time limit or a stop), then return the saved recording's overview.",
+      description: "Wait until the running recording ends (by its time limit, a stop, an error or a quit), then return the saved recording's overview. Called while idle, it returns the last recording (waited: false), or recording: null if there has been none since Archivist started.",
       cli: "npm run observatory -- live wait [--timeout <seconds>] --json",
       input: { timeoutSeconds: { type: "integer", min: 1, max: MAX_WAIT_SECONDS, default: 150 } },
       sideEffects: "none",
       async run(ctx, input) {
         const deadline = Date.now() + input.timeoutSeconds * 1000;
         let status = await app(ctx, "status");
+        // The recording this call waits for: the running one, else the last one.
         const runId = status.runId ?? null;
-        while (status.recording || status.state === "finalizing") {
-          if (Date.now() > deadline) throw new ControlError("busy", `Still recording after ${input.timeoutSeconds} s.`, { status });
+        const waited = isBusy(status);
+        while (isBusy(status) && (status.runId ?? runId) === runId) {
+          if (Date.now() > deadline) {
+            throw new ControlError("timed-out", `Recording ${runId} was still ${status.state} after ${input.timeoutSeconds} s. It stops by itself at its length; call wait again.`, { runId, state: status.state });
+          }
           await sleep(ctx.livePollMs ?? 500);
           status = await app(ctx, "status");
         }
-        const finished = runId ?? status.lastRun ?? null;
-        if (!finished) return { status, recording: null };
+        // lastRun is the app's record of the last recording: { runId, status, stopReason, finishedAt, error }.
+        const last = status.lastRun && typeof status.lastRun === "object" ? status.lastRun : null;
+        const finished = runId ?? (typeof last?.runId === "string" ? last.runId : null);
+        if (!finished) return { waited: false, status, recording: null, message: "No recording has been made since Archivist started." };
+        if (last?.runId === finished && last.status === "failed") {
+          // Still read what was saved: a failed recording keeps its stream.
+          const loaded = await requireRun(ctx, finished).catch(() => null);
+          return { waited, status, recording: loaded ? overview(await loadModel(ctx, finished), loaded.summary) : null, failed: { runId: finished, error: last.error ?? null } };
+        }
         const loaded = await requireRun(ctx, finished);
-        return { status, recording: overview(await loadModel(ctx, finished), loaded.summary) };
+        return { waited, status, recording: overview(await loadModel(ctx, finished), loaded.summary) };
       },
     },
     "observatory.live.list": {
@@ -145,7 +158,10 @@ export function liveOperations({ ControlError, requireRun, runIdPattern }) {
       input: { limit: { type: "integer", min: 1, max: 200, default: 20 } },
       sideEffects: "none",
       async run(ctx, input) {
-        const runs = (await loadRuns(ctx.root)).filter((run) => run.kind === "live-session");
+        // Live recordings' folders are named <time>-live-<hex> (the app's
+        // recovery relies on the same), so only those summaries are read.
+        const ids = (await listRunIds(ctx.root)).filter((id) => id.includes("-live-"));
+        const runs = (await loadRunsById(ctx.root, ids)).filter((run) => run.kind === "live-session");
         return {
           total: runs.length,
           recordings: runs.slice(0, input.limit).map((run) => ({ runId: run.runId, status: run.status, createdAt: run.createdAt, label: run.label, problems: run.problems ?? [], ...(run.live ?? {}) })),

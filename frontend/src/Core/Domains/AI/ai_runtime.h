@@ -61,7 +61,8 @@ signals:
     void runEvent(const QVariantMap &event);
 
 private:
-    void invoke(std::function<QVariant(AIWorker &)> job, QObject *context, Callback done);
+    // `operation` names the call on the Observatory trace (a string literal).
+    void invoke(std::function<QVariant(AIWorker &)> job, QObject *context, Callback done, const char *operation = "call");
 
     QThread m_thread;
     QPointer<AIWorker> m_worker;

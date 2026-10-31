@@ -1,5 +1,11 @@
 #include "Core/core_error.h"
 #include "Core/core_runtime.h"
+#include "Core/Domains/Observatory/live_events.h"
+#include "Core/Domains/Observatory/live_session.h"
+
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -11,6 +17,80 @@ class CoreDatabaseTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // While recording, each job is a db.<kind> span with its queue wait,
+    // execution and callback delay as children: a fast write queued behind
+    // a slow one waits, but doesn't execute slowly. Reads run on the calling
+    // thread. Names are operation names, never SQL or its parameters.
+    void queueWaitAndExecutionAreMeasuredApart()
+    {
+        QTemporaryDir directory;
+        CoreRuntime runtime;
+        QVERIFY(runtime.start(directory.filePath(QStringLiteral("archivist.db"))));
+        runtime.reader().exec(QStringLiteral("CREATE TABLE t (v TEXT)"));
+        Live::Session session;
+        session.reset(LiveEvents::nowNs());
+        LiveEvents::setSink(&session);
+
+        int delivered = 0;
+        runtime.write([](CoreDatabase &database) {
+            QThread::msleep(150);
+            database.exec(QStringLiteral("INSERT INTO t (v) VALUES ('secret-value')"));
+            return QVariant();
+        }, this, [&](const CoreResult &) { ++delivered; }, "slow-write");
+        runtime.write([](CoreDatabase &) { return QVariant(QVariantList{1, 2, 3}); }, this, [&](const CoreResult &) { ++delivered; }, "fast-write");
+        runtime.read([](CoreDatabase &) -> QVariant { throw CoreError(QStringLiteral("no")); }, this, [&](const CoreResult &) { ++delivered; });
+        QTRY_COMPARE(delivered, 3);
+        LiveEvents::setSink(nullptr);
+
+        const QJsonArray events = Live::eventsJson(session.snapshot()).value(QStringLiteral("events")).toArray();
+        QHash<quint64, QJsonObject> jobs;
+        QMultiHash<quint64, QJsonObject> children;
+        for (const QJsonValue &value : events) {
+            const QJsonObject event = value.toObject();
+            if (event.value(QStringLiteral("category")).toString() != QLatin1String("db")) {
+                continue;
+            }
+            const quint64 parent = static_cast<quint64>(event.value(QStringLiteral("parent")).toDouble());
+            if (parent) {
+                children.insert(parent, event);
+            } else {
+                jobs.insert(static_cast<quint64>(event.value(QStringLiteral("id")).toDouble()), event);
+            }
+        }
+        QCOMPARE(jobs.size(), 3);
+        const auto child = [&](quint64 job, const char *name) {
+            for (const QJsonObject &event : children.values(job)) {
+                if (event.value(QStringLiteral("name")).toString() == QLatin1String(name)) {
+                    return event;
+                }
+            }
+            return QJsonObject();
+        };
+        bool sawFast = false, sawRead = false;
+        for (auto it = jobs.constBegin(); it != jobs.constEnd(); ++it) {
+            const QJsonObject fields = it.value().value(QStringLiteral("fields")).toObject();
+            const QString op = fields.value(QStringLiteral("op")).toString();
+            if (op == QLatin1String("fast-write")) {
+                sawFast = true;
+                QVERIFY2(child(it.key(), "queue-wait").value(QStringLiteral("durationMs")).toDouble() >= 100, "waited behind the slow write");
+                QVERIFY(child(it.key(), "execute").value(QStringLiteral("durationMs")).toDouble() < 50);
+                QCOMPARE(child(it.key(), "execute").value(QStringLiteral("thread")).toString(), QStringLiteral("ArchivistCoreWriter"));
+                QCOMPARE(fields.value(QStringLiteral("rows")).toInt(), 3);
+                QVERIFY(!child(it.key(), "callback-delay").isEmpty());
+            }
+            if (it.value().value(QStringLiteral("name")).toString() == QLatin1String("read")) {
+                sawRead = true;
+                QCOMPARE(op, QStringLiteral("CoreDatabaseTest"));
+                QCOMPARE(child(it.key(), "execute").value(QStringLiteral("thread")).toString(), QStringLiteral("main"));
+                QCOMPARE(it.value().value(QStringLiteral("ok")).toBool(), false);
+                QCOMPARE(fields.value(QStringLiteral("error")).toString(), QStringLiteral("failed"));
+            }
+        }
+        QVERIFY(sawFast && sawRead);
+        QVERIFY(!QJsonDocument(events).toJson().contains("secret-value"));
+        QVERIFY(!QJsonDocument(events).toJson().contains("INSERT"));
+    }
+
     void migratesAnEmptyDatabaseToTheLatestSchema()
     {
         QTemporaryDir directory;

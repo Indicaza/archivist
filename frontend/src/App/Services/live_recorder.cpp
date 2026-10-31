@@ -16,6 +16,7 @@
 #include <QRegularExpression>
 
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -131,7 +132,7 @@ LiveRecorder::~LiveRecorder()
     if (recording()) {
         stop(QStringLiteral("app-quit"));
     }
-    LiveEvents::setSink(nullptr);
+    LiveEvents::clearSink(&m_session);
     detachAll();
     m_writer.waitForDone();
 }
@@ -222,6 +223,10 @@ QVariantMap LiveRecorder::start(int durationSeconds, const QString &label, const
     if (startedBy != QLatin1String("panel") && startedBy != QLatin1String("agent") && startedBy != QLatin1String("app")) {
         return failure(QStringLiteral("invalid-input"), QStringLiteral("startedBy must be panel, agent or app."));
     }
+    if (LiveEvents::recording()) {
+        // Another collector (the UI Lab, in a test instance) has the event stream.
+        return failure(QStringLiteral("busy"), QStringLiteral("This instance is running a UI Lab scenario, which collects the app's events itself."));
+    }
 
     QString error;
     QString runId;
@@ -305,7 +310,7 @@ QVariantMap LiveRecorder::stop(const QString &reason)
     m_flushTimer.stop();
     m_limitTimer.stop();
     disconnect(m_appState);
-    LiveEvents::setSink(nullptr);
+    LiveEvents::clearSink(&m_session);
     detachAll();
 
     const Live::Snapshot snapshot = m_session.snapshot();
@@ -565,7 +570,13 @@ void LiveRecorder::sample()
     const qint64 now = LiveEvents::nowNs();
     Live::Sample sample;
     sample.ns = now;
-    sample.cpuPercent = ProcessMetrics::cpuPercent(m_lastReading, reading, now - m_lastReadingNs);
+    // CPU over less than half a sample interval is mostly noise: the first
+    // sample, taken right as recording starts, came out at 100-200 %.
+    // Measurement version 2 leaves it unknown instead.
+    const qint64 wallNs = now - m_lastReadingNs;
+    sample.cpuPercent = wallNs * 2 >= static_cast<qint64>(m_sampleTimer.interval()) * 1000000LL
+        ? ProcessMetrics::cpuPercent(m_lastReading, reading, wallNs)
+        : std::numeric_limits<double>::quiet_NaN();
     sample.rssBytes = reading.rssBytes;
     sample.footprintBytes = reading.footprintBytes;
     sample.threads = reading.threads;

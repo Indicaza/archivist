@@ -1,6 +1,7 @@
 #include "core_runtime.h"
 
 #include "core_error.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Support/app_profile.h"
 
 #include <QDir>
@@ -9,6 +10,91 @@
 #include <QStandardPaths>
 #include <QtGlobal>
 #include <memory>
+
+namespace
+{
+// Observatory timing for one database job: queue wait, execution and the
+// wait for the callback, each a span under one db.<kind> span. Nothing is
+// recorded unless a recording is running.
+QString operationName(const char *operation, const QObject *context)
+{
+    if (operation) {
+        return QString::fromLatin1(operation);
+    }
+    return context ? QString::fromLatin1(context->metaObject()->className()) : QStringLiteral("unnamed");
+}
+
+QVariantMap resultFields(const CoreResult &result)
+{
+    QVariantMap fields;
+    if (result.value.typeId() == QMetaType::QVariantList) {
+        fields.insert(QStringLiteral("rows"), result.value.toList().size());
+    }
+    if (!result.ok) {
+        fields.insert(QStringLiteral("error"), result.errorDetails.isEmpty() ? QStringLiteral("failed") : QStringLiteral("core-error"));
+    }
+    return fields;
+}
+
+struct DbTrace
+{
+    quint64 job = 0;
+    qint64 queuedNs = -1;
+
+    static DbTrace queued(const char *kind, const char *operation, const QObject *context)
+    {
+        DbTrace trace;
+        if (!LiveEvents::recording()) {
+            return trace;
+        }
+        trace.queuedNs = LiveEvents::nowNs();
+        trace.job = LiveEvents::beginAt(trace.queuedNs, QStringLiteral("db"), QString::fromLatin1(kind),
+                                        {{QStringLiteral("op"), operationName(operation, context)}});
+        return trace;
+    }
+
+    // On the executing thread: the queue wait ends, execution starts.
+    qint64 started() const
+    {
+        if (!job) {
+            return -1;
+        }
+        const qint64 now = LiveEvents::nowNs();
+        LiveEvents::span(QStringLiteral("db"), QStringLiteral("queue-wait"), queuedNs, now, -1, {}, job);
+        return now;
+    }
+
+    void executed(qint64 startNs, const CoreResult &result) const
+    {
+        if (job && startNs >= 0) {
+            LiveEvents::span(QStringLiteral("db"), QStringLiteral("execute"), startNs, LiveEvents::nowNs(), result.ok ? 1 : 0, resultFields(result), job);
+        }
+    }
+
+    // Wraps the callback so the time it waited for its thread is measured
+    // and the job span ends when it runs.
+    CoreRuntime::WriteCallback deliver(CoreRuntime::WriteCallback done) const
+    {
+        if (!job) {
+            return done;
+        }
+        const quint64 id = job;
+        return [id, done = std::move(done), postedNs = LiveEvents::nowNs()](const CoreResult &result) {
+            LiveEvents::span(QStringLiteral("db"), QStringLiteral("callback-delay"), postedNs, LiveEvents::nowNs(), -1, {}, id);
+            LiveEvents::end(id, result.ok ? 1 : 0, resultFields(result));
+            LiveEvents::ParentScope parent(id);
+            if (done) {
+                done(result);
+            }
+        };
+    }
+
+    void finishedWithoutCallback(const CoreResult &result) const
+    {
+        LiveEvents::end(job, result.ok ? 1 : 0, resultFields(result));
+    }
+};
+} // namespace
 
 class CoreWriteWorker final : public QObject
 {
@@ -21,10 +107,12 @@ public:
     void run(
         const CoreRuntime::WriteJob &job,
         const QPointer<QObject> &context,
-        const CoreRuntime::WriteCallback &done
+        const CoreRuntime::WriteCallback &done,
+        const DbTrace &trace
     )
     {
         CoreResult result;
+        const qint64 startNs = trace.started();
 
         try {
             if (!m_database.isOpen()) {
@@ -39,14 +127,16 @@ public:
         } catch (const std::exception &error) {
             result.errorMessage = QString::fromUtf8(error.what());
         }
+        trace.executed(startNs, result);
 
         if (!done || !context) {
+            trace.finishedWithoutCallback(result);
             return;
         }
 
         QMetaObject::invokeMethod(
             context.data(),
-            [done, result]() { done(result); },
+            [callback = trace.deliver(done), result]() { callback(result); },
             Qt::QueuedConnection
         );
     }
@@ -59,6 +149,7 @@ private:
 namespace
 {
 CoreRuntime *activeRuntime = nullptr;
+
 
 CoreResult runCaught(const std::function<QVariant()> &work)
 {
@@ -181,7 +272,7 @@ CoreDatabase &CoreRuntime::reader()
     return m_reader;
 }
 
-void CoreRuntime::write(WriteJob job, QObject *context, WriteCallback done)
+void CoreRuntime::write(WriteJob job, QObject *context, WriteCallback done, const char *operation)
 {
     if (!m_ready || !m_writer) {
         if (done && context) {
@@ -198,19 +289,24 @@ void CoreRuntime::write(WriteJob job, QObject *context, WriteCallback done)
 
     QPointer<QObject> guardedContext(context);
     CoreWriteWorker *writer = m_writer;
+    const DbTrace trace = DbTrace::queued("write", operation, context);
 
     QMetaObject::invokeMethod(
         writer,
-        [writer, job = std::move(job), guardedContext, done = std::move(done)]() {
-            writer->run(job, guardedContext, done);
+        [writer, job = std::move(job), guardedContext, done = std::move(done), trace]() {
+            writer->run(job, guardedContext, done, trace);
         },
         Qt::QueuedConnection
     );
 }
 
-void CoreRuntime::read(const ReadJob &job, QObject *context, WriteCallback done)
+void CoreRuntime::read(const ReadJob &job, QObject *context, WriteCallback done, const char *operation)
 {
     CoreResult result;
+    // Synchronous on the calling thread (the UI thread for stores): its
+    // execute span is on that thread, which is what makes it blocking.
+    const DbTrace trace = DbTrace::queued("read", operation, context);
+    const qint64 startNs = trace.job ? LiveEvents::nowNs() : -1;
 
     if (!m_ready) {
         result.errorMessage = QStringLiteral("The Archivist core is not running.");
@@ -225,19 +321,21 @@ void CoreRuntime::read(const ReadJob &job, QObject *context, WriteCallback done)
             result.errorMessage = QString::fromUtf8(error.what());
         }
     }
+    trace.executed(startNs, result);
 
     if (!done || !context) {
+        trace.finishedWithoutCallback(result);
         return;
     }
 
     QMetaObject::invokeMethod(
         context,
-        [done = std::move(done), result]() { done(result); },
+        [callback = trace.deliver(std::move(done)), result]() { callback(result); },
         Qt::QueuedConnection
     );
 }
 
-void CoreRuntime::run(TaskJob job, QObject *context, WriteCallback done)
+void CoreRuntime::run(TaskJob job, QObject *context, WriteCallback done, const char *operation)
 {
     if (!m_ready) {
         if (done && context) {
@@ -252,17 +350,21 @@ void CoreRuntime::run(TaskJob job, QObject *context, WriteCallback done)
 
     QPointer<QObject> guardedContext(context);
     const QString path = m_reader.path();
+    const DbTrace trace = DbTrace::queued("run", operation, context);
 
-    m_taskPool.start([path, job = std::move(job), guardedContext, done = std::move(done)]() {
+    m_taskPool.start([path, job = std::move(job), guardedContext, done = std::move(done), trace]() {
+        const qint64 startNs = trace.started();
         const CoreResult result = runCaught([&]() { return job(taskConnection(path)); });
+        trace.executed(startNs, result);
 
         if (!done || !guardedContext) {
+            trace.finishedWithoutCallback(result);
             return;
         }
 
         QMetaObject::invokeMethod(
             guardedContext.data(),
-            [done, result]() { done(result); },
+            [callback = trace.deliver(done), result]() { callback(result); },
             Qt::QueuedConnection
         );
     });

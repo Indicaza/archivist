@@ -189,7 +189,7 @@ describe("budgets", () => {
     const { budgets, source } = await loadBudgets(root);
     assert.deepEqual(budgets.problems, []);
     assert.match(source, /scripts\/observatory\/budgets\.json$/);
-    assert.deepEqual(Object.keys(budgets.categories).sort(), ["build:clean", "build:incremental", "build:no-change", "ui:sidebar", "ui:workspace"]);
+    assert.deepEqual(Object.keys(budgets.categories).sort(), ["build:clean", "build:incremental", "build:no-change", "ui:chat", "ui:sidebar", "ui:startup", "ui:workspace"]);
     assert.ok(budgets.categories["ui:sidebar"].compatibility.includes("scenarioVersion"));
   });
 

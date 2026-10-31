@@ -12,13 +12,14 @@ import os from "node:os";
 import path from "node:path";
 import { readBaselines } from "../baselines.mjs";
 import { loadBudgets } from "../comparisons.mjs";
-import { artifactFile, listRawRuns, loadRuns, MAX_ARTIFACT_BYTES, readRunSummary, RUN_ID } from "../dashboard/records.mjs";
+import { artifactFile, listRunIds, loadRuns, loadRunsById, MAX_ARTIFACT_BYTES, readRunSummary, RUN_ID } from "../dashboard/records.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
 import { normalizeRun } from "../dashboard/public/normalize.mjs";
 import { makeRedactor } from "../dashboard/public/redact.mjs";
 import { buildReport, categoryOf } from "../dashboard/public/regression.mjs";
 import { collectSource } from "../metadata.mjs";
 import { findAppBinary, overallTimeoutMs } from "../ui-lab.mjs";
+import { auditOperations } from "./audit.mjs";
 import { exportEvidence, loadRunEvidence } from "./evidence.mjs";
 import { ACTIVE, cancelJob, JOB_ID, JOB_STATUSES, listJobIds, MAX_REPEAT, refreshJob, runProgress, startJob } from "./jobs.mjs";
 import { LIVE_DURATIONS, LIVE_ERROR_CODES, LIVE_HTTP_STATUS, liveOperations, MAX_WINDOW_MS } from "./live-operations.mjs";
@@ -181,14 +182,18 @@ function compactRun(run) {
   }
   if (run.live) Object.assign(base, { durationMs: run.live.durationMs, stopReason: run.live.stopReason, partial: run.live.partial, frameGaps: run.live.frameGaps, stalls: run.live.stalls, worstMs: run.live.worstMs });
   if (run.build) Object.assign(base, { classification: run.build.classification, totalMs: run.build.totalMs, failedPhase: run.build.failedPhase });
+  if (run.audit) Object.assign(base, { preset: run.audit.preset, jobId: run.audit.jobId, runIds: run.audit.runIds, findings: run.audit.counts });
   return base;
 }
 
+// Reads only the runs it compares: the candidates and their categories' baselines.
 async function comparisonFor(ctx, groups) {
-  const [runs, baselines, budgets] = await Promise.all([loadRuns(ctx.root), readBaselines(ctx.root), loadBudgets(ctx.root)]);
-  if (baselines.error) return { report: null, problem: baselines.error, runs };
+  const [baselines, budgets] = await Promise.all([readBaselines(ctx.root), loadBudgets(ctx.root)]);
+  if (baselines.error) return { report: null, problem: baselines.error };
+  const baselineIds = Object.keys(groups).flatMap((category) => baselines.data?.baselines?.[category]?.runIds ?? []);
+  const runs = await loadRunsById(ctx.root, [...Object.values(groups).flat(), ...baselineIds]);
   const report = buildReport({ runs, baselines: baselines.data, budgets: budgets.budgets, candidates: groups, source: { budgets: budgets.source } });
-  return { report, runs };
+  return { report };
 }
 
 function groupByCategory(runs, runIds) {
@@ -203,7 +208,7 @@ function groupByCategory(runs, runIds) {
 
 // The category analysis for a run (compared alone, or with `withRunIds`).
 async function categoryForRun(ctx, runId, withRunIds = []) {
-  const runs = await loadRuns(ctx.root);
+  const runs = await loadRunsById(ctx.root, [runId, ...withRunIds]);
   const run = runs.find((entry) => entry.runId === runId);
   const category = run && categoryOf(run);
   if (!category) return null;
@@ -230,7 +235,8 @@ async function jobView(ctx, job) {
   } else if (job.current) {
     view.progress.current = job.current;
   }
-  const runs = await loadRuns(ctx.root);
+  // Only the job's own runs: this is polled every second while a job runs.
+  const runs = await loadRunsById(ctx.root, job.runs.map((entry) => entry.runId));
   view.results = job.runs.map((entry) => {
     const run = runs.find((candidate) => candidate.runId === entry.runId);
     return run ? compactRun(run) : { runId: entry.runId, status: "missing" };
@@ -241,6 +247,17 @@ async function jobView(ctx, job) {
     view.comparison = report ? { summary: report.summary, categories: report.categories } : null;
   }
   return view;
+}
+
+// Starts a test job (scenarios, optional build, optional audit) and returns its view.
+async function startTests(ctx, request) {
+  const target = await describeTarget(ctx);
+  if (!target.exists && !request.build) throw new ControlError("no-binary", "No Archivist app has been built in build/frontend-debug. Run it with build: true, or npm run observatory:build first.");
+  const started = await startJob(ctx.root, request, { cliPath: ctx.cliPath, target, env: ctx.env });
+  if (started.busy) {
+    throw new ControlError("busy", started.busy.jobId ? `Job ${started.busy.jobId} is running a UI test.` : "A UI test started from the command line is running.", { holder: started.busy });
+  }
+  return jobView(ctx, started.job);
 }
 
 // ---- the operations -------------------------------------------------------------------
@@ -279,7 +296,7 @@ export const OPERATIONS = {
   },
   "observatory.tests.run": {
     description: "Start UI scenarios in the background (one test at a time), each in a fresh disposable profile. Returns the job at once; poll observatory.tests.status.",
-    cli: "npm run observatory -- tests run [--scenario sidebar|workspace|all] [--repeat <n>] [--build] [--wait] --json",
+    cli: "npm run observatory -- tests run [--scenario sidebar|workspace|chat|startup|all] [--repeat <n>] [--build] [--wait] --json",
     input: {
       scenario: { type: "string", pattern: "^(all|[a-z][a-z0-9-]{0,31})$", default: "all", description: "A scenario id, or all" },
       repeat: { type: "integer", min: 1, max: MAX_REPEAT, default: 1, description: "Rounds of every chosen scenario" },
@@ -292,13 +309,7 @@ export const OPERATIONS = {
       if (!chosen.every((id) => scenarios.some((entry) => entry.id === id))) {
         throw new ControlError("invalid-input", `Unknown scenario "${input.scenario}". Available: all, ${scenarios.map((entry) => entry.id).join(", ")}.`);
       }
-      const target = await describeTarget(ctx);
-      if (!target.exists && !input.build) throw new ControlError("no-binary", "No Archivist app has been built in build/frontend-debug. Run it with build: true, or npm run observatory:build first.");
-      const started = await startJob(ctx.root, { scenarios: chosen, repeat: input.repeat, build: input.build }, { cliPath: ctx.cliPath, target, env: ctx.env });
-      if (started.busy) {
-        throw new ControlError("busy", started.busy.jobId ? `Job ${started.busy.jobId} is running a UI test.` : "A UI test started from the command line is running.", { holder: started.busy });
-      }
-      return { job: await jobView(ctx, started.job) };
+      return { job: await startTests(ctx, { scenarios: chosen, repeat: input.repeat, build: input.build }) };
     },
   },
   "observatory.tests.status": {
@@ -339,7 +350,7 @@ export const OPERATIONS = {
       for (const id of ids) {
         const loaded = await refreshJob(ctx.root, id);
         jobs.push(loaded?.job
-          ? { jobId: id, status: loaded.job.status, createdAt: loaded.job.createdAt, finishedAt: loaded.job.finishedAt, scenarios: loaded.job.plan?.scenarios, repeat: loaded.job.plan?.repeat, runIds: loaded.job.runs.map((entry) => entry.runId), error: loaded.job.error }
+          ? { jobId: id, status: loaded.job.status, createdAt: loaded.job.createdAt, finishedAt: loaded.job.finishedAt, scenarios: loaded.job.plan?.scenarios, repeat: loaded.job.plan?.repeat, audit: loaded.job.request?.audit ?? null, auditRunId: loaded.job.auditRunId ?? null, runIds: loaded.job.runs.map((entry) => entry.runId), error: loaded.job.error }
           : { jobId: id, status: "unreadable", error: loaded?.error ?? null });
       }
       return { jobs };
@@ -347,15 +358,20 @@ export const OPERATIONS = {
   },
   "observatory.runs.list": {
     description: "Recorded runs, newest first, as compact records (status, identity and headline measurements).",
-    cli: "npm run observatory -- runs list [--kind build|ui-scenario|runtime-log|live-session] [--scenario <id>] [--status <s>] [--limit <n>] --json",
+    cli: "npm run observatory -- runs list [--kind build|ui-scenario|runtime-log|live-session|audit] [--scenario <id>] [--status <s>] [--limit <n>] --json",
     input: {
-      kind: { type: "string", enum: ["build", "ui-scenario", "runtime-log", "live-session"] },
+      kind: { type: "string", enum: ["build", "ui-scenario", "runtime-log", "live-session", "audit"] },
       scenario: { type: "string", pattern: SCENARIO_ID.source },
       status: { type: "string", pattern: "^[a-z-]{1,20}$" },
       limit: { type: "integer", min: 1, max: 500, default: 20 },
     },
     sideEffects: "none",
     async run(ctx, input) {
+      if (!input.kind && !input.scenario && !input.status) {
+        // Unfiltered: count the folders, read only the newest `limit`.
+        const ids = await listRunIds(ctx.root);
+        return { total: ids.length, runs: (await loadRunsById(ctx.root, ids.slice(0, input.limit))).map(compactRun) };
+      }
       const all = await loadRuns(ctx.root);
       const runs = all
         .filter((run) => !input.kind || run.kind === input.kind)
@@ -411,10 +427,10 @@ export const OPERATIONS = {
     input: { runIds: { type: "array", items: { pattern: RUN_ID_PATTERN }, minItems: 1, maxItems: 50, required: true } },
     sideEffects: "none",
     async run(ctx, input) {
-      const runs = await listRawRuns(ctx.root);
-      const missing = input.runIds.filter((id) => !runs.some((run) => run.runId === id));
+      const present = new Set(await listRunIds(ctx.root));
+      const missing = input.runIds.filter((id) => !present.has(id));
       if (missing.length) throw new ControlError("not-found", `No run ${missing.join(", ")}.`);
-      const normalized = await loadRuns(ctx.root);
+      const normalized = await loadRunsById(ctx.root, input.runIds);
       const groups = groupByCategory(normalized, input.runIds);
       const uncategorized = input.runIds.filter((id) => !Object.values(groups).flat().includes(id));
       if (!Object.keys(groups).length) throw new ControlError("invalid-input", "None of these runs has a baseline category (only classified builds and UI scenario runs do).");
@@ -424,7 +440,7 @@ export const OPERATIONS = {
     },
   },
   "observatory.reports.generate": {
-    description: "The Copy for AI diagnostic report for a run: compact Markdown plus the same facts as data. Paths and secrets are redacted; raw logs are never included.",
+    description: "The Copy for AI diagnostic report for a run: compact Markdown plus the same facts as data. Paths and common secret formats are redacted (pattern matching, not a guarantee); raw logs are never included.",
     cli: "npm run observatory -- report <run-id> [--json]",
     input: {
       runId: { type: "string", pattern: RUN_ID_PATTERN, required: true },
@@ -459,6 +475,7 @@ export const OPERATIONS = {
     },
   },
   ...liveOperations({ ControlError, requireRun, runIdPattern: RUN_ID_PATTERN }),
+  ...auditOperations({ ControlError, requireRun, runIdPattern: RUN_ID_PATTERN, describeTarget, scenarioDefinitions, startTests, jobView }),
 };
 
 // One call: validate, run, wrap. Never throws.
@@ -476,5 +493,6 @@ export function exitCodeFor(response) {
   if (response.ok) return 0;
   if (response.error.code === "invalid-input" || response.error.code === "unknown-operation") return 2;
   if (response.error.code === "busy") return 4;
+  if (response.error.code === "timed-out") return 124;
   return 1;
 }
