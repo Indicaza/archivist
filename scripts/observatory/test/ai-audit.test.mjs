@@ -38,6 +38,16 @@ const one = (findings, rule) => {
 };
 
 describe("AI findings: one injected cause, one finding", () => {
+  test("offline pipeline fixture explicitly requests indexed Library retrieval", async () => {
+    const fixture = JSON.parse(await readFile(path.join(HERE, "..", "ui-scenarios", "ai-pipeline.json"), "utf8"));
+    assert.ok(fixture.version >= 2);
+    assert.ok(fixture.workload.library.files >= 300);
+    assert.equal(fixture.setup.find((step) => step.op === "seedChats").files, fixture.workload.library.files);
+    for (const step of fixture.steps.filter((step) => step.op === "sendChatMessage")) {
+      assert.match(step.text, /search (?:the )?library/i);
+    }
+  });
+
   test("a healthy turn has no findings", () => {
     assert.deepEqual(rules(findingsFor({})), []);
   });
