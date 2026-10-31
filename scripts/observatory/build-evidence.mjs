@@ -291,7 +291,7 @@ const BOOKKEEPING = [/(^|\/)cmake\.verify_globs$/, /(^|\/)build\.ninja$/, /_auto
 export function categorize(job, rule, compdb) {
   const output = job.outputs[0] ?? "";
   if (job.outputs.every((o) => BOOKKEEPING.some((p) => p.test(o))) || /^RERUN_CMAKE$/.test(rule ?? "")) return "cmake";
-  if (/(^|\\/)cmake_pch\.[^/]+\.(pch|gch)$/.test(output)) return "pch";
+  if (/(^|\/)cmake_pch\.[^/]+\.(pch|gch)$/.test(output)) return "pch";
   if (rule && /_COMPILER__/.test(rule)) return "compile";
   if (compdb?.compile) return "compile";
   if (rule && /_STATIC_LIBRARY_LINKER__/.test(rule)) return "archive";
