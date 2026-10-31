@@ -98,6 +98,7 @@ test("smoke scenario is shorter and never mutates the canonical workload", () =>
   assert.equal(fast.iterations, 2);
   assert.equal(fast.warmupIterations, 0);
   assert.equal(fast.settleQuietMs, 70);
+  assert.equal(fast.settleTimeoutMs, 900);
   assert.equal(fast.version, 11002);
   assert.match(fast.name, /smoke/);
   assert.match(fast.initialConditions, /frame presentation may differ/);
