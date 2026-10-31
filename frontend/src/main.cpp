@@ -9,10 +9,12 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QStringList>
 #include <QStandardPaths>
 #include <QVariantMap>
 #include <QtEnvironmentVariables>
 #include <QtWebEngineQuick>
+#include <atomic>
 #include <memory>
 #include <qqml.h>
 
@@ -79,15 +81,23 @@ public:
                 return url;
 
             const QString source = QDir(m_sourceRoot).absoluteFilePath(relative);
-            if (QFileInfo(source).isFile())
+            if (QFileInfo(source).isFile()) {
+                m_redirects.fetch_add(1, std::memory_order_relaxed);
                 return QUrl::fromLocalFile(source);
+            }
         }
 
         return url;
     }
 
+    int redirectedCount() const
+    {
+        return m_redirects.load(std::memory_order_relaxed);
+    }
+
 private:
     const QString m_sourceRoot;
+    std::atomic<int> m_redirects {0};
 };
 
 int main(int argc, char *argv[])
@@ -403,7 +413,9 @@ int main(int argc, char *argv[])
 
     // Marks when the root object exists inside qml-load, splitting compile
     // and create from what runs after it before loadFromModule returns.
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [uiLabBackground](QObject *object, const QUrl &) {
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [uiLabBackground, sourceInterceptorPtr = sourceInterceptor.get()](QObject *object, const QUrl &) {
+        if (sourceInterceptorPtr)
+            qInfo().noquote() << "[Dev QML] Redirected source URLs:" << sourceInterceptorPtr->redirectedCount();
         LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("qml-root-created"), {}, object ? 1 : 0);
 #if defined(Q_OS_MACOS)
         if (uiLabBackground) configureUiLabMacWindow(qobject_cast<QQuickWindow *>(object));
