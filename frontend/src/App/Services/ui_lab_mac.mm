@@ -24,5 +24,7 @@ void configureUiLabMacWindow(QQuickWindow *window)
         (static_cast<NSUInteger>(existing) & ~static_cast<NSUInteger>(NSWindowCollectionBehaviorCanJoinAllSpaces))
         | static_cast<NSUInteger>(NSWindowCollectionBehaviorMoveToActiveSpace));
     [nativeWindow setCollectionBehavior:behavior];
-    [nativeWindow setIgnoresMouseEvents:YES];
+    [nativeWindow setLevel:(NSNormalWindowLevel - 1)];
+    [nativeWindow orderBack:nil];
+    [nativeWindow setIgnoresMouseEvents:NO];
 }
