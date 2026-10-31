@@ -290,6 +290,18 @@ async function uiCommandLocked(options, collected) {
 async function uiScenarioCommand(name, options) {
   const root = observatoryRoot();
   const scenario = JSON.parse(await readFile(path.join(SCENARIO_DIR, `${name}.json`), "utf8"));
+  const background = process.platform === "darwin" && process.env.ARCHIVIST_UI_LAB_FOREGROUND !== "1";
+  if (options.fast === true) {
+    scenario.version += 1000;
+    scenario.name += " (smoke)";
+    scenario.warmupIterations = 0;
+    scenario.iterations = Math.min(2, scenario.iterations ?? 1);
+    scenario.settleQuietMs = Math.min(70, scenario.settleQuietMs ?? 120);
+  }
+  if (background) {
+    scenario.version += 10000;
+    scenario.initialConditions += " UI Lab macOS background window (no focus or Spaces switching intended); frame presentation may differ when obscured.";
+  }
   const { runId, dir } = await createRunDir(root, `ui-${name}`);
   await options.onRunCreated?.(runId);
   const summaryPath = path.join(dir, "summary.json");
@@ -364,6 +376,7 @@ async function uiScenarioCommand(name, options) {
 
   const profileDir = await createProfile();
   const baseEnv = labEnvironment(process.env, { profileDir, scenarioFile: scenarioPath, eventsFile: eventsPath });
+  if (background) baseEnv.ARCHIVIST_UI_LAB_BACKGROUND = "1";
   if (!provider.keepKey) delete baseEnv.OPENAI_API_KEY;
   let app;
   try {
@@ -401,6 +414,7 @@ async function uiScenarioCommand(name, options) {
     driverVersion: events?.driverVersion ?? null,
     driverStatus: events?.status ?? null,
     isolation: events?.isolation ?? null,
+    backgroundMode: background,
   };
   summary.actions = {
     planned: events?.plannedActions ?? null,
