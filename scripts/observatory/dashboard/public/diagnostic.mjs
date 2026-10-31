@@ -277,7 +277,7 @@ export function diagnosticMarkdown(facts) {
   const id = facts.identity;
   const title = facts.kind === "ui-scenario" ? facts.experiment?.scenario ?? "UI scenario" : facts.kind === "build" ? "Build" : facts.kind === "live-session" ? "Live recording" : facts.kind;
   const out = [`# Archivist Observatory: ${title} (${facts.status})`, "",
-    `Observatory record \`${facts.runId}\`. Everything below is measured unless a section says otherwise. Paths and secrets are redacted.`, "",
+    `Observatory record \`${facts.runId}\`. Everything below is measured unless a section says otherwise. Paths and common secret formats are redacted (pattern matching, not a guarantee).`, "",
     "## Identity",
     `- Source: ${id.branch ?? "detached"} @ ${id.commit ?? "unknown commit"}${id.dirty ? ` (dirty tree${id.changedFiles != null ? `, ${id.changedFiles} changed files` : ""})` : id.dirty === false ? " (clean tree)" : ""}`,
   ];

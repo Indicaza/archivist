@@ -1748,6 +1748,9 @@ void ChatStore::selectChat(const QString &chatId)
     setLoadingMessages(true);
     // Observatory live recorder: from the click to the conversation loaded.
     const quint64 live = LiveEvents::begin(QStringLiteral("chat"), QStringLiteral("switch-conversation"));
+    // And from the click to its first page of messages handed to QML.
+    LiveEvents::end(m_liveOpen, 0, {{QStringLiteral("outcome"), QStringLiteral("superseded")}});
+    m_liveOpen = LiveEvents::begin(QStringLiteral("chat"), QStringLiteral("open-conversation"));
 
     core->write(
         [chatId](CoreDatabase &database) { return ChatRepository::selectChat(database, chatId); },
@@ -1755,6 +1758,8 @@ void ChatStore::selectChat(const QString &chatId)
         [this, live](const CoreResult &result) {
             LiveEvents::end(live, result.ok ? 1 : 0);
             if (!result.ok) {
+                LiveEvents::end(m_liveOpen, 0);
+                m_liveOpen = 0;
                 setLoadingMessages(false);
                 setErrorMessage(result.errorMessage);
                 return;
@@ -1791,7 +1796,11 @@ void ChatStore::refreshSelectedMessages()
 
     core->read(
         [requestedChatId](CoreDatabase &database) {
-            return QVariant(ChatRepository::messagePage(database, requestedChatId, initialMessagePageSize));
+            // On the database thread: the query alone, without queueing.
+            LiveEvents::Scope live(QStringLiteral("chat"), QStringLiteral("load-message-page"));
+            QVariantMap page = ChatRepository::messagePage(database, requestedChatId, initialMessagePageSize);
+            live.setField(QStringLiteral("messages"), page.value(QStringLiteral("messages")).toList().size());
+            return QVariant(page);
         },
         this,
         [this, requestedChatId](const CoreResult &result) {
@@ -1802,13 +1811,26 @@ void ChatStore::refreshSelectedMessages()
             setLoadingMessages(false);
 
             if (!result.ok) {
+                LiveEvents::end(m_liveOpen, 0);
+                m_liveOpen = 0;
                 setErrorMessage(result.errorMessage);
                 return;
             }
 
+            const qint64 mapNs = LiveEvents::recording() ? LiveEvents::nowNs() : -1;
             const MessagePage page = mapMessagePage(result.value.toMap());
-            setMessages(page.messages);
-            setMessagePageState(page.hasMore, page.nextBeforeMessageId);
+            if (mapNs >= 0) {
+                LiveEvents::span(QStringLiteral("chat"), QStringLiteral("map-messages"), mapNs, LiveEvents::nowNs());
+            }
+            {
+                // Handing the page to QML: bindings and delegates that react
+                // synchronously are included; later layout and painting are not.
+                LiveEvents::Scope live(QStringLiteral("chat"), QStringLiteral("publish-messages"), {{QStringLiteral("messages"), page.messages.size()}});
+                setMessages(page.messages);
+                setMessagePageState(page.hasMore, page.nextBeforeMessageId);
+            }
+            LiveEvents::end(m_liveOpen, 1, {{QStringLiteral("messages"), page.messages.size()}});
+            m_liveOpen = 0;
             resumeActiveRunForSelectedChat();
         }
     );

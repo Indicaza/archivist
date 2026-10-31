@@ -17,6 +17,11 @@ export const REDACTION_RULES = [
   "opaque strings of 32+ mixed-case letters and digits -> <redacted>",
 ];
 
+// Redaction is pattern matching. It catches the usual paths and secret
+// formats, not every secret: a password in an unusual form, or private text
+// that isn't a path or a key, gets through. Say so wherever it is applied.
+export const REDACTION_LIMITS = "Pattern-based redaction: it catches common paths and secret formats, not everything. Read it before sharing.";
+
 // Mixed case and digits: a key or token, not a word, a path part or a hash.
 const OPAQUE = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])/;
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 import { accessFile, callLive, readAccess } from "../control/live.mjs";
-import { dispatch, ERROR_CODES, HTTP_STATUS, OPERATIONS } from "../control/operations.mjs";
+import { dispatch, ERROR_CODES, exitCodeFor, HTTP_STATUS, OPERATIONS } from "../control/operations.mjs";
 import { PAGE_FILES } from "../dashboard/server.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
 import { compareLive, context, liveModel, rangeDetail, spikesWithContext, summarySentence } from "../dashboard/public/live.mjs";
@@ -83,6 +83,33 @@ describe("live analysis", () => {
     assert.equal(same.compatible, true);
     assert.ok(same.metrics.every((metric) => metric.delta === 0 || metric.delta === null));
     assert.ok(same.notes.some((note) => /significance/.test(note)));
+  });
+
+  test("compare warns about what makes two recordings less comparable, and refuses different sampling", () => {
+    const variant = (change) => {
+      const summary = structuredClone(fixture.summary);
+      change(summary);
+      return liveModel({ ...fixture, summary });
+    };
+    const same = compareLive(model, model);
+    assert.ok(same.warnings.some((line) => /same build/.test(line)), "the same build is pointed out");
+
+    const release = variant((summary) => { summary.app.buildType = "release"; summary.environment.platform = "darwin"; summary.environment.osVersion = "15.1"; summary.source.commit = "d".repeat(40); });
+    const warned = compareLive(model, release);
+    assert.equal(warned.compatible, true);
+    assert.ok(warned.warnings.some((line) => /debug build and the other release/.test(line)));
+    assert.ok(warned.warnings.some((line) => /different machines or systems/.test(line)));
+
+    const partial = variant((summary) => { summary.status = "interrupted"; summary.live.partial = true; summary.live.stopReason = "app-ended"; summary.live.durationMs = 1000; summary.live.stats = { ...summary.live.stats, dropped: { frames: 7 } }; });
+    const lines = compareLive(model, partial).warnings;
+    assert.ok(lines.some((line) => /is partial \(stopped by app-ended\)/.test(line)));
+    assert.ok(lines.some((line) => /dropped data at the recorder's limit \(7 frames\)/.test(line)));
+    assert.ok(lines.some((line) => /lengths differ a lot/.test(line)));
+
+    const resampled = variant((summary) => { summary.live.sampleIntervalMs = 250; });
+    const refused = compareLive(model, resampled);
+    assert.equal(refused.compatible, false);
+    assert.ok(refused.blockers.some((line) => /Sampling differs/.test(line)));
   });
 
   test("normalize knows live recordings", () => {
@@ -188,6 +215,83 @@ describe("live operations", () => {
     } finally {
       await app.close();
     }
+  });
+
+  describe("wait, in every recorder state", () => {
+    const withApp = async (options, body) => {
+      const root = await tempDir();
+      const app = await startFakeLiveApp(root, options);
+      try {
+        await body(ctxFor(root), app);
+      } finally {
+        await app.close();
+      }
+    };
+
+    test("idle with no recording since the app started: says so, waits for nothing", () => withApp({}, async (ctx) => {
+      const response = await dispatch(ctx, "observatory.live.wait", {});
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, false);
+      assert.equal(response.result.recording, null);
+      assert.match(response.result.message, /No recording/);
+    }));
+
+    test("idle after a recording: returns that recording by the run id in lastRun (an object, not a string)", () => withApp({}, async (ctx) => {
+      const started = await dispatch(ctx, "observatory.live.start", {});
+      await dispatch(ctx, "observatory.live.stop", {});
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const status = await dispatch(ctx, "observatory.live.status", {});
+      assert.equal(typeof status.result.lastRun, "object");
+      const response = await dispatch(ctx, "observatory.live.wait", {});
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, false);
+      assert.equal(response.result.recording.runId, started.result.runId);
+    }));
+
+    test("while recording until the time limit stops it", () => withApp({ limitMs: 200 }, async (ctx) => {
+      const started = await dispatch(ctx, "observatory.live.start", { durationSeconds: 15 });
+      const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, true);
+      assert.equal(response.result.recording.runId, started.result.runId);
+      assert.equal(response.result.recording.stopReason, "time-limit");
+    }));
+
+    test("during finalizing: waits for the files, then reads them", () => withApp({ finalizeMs: 400 }, async (ctx, app) => {
+      const started = await dispatch(ctx, "observatory.live.start", {});
+      await dispatch(ctx, "observatory.live.stop", {});
+      assert.equal(app.state, "finalizing");
+      const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+      assert.ok(response.ok, JSON.stringify(response.error));
+      assert.equal(response.result.waited, true);
+      assert.equal(response.result.recording.runId, started.result.runId);
+    }));
+
+    test("a recording that failed or was interrupted is still returned, marked as such", async () => {
+      await withApp({ outcome: "failed" }, async (ctx) => {
+        const started = await dispatch(ctx, "observatory.live.start", {});
+        await dispatch(ctx, "observatory.live.stop", {});
+        const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+        assert.ok(response.ok, JSON.stringify(response.error));
+        assert.equal(response.result.failed.runId, started.result.runId);
+        assert.equal(response.result.recording.status, "failed");
+      });
+      await withApp({ outcome: "interrupted" }, async (ctx) => {
+        await dispatch(ctx, "observatory.live.start", {});
+        await dispatch(ctx, "observatory.live.stop", {});
+        const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 10 });
+        assert.equal(response.result.recording.status, "interrupted");
+      });
+    });
+
+    test("runs out with timed-out (exit 124), never a success", () => withApp({}, async (ctx) => {
+      await dispatch(ctx, "observatory.live.start", {});
+      const response = await dispatch(ctx, "observatory.live.wait", { timeoutSeconds: 1 });
+      assert.equal(response.ok, false);
+      assert.equal(response.error.code, "timed-out");
+      assert.equal(exitCodeFor(response), 124);
+      await dispatch(ctx, "observatory.live.stop", {});
+    }));
   });
 
   test("bad input is refused before anything reaches the app", async () => {

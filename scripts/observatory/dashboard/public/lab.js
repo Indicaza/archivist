@@ -5,7 +5,7 @@
 // presses a button.
 import { control, hasControlKey, liveArtifacts, loadBaselines, runDetails, runEvents, runLogText, runScenario } from "./data.js";
 import { comparisonMarkdown, diagnosticReport } from "./diagnostic.mjs";
-import { empty, h, kv, ms, statusPill, table, when } from "./dom.js";
+import { h, kv, ms, statusPill, table, when } from "./dom.js";
 import { makeRedactor } from "./redact.mjs";
 import { buildReport, categoryLabel, categoryOf } from "./regression.mjs";
 
@@ -88,7 +88,7 @@ function copyButton(label, makeText) {
         const text = await makeText();
         const copied = await copyText(text);
         status.textContent = copied
-          ? `Copied ${Math.round(text.length / 100) / 10} KB of Markdown. Paths and secrets are redacted.`
+          ? `Copied ${Math.round(text.length / 100) / 10} KB of Markdown. Paths and common secret formats are redacted; read it before sharing.`
           : "Couldn't reach the clipboard; the report is below to copy by hand.";
         preview.replaceChildren(h("summary", {}, "Show the report"), h("pre", { class: "log report" }, text));
         preview.hidden = false;
@@ -200,14 +200,14 @@ function resultsBlock(job) {
     const compared = job.comparison.categories.filter((category) => category.status !== "no-baseline");
     parts.push(h("h3", {}, "Against the baseline"));
     if (!compared.length) {
-      parts.push(h("p", { class: "muted" }, "No baseline is set for these scenarios, so nothing was compared. ", h("a", { href: "#/baselines" }, "Baselines")));
+      parts.push(h("p", { class: "muted" }, "No baseline is set for these scenarios, so nothing was compared. ", h("a", { href: "#/compare?check=1" }, "Regression check")));
     }
     for (const category of compared) {
       const notable = [...category.metrics, ...category.steps].filter((metric) => ["regression", "improvement"].includes(metric.verdict) || metric.overBudget);
       parts.push(h("div", { class: "notice" }, h("strong", {}, `${categoryLabel(category.category)}: ${VERDICT_WORDS[category.verdict] ?? category.verdict}`),
         category.reasons.length ? h("ul", {}, category.reasons.map((reason) => h("li", {}, reason))) : null,
         notable.length ? h("ul", {}, notable.map((metric) => h("li", {}, `${metric.label}: ${ms(metric.baseline.median)} → ${ms(metric.candidate.median)} (${metric.deltaPercent > 0 ? "+" : ""}${metric.deltaPercent}%), ${metric.verdict}${metric.overBudget && metric.verdict !== "regression" ? ", over budget but unconfirmed" : ""}`))) : null,
-        h("p", {}, h("a", { href: "#/baselines" }, "Details on the Baselines page"))));
+        h("p", {}, h("a", { href: "#/compare?check=1" }, "Details in Compare › Regression check"))));
     }
   }
   const last = ids.at(-1);
@@ -215,62 +215,55 @@ function resultsBlock(job) {
   return parts;
 }
 
-export async function labPage() {
-  const parts = [h("div", { class: "page-head" }, h("h2", {}, "Test Lab"),
-    h("span", { class: `pill ${hasControlKey() ? "good" : ""}` }, hasControlKey() ? "controls on" : "read-only"))];
-  parts.push(h("p", { class: "muted" },
-    "Runs the UI Lab scenarios against the Archivist app already built in build/frontend-debug, as a separate app with a throwaway profile. ",
-    "Your open Archivist window is not touched or restarted. One test runs at a time."));
+// The scripted UI test, as a fold on the Record page: closed until opened,
+// open by itself while a test runs.
+export function onRecordPage() {
+  return /^#\/(record)?($|\?)/.test(location.hash) || location.hash === "";
+}
+
+export async function testPanel({ open = false } = {}) {
+  const fold = h("details", { class: "card fold", open: open || null });
+  const parts = [];
+  fold.append(h("summary", {}, h("span", { class: "fold-title" }, "Run a scripted UI test"),
+    h("span", { class: "muted small" }, "Repeatable sidebar, wells and tabs scenarios in a separate app")));
 
   if (!hasControlKey()) {
-    parts.push(h("div", { class: "notice warn" }, h("strong", {}, "This dashboard is read-only."),
-      h("p", {}, "To run tests from this page, start it with controls and open the link it prints: ", h("code", { class: "cmd" }, "npm run observatory:dashboard -- --control")),
-      h("p", {}, "Inside Archivist, the Observatory panel has controls built in. An agent can do the same from a terminal: ", h("code", { class: "cmd" }, "npm run observatory -- tests run --scenario sidebar --wait --json"))));
-    return parts;
+    parts.push(h("div", { class: "notice warn" }, h("strong", {}, "This page is read-only."),
+      h("p", {}, "Start it with controls: ", h("code", { class: "cmd" }, "npm run observatory:dashboard -- --control"), ". The Observatory panel inside Archivist has them built in."),
+      h("p", {}, "From a terminal: ", h("code", { class: "cmd" }, "npm run observatory -- tests run --scenario sidebar --wait --json"))));
+    fold.append(...parts);
+    return fold;
   }
 
   const caps = await control("observatory.capabilities");
   if (!caps.ok) {
     parts.push(h("div", { class: "notice bad" }, `Controls aren't available: ${caps.error.message}`));
-    return parts;
+    fold.append(...parts);
+    return fold;
   }
   const target = caps.result.target;
   const source = target.source ?? {};
-  parts.push(h("div", { class: "grid cards" },
-    h("div", { class: "card" }, h("h3", {}, "What will be tested"), kv([
-      ["Binary", target.exists ? h("span", { class: "mono path" }, target.binary) : h("span", { class: "verdict-worse" }, "not built yet")],
-      ["Built", target.modifiedAt ? when(target.modifiedAt) : null],
-      ["Source", `${source.branch ?? "detached"} @ ${(source.commit ?? "?").slice(0, 9)}${source.dirty ? ` · dirty (${source.changedFiles} files)` : ""}`],
-    ]), source.dirty ? h("p", { class: "muted small" }, "The working tree has changes; the binary may not match the commit. Build first to test exactly this checkout.") : null)));
-
-  const scenario = h("select", {}, h("option", { value: "all" }, "All scenarios"),
+  const scenario = h("select", { "aria-label": "Scenario" }, h("option", { value: "all" }, "All scenarios"),
     caps.result.scenarios.map((entry) => h("option", { value: entry.id }, `${entry.name} (v${entry.version})`)));
-  const repeat = h("input", { type: "number", min: 1, max: caps.result.limits.maxRepeat, value: 1, class: "narrow" });
+  const repeat = h("select", { "aria-label": "Rounds" }, [1, 3, 5, 10].filter((n) => n <= caps.result.limits.maxRepeat).map((n) => h("option", { value: n, selected: n === 3 }, `${n} round${n === 1 ? "" : "s"}`)));
   const build = h("input", { type: "checkbox" });
   const runButton = h("button", { class: "primary", type: "button" }, "Run test");
   const formStatus = h("span", { class: "small", role: "status" });
   const jobArea = h("div");
-  const historyArea = h("div");
-  parts.push(h("div", { class: "card lab-form" }, h("h3", {}, "Run"),
-    h("div", { class: "filters" },
-      h("label", {}, "Scenario", scenario),
-      h("label", {}, "Rounds", repeat),
-      h("label", {}, h("span", {}, "Build first"), h("span", { class: "row" }, build, h("span", { class: "muted small" }, "rebuilds build/frontend-debug; nothing is restarted"))),
-      runButton),
-    h("p", { class: "muted small" }, "Three or more rounds let the baseline comparison confirm a change."), formStatus));
-  parts.push(jobArea, historyArea);
+  parts.push(h("div", { class: "lab-form" },
+    h("div", { class: "controls" }, scenario, repeat, runButton),
+    h("label", { class: "check small" }, build, " Build first (rebuilds build/frontend-debug; nothing is restarted)"),
+    h("p", { class: "muted small" },
+      target.exists ? ["Tests ", h("span", { class: "mono path" }, target.binary), target.modifiedAt ? `, built ${when(target.modifiedAt)}` : "", ", as a separate app with a throwaway profile. Your Archivist isn't touched."]
+        : h("span", { class: "verdict-worse" }, "build/frontend-debug isn't built yet: tick Build first."),
+      source.dirty ? ` The checkout has uncommitted changes (${source.changedFiles} files).` : ""),
+    formStatus));
+  parts.push(jobArea);
 
   let timer = null;
   let lastStatus = null;
   const mine = ++generation;
-  const onLab = () => mine === generation && location.hash.startsWith("#/lab");
-
-  const showHistory = async () => {
-    const list = await control("observatory.tests.list", { limit: 8 });
-    if (!list.ok || !list.result.jobs.length) return historyArea.replaceChildren();
-    historyArea.replaceChildren(h("h3", {}, "Recent tests"), table(["Job", "Scenarios", { label: "Rounds", num: true }, "Status", "Started"],
-      list.result.jobs.map((job) => ({ cells: [h("span", { class: "mono" }, job.jobId), (job.scenarios ?? []).join(", "), job.repeat ?? "—", statusPill(job.status), when(job.createdAt)] }))));
-  };
+  const onLab = () => mine === generation && onRecordPage();
 
   const showJob = async (jobId) => {
     const response = await control("observatory.tests.status", jobId ? { jobId } : {});
@@ -280,7 +273,7 @@ export async function labPage() {
     }
     const job = response.result.job;
     if (!job) {
-      jobArea.replaceChildren(empty("No tests run from here yet."));
+      jobArea.replaceChildren();
       return null;
     }
     const active = ACTIVE.has(job.status);
@@ -299,7 +292,8 @@ export async function labPage() {
         await showJob(job.jobId);
       },
     }, "Cancel") : null;
-    jobArea.replaceChildren(h("section", { class: "card" },
+    if (active) fold.open = true;
+    jobArea.replaceChildren(h("section", { class: "job" },
       h("div", { class: "page-head" }, h("h3", {}, active ? "Running: " : "Last test: ", jobTitle(job, caps.result.scenarios)), h("span", { class: "mono muted small" }, job.jobId)),
       progressBlock(job), cancel, active ? null : resultsBlock(job)));
     runButton.disabled = active;
@@ -311,7 +305,6 @@ export async function labPage() {
     if (!onLab()) return;
     const job = await showJob(jobId);
     if (job && ACTIVE.has(job.status) && onLab()) timer = setTimeout(() => poll(job.jobId), 1000);
-    else await showHistory();
   };
 
   runButton.addEventListener("click", async () => {
@@ -329,5 +322,6 @@ export async function labPage() {
   });
 
   poll(null);
-  return parts;
+  fold.append(...parts);
+  return fold;
 }

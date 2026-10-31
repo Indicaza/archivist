@@ -1,12 +1,12 @@
-// The Live page: record what the app does while you use it (Start, Stop,
-// Add marker), then read the recording as a timeline. The controls call the
+// Live recordings: the Record card (Record, Stop, Mark) and one recording
+// read as a timeline. The controls call the
 // same live operations an agent calls; the analysis is live.mjs, the same
 // code the CLI and the Copy for AI report use.
 import { artifactUrl, hasControlKey, live, liveArtifacts, liveIsInApp, runDetails } from "./data.js";
-import { empty, h, kindLabel, kv, legend, ms, statusPill, table, when } from "./dom.js";
-import { copyForAiButton, exportButton } from "./lab.js";
+import { empty, h, kv, legend, ms, statusPill, table } from "./dom.js";
+import { onRecordPage } from "./lab.js";
 import {
-  at, bytes, compareLive, eventName, LONG_GAP_MS, liveModel, operationSummary, rangeDetail, spikesWithContext, spikeTypeLabel, summarySentence, windowLabel,
+  at, bytes, eventName, LONG_GAP_MS, liveModel, operationSummary, rangeDetail, spikesWithContext, spikeTypeLabel, summarySentence, windowLabel,
 } from "./live.mjs";
 
 const NS = "http://www.w3.org/2000/svg";
@@ -32,30 +32,31 @@ function clock(msValue) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-// ---- the recorder card ---------------------------------------------------------
+// ---- the recorder ---------------------------------------------------------------
 
 function readOnlyNotice() {
-  return h("div", { class: "notice warn" }, h("strong", {}, "Recording needs controls."),
-    h("p", {}, "Inside Archivist, open the Observatory panel and go to Live. From a terminal (with \"Let agents record\" on in the app): ",
-      h("code", { class: "cmd" }, "npm run observatory -- live record --duration 30")),
-    h("p", { class: "muted small" }, "Saved recordings are listed below either way."));
+  return h("div", { class: "notice warn" }, h("strong", {}, "Recording needs the Observatory panel."),
+    h("p", {}, "Inside Archivist, open the Observatory panel. From a terminal (with \"Let agents record\" on in the app): ",
+      h("code", { class: "cmd" }, "npm run observatory -- live record --duration 30")));
 }
 
-function recorderCard() {
-  const card = h("section", { class: "card live-recorder", "aria-live": "polite" });
+// The big Record card. While recording it redraws once a second (those
+// frames are recorded too) and nothing on it animates.
+export function recorderHero() {
+  const card = h("section", { class: "hero", "aria-live": "polite" });
   if (!hasControlKey()) {
-    card.append(h("h3", {}, "Recorder"), readOnlyNotice());
+    card.append(heroHead("Record a session", "Saved recordings are in History."), readOnlyNotice());
     return card;
   }
   const mine = ++generation;
-  const onPage = () => mine === generation && location.hash.startsWith("#/live");
+  const onPage = () => mine === generation && onRecordPage();
   let timer = null;
   let previous = null;
   let note = "";
+  let seconds = 30;
 
-  const duration = h("select", { "aria-label": "Recording length" }, DURATIONS.map((seconds) => h("option", { value: seconds, selected: seconds === 30 }, `${seconds} s`)));
-  const label = h("input", { type: "text", maxlength: 64, placeholder: "What are you about to do? (optional)", "aria-label": "Recording name", class: "wide" });
-  const message = h("p", { class: "small", role: "status" });
+  const label = h("input", { type: "text", maxlength: 64, placeholder: "What are you about to try? (optional)", "aria-label": "Recording name", class: "wide" });
+  const message = h("p", { class: "small hero-message", role: "status" });
 
   const act = async (operation, input) => {
     message.textContent = "";
@@ -65,33 +66,53 @@ function recorderCard() {
     return response;
   };
 
+  const lengths = () => h("div", { class: "chips", role: "radiogroup", "aria-label": "Recording length" }, DURATIONS.map((value) => h("button", {
+    type: "button", role: "radio", "aria-checked": value === seconds ? "true" : "false", class: `chip${value === seconds ? " on" : ""}`,
+    onclick: (event) => {
+      seconds = value;
+      for (const chip of event.currentTarget.parentNode.children) {
+        const on = chip === event.currentTarget;
+        chip.classList.toggle("on", on);
+        chip.setAttribute("aria-checked", on ? "true" : "false");
+      }
+    },
+  }, `${value} s`)));
+
   const idleView = (status) => [
-    h("div", { class: "filters" },
-      h("label", {}, "Length", duration),
-      h("label", { class: "grow" }, "Name", label),
-      h("button", { class: "primary", type: "button", onclick: () => act("start", { durationSeconds: Number(duration.value), ...(label.value.trim() ? { label: label.value.trim() } : {}) }) }, "Start recording")),
-    h("p", { class: "muted small" }, "Records frame swaps of every Archivist window, how late the UI thread answers, CPU and memory, and the sidebar, workspace and chat operations it instruments. No content, typing or clipboard. It stops by itself at the length you pick."),
-    status.lastRun?.runId ? h("p", { class: "small" }, "Last recording: ", h("a", { href: `#/live/${status.lastRun.runId}`, class: "mono" }, status.lastRun.runId), " ", statusPill(status.lastRun.status ?? "completed")) : null,
+    heroHead("Record a session", "Use Archivist the way that felt slow. Observatory keeps frames, UI-thread delays, CPU and memory, then shows you the worst moments."),
+    h("div", { class: "hero-controls" },
+      h("button", { class: "record", type: "button", onclick: () => act("start", { durationSeconds: seconds, ...(label.value.trim() ? { label: label.value.trim() } : {}) }) },
+        h("span", { class: "rec-dot", "aria-hidden": "true" }), "Record"),
+      lengths()),
+    label,
+    status.lastRun?.runId ? h("p", { class: "small muted" }, "Last recording: ", h("a", { href: `#/run/${status.lastRun.runId}` }, "open it"), " ", statusPill(status.lastRun.status ?? "completed")) : null,
   ];
 
-  const noteInput = h("input", { type: "text", maxlength: 64, placeholder: "Note (e.g. felt slow here)", "aria-label": "Marker note", class: "wide" });
+  const noteInput = h("input", { type: "text", maxlength: 64, placeholder: "Note this moment (e.g. felt slow here)", "aria-label": "Marker note", class: "wide" });
   noteInput.addEventListener("input", () => { note = noteInput.value; });
+  noteInput.addEventListener("keydown", (event) => { if (event.key === "Enter") addMarker(); });
+  const addMarker = async () => {
+    const response = await act("mark", note.trim() ? { label: note.trim() } : {});
+    if (response.ok) {
+      note = "";
+      noteInput.value = "";
+      message.textContent = `Marked ${at(response.result.markedAtMs)}.`;
+    }
+  };
   const recordingView = (status) => {
     const total = (status.durationSeconds ?? 30) * 1000;
-    const bar = h("div", { class: "bar" }, h("span"));
+    const bar = h("div", { class: "bar big" }, h("span"));
     bar.firstChild.style.width = `${Math.min(100, Math.round(((status.elapsedMs ?? 0) / total) * 100))}%`;
     noteInput.value = note;
     return [
-      h("div", { class: "live-indicator" }, h("span", { class: "dot", "aria-hidden": "true" }), h("strong", {}, "Recording"),
-        h("span", { class: "mono" }, `${clock(status.elapsedMs)} / ${clock(total)}`),
-        status.label ? h("span", { class: "muted" }, `"${status.label}"`) : null,
-        h("span", { class: "muted small" }, `started by ${status.startedBy ?? "?"}`)),
+      h("div", { class: "rec-now" }, h("span", { class: "rec-dot", "aria-hidden": "true" }), h("span", {}, "Recording"),
+        status.label ? h("span", { class: "muted" }, `“${status.label}”`) : null),
+      h("div", { class: "clock" }, clock(status.elapsedMs), h("span", { class: "muted" }, ` / ${clock(total)}`)),
       bar,
-      h("div", { class: "filters" },
-        h("button", { class: "primary", type: "button", onclick: () => act("stop") }, "Stop"),
-        h("label", { class: "grow" }, "Marker", noteInput),
-        h("button", { type: "button", onclick: async () => { const response = await act("mark", note.trim() ? { label: note.trim() } : {}); if (response.ok) { note = ""; message.textContent = `Marker added at ${at(response.result.markedAtMs)}.`; } } }, "Add marker")),
-      h("p", { class: "muted small" }, `${status.frames ?? 0} frames · ${status.events ?? 0} events · ${status.windows ?? 0} window${status.windows === 1 ? "" : "s"} so far`),
+      h("div", { class: "hero-controls" },
+        h("button", { class: "stop", type: "button", onclick: () => act("stop") }, h("span", { class: "stop-square", "aria-hidden": "true" }), "Stop"),
+        h("div", { class: "marker" }, noteInput, h("button", { type: "button", onclick: addMarker }, "Mark"))),
+      h("p", { class: "muted small" }, `${status.frames ?? 0} frames · ${status.events ?? 0} events · ${status.windows ?? 0} window${status.windows === 1 ? "" : "s"} · started by ${status.startedBy ?? "?"}`),
     ];
   };
 
@@ -102,11 +123,10 @@ function recorderCard() {
       box.disabled = true;
       await act("agent-access", { enabled: box.checked });
     });
-    return h("div", { class: "agent-access" },
-      h("label", {}, box, " Let agents record"),
-      h("p", { class: "muted small" }, status.agentAccess
-        ? "On: an agent on this Mac can start, stop and mark recordings (npm run observatory -- live …). It can't do anything else, and this turns off when Archivist quits."
-        : "Off: only this panel can record. Turn on to let an agent (Claude Code, the CLI) start, stop and mark recordings on this Mac."));
+    return h("label", { class: "agent-access small", title: status.agentAccess
+      ? "An agent on this computer can start, stop and mark recordings, nothing else. Turns off when Archivist quits."
+      : "Let an agent (Claude Code, the CLI) start, stop and mark recordings on this computer." },
+      box, h("span", {}, h("strong", {}, "Let agents record"), h("span", { class: "muted" }, status.agentAccess ? " · on until you quit" : " · off")));
   };
 
   const update = async () => {
@@ -115,39 +135,49 @@ function recorderCard() {
     const response = await live("status");
     if (!onPage()) return;
     if (!response.ok) {
-      card.replaceChildren(h("h3", {}, "Recorder"), h("div", { class: "notice bad" }, response.error.message), message);
+      card.replaceChildren(heroHead("Record a session"), h("div", { class: "notice bad" }, response.error.message), message);
       return;
     }
     const status = response.result;
+    context.onStatus?.(status);
     if (status.available === false) {
-      card.replaceChildren(h("h3", {}, "Recorder"), h("div", { class: "notice warn" }, h("strong", {}, "This dashboard can't reach the app's recorder."),
+      card.replaceChildren(heroHead("Record a session"), h("div", { class: "notice warn" }, h("strong", {}, "This page can't reach Archivist's recorder."),
         h("p", {}, status.message), h("p", { class: "muted small" }, "Recording is easiest from the Observatory panel inside Archivist.")), message);
       timer = setTimeout(update, 5000);
       return;
     }
     const busy = status.recording || status.state === "finalizing";
     if (!busy && previous && (previous.recording || previous.state === "finalizing")) {
-      // Just finished: show it.
+      // Just finished: open it.
       const runId = previous.runId ?? status.lastRun?.runId;
       previous = status;
       await context.refresh();
-      if (runId) context.go(`#/live/${runId}`);
+      if (runId) context.go(`#/run/${runId}`);
       return;
     }
     previous = status;
     const focused = document.activeElement;
     const keepFocus = focused === noteInput || focused === label;
+    card.classList.toggle("live", Boolean(status.recording));
     card.replaceChildren(
-      h("div", { class: "page-head" }, h("h3", {}, "Recorder"), statusPill(status.state === "idle" ? "idle" : status.state)),
-      ...(status.recording ? recordingView(status) : status.state === "finalizing" ? [h("p", {}, "Saving the recording…")] : idleView(status)),
-      ...[message, agentToggle(status)].filter(Boolean));
+      ...[...(status.recording ? recordingView(status) : status.state === "finalizing" ? [heroHead("Saving the recording…", "It opens as soon as it's on disk.")] : idleView(status)),
+        message, agentToggle(status)].filter(Boolean));
     if (keepFocus) focused.focus();
-    // Once a second while recording: this page redraws too, and those frames are recorded.
     timer = setTimeout(update, busy ? 1000 : 3000);
   };
-  card.append(h("h3", {}, "Recorder"), h("p", { class: "muted" }, "Reading the recorder…"));
+  card.append(heroHead("Record a session"), h("p", { class: "muted" }, "Reading the recorder…"));
   update();
   return card;
+}
+
+function tile(label, value, sub, tone = "") {
+  return h("div", { class: `tile ${tone}` }, h("span", { class: "tile-label" }, label), h("span", { class: "tile-value" }, value), sub ? h("span", { class: "tile-sub" }, sub) : null);
+}
+
+export { tile };
+
+function heroHead(title, text) {
+  return h("div", { class: "hero-head" }, h("h2", {}, title), text ? h("p", { class: "muted" }, text) : null);
 }
 
 // ---- the timeline ---------------------------------------------------------------
@@ -369,52 +399,28 @@ function spikeBlock(model, spike) {
 
 // ---- pages ----------------------------------------------------------------------
 
-function recordingsTable(runs) {
-  return table(["Recording", "Status", { label: "Length", num: true }, { label: "Frame gaps", num: true }, { label: "Stalls", num: true }, { label: "Worst", num: true }, "Stopped by", "When"],
-    runs.map((run) => ({
-      source: run,
-      cells: [h("a", { href: `#/live/${run.runId}` }, run.label ?? run.runId), statusPill(run.status), ms(run.live?.durationMs ?? null),
-        run.live?.frameGaps ?? "—", run.live?.stalls ?? "—", ms(run.live?.worstMs ?? null), run.live?.stopReason ?? "—", when(run.createdAt)],
-    })), { onRow: (run) => context.go(`#/live/${run.runId}`) });
-}
-
-export async function livePage(runId) {
-  const runs = context.getState().runs.filter((run) => run.kind === "live-session");
-  const parts = [h("div", { class: "page-head" }, h("h2", {}, "Live diagnostics"), h("span", { class: "muted small" }, "Record while you use Archivist, then read what happened."))];
-  parts.push(recorderCard());
-  if (runId) {
-    parts.push(await recordingView(runId, runs));
-    return parts;
-  }
-  parts.push(h("section", {}, h("h3", {}, "Recordings"), runs.length ? recordingsTable(runs) : empty("No recordings yet.", "Press Start recording, use the app, and the recording opens here when it stops.")));
-  return parts;
-}
-
-async function recordingView(runId, runs) {
+// One recording: headline figures, the timeline, the worst moments. The
+// page around it (app.js) adds the title and the Export / Compare actions.
+export async function recordingView(runId) {
   const { run, summary } = runDetails(runId);
   if (!summary) return empty(`Recording ${runId} can't be read.`);
   const { metrics, events } = await liveArtifacts(runId);
   const model = liveModel({ runId, summary, metrics, events });
   const stats = model.stats ?? {};
-  const section = h("section", { class: "recording" });
-  const parts = [h("div", { class: "page-head" }, h("h2", {}, kindLabel(run), " ", statusPill(run.status)), h("span", { class: "mono muted" }, runId))];
+  const section = h("div", { class: "recording" });
+  const parts = [];
   if (summary.status === "running") parts.push(h("div", { class: "notice warn" }, "Still recording. It opens here when it stops; press Refresh if it doesn't."));
   if (model.partial) parts.push(h("div", { class: "notice warn" }, "The app stopped while this was recording. Everything up to the last saved second is here; operations still open then have no end."));
   if (!model.hasMetrics && summary.status !== "running") parts.push(h("div", { class: "notice warn" }, "metrics.json is missing, so there is no timeline; the figures below come from summary.json."));
   parts.push(h("p", { class: "lead" }, summarySentence(model)));
   const busiest = (stats.frames?.windows ?? []).reduce((best, window) => (!best || window.frames > best.frames ? window : best), null);
-  parts.push(h("div", { class: "grid cards" },
-    h("div", { class: "card" }, h("h3", {}, "Recording"), kv([["Length", `${ms(model.durationMs)} of ${model.requestedDurationS ?? "?"} s`], ["Stopped by", model.stopReason], ["Started from", model.startedBy], ["When", when(summary.createdAt)]])),
-    h("div", { class: "card" }, h("h3", {}, "Frames (busiest window)"), busiest
-      ? kv([["Frames", busiest.frames], ["Median interval", ms(busiest.whileDrawing?.p50Ms ?? null)], ["p95", busiest.whileDrawing?.p95Ms == null ? "not enough frames" : ms(busiest.whileDrawing.p95Ms)], ["Longest", ms(busiest.maxIntervalMs ?? null)]])
-      : h("p", { class: "muted" }, "No frames recorded.")),
-    h("div", { class: "card" }, h("h3", {}, "UI thread"), kv([["Longest delay", ms(stats.eventLoop?.maxDelayMs ?? null)], ["Stalls ≥ 50 ms", stats.eventLoop?.stalls ?? "—"], ["Median delay", ms(stats.eventLoop?.p50DelayMs ?? null)]])),
-    h("div", { class: "card" }, h("h3", {}, "CPU and memory"), kv([
-      ["CPU", stats.cpu?.available ? `mean ${stats.cpu.meanPercent}%, max ${stats.cpu.maxPercent}%` : "not available"],
-      ["Resident", stats.memory?.available ? `${bytes(stats.memory.startRssBytes)} → ${bytes(stats.memory.endRssBytes)}` : "not available"],
-      ["Footprint", stats.memory?.footprintAvailable ? `${bytes(stats.memory.startFootprintBytes)} → ${bytes(stats.memory.endFootprintBytes)}` : "not available here"],
-      ["Threads", stats.threads?.available ? `${stats.threads.min}–${stats.threads.max}` : "not available"]]))));
-  parts.push(h("div", { class: "card actions-card" }, copyForAiButton(runId), exportButton(runId)));
+  const stalls = stats.eventLoop?.stalls ?? null;
+  parts.push(h("div", { class: "tiles" },
+    tile("Worst UI-thread delay", ms(stats.eventLoop?.maxDelayMs ?? null), stalls == null ? null : `${stalls} stall${stalls === 1 ? "" : "s"} ≥ ${LONG_GAP_MS} ms`, (stats.eventLoop?.maxDelayMs ?? 0) >= LONG_GAP_MS ? "bad" : "good"),
+    tile("Frame interval", busiest ? ms(busiest.whileDrawing?.p50Ms ?? null) : "—", busiest ? `median while drawing · longest ${ms(busiest.maxIntervalMs ?? null)}` : "no frames recorded"),
+    tile("CPU", stats.cpu?.available ? `${stats.cpu.meanPercent}%` : "—", stats.cpu?.available ? `mean · max ${stats.cpu.maxPercent}% of one core` : "not available"),
+    tile("Memory", stats.memory?.available ? bytes(stats.memory.endRssBytes) : "—", stats.memory?.available ? `resident · from ${bytes(stats.memory.startRssBytes)}` : "not available"),
+    tile("Length", ms(model.durationMs), `of ${model.requestedDurationS ?? "?"} s · stopped by ${model.stopReason ?? "?"}`)));
 
   const detail = h("div", { class: "card detail", id: "live-detail", tabindex: -1 }, h("p", { class: "muted" }, "Click a highlighted moment, or drag across the timeline, to see what happened then."));
   const show = (nodes) => {
@@ -437,30 +443,14 @@ async function recordingView(runId, runs) {
 
   const operations = operationSummary(model);
   if (operations.length) {
-    parts.push(h("section", {}, h("h3", {}, "Operations recorded"), table(["Operation", { label: "Count", num: true }, { label: "Mean", num: true }, { label: "Longest", num: true }, { label: "Failed", num: true }],
+    parts.push(h("details", { class: "fold plain" }, h("summary", {}, `Operations recorded (${operations.length})`), table(["Operation", { label: "Count", num: true }, { label: "Mean", num: true }, { label: "Longest", num: true }, { label: "Failed", num: true }],
       operations.map((op) => ({ cells: [op.operation.replace(".", " "), op.count, op.meanMs == null ? "marker" : ms(op.meanMs), op.maxMs == null ? "—" : ms(op.maxMs), op.failed || ""] })))));
   }
 
-  const others = runs.filter((entry) => entry.runId !== runId && entry.status !== "running");
-  if (others.length) {
-    const pick = h("select", { "aria-label": "Recording to compare with" }, h("option", { value: "" }, "Compare with…"), others.map((entry) => h("option", { value: entry.runId }, `${entry.label ?? entry.runId} (${when(entry.createdAt)})`)));
-    const result = h("div");
-    pick.addEventListener("change", async () => {
-      if (!pick.value) return result.replaceChildren();
-      const other = runDetails(pick.value);
-      const base = liveModel({ runId: pick.value, summary: other.summary, ...(await liveArtifacts(pick.value)) });
-      const comparison = compareLive(base, model);
-      result.replaceChildren(comparison.compatible
-        ? table(["Measure", { label: "Other", num: true }, { label: "This", num: true }, { label: "Change", num: true }], comparison.metrics.map((metric) => ({ cells: [metric.label, metric.base ?? "—", metric.candidate ?? "—", metric.delta == null ? "—" : `${metric.delta > 0 ? "+" : ""}${metric.delta}`] })))
-        : h("div", { class: "notice bad" }, h("strong", {}, "Not comparable"), h("ul", {}, comparison.blockers.map((line) => h("li", {}, line)))),
-      h("ul", { class: "muted small" }, comparison.notes.map((note) => h("li", {}, note))));
-    });
-    parts.push(h("section", {}, h("h3", {}, "Compare"), pick, result));
-  }
-
   const files = Object.entries(summary.artifacts ?? {}).filter(([, file]) => typeof file === "string");
-  parts.push(h("section", {}, h("h3", {}, "Files"), h("p", { class: "small" }, files.map(([name, file], index) => [index ? " · " : "", h("a", { href: artifactUrl(runId, name), target: "_blank", rel: "noopener" }, file)])),
-    h("p", { class: "muted small" }, "For an agent: ", h("code", { class: "cmd" }, `npm run observatory -- live get ${runId} --json`))));
+  parts.push(h("details", { class: "fold plain" }, h("summary", {}, "Files and agent commands"),
+    h("p", { class: "small" }, files.map(([name, file], index) => [index ? " · " : "", h("a", { href: artifactUrl(runId, name), target: "_blank", rel: "noopener" }, file)])),
+    h("p", { class: "muted small" }, h("code", { class: "cmd" }, `npm run observatory -- live get ${runId} --json`))));
   section.append(...parts);
   return section;
 }

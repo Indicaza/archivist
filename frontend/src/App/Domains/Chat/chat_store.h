@@ -249,6 +249,9 @@ private:
     QVariantList m_chats;
     QVariantList m_archivedChats;
     QString m_selectedChatId;
+    // Observatory: from selecting a conversation to its first page of
+    // messages published to QML (0 when nothing is being timed).
+    quint64 m_liveOpen = 0;
     QVariantList m_messages;
     ChatMessageModel *m_messageModel = nullptr;
     QVariantList m_attachments;

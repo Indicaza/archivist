@@ -62,6 +62,12 @@ bool isControlOperationName(const QString &operation)
     return pattern.match(operation).hasMatch();
 }
 
+bool reachesTheRunningApp(const QString &operation)
+{
+    static const QRegularExpression pattern(QStringLiteral("^observatory\\.live\\.(status|start|stop|mark|wait)$"));
+    return pattern.match(operation).hasMatch();
+}
+
 QString controlScriptPath()
 {
 #ifdef ARCHIVIST_REPOSITORY_ROOT
@@ -89,6 +95,14 @@ Response runControlOperation(const QString &root, const QString &operation, cons
 {
     if (!isControlOperationName(operation)) {
         return controlError(404, operation, QStringLiteral("unknown-operation"), QStringLiteral("Not an Observatory operation."));
+    }
+
+    // Inside the app these go to the recorder directly (/observatory/api/live/).
+    // Through the script they would come back into this app over agent access
+    // and, for wait, hold a worker thread for minutes.
+    if (reachesTheRunningApp(operation)) {
+        return controlError(400, operation, QStringLiteral("invalid-input"),
+            QStringLiteral("Inside Archivist, live recording status, start, stop, mark and wait go to /observatory/api/live/<operation>."));
     }
 
     const QString script = controlScriptPath();
