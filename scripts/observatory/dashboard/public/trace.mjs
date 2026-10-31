@@ -269,7 +269,7 @@ export function dbJobs(rawEvents) {
     if (!["db.read", "db.write", "db.run"].includes(job.name)) continue;
     const op = job.fields.op ?? "unnamed";
     const key = `${job.name}\t${op}`;
-    if (!groups.has(key)) groups.set(key, { kind: job.name.slice(3), op, n: 0, failed: 0, rows: [], queue: [], execute: [], callback: [], uiThread: 0, uiThreadMs: 0 });
+    if (!groups.has(key)) groups.set(key, { kind: job.name.slice(3), op, n: 0, failed: 0, rows: [], queue: [], execute: [], callback: [], uiThread: 0, uiThreadMs: 0, uiThreadMaxMs: 0 });
     const entry = groups.get(key);
     entry.n += 1;
     if (job.ok === false) entry.failed += 1;
@@ -283,6 +283,7 @@ export function dbJobs(rawEvents) {
     if (execute?.thread === "main") {
       entry.uiThread += 1;
       entry.uiThreadMs += execute.durationMs ?? 0;
+      entry.uiThreadMaxMs = Math.max(entry.uiThreadMaxMs, execute.durationMs ?? 0);
     }
   }
   const stats = (values) => (values.length ? { medianMs: round(median(values)), maxMs: round(Math.max(...values)), totalMs: round(values.reduce((a, b) => a + b, 0)) } : null);
@@ -296,7 +297,7 @@ export function dbJobs(rawEvents) {
     execute: stats(entry.execute),
     callbackDelay: stats(entry.callback),
     // CoreRuntime::read runs the query on the calling thread.
-    uiThreadSync: entry.uiThread ? { n: entry.uiThread, totalMs: round(entry.uiThreadMs) } : null,
+    uiThreadSync: entry.uiThread ? { n: entry.uiThread, totalMs: round(entry.uiThreadMs), maxMs: round(entry.uiThreadMaxMs) } : null,
   })).sort((a, b) => (b.execute?.totalMs ?? 0) + (b.queueWait?.totalMs ?? 0) - (a.execute?.totalMs ?? 0) - (a.queueWait?.totalMs ?? 0));
 }
 

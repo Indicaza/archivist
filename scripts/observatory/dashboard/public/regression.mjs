@@ -39,6 +39,9 @@ export const CATEGORIES = {
   "ui:workspace": { label: "Workspace Stress", kind: "ui-scenario", scenario: "workspace" },
   "ui:chat": { label: "Chat", kind: "ui-scenario", scenario: "chat" },
   "ui:startup": { label: "Startup", kind: "ui-scenario", scenario: "startup" },
+  "ui:ai-pipeline": { label: "AI pipeline (offline)", kind: "ui-scenario", scenario: "ai-pipeline" },
+  "ui:ai-turn": { label: "Full AI turn (mocked)", kind: "ui-scenario", scenario: "ai-turn" },
+  "ui:ai-provider": { label: "Provider latency (real provider)", kind: "ui-scenario", scenario: "ai-provider" },
 };
 
 // Metric keys a budget can name. Each reads one number from a normalized
@@ -56,6 +59,16 @@ export const METRICS = {
   appDurationMs: { label: "Scenario duration (app start to exit)", unit: "ms", read: (run) => run.ui?.appDurationMs },
   "startup.firstFrame": { label: "First frame after main()", unit: "ms", read: (run) => run.ui?.startup?.firstFrameMs },
   "startup.eventLoop": { label: "Event loop entered after main()", unit: "ms", read: (run) => run.ui?.startup?.eventLoopMs },
+  // AI turns, medians over the run's turns (from the trace).
+  "ai.turn": { label: "AI turn, median", unit: "ms", read: (run) => run.ui?.ai?.turnMs },
+  "ai.prepare": { label: "AI turn preparation, median", unit: "ms", read: (run) => run.ui?.ai?.prepareMs },
+  "ai.retrieval": { label: "Library retrieval, median", unit: "ms", read: (run) => run.ui?.ai?.retrievalMs },
+  "ai.contextCompile": { label: "Context compilation, median", unit: "ms", read: (run) => run.ui?.ai?.contextCompileMs },
+  "ai.firstNetworkByte": { label: "First network byte, median", unit: "ms", read: (run) => run.ui?.ai?.firstNetworkByteMs },
+  "ai.firstModelDelta": { label: "First model text, median", unit: "ms", read: (run) => run.ui?.ai?.firstModelDeltaMs },
+  "ai.firstVisibleText": { label: "First text shown, median", unit: "ms", read: (run) => run.ui?.ai?.firstVisibleTextMs },
+  "ai.persist": { label: "Saving the turn, median", unit: "ms", read: (run) => run.ui?.ai?.persistMs },
+  "ai.dbQueueWait": { label: "Longest median database queue wait", unit: "ms", read: (run) => run.ui?.ai?.dbQueueWaitMs },
 };
 
 function finite(value) {
@@ -109,6 +122,9 @@ const COMPATIBILITY_FIELDS = {
   qtVersion: (run) => run.config?.qtVersion,
   scenarioVersion: (run) => run.ui?.scenarioVersion,
   driverVersion: (run) => run.ui?.driverVersion,
+  // Mocked and real providers, or two mock scripts, are different workloads.
+  aiProvider: (run) => (run.ui?.ai ? `${run.ui.ai.provider ?? "none"}:${run.ui.ai.behaviour ?? ""}:${run.ui.ai.upstreamHost ?? ""}` : null),
+  traceSchema: (run) => run.ui?.ai?.traceSchema ?? null,
 };
 
 // Checks a budgets file and fills in defaults. Problems are listed, and a

@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 import { collectBuildEvidence } from "./build-evidence.mjs";
 import { summarizeTraces } from "./time-trace.mjs";
 import { analyzeOperations } from "./ui-operations.mjs";
+import { providerFor, ProviderRefused } from "./ai-provider.mjs";
 import { archivistBuildPhases, buildConditionsBefore, classifyBuild } from "./build-phases.mjs";
 import { exitCodeFor, runCapture } from "./capture.mjs";
 import { collectMachine, collectSource, collectToolchain } from "./metadata.mjs";
@@ -219,8 +220,8 @@ async function buildCommand(options) {
   return { exitCode: summary.exitCode, runId };
 }
 
-async function scenarioNames() {
-  return (await scenarioDefinitions(SCENARIO_DIR)).map((entry) => entry.id);
+async function scenarioNames({ includeProvider = false } = {}) {
+  return (await scenarioDefinitions(SCENARIO_DIR)).filter((entry) => includeProvider || !entry.providerCalls).map((entry) => entry.id);
 }
 
 // A test binary set by whoever started the controller (the test suite uses
@@ -247,8 +248,9 @@ async function uiCommand(options, collected = []) {
 }
 
 async function uiCommandLocked(options, collected) {
-  const available = await scenarioNames();
-  const names = options.scenario ? [options.scenario] : available;
+  const available = await scenarioNames({ includeProvider: true });
+  // Without --scenario: every scenario except the opt-in provider ones.
+  const names = options.scenario ? [options.scenario] : await scenarioNames();
   const unknown = names.filter((name) => !available.includes(name));
   if (unknown.length) {
     console.error(`Unknown scenario: ${unknown.join(", ")}. Available: ${available.join(", ")}`);
@@ -339,13 +341,40 @@ async function uiScenarioCommand(name, options) {
   await writeJsonAtomic(summaryPath, summary);
   console.log(`UI Lab: ${scenario.name}, run ${runId}`);
 
+  // The AI provider this run may talk to: never the real one unless asked.
+  let provider;
+  try {
+    provider = await providerFor(scenario, { allowProviderCalls: options["allow-provider-calls"] === true });
+  } catch (error) {
+    if (!(error instanceof ProviderRefused)) throw error;
+    // Refused before anything started: recorded as a failed run that says why.
+    summary.status = "failed";
+    summary.error = error.message;
+    summary.exitCode = 2;
+    summary.finishedAt = new Date().toISOString();
+    summary.ai = { provider: scenario.ai?.provider ?? null, refused: true };
+    await writeJsonAtomic(summaryPath, summary);
+    console.error(error.message);
+    return { exitCode: 2, runId };
+  }
+  summary.ai = provider.summary;
+  await writeJsonAtomic(summaryPath, summary);
+
   const profileDir = await createProfile();
-  const app = await runApp({
-    command: options.binary,
-    env: labEnvironment(process.env, { profileDir, scenarioFile: scenarioPath, eventsFile: eventsPath }),
-    logFile: logPath,
-    timeoutMs: options.timeout ? Number(options.timeout) * 1000 : overallTimeoutMs(scenario),
-  });
+  const baseEnv = labEnvironment(process.env, { profileDir, scenarioFile: scenarioPath, eventsFile: eventsPath });
+  if (!provider.keepKey) delete baseEnv.OPENAI_API_KEY;
+  let app;
+  try {
+    app = await runApp({
+      command: options.binary,
+      env: { ...baseEnv, ...provider.env },
+      logFile: logPath,
+      timeoutMs: options.timeout ? Number(options.timeout) * 1000 : overallTimeoutMs(scenario),
+    });
+  } finally {
+    const providerStats = await provider.close();
+    if (providerStats) summary.ai = { ...summary.ai, ...providerStats };
+  }
   const events = await readEvents(eventsPath);
   const outcome = classifyRun(app, events);
   const actions = events?.actions ?? [];
@@ -599,7 +628,7 @@ async function auditCommand(action, args, values) {
     case "presets":
       return runOperation("observatory.audit.presets", {}, values);
     case "run": {
-      const input = { preset: values.preset, repeat: values.repeat ?? undefined };
+      const input = { preset: values.preset, repeat: values.repeat ?? undefined, ...(values["allow-provider-calls"] ? { allowProviderCalls: true } : {}) };
       if (!values.wait) return runOperation("observatory.audit.run", input, values);
       const print = values.json ? jsonStdout() : null;
       const ctx = controlContext();
@@ -773,6 +802,7 @@ async function jobRunCommand(jobId) {
         const collected = [];
         const exitCode = await uiCommand({
           scenario, "skip-build": true, label: `test-lab ${jobId}`, jobId,
+          "allow-provider-calls": job.request.allowProviderCalls === true,
           onRunCreated: async (runId) => {
             job.current = { phase: "running scenario", scenario, round, runId };
             await save();
@@ -883,6 +913,7 @@ async function main(argv) {
       scenario: { type: "string" },
       "skip-build": { type: "boolean", default: false },
       "keep-profile": { type: "boolean", default: false },
+      "allow-provider-calls": { type: "boolean", default: false },
       timeout: { type: "string" },
       app: { type: "string" },
       port: { type: "string" },

@@ -18,9 +18,13 @@ export const FINDINGS_SCHEMA = "archivist.observatory.findings";
 // 2: unattributed time is measured against the response window (v2
 // ui-operations), idle observation steps are never slow steps, and startup
 // phases after the event loop starts are rules of their own.
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 
 export const UI_SCENARIOS = ["startup", "sidebar", "workspace", "chat"];
+// The AI scenarios that never leave the machine (a local mock provider).
+export const AI_SCENARIOS = ["ai-pipeline", "ai-turn"];
+// Calls the real provider: only in the opt-in Provider Latency preset.
+export const PROVIDER_SCENARIOS = ["ai-provider"];
 
 export const PRESETS = {
   quick: {
@@ -35,9 +39,21 @@ export const PRESETS = {
     id: "build", name: "Build", scenarios: [], build: true, repeat: 1,
     description: "An incremental build of build/frontend-debug with full job evidence: what rebuilt, why, and the slowest chain. Nothing is cleaned.",
   },
+  ai: {
+    id: "ai", name: "AI pipeline (offline)", scenarios: ["ai-pipeline"], build: false, repeat: 3,
+    description: "Sends chat messages against a synthetic Library and conversations in a disposable profile, with a local mock provider that answers at once: preparation, retrieval, context compilation, database work and presentation. No API calls.",
+  },
+  "ai-turn": {
+    id: "ai-turn", name: "Full AI turn (mocked)", scenarios: ["ai-turn"], build: false, repeat: 3,
+    description: "Whole AI turns against a local mock provider that is slow to answer, streams with pauses, refuses once and retries, calls a tool, and is cancelled part way. No API calls.",
+  },
+  provider: {
+    id: "provider", name: "Provider latency (real calls)", scenarios: PROVIDER_SCENARIOS, build: false, repeat: 1, providerCalls: true,
+    description: "Sends 3 short synthetic messages to the AI provider you have configured, through a local proxy that allows at most 6 requests and 64 output tokens each. This costs a little money and sends text to the provider. Only runs when you confirm it; never part of another preset.",
+  },
   complete: {
-    id: "complete", name: "Complete", scenarios: UI_SCENARIOS, build: true, repeat: 3,
-    description: "The build preset, then every UI scenario three rounds each against the binary it built.",
+    id: "complete", name: "Complete", scenarios: [...UI_SCENARIOS, ...AI_SCENARIOS], build: true, repeat: 3,
+    description: "The build preset, then every UI scenario and both offline AI scenarios, three rounds each, against the binary it built. Never calls the AI provider.",
   },
 };
 
@@ -49,13 +65,28 @@ const SEVERITY_RANK = Object.fromEntries(SEVERITIES.map((name, index) => [name, 
 export const RULES = [
   { id: "ui.failed-actions", subsystem: "ui-lab", title: "Actions failed", when: "Any scenario run did not pass, or any action failed.", severity: "high", basis: "UI Lab action records" },
   { id: "ui.no-operations", subsystem: "instrumentation", title: "No operations reported", when: "The app build didn't report LiveEvents operations to the UI Lab.", severity: "info", basis: "summary.operations.collected" },
-  { id: "ui.slow-step", subsystem: "ui", title: "Slow step", when: "A step's settled latency, median over measured actions, is 100 ms or more (250 ms or more: high). Idle observation steps (op noop) are not interactions and never count.", severity: "medium / high", basis: "settled = input until the last frame before rendering went quiet" },
-  { id: "ui.slow-operation", subsystem: "(from the operation)", title: "Slow operation", when: "An instrumented operation's median inside a step is 50 ms or more (200 ms or more: high).", severity: "medium / high", basis: "LiveEvents spans tagged with the running action" },
+  { id: "ui.slow-step", subsystem: "ui", title: "Slow step", when: "A step's settled latency, median over measured actions, is 100 ms or more (250 ms or more: high). Idle observation steps (op noop) are not interactions and never count; chat sends (op sendChatMessage) are AI turns, left to the AI rules.", severity: "medium / high", basis: "settled = input until the last frame before rendering went quiet" },
+  { id: "ui.slow-operation", subsystem: "(from the operation)", title: "Slow operation", when: "An instrumented operation's median inside a step is 50 ms or more (200 ms or more: high). AI turn spans (ai.*) and database queue waits are left to the AI and database rules.", severity: "medium / high", basis: "LiveEvents spans tagged with the running action" },
   { id: "ui.stalls", subsystem: "ui-thread", title: "Event-loop stalls", when: "The UI Lab probe fired 50 ms or more late during measured actions.", severity: "medium", basis: "50 ms probe on the UI thread" },
   { id: "ui.unattributed", subsystem: "instrumentation", title: "Time no operation explains", when: "In an interaction whose response window is 50 ms or more, half or more of that window is inside no instrumented operation.", severity: "low", basis: "response window (input to settled) minus the union of the spans inside it; both medians from the same actions (ui-operations v2)" },
   { id: "ui.frame-gap", subsystem: "rendering", title: "Long frame gaps", when: "The longest gap between frames, median over measured actions, is over 33.4 ms (two frames at an assumed 60 Hz).", severity: "low", basis: "frame swaps seen by the driver; 60 Hz is an assumption" },
   { id: "startup.slow-stage", subsystem: "startup", title: "Slow startup stage", when: "A startup stage measured in main() takes 250 ms or more (1000 ms or more: high).", severity: "medium / high", basis: "LiveEvents spans in main()" },
   { id: "startup.slow-phase", subsystem: "startup", title: "Slow startup phase", when: "The event loop to first frame, or first frame to usable UI, takes 250 ms or more (1000 ms or more: high).", severity: "medium / high", basis: "startup markers and the driver's ready check (ui-operations v2 phases)" },
+  { id: "ai.failed-turns", subsystem: "ai", title: "AI turns failed", when: "An AI turn ended failed or interrupted (a cancelled turn is not a failure).", severity: "high", basis: "ai.run outcome and its http attempts (trace schema 1)" },
+  { id: "ai.slow-preparation", subsystem: "ai", title: "Slow AI turn preparation", when: "Preparing a turn (loading the conversation, attachments, retrieval, context) takes 250 ms or more, median over turns (1000 ms or more: high).", severity: "medium / high", basis: "ai.prepare span and its stages" },
+  { id: "ai.slow-retrieval", subsystem: "retrieval", title: "Slow Library retrieval", when: "Retrieval for a turn takes 150 ms or more, median over turns (500 ms or more: high).", severity: "medium / high", basis: "ai.retrieval span (library search, ranking, selection)" },
+  { id: "ai.slow-context-compile", subsystem: "context", title: "Slow context compilation", when: "Compiling the context for a turn takes 100 ms or more, median over turns (400 ms or more: high).", severity: "medium / high", basis: "ai.context-compile span, with its message counts and estimated tokens" },
+  { id: "db.queue-contention", subsystem: "database", title: "Database jobs wait in the queue", when: "A database job's median queue wait is 20 ms or more and at least as long as its execution (100 ms or more: high).", severity: "medium / high", basis: "db.queue-wait vs db.execute under each db job" },
+  { id: "db.ui-thread-sync", subsystem: "ui-thread", title: "Database work on the UI thread", when: "A synchronous database read ran on the UI thread for 16 ms or more at once (one frame; 50 ms or more: high).", severity: "medium / high", basis: "db.execute spans whose thread is main" },
+  { id: "ai.slow-tool", subsystem: "tools", title: "Slow tool call", when: "A tool's median duration is 250 ms or more (1000 ms or more: high).", severity: "medium / high", basis: "ai.tool spans" },
+  { id: "ai.excess-tool-rounds", subsystem: "ai", title: "Many tool rounds in one turn", when: "A turn ran 4 or more tool rounds.", severity: "medium", basis: "ai.tool-round spans" },
+  { id: "ai.first-token-latency", subsystem: "ai", title: "Slow first token", when: "The first model text arrives 1500 ms or more after the turn starts, median over turns (4000 ms or more: high). Split into Archivist's preparation and the wait for the provider.", severity: "medium / high", basis: "ai.first-delta marker, ai.prepare, ai.first-byte marker" },
+  { id: "ai.stream-pauses", subsystem: "provider", title: "Pauses in the stream", when: "A turn's stream had a pause of 1 s or more between provider events.", severity: "medium", basis: "provider round longGaps and maxGapMs (counted per event, never logged per token)" },
+  { id: "ai.retries", subsystem: "provider", title: "Provider requests retried", when: "A provider request was refused and retried (1 s or more of waiting: medium).", severity: "low / medium", basis: "ai.http-attempt and ai.retry-wait spans" },
+  { id: "ai.slow-presentation", subsystem: "ui", title: "Slow to show the reply", when: "The first model text takes 100 ms or more to appear in the chat after it arrived, median over turns (250 ms or more: high).", severity: "medium / high", basis: "ai.first-delta marker vs chat.ai-first-text-shown marker" },
+  { id: "ai.unattributed", subsystem: "instrumentation", title: "AI turn time no stage explains", when: "50 ms or more, and 20% or more, of a turn is inside no child span of ai.run, median over turns.", severity: "low", basis: "ai.run self time (no child durations are invented)" },
+  { id: "ai.missing-instrumentation", subsystem: "instrumentation", title: "AI turn stages not measured", when: "A turn is missing a stage a fully instrumented turn reports.", severity: "info", basis: "trace analysis, expected stages" },
+  { id: "trace.dropped-events", subsystem: "instrumentation", title: "Trace events dropped", when: "The recording buffer was full and events were dropped, so totals may be low.", severity: "info", basis: "operations dropped counter" },
   { id: "build.failed", subsystem: "build", title: "Build failed", when: "The build did not succeed.", severity: "high", basis: "build phases" },
   { id: "build.missing-evidence", subsystem: "build", title: "No job evidence", when: "The build recorded no per-job evidence (older record, or Ninja's log was unreadable).", severity: "info", basis: "summary.evidence" },
   { id: "build.dominant-unit", subsystem: "compile", title: "One file dominates compile time", when: "One compile takes 20% or more of all compile time and at least 5 s.", severity: "medium", basis: ".ninja_log job times" },
@@ -68,6 +99,13 @@ export const RULES = [
 ];
 
 export const OBSERVATION_OPS = new Set(["noop"]);
+// Spans the AI and database rules read from the trace, with their own
+// splits (provider wait vs Archivist's work, queue vs execution). The
+// generic slow-operation rule leaves them alone so a cause is reported once.
+const TRACE_RULED = (name) => /^(ai|retrieval|context)\./.test(name) || ["chat.ai-presentation", "db.read", "db.write", "db.run", "db.queue-wait", "db.callback-delay"].includes(name);
+// Steps that send a chat message: their latency is the AI turn, which the
+// AI rules split into its stages, so the generic slow-step rule skips them.
+export const AI_TURN_OPS = new Set(["sendChatMessage"]);
 const STARTUP_PHASE_RULED = new Set(["first-frame", "first-usable"]);
 
 export const RULE_BY_ID = Object.fromEntries(RULES.map((rule) => [rule.id, rule]));
@@ -160,19 +198,21 @@ export function evaluateFindings(children) {
     // Steps: settled latency, unattributed time, stalls. Observation steps
     // (the idle after startup) only watch the app, so they are skipped.
     const observation = new Set();
+    const aiSteps = new Set();
     for (const run of passed) {
       for (const step of run.summary.operations?.steps ?? []) {
         if (step.kind === "observation") observation.add(`${step.step}:${step.label}`);
       }
       for (const step of run.summary.stats?.steps ?? []) {
         if (OBSERVATION_OPS.has(step.op)) observation.add(`${step.step}:${step.label ?? step.op}`);
+        if (AI_TURN_OPS.has(step.op)) aiSteps.add(`${step.step}:${step.label ?? step.op}`);
       }
     }
     const stepKeys = new Map();
     for (const run of passed) {
       for (const step of run.summary.stats?.steps ?? []) {
         const key = `${step.step}:${step.label ?? step.op}`;
-        if (observation.has(key)) continue;
+        if (observation.has(key) || aiSteps.has(key)) continue;
         if (!stepKeys.has(key)) stepKeys.set(key, { step: step.step, label: step.label ?? step.op, values: [] });
         stepKeys.get(key).values.push({ runId: run.runId, ms: step.settledMs?.medianMs ?? null });
       }
@@ -202,6 +242,7 @@ export function evaluateFindings(children) {
       for (const step of ops.steps ?? []) {
         const stepKey = `${step.step}:${step.label}`;
         for (const op of step.operations ?? []) {
+          if (TRACE_RULED(op.name)) continue;
           const key = `${op.name}\t${stepKey}`;
           if (!opStats.has(key)) opStats.set(key, { name: op.name, step: step.step, label: step.label, values: [] });
           opStats.get(key).values.push({ runId: run.runId, ms: op.medianMs, max: op.maxMs, n: op.n });
@@ -272,6 +313,8 @@ export function evaluateFindings(children) {
       });
     }
 
+    aiFindings({ scenario, name, passed, add });
+
     const gaps = passed.map((run) => ({ runId: run.runId, ms: run.summary.stats?.measured?.frameMaxIntervalMs?.medianMs ?? null }));
     const gap = median(gaps.map((value) => value.ms));
     if (gap != null && gap > 33.4 && scenario !== "startup") {
@@ -337,6 +380,244 @@ export function evaluateFindings(children) {
     findings.push(...buildFindings(child.runId, child.summary));
   }
   return findings.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (b.impact?.unit === "ms" ? b.impact.value : 0) - (a.impact?.unit === "ms" ? a.impact.value : 0));
+}
+
+// ---- AI turn and database findings (from the trace) ----------------------------
+
+// What a trace finding says about where the time came from: a mocked
+// provider's delays were put there by the scenario, so they are labelled.
+function providerNote(passed) {
+  const provider = passed[0]?.summary.ai?.provider ?? null;
+  return provider === "mock" ? " (injected by the mock provider)" : provider === "real" ? " (real provider)" : "";
+}
+
+function aiFindings({ scenario, name, passed, add }) {
+  const turns = [];
+  const db = [];
+  const dropped = [];
+  for (const run of passed) {
+    const trace = run.summary.operations?.trace;
+    if (!trace?.available) continue;
+    for (const turn of trace.aiTurns ?? []) turns.push({ runId: run.runId, ...turn });
+    for (const job of trace.db ?? []) db.push({ runId: run.runId, ...job });
+    if (trace.dropped) dropped.push({ runId: run.runId, n: trace.dropped });
+  }
+  const injected = providerNote(passed);
+  const runsWith = (list) => new Set(list.map((entry) => entry.runId)).size;
+  const evidence = (list, text) => list.map((entry) => ({ runId: entry.runId, operation: "ai.run", text: text(entry) }));
+
+  if (dropped.length) {
+    add("trace.dropped-events", scenario, {
+      subsystem: "instrumentation", severity: "info",
+      summary: `${name}: the recording dropped ${dropped.reduce((sum, entry) => sum + entry.n, 0)} events, so counts and totals here may be low.`,
+      impact: null,
+      evidence: dropped.map((entry) => ({ runId: entry.runId, text: `${entry.n} dropped` })),
+      confidence: confidence(dropped.length, passed.length),
+      nextStep: "Record fewer rounds per run, or raise the session's event limit.",
+      scenario,
+    });
+  }
+
+  if (turns.length) {
+    const failed = turns.filter((turn) => turn.outcome === "failed" || turn.outcome === "interrupted");
+    if (failed.length) {
+      add("ai.failed-turns", scenario, {
+        subsystem: "ai", severity: "high",
+        summary: `${name}: ${failed.length} of ${turns.length} AI turn${turns.length === 1 ? "" : "s"} failed${injected}; first: ${describeAttempts(failed[0].failedAttempts)}.`,
+        impact: { value: failed.length, unit: "turns", text: `${failed.length} of ${turns.length} turns` },
+        evidence: evidence(failed, (turn) => `${turn.outcome}: ${describeAttempts(turn.failedAttempts)}`),
+        confidence: confidence(runsWith(failed), passed.length),
+        nextStep: "Open the turn on the timeline: the failed attempt shows its status or error kind and how far the stream got.",
+        scenario,
+      });
+    }
+
+    const slowMetric = (rule, value, { medium, high, subsystem, label, detail, next }) => {
+      const values = turns.map((turn) => ({ turn, ms: value(turn) })).filter((entry) => entry.ms != null);
+      const typical = median(values.map((entry) => entry.ms));
+      if (typical == null || typical < medium) return;
+      add(rule, scenario, {
+        subsystem, severity: typical >= high ? "high" : "medium",
+        summary: `${name}: ${label} takes ${msText(typical)} per AI turn (median of ${values.length})${detail ? `; ${detail(values)}` : ""}.`,
+        impact: { value: round(typical), unit: "ms", text: `${msText(typical)} median, up to ${msText(Math.max(...values.map((entry) => entry.ms)))}` },
+        evidence: values.map((entry) => ({ runId: entry.turn.runId, operation: "ai.run", text: msText(entry.ms) })),
+        confidence: confidence(runsWith(values.filter((entry) => entry.ms >= medium).map((entry) => entry.turn)), passed.length),
+        nextStep: next,
+        scenario,
+      });
+    };
+    slowMetric("ai.slow-preparation", (turn) => turn.prepareMs, {
+      medium: 250, high: 1000, subsystem: "ai", label: "preparing the turn",
+      detail: (values) => {
+        const stages = Object.entries(values[0].turn.stages ?? {}).map(([key, _]) => [key, median(values.map((entry) => entry.turn.stages?.[key]))]).filter(([, ms]) => ms != null).sort((a, b) => b[1] - a[1]);
+        return stages.length ? `the largest stage is ${stages[0][0].replace(/Ms$/, "")} (${msText(stages[0][1])})` : "no stage inside it is measured";
+      },
+      next: "The prepare stages on the turn timeline show which one holds the time; prepare self time is work no stage covers.",
+    });
+    slowMetric("ai.slow-retrieval", (turn) => turn.stages?.retrievalMs, {
+      medium: 150, high: 500, subsystem: "retrieval", label: "Library retrieval",
+      next: "Retrieval's children split full-text query, ranking and index repair from selection.",
+    });
+    slowMetric("ai.slow-context-compile", (turn) => turn.stages?.contextCompileMs, {
+      medium: 100, high: 400, subsystem: "context", label: "context compilation",
+      detail: (values) => {
+        const context = values.map((entry) => entry.turn.context).find(Boolean);
+        return context ? `${context.compiler ?? "compiler"} over ${context.sourceMessages ?? "?"} messages, ${context.included ?? "?"} included, about ${context.estimatedTokens ?? "?"} tokens` : "";
+      },
+      next: "context.strategy's children show chat search and assembly; its self time is the strategy's own selection.",
+    });
+    slowMetric("ai.first-token-latency", (turn) => turn.firstModelDeltaMs, {
+      medium: 1500, high: 4000, subsystem: "ai", label: "the first model text",
+      detail: (values) => {
+        const before = median(values.map((entry) => entry.turn.prepareMs));
+        const toByte = median(values.map((entry) => (entry.turn.firstNetworkByteMs != null && entry.turn.prepareMs != null ? entry.turn.firstNetworkByteMs - entry.turn.prepareMs : null)));
+        const queue = median(values.map((entry) => entry.turn.queueWaitMs));
+        return `about ${msText(before)} is Archivist preparing the request, about ${msText(toByte)} the wait for the provider's first byte${injected}${queue ? `, plus ${msText(queue)} queued before the turn started` : ""}`;
+      },
+      next: "Compare the provider's first-byte wait with preparation on the turn timeline; retries and their waits sit inside the first round.",
+    });
+    slowMetric("ai.slow-presentation", (turn) => (turn.firstVisibleTextMs != null && turn.firstModelDeltaMs != null ? turn.firstVisibleTextMs - turn.firstModelDeltaMs : null), {
+      medium: 100, high: 250, subsystem: "ui", label: "showing the first text after it arrived",
+      detail: (values) => {
+        const flush = Math.max(0, ...values.map((entry) => entry.turn.presentation?.flushMaxMs ?? 0));
+        return flush ? `the slowest text flush took ${msText(flush)}` : "";
+      },
+      next: "This is delivery from the AI thread to the chat view and the first flush; look for UI-thread stalls or slow operations at the same time.",
+    });
+
+    const tools = new Map();
+    for (const turn of turns) {
+      for (const call of turn.toolCalls ?? []) {
+        if (!tools.has(call.tool)) tools.set(call.tool, []);
+        tools.get(call.tool).push({ runId: turn.runId, ms: call.durationMs, ok: call.ok });
+      }
+    }
+    for (const [tool, calls] of tools) {
+      const typical = median(calls.map((entry) => entry.ms));
+      if (typical == null || typical < 250) continue;
+      add("ai.slow-tool", `${scenario}:${tool}`, {
+        subsystem: "tools", severity: typical >= 1000 ? "high" : "medium",
+        summary: `${name}: the ${tool} tool takes ${msText(typical)} (median of ${calls.length} call${calls.length === 1 ? "" : "s"}).`,
+        impact: { value: round(typical), unit: "ms", text: `${msText(typical)} median` },
+        evidence: calls.map((entry) => ({ runId: entry.runId, operation: "ai.tool", text: `${msText(entry.ms)}${entry.ok === false ? ", failed" : ""}` })),
+        confidence: confidence(runsWith(calls.filter((entry) => entry.ms >= 250)), passed.length),
+        nextStep: `Add spans inside ${tool} if its database or file work isn't already a child of ai.tool.`,
+        scenario, operation: "ai.tool",
+      });
+    }
+
+    const manyRounds = turns.filter((turn) => (turn.toolRounds ?? 0) >= 4);
+    if (manyRounds.length) {
+      const most = Math.max(...manyRounds.map((turn) => turn.toolRounds));
+      add("ai.excess-tool-rounds", scenario, {
+        subsystem: "ai", severity: "medium",
+        summary: `${name}: ${manyRounds.length} turn${manyRounds.length === 1 ? "" : "s"} ran 4 or more tool rounds (up to ${most}); each round is another provider request.`,
+        impact: { value: most, unit: "rounds", text: `up to ${most} tool rounds` },
+        evidence: evidence(manyRounds, (turn) => `${turn.toolRounds} tool rounds, ${turn.tools} tool calls`),
+        confidence: confidence(runsWith(manyRounds), passed.length),
+        nextStep: "Check which tools repeat across rounds on the turn timeline; repeated lookups can often be answered from context.",
+        scenario,
+      });
+    }
+
+    const paused = turns.filter((turn) => (turn.longStreamGaps ?? 0) > 0);
+    if (paused.length) {
+      const longest = Math.max(...paused.map((turn) => turn.maxStreamGapMs ?? 0));
+      add("ai.stream-pauses", scenario, {
+        subsystem: "provider", severity: "medium",
+        summary: `${name}: ${paused.length} turn${paused.length === 1 ? "" : "s"} paused 1 s or more mid-stream${injected}; the longest pause was ${msText(longest)}.`,
+        impact: { value: round(longest), unit: "ms", text: `${msText(longest)} longest pause` },
+        evidence: evidence(paused, (turn) => `${turn.longStreamGaps} pause${turn.longStreamGaps === 1 ? "" : "s"} of 1 s or more, longest ${msText(turn.maxStreamGapMs)}`),
+        confidence: confidence(runsWith(paused), passed.length),
+        nextStep: "A pause between provider events is the provider's (or the network's) time, not Archivist's; compare with a Provider Latency audit.",
+        scenario,
+      });
+    }
+
+    const retried = turns.filter((turn) => (turn.retries ?? 0) > 0);
+    if (retried.length) {
+      const waited = retried.reduce((sum, turn) => sum + (turn.retryWaitMs ?? 0), 0);
+      add("ai.retries", scenario, {
+        subsystem: "provider", severity: waited >= 1000 ? "medium" : "low",
+        summary: `${name}: ${retried.length} turn${retried.length === 1 ? "" : "s"} retried a refused request${injected}, waiting ${msText(waited)} in all.`,
+        impact: { value: round(waited), unit: "ms", text: `${msText(waited)} spent waiting to retry` },
+        evidence: evidence(retried, (turn) => `${turn.retries} retr${turn.retries === 1 ? "y" : "ies"} (${describeAttempts(turn.failedAttempts)}), waited ${msText(turn.retryWaitMs)}`),
+        confidence: confidence(runsWith(retried), passed.length),
+        nextStep: "Retries are the provider refusing (429/5xx) and Archivist waiting as it asked; frequent ones point at rate limits.",
+        scenario,
+      });
+    }
+
+    const loose = turns.filter((turn) => turn.unattributedMs != null && turn.durationMs);
+    const typicalLoose = median(loose.map((turn) => turn.unattributedMs));
+    const typicalDuration = median(loose.map((turn) => turn.durationMs));
+    if (typicalLoose != null && typicalLoose >= 50 && typicalLoose >= typicalDuration * 0.2) {
+      add("ai.unattributed", scenario, {
+        subsystem: "instrumentation", severity: "low",
+        summary: `${name}: ${msText(typicalLoose)} of a ${msText(typicalDuration)} AI turn is inside no stage (median).`,
+        impact: { value: round(typicalLoose), unit: "ms", text: `${pct(typicalLoose, typicalDuration)}% of the turn unexplained` },
+        evidence: evidence(loose, (turn) => `${msText(turn.unattributedMs)} of ${msText(turn.durationMs)}`),
+        confidence: confidence(runsWith(loose.filter((turn) => turn.unattributedMs >= 50)), passed.length),
+        nextStep: "Gaps between the stages on the turn timeline are where the next span belongs.",
+        scenario,
+      });
+    }
+
+    const missing = new Map();
+    for (const turn of turns) for (const item of turn.missing ?? []) missing.set(item, (missing.get(item) ?? 0) + 1);
+    if (missing.size) {
+      add("ai.missing-instrumentation", scenario, {
+        subsystem: "instrumentation", severity: "info",
+        summary: `${name}: not measured in some turns: ${[...missing.keys()].join("; ")}.`,
+        impact: null,
+        evidence: [...missing].map(([item, n]) => ({ text: `${item}: ${n} of ${turns.length} turns` })),
+        confidence: confidence(runsWith(turns.filter((turn) => turn.missing?.length)), passed.length),
+        nextStep: "A missing stage is reported, not counted as zero; rebuild the app from this branch if stages are missing everywhere.",
+        scenario,
+      });
+    }
+  }
+
+  // Database jobs, by kind and op, over the runs.
+  const jobs = new Map();
+  for (const job of db) {
+    const key = `${job.kind}:${job.op}`;
+    if (!jobs.has(key)) jobs.set(key, { kind: job.kind, op: job.op, values: [] });
+    jobs.get(key).values.push(job);
+  }
+  for (const [key, entry] of jobs) {
+    const queue = median(entry.values.map((job) => job.queueWait?.medianMs));
+    const execute = median(entry.values.map((job) => job.execute?.medianMs)) ?? 0;
+    if (queue != null && queue >= 20 && queue >= execute) {
+      add("db.queue-contention", `${scenario}:${key}`, {
+        subsystem: "database", severity: queue >= 100 ? "high" : "medium",
+        summary: `${name}: database ${entry.kind} "${entry.op}" waits ${msText(queue)} in the queue for ${msText(execute)} of work (medians); other jobs hold the database thread first.`,
+        impact: { value: round(queue), unit: "ms", text: `${msText(queue)} median queue wait` },
+        evidence: entry.values.map((job) => ({ runId: job.runId, operation: `db.${entry.kind}`, text: `${job.n} jobs, queue ${msText(job.queueWait?.medianMs)} (max ${msText(job.queueWait?.maxMs)}), execute ${msText(job.execute?.medianMs)}` })),
+        confidence: confidence(runsWith(entry.values.filter((job) => (job.queueWait?.medianMs ?? 0) >= 20)), passed.length),
+        nextStep: "Find what runs on the database thread just before on the timeline; large writes or scans ahead of it are the cause, not this job's query.",
+        scenario, operation: `db.${entry.kind}`,
+      });
+    }
+    const sync = entry.values.filter((job) => job.uiThreadSync);
+    const worstSync = Math.max(0, ...sync.map((job) => job.uiThreadSync.maxMs ?? 0));
+    if (worstSync >= 16) {
+      add("db.ui-thread-sync", `${scenario}:${key}`, {
+        subsystem: "ui-thread", severity: worstSync >= 50 ? "high" : "medium",
+        summary: `${name}: database ${entry.kind} "${entry.op}" ran on the UI thread for up to ${msText(worstSync)} at once, blocking input and drawing.`,
+        impact: { value: round(worstSync), unit: "ms", text: `${msText(worstSync)} longest blocking read` },
+        evidence: sync.map((job) => ({ runId: job.runId, operation: `db.${entry.kind}`, text: `${job.uiThreadSync.n} on the UI thread, ${msText(job.uiThreadSync.totalMs)} in all, longest ${msText(job.uiThreadSync.maxMs)}` })),
+        confidence: confidence(runsWith(sync.filter((job) => (job.uiThreadSync.maxMs ?? 0) >= 16)), passed.length),
+        nextStep: "Move this read to CoreRuntime::read's asynchronous form, or page it.",
+        scenario, operation: `db.${entry.kind}`,
+      });
+    }
+  }
+}
+
+function describeAttempts(attempts = []) {
+  if (!attempts.length) return "no failed request";
+  return attempts.map((attempt) => (attempt.interrupted ? `stream cut off (${attempt.error ?? "closed"})` : attempt.status ? `HTTP ${attempt.status}` : attempt.error ?? "error")).join(", ");
 }
 
 function buildFindings(runId, summary) {

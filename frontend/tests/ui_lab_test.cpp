@@ -1,5 +1,6 @@
 #include "App/Services/live_recorder.h"
 #include "App/Services/ui_lab.h"
+#include "Core/Domains/AI/library_retrieval.h"
 
 #include "Core/Domains/Observatory/live_events.h"
 #include "Core/Domains/Chats/chat_repository.h"
@@ -169,6 +170,36 @@ private slots:
             seen = seen || op.toMap().value(QStringLiteral("name")).toString() == QLatin1String("seed-chats");
         }
         QVERIFY(seen);
+    }
+
+    // The AI scenarios' synthetic Library: notes written and indexed, so
+    // retrieval has something to find.
+    void seedsASearchableLibrary()
+    {
+        // Its own database: the profile's library folder is already a
+        // Library in the one the test above seeded.
+        CoreRuntime core;
+        QVERIFY(core.start(QDir(m_profile.path()).filePath(QStringLiteral("library-test.db"))));
+        QVERIFY(m_lab->seedChats({
+            {QStringLiteral("seed"), 7},
+            {QStringLiteral("files"), 12},
+            {QStringLiteral("chats"), QVariantList{QVariantMap{{QStringLiteral("key"), QStringLiteral("ask")}, {QStringLiteral("title"), QStringLiteral("Lab Ask")}, {QStringLiteral("messages"), 2}}}},
+        }));
+        QTRY_VERIFY_WITH_TIMEOUT(m_lab->seedStatus().value(QStringLiteral("state")).toString() != QLatin1String("running"), 60000);
+        const QVariantMap status = m_lab->seedStatus();
+        QVERIFY2(status.value(QStringLiteral("state")).toString() == QLatin1String("done"), qPrintable(status.value(QStringLiteral("error")).toString()));
+        QCOMPARE(status.value(QStringLiteral("files")).toInt(), 12);
+        const QString libraryId = status.value(QStringLiteral("libraryId")).toString();
+        int hits = -1;
+        bool done = false;
+        core.read([libraryId](CoreDatabase &database) {
+            return QVariant(LibraryRetrieval::search(database, QStringLiteral("archive layout render"), libraryId, 10).value(QStringLiteral("candidates")).toList().size());
+        }, this, [&](const CoreResult &result) {
+            hits = result.value.toInt();
+            done = true;
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+        QVERIFY2(hits > 0, "the seeded notes are indexed for search");
     }
 
     void cleanupTestCase()

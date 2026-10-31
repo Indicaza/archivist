@@ -52,6 +52,44 @@ function jobMetrics(evidence) {
   };
 }
 
+function medianOf(values) {
+  const list = values.filter((value) => typeof value === "number" && Number.isFinite(value)).sort((a, b) => a - b);
+  if (!list.length) return null;
+  const mid = Math.floor(list.length / 2);
+  return list.length % 2 ? list[mid] : (list[mid - 1] + list[mid]) / 2;
+}
+
+// AI turns (from the trace digest): medians over the run's completed turns.
+// Cancelled and failed turns are counted, not timed, so a cancel never
+// reads as a fast turn.
+function aiMetrics(summary) {
+  const trace = summary.operations?.trace;
+  if (!summary.ai && !trace?.aiTurns?.length) return null;
+  const all = trace?.aiTurns ?? [];
+  const turns = all.filter((turn) => turn.outcome === "completed");
+  const of = (read) => num(medianOf(turns.map(read)));
+  const queues = (trace?.db ?? []).map((job) => job.queueWait?.medianMs).filter((value) => value != null);
+  return {
+    provider: summary.ai?.provider ?? null,
+    behaviour: summary.ai?.behaviour ?? null,
+    upstreamHost: summary.ai?.upstreamHost ?? null,
+    traceSchema: trace?.available ? num(trace.schemaVersion) : null,
+    turns: all.length,
+    completed: turns.length,
+    failed: all.filter((turn) => turn.outcome === "failed" || turn.outcome === "interrupted").length,
+    cancelled: all.filter((turn) => turn.outcome === "cancelled").length,
+    turnMs: of((turn) => turn.durationMs),
+    prepareMs: of((turn) => turn.prepareMs),
+    retrievalMs: of((turn) => turn.stages?.retrievalMs),
+    contextCompileMs: of((turn) => turn.stages?.contextCompileMs),
+    firstNetworkByteMs: of((turn) => turn.firstNetworkByteMs),
+    firstModelDeltaMs: of((turn) => turn.firstModelDeltaMs),
+    firstVisibleTextMs: of((turn) => turn.firstVisibleTextMs),
+    persistMs: of((turn) => turn.persistMs),
+    dbQueueWaitMs: queues.length ? num(Math.max(...queues)) : null,
+  };
+}
+
 function uiMetrics(summary) {
   const measured = summary.stats?.measured;
   const pick = (field) => (measured?.[field]
@@ -80,6 +118,7 @@ function uiMetrics(summary) {
     })),
     wellsEvents: num(summary.runtimeTiming?.recognizedEvents),
     operationsCollected: summary.operations ? summary.operations.collected === true : null,
+    ai: aiMetrics(summary),
     startup: summary.operations?.startup ? {
       firstFrameMs: num(summary.operations.startup.firstFrameMs),
       eventLoopMs: num(summary.operations.startup.eventLoopMs),

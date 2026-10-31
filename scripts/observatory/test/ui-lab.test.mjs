@@ -87,7 +87,7 @@ test("an unknown scenario is a usage error", async () => {
       (error, stdout, stderr) => resolve({ code: error ? error.code : 0, stderr }));
   });
   assert.equal(result.code, 2);
-  assert.match(result.stderr, /Available: chat, sidebar, startup, workspace/);
+  assert.match(result.stderr, /Available: ai-pipeline, ai-provider, ai-turn, chat, sidebar, startup, workspace/);
 });
 
 test("the lab environment isolates the profile and drops Archivist switches", () => {
@@ -138,8 +138,8 @@ test("statistics use measured actions only and leave p95 out for small samples",
 
 test("scenario definitions are complete and use known operations", async () => {
   const dir = path.join(HERE, "..", "ui-scenarios");
-  const ops = new Set(["click", "dragSidebarEdge", "returnToWorkspace", "setPanelOpen", "openView", "applyLayout", "activateView", "minimizeView", "restoreView", "noop", "seedChats", "refreshChats", "selectChat"]);
-  const expectations = new Set(["panelOpen", "panelId", "homeActive", "sidebarSettled", "explorerWidth", "currentLayoutId", "focusedView", "minimized", "viewsOpen", "genieIdle", "seeded", "chatsListed", "chatShown"]);
+  const ops = new Set(["click", "dragSidebarEdge", "returnToWorkspace", "setPanelOpen", "openView", "applyLayout", "activateView", "minimizeView", "restoreView", "noop", "seedChats", "refreshChats", "selectChat", "sendChatMessage", "cancelChatRun"]);
+  const expectations = new Set(["panelOpen", "panelId", "homeActive", "sidebarSettled", "explorerWidth", "currentLayoutId", "focusedView", "minimized", "viewsOpen", "genieIdle", "seeded", "chatsListed", "chatShown", "runSettled", "runStreaming"]);
   for (const file of await readdir(dir)) {
     const scenario = JSON.parse(await readFile(path.join(dir, file), "utf8"));
     assert.equal(`${scenario.id}.json`, file);

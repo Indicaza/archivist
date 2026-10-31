@@ -20,7 +20,7 @@ import Archivist.Services 1.0
 Item {
     id: root
 
-    readonly property int driverVersion: 1
+    readonly property int driverVersion: 2
     property var window: null
     property var shell: null
     property var scenario: UiLab ? UiLab.scenario : ({})
@@ -211,7 +211,7 @@ Item {
             return { ok: true, method: "store-call" }
         case "seedChats":
             // Deterministic fixture chats in the test profile's database.
-            return UiLab.seedChats({ seed: Number(step.seed || 1), chats: step.chats || [] })
+            return UiLab.seedChats({ seed: Number(step.seed || 1), chats: step.chats || [], files: Number(step.files || 0) })
                 ? { ok: true, method: "fixture" }
                 : { ok: false, method: "fixture", error: String(UiLab.seedStatus().error || "seeding refused") }
         case "refreshChats":
@@ -259,6 +259,19 @@ Item {
             ws.restoreFromWell(entryId)
             return { ok: true, method: "ui-function" }
         }
+        case "sendChatMessage":
+            // What the composer's Send does in the selected conversation.
+            // The scenario's provider is a local mock or the opt-in proxy;
+            // the runner never lets the app reach a provider otherwise.
+            if (!ChatStore.selectedChatId) {
+                return { ok: false, method: "store-call", error: "no conversation selected" }
+            }
+            ChatStore.sendMessage(String(step.text || ""))
+            return { ok: true, method: "store-call" }
+        case "cancelChatRun":
+            // What the Stop button does.
+            ChatStore.cancelActiveRun()
+            return { ok: true, method: "store-call" }
         case "noop":
             return { ok: true, method: "none" }
         default:
@@ -309,6 +322,21 @@ Item {
             case "genieIdle":
                 ok = !ws || !ws.genieActive
                 break
+            case "runStreaming":
+                // The reply has started to show.
+                ok = ChatStore.responding
+                    && String(ChatStore.activeRunContent || "").length >= Number(want.minChars || 1)
+                break
+            case "runSettled": {
+                // The run is over and its reply is in the conversation with
+                // the expected status (complete, failed or cancelled).
+                var thread = ChatStore.messages || []
+                var last = thread.length ? thread[thread.length - 1] : null
+                ok = !ChatStore.responding && last !== null
+                    && String(last.role) === "assistant"
+                    && String(last.status) === String(want.status || "complete")
+                break
+            }
             case "seeded":
                 var seed = UiLab.seedStatus()
                 if (seed.state === "failed") {

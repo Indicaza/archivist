@@ -185,19 +185,56 @@ export function startupPhases({ spans, startupSpans, eventLoop, firstFrame, read
 
 // The trace in a few numbers per AI turn and the busiest database jobs; the
 // full trees are in the artifact.
+// One AI turn as the findings rules and the comparison read it: timings,
+// counts and sizes only (the trace itself never carries content).
+const stageMs = (turn, name) => turn.prepare?.stages.find((entry) => entry.name === name)?.durationMs ?? null;
+export function turnDigest(turn) {
+  const attempts = turn.rounds.flatMap((entry) => entry.attempts);
+  const compile = turn.prepare?.stages.find((entry) => entry.name === "ai.context-compile") ?? null;
+  const gaps = turn.rounds.map((entry) => entry.maxGapMs).filter((value) => value != null);
+  return {
+    runId: turn.runId, outcome: turn.outcome, provider: turn.provider, durationMs: turn.durationMs, queueWaitMs: turn.queueWaitMs,
+    prepareMs: turn.prepare?.durationMs ?? null,
+    stages: {
+      conversationLoadMs: stageMs(turn, "ai.conversation-load"),
+      workspaceDescribeMs: stageMs(turn, "ai.workspace-describe"),
+      attachmentsMs: stageMs(turn, "ai.attachments"),
+      retrievalMs: stageMs(turn, "ai.retrieval"),
+      contextCompileMs: compile?.durationMs ?? null,
+    },
+    context: compile ? {
+      compiler: compile.fields.compiler ?? null, sourceMessages: compile.fields.sourceMessages ?? null, included: compile.fields.included ?? null,
+      omitted: compile.fields.omitted ?? null, estimatedTokens: compile.fields.estimatedTokens ?? null,
+    } : null,
+    rounds: turn.rounds.length,
+    toolRounds: turn.toolRounds,
+    retries: turn.rounds.reduce((sum, entry) => sum + entry.retries, 0),
+    retryWaitMs: round(turn.rounds.reduce((sum, entry) => sum + (entry.retryWaitMs ?? 0), 0)),
+    failedAttempts: attempts.filter((attempt) => attempt.ok === false && !attempt.cancelled).map((attempt) => ({ status: attempt.status, error: attempt.error, retry: attempt.retry, interrupted: attempt.interrupted })),
+    cancelled: attempts.some((attempt) => attempt.cancelled) || turn.outcome === "cancelled",
+    tools: turn.tools.length,
+    toolCalls: turn.tools.map((tool) => ({ tool: tool.tool, durationMs: tool.durationMs, ok: tool.ok, resultBytes: tool.resultBytes })),
+    persistMs: turn.persistMs,
+    eventWriteMs: turn.eventWriteMs, eventWriteMaxMs: turn.eventWriteMaxMs,
+    firstNetworkByteMs: turn.firstNetworkByteMs, firstModelDeltaMs: turn.firstModelDeltaMs,
+    firstDeltaReceivedMs: turn.firstDeltaReceivedMs, firstVisibleTextMs: turn.firstVisibleTextMs,
+    maxStreamGapMs: gaps.length ? Math.max(...gaps) : null,
+    longStreamGaps: turn.rounds.reduce((sum, entry) => sum + (entry.longGaps ?? 0), 0),
+    presentation: turn.presentation,
+    tokens: turn.tokens,
+    unattributedMs: turn.unattributedMs,
+    missing: turn.missing,
+  };
+}
+
 export function traceSummary(trace) {
   if (!trace?.available) return { available: false, reason: trace?.reason ?? null };
   return {
     available: true,
     schemaVersion: trace.schemaVersion,
     threads: trace.threads,
-    aiTurns: trace.ai.turns.map((turn) => ({
-      runId: turn.runId, outcome: turn.outcome, durationMs: turn.durationMs, queueWaitMs: turn.queueWaitMs,
-      prepareMs: turn.prepare?.durationMs ?? null, rounds: turn.rounds.length, retries: turn.rounds.reduce((sum, entry) => sum + entry.retries, 0),
-      tools: turn.tools.length, persistMs: turn.persistMs, firstNetworkByteMs: turn.firstNetworkByteMs,
-      firstModelDeltaMs: turn.firstModelDeltaMs, firstVisibleTextMs: turn.firstVisibleTextMs, unattributedMs: turn.unattributedMs,
-      missing: turn.missing,
-    })),
+    dropped: trace.dropped ?? 0,
+    aiTurns: trace.ai.turns.map(turnDigest),
     db: trace.db.jobs.slice(0, 10),
   };
 }

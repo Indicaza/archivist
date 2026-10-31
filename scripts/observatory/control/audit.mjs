@@ -158,19 +158,26 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
     },
     "observatory.audit.run": {
       description: "Start an audit in the background: the preset's build and/or UI scenarios as one test job, then findings. Returns the job at once; poll observatory.audit.status.",
-      cli: "npm run observatory -- audit run --preset quick|ui|build|complete [--repeat <n>] [--wait] --json",
+      cli: "npm run observatory -- audit run --preset quick|ui|ai|ai-turn|build|complete [--repeat <n>] [--wait] --json  (provider: also --allow-provider-calls)",
       input: {
         preset: { type: "string", enum: Object.keys(PRESETS), required: true },
         repeat: { type: "integer", min: 1, max: MAX_REPEAT, description: "Rounds of each scenario (default: the preset's)" },
+        allowProviderCalls: { type: "boolean", default: false, description: "Required, and only allowed, for the provider preset: it calls the real AI provider (capped requests and tokens)." },
       },
       sideEffects: "Starts a background job like observatory.tests.run. Build presets run an incremental build of build/frontend-debug (never a clean build; nothing is deleted). Writes one Observatory run per build and scenario round, and an audit run at the end.",
       async run(ctx, input) {
         const preset = PRESETS[input.preset];
+        if (preset.providerCalls && input.allowProviderCalls !== true) {
+          throw new ControlError("invalid-input", `The ${preset.name} preset calls the real AI provider: ${preset.description} Run it again with allowProviderCalls: true (CLI: --allow-provider-calls) to confirm.`);
+        }
+        if (!preset.providerCalls && input.allowProviderCalls === true) {
+          throw new ControlError("invalid-input", `allowProviderCalls is only for the provider preset; ${preset.name} never calls the AI provider.`);
+        }
         const scenarios = await scenarioDefinitions(ctx.scenarioDir);
         const missing = preset.scenarios.filter((id) => !scenarios.some((entry) => entry.id === id));
         if (missing.length) throw new ControlError("invalid-input", `The ${preset.name} preset needs scenarios that aren't here: ${missing.join(", ")}.`);
         const repeat = preset.scenarios.length ? input.repeat ?? preset.repeat : 1;
-        const job = await startTests(ctx, { scenarios: preset.scenarios, repeat, build: preset.build, audit: { preset: preset.id } });
+        const job = await startTests(ctx, { scenarios: preset.scenarios, repeat, build: preset.build, audit: { preset: preset.id }, ...(preset.providerCalls ? { allowProviderCalls: true } : {}) });
         return { job, preset };
       },
     },

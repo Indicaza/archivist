@@ -139,6 +139,9 @@ export async function scenarioDefinitions(scenarioDir) {
       warmupIterations: definition.warmupIterations ?? 0,
       iterations: definition.iterations ?? 1,
       plannedActions: (definition.setup?.length ?? 0) + steps * ((definition.warmupIterations ?? 0) + (definition.iterations ?? 1)) + (definition.teardown?.length ?? 0),
+      // "offline", "mock" (a local stand-in) or "real" (opt-in only).
+      provider: definition.ai?.provider ?? "offline",
+      providerCalls: definition.ai?.provider === "real",
       timeoutMs: overallTimeoutMs(definition),
       methods: definition.methods ?? {},
     });
@@ -281,7 +284,7 @@ export const OPERATIONS = {
         limits: { maxRepeat: MAX_REPEAT, concurrentUiTests: 1, maxArtifactBytes: MAX_ARTIFACT_BYTES, liveDurationsSeconds: LIVE_DURATIONS, concurrentLiveRecordings: 1, maxLiveWindowMs: MAX_WINDOW_MS },
         exitCodes: { 0: "ok", 1: "the operation failed (see error.code)", 2: "invalid input or unknown operation", 4: "busy: another UI test is running" },
         target: await describeTarget(ctx),
-        scenarios: (await scenarioDefinitions(ctx.scenarioDir)).map(({ id, name, version }) => ({ id, name, version })),
+        scenarios: (await scenarioDefinitions(ctx.scenarioDir)).map(({ id, name, version, providerCalls }) => ({ id, name, version, providerCalls })),
       };
     },
   },
@@ -305,9 +308,13 @@ export const OPERATIONS = {
     sideEffects: "Starts a background job that runs the Archivist binary from build/frontend-debug as a separate app with a disposable profile, and records one Observatory run per scenario and round. With build: true it first rebuilds build/frontend-debug (it never restarts a running Archivist).",
     async run(ctx, input) {
       const scenarios = await scenarioDefinitions(ctx.scenarioDir);
-      const chosen = input.scenario === "all" ? scenarios.map((entry) => entry.id) : [input.scenario];
+      // "all" never includes a scenario that calls the real provider.
+      const chosen = input.scenario === "all" ? scenarios.filter((entry) => !entry.providerCalls).map((entry) => entry.id) : [input.scenario];
       if (!chosen.every((id) => scenarios.some((entry) => entry.id === id))) {
         throw new ControlError("invalid-input", `Unknown scenario "${input.scenario}". Available: all, ${scenarios.map((entry) => entry.id).join(", ")}.`);
+      }
+      if (scenarios.some((entry) => chosen.includes(entry.id) && entry.providerCalls)) {
+        throw new ControlError("invalid-input", `Scenario ${input.scenario} calls the real AI provider; run it as the Provider Latency audit (observatory.audit.run with preset provider and allowProviderCalls: true).`);
       }
       return { job: await startTests(ctx, { scenarios: chosen, repeat: input.repeat, build: input.build }) };
     },

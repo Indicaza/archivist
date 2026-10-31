@@ -83,7 +83,10 @@ describe("capabilities and validation", () => {
     assert.deepEqual(Object.keys(body.result.errorCodes), Object.keys(ERROR_CODES));
     assert.equal(body.result.limits.concurrentUiTests, 1);
     assert.equal(body.result.target.exists, true);
-    assert.deepEqual(body.result.scenarios.map((entry) => entry.id), ["chat", "sidebar", "startup", "workspace"]);
+    assert.deepEqual(body.result.scenarios.map((entry) => entry.id), ["ai-pipeline", "ai-provider", "ai-turn", "chat", "sidebar", "startup", "workspace"]);
+    const provider = body.result.scenarios.find((entry) => entry.id === "ai-provider");
+    assert.equal(provider.providerCalls, true, "the provider scenario says it makes real calls");
+    assert.ok(body.result.scenarios.filter((entry) => entry.id !== "ai-provider").every((entry) => !entry.providerCalls));
   });
 
   test("scenarios are listed with what they do and how many actions they plan", async () => {
