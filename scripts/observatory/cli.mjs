@@ -824,7 +824,7 @@ async function jobRunCommand(jobId) {
         await save();
         const collected = [];
         const exitCode = await uiCommand({
-          scenario, "skip-build": true, label: `test-lab ${jobId}`, jobId,
+          scenario, "skip-build": true, label: `test-lab ${jobId}`, jobId, fast: job.request.fast === true,
           "allow-provider-calls": job.request.allowProviderCalls === true,
           onRunCreated: async (runId) => {
             job.current = { phase: "running scenario", scenario, round, runId };
