@@ -21,6 +21,7 @@ export function scenarioForRun(definition, { fast = false, background = false } 
     scenario.warmupIterations = 0;
     scenario.iterations = Math.min(2, scenario.iterations ?? 1);
     scenario.settleQuietMs = Math.min(70, scenario.settleQuietMs ?? 120);
+    scenario.settleTimeoutMs = 900;
   }
   if (background) {
     scenario.version += 10000;
