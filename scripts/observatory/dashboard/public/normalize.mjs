@@ -29,6 +29,26 @@ function buildMetrics(summary) {
     classification: summary.buildConditions?.classification?.value ?? null,
     ninjaWorkSteps: log?.basis === "measured-by-ninja" ? num(log.workSteps) : null,
     failedPhase: (summary.phases ?? []).find((entry) => entry.status === "failure" || entry.status === "interrupted")?.name ?? null,
+    profiling: summary.buildConditions?.profiling ?? null,
+    jobs: jobMetrics(summary.evidence),
+  };
+}
+
+// From build-evidence.mjs (null for builds recorded before it existed).
+function jobMetrics(evidence) {
+  if (!evidence?.timing) return null;
+  const category = (name) => evidence.byCategory?.[name] ?? null;
+  return {
+    count: num(evidence.jobs),
+    wallMs: num(evidence.timing.wallMs),
+    summedMs: num(evidence.timing.summedJobMs),
+    peakParallel: num(evidence.timing.peakParallelJobs),
+    criticalPathMs: evidence.criticalPath?.available ? num(evidence.criticalPath.lengthMs) : null,
+    compiles: num(category("compile")?.jobs ?? 0),
+    compileMs: num(category("compile")?.summedMs ?? 0),
+    linkMs: num((category("link")?.summedMs ?? 0) + (category("archive")?.summedMs ?? 0)),
+    autogenMs: num(category("autogen")?.summedMs ?? 0),
+    longestJobMs: num(evidence.timing.longestJob?.durationMs),
   };
 }
 

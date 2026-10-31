@@ -46,6 +46,9 @@ public:
 };
 
 void setSink(Sink *sink);
+// Removes `owner` if it is the current sink, and leaves any other sink in
+// place (so the recorder stopping never cuts off the UI Lab's collection).
+void clearSink(Sink *owner);
 
 // Keeps only short scalar facts: at most 8 keys of letters and digits, and
 // strings of at most 64 characters. Anything else is dropped.

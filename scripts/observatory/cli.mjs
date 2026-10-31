@@ -12,6 +12,9 @@
 import { copyFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { collectBuildEvidence } from "./build-evidence.mjs";
+import { summarizeTraces } from "./time-trace.mjs";
+import { analyzeOperations } from "./ui-operations.mjs";
 import { archivistBuildPhases, buildConditionsBefore, classifyBuild } from "./build-phases.mjs";
 import { exitCodeFor, runCapture } from "./capture.mjs";
 import { collectMachine, collectSource, collectToolchain } from "./metadata.mjs";
@@ -29,7 +32,8 @@ import { acquireLock, readJob, releaseLock, setStatus, writeJob, ACTIVE } from "
 import { dispatch, exitCodeFor as responseExitCode, scenarioDefinitions } from "./control/operations.mjs";
 import { formatResponse } from "./control/human.mjs";
 import { newControlToken } from "./control/gate.mjs";
-import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR } from "./paths.mjs";
+import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR, TIME_TRACE_DIR } from "./paths.mjs";
+const DEFAULT_BUILD_DIR = BUILD_DIR;
 import { summarizeActions } from "./ui-stats.mjs";
 import {
   SCHEMA_VERSION, closeLog, createRunDir, listRunIds, observatoryRoot, openLog, readSummary, runsDir, writeJsonAtomic,
@@ -102,6 +106,9 @@ ${observatoryRoot()}`;
 
 async function buildCommand(options) {
   const root = observatoryRoot();
+  // --time-trace: the opt-in profiling build in its own directory.
+  const timeTrace = options["time-trace"] === true;
+  const BUILD_DIR = timeTrace ? TIME_TRACE_DIR : DEFAULT_BUILD_DIR;
   const { runId, dir } = await createRunDir(root, "build");
   const summaryPath = path.join(dir, "summary.json");
   const logPath = path.join(dir, "build.log");
@@ -126,7 +133,7 @@ async function buildCommand(options) {
     source,
     environment,
     toolchain: null,
-    buildConditions: { buildDir: path.relative(ROOT, BUILD_DIR), before, classification: null },
+    buildConditions: { buildDir: path.relative(ROOT, BUILD_DIR), before, classification: null, profiling: timeTrace ? "clang-time-trace" : null },
     phases: [],
     errors: [],
     artifacts: { log: "build.log" },
@@ -138,8 +145,9 @@ async function buildCommand(options) {
   console.log(`Observatory run ${runId}${options.follow ? "" : " (full output in build.log)"}`);
 
   let state;
+  const evidence = {};
   try {
-    state = await runCapture(archivistBuildPhases({ root: ROOT, buildDir: BUILD_DIR }), {
+    state = await runCapture(archivistBuildPhases({ root: ROOT, buildDir: BUILD_DIR, evidence, timeTrace }), {
       log,
       echo: options.follow,
       onPhaseDone: (phase) => console.log(`  ${phaseLine(phase)}`),
@@ -162,6 +170,23 @@ async function buildCommand(options) {
   summary.finishedAt = new Date().toISOString();
   summary.toolchain = await collectToolchain(BUILD_DIR);
   summary.buildConditions.classification = classifyBuild(before, state.phases);
+  if (evidence.explain) {
+    try {
+      const collected = await collectBuildEvidence({ root: ROOT, buildDir: BUILD_DIR, ...evidence });
+      await writeJsonAtomic(path.join(dir, "build-evidence.json"), collected.artifact);
+      summary.evidence = collected.summary;
+      summary.artifacts.evidence = "build-evidence.json";
+      if (timeTrace) {
+        const compiled = collected.artifact.jobs.filter((job) => job.category === "compile").map((job) => job.output);
+        const traces = await summarizeTraces(BUILD_DIR, compiled, { relative: (file) => file.startsWith(`${ROOT}/`) ? file.slice(ROOT.length + 1) : file });
+        await writeJsonAtomic(path.join(dir, "time-trace.json"), traces);
+        summary.artifacts.timeTrace = "time-trace.json";
+        summary.timeTrace = { ...traces, headers: traces.headers.slice(0, 10), templates: traces.templates.slice(0, 10), slowestUnits: traces.slowestUnits.slice(0, 10) };
+      }
+    } catch (error) {
+      summary.errors.push({ phase: null, message: `Build evidence could not be collected: ${error.message}` });
+    }
+  }
   for (const phase of state.phases) {
     if (phase.error) {
       summary.errors.push({ phase: phase.name, message: phase.error.message });
@@ -336,6 +361,13 @@ async function uiScenarioCommand(name, options) {
     firstFailure: actions.find((action) => !action.ok) ?? null,
   };
   summary.stats = summarizeActions(actions);
+  // What happened inside each action (LiveEvents spans, stalls), if this app build reports them.
+  const operations = analyzeOperations(events);
+  summary.operations = operations.summary;
+  if (operations.artifact) {
+    await writeJsonAtomic(path.join(dir, "ui-operations.json"), operations.artifact);
+    summary.artifacts.operations = "ui-operations.json";
+  }
   summary.runtimeTiming = {
     category: "archivist.wells.timing",
     relationship: "same-process",
@@ -756,6 +788,7 @@ async function main(argv) {
     options: {
       label: { type: "string" },
       follow: { type: "boolean", default: false },
+      "time-trace": { type: "boolean", default: false },
       "build-run": { type: "string" },
       scenario: { type: "string" },
       "skip-build": { type: "boolean", default: false },

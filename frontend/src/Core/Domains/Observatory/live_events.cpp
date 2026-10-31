@@ -37,6 +37,12 @@ void setSink(Sink *sink)
     g_sink.store(sink, std::memory_order_release);
 }
 
+void clearSink(Sink *owner)
+{
+    Sink *expected = owner;
+    g_sink.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+}
+
 QVariantMap cleanFields(const QVariantMap &fields)
 {
     static const QRegularExpression key(QStringLiteral("^[A-Za-z][A-Za-z0-9]{0,31}$"));
