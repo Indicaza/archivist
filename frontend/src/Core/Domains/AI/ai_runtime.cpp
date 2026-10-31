@@ -4,6 +4,7 @@
 #include "Core/Domains/Chats/chat_repository.h"
 #include "Core/Domains/Libraries/library_repository.h"
 #include "Core/Domains/Models/model_catalog_cache.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Domains/Worktrees/worktree_repository.h"
 #include "Core/Support/core_values.h"
@@ -706,6 +707,13 @@ public:
         m_generation = m_agent.value(QStringLiteral("generation")).toMap();
         m_provider = m_generation.value(QStringLiteral("provider")).toString();
         m_model = m_generation.value(QStringLiteral("model")).toString();
+        // The whole turn, for the Observatory: run, provider and model are
+        // ids, never content. Child spans name this one as their parent.
+        m_traceRun = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("run"), {
+            {QStringLiteral("runId"), m_runId},
+            {QStringLiteral("provider"), m_provider.left(32)},
+            {QStringLiteral("model"), m_model.left(64)},
+        });
     }
 
     [[nodiscard]] QString buffer() const { return m_buffer; }
@@ -730,7 +738,9 @@ public:
             }
 
             auto *list = new OpenAIModelList(m_worker.network(), config, this);
-            connect(list, &OpenAIModelList::finished, this, [this, list, cachePath](const QVariantList &models) {
+            const quint64 catalog = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("model-catalog"), {}, m_traceRun);
+            connect(list, &OpenAIModelList::finished, this, [this, list, cachePath, catalog](const QVariantList &models) {
+                LiveEvents::end(catalog, 1, {{QStringLiteral("models"), models.size()}});
                 list->deleteLater();
                 ModelCatalogCache::applyDiscovery(cachePath, m_provider, models);
                 guarded([this]() {
@@ -738,7 +748,8 @@ public:
                     prepare();
                 });
             });
-            connect(list, &OpenAIModelList::failed, this, [this, list, cachePath](const QString &message) {
+            connect(list, &OpenAIModelList::failed, this, [this, list, cachePath, catalog](const QString &message) {
+                LiveEvents::end(catalog, 0);
                 list->deleteLater();
                 ModelCatalogCache::recordDiscoveryFailure(cachePath, m_provider, message);
                 guarded([this]() {
@@ -755,6 +766,7 @@ public:
         m_aborted = true;
 
         if (m_stream) {
+            endRoundTrace(0, m_stream->stats());
             m_stream->abort();
             m_stream->deleteLater();
             m_stream = nullptr;
@@ -767,6 +779,7 @@ private:
     template<typename Work>
     void guarded(Work &&work)
     {
+        LiveEvents::ParentScope parent(m_traceRun);
         try {
             work();
         } catch (const RunAborted &) {
@@ -791,8 +804,24 @@ private:
             m_buffer += payload.value(QStringLiteral("delta")).toString();
         }
 
-        m_worker.appendEvent(m_runId, type, payload);
+        persistEvent(type, payload);
     }
+
+    // Run events are written to the database on this thread as they happen;
+    // their cost is summed onto the run span, not logged per event.
+    void persistEvent(const QString &type, const QVariantMap &payload)
+    {
+        const qint64 startNs = m_traceRun ? LiveEvents::nowNs() : -1;
+        m_worker.appendEvent(m_runId, type, payload);
+        if (startNs >= 0) {
+            const qint64 spent = LiveEvents::nowNs() - startNs;
+            m_persistNs += spent;
+            m_persistMaxNs = std::max(m_persistMaxNs, spent);
+            ++m_persistCalls;
+        }
+    }
+
+    void endRoundTrace(int ok, const StreamStats &stats);
 
     CoreDatabase &db() { return m_worker.database(); }
 
@@ -865,7 +894,50 @@ private:
     int m_toolRoundCount = 0;
     int m_toolResultEstimatedTokens = 0;
     int m_successfulMutationProposals = 0;
+
+    // Observatory trace (0 when not recording).
+    quint64 m_traceRun = 0;
+    quint64 m_roundSpan = 0;
+    qint64 m_persistNs = 0;
+    qint64 m_persistMaxNs = 0;
+    int m_persistCalls = 0;
+    int m_inputTokens = -1;
+    int m_outputTokens = -1;
+    QString m_outcome = QStringLiteral("completed");
 };
+
+void ChatRunJob::endRoundTrace(int ok, const StreamStats &stats)
+{
+    if (!m_roundSpan) {
+        return;
+    }
+    const auto msOrNull = [](qint64 ns) { return ns < 0 ? QVariant() : QVariant(std::round(ns / 1e4) / 100.0); };
+    if (stats.inputTokens >= 0) {
+        m_inputTokens = std::max(0, m_inputTokens) + stats.inputTokens;
+    }
+    if (stats.outputTokens >= 0) {
+        m_outputTokens = std::max(0, m_outputTokens) + stats.outputTokens;
+    }
+    QVariantMap fields{
+        {QStringLiteral("attempts"), stats.attempts},
+        {QStringLiteral("events"), stats.events},
+        {QStringLiteral("deltas"), stats.deltas},
+        {QStringLiteral("bytesSent"), stats.bytesSent},
+        {QStringLiteral("bytesReceived"), stats.bytesReceived},
+        {QStringLiteral("longGaps"), stats.longGaps},
+        {QStringLiteral("toolCalls"), m_roundToolCalls.size()},
+    };
+    if (stats.maxGapNs >= 0) {
+        fields.insert(QStringLiteral("maxGapMs"), msOrNull(stats.maxGapNs));
+    }
+    if (stats.inputTokens >= 0) {
+        fields.insert(QStringLiteral("inputTokens"), stats.inputTokens);
+    }
+    if (stats.outputTokens >= 0) {
+        fields.insert(QStringLiteral("outputTokens"), stats.outputTokens);
+    }
+    LiveEvents::end(std::exchange(m_roundSpan, 0), ok, fields);
+}
 
 void ChatRunJob::prepare()
 {
@@ -878,9 +950,12 @@ void ChatRunJob::prepare()
     }
 
     m_prepareTimer.start();
+    LiveEvents::Step prepareStep(QStringLiteral("ai"), QStringLiteral("prepare"));
     const QString userMessageId = m_userMessage.value(QStringLiteral("id")).toString();
     const QString userContent = m_userMessage.value(QStringLiteral("content")).toString();
+    LiveEvents::Step loadStep(QStringLiteral("ai"), QStringLiteral("conversation-load"));
     const QVariantList storedMessages = ChatRepository::messages(db(), m_chatId);
+    loadStep.done(1, {{QStringLiteral("messages"), storedMessages.size()}});
 
     // Route before retrieval: a pure layout request ("switch to Research",
     // "try another") needs the workspace, not a Library search.
@@ -903,6 +978,7 @@ void ChatRunJob::prepare()
         if (m_workspaceToolsOffered) {
             // One look at the workspace serves both the routing (layout
             // names) and the model's summary.
+            LiveEvents::Scope describe(QStringLiteral("ai"), QStringLiteral("workspace-describe"));
             m_workspaceDescribed = Workspace::Gateway::call({
                 {QStringLiteral("action"), QStringLiteral("describe")},
                 {QStringLiteral("runId"), m_runId},
@@ -924,7 +1000,12 @@ void ChatRunJob::prepare()
         {QStringLiteral("skipped"), skipRetrieval},
     });
 
+    LiveEvents::Step attachmentStep(QStringLiteral("ai"), QStringLiteral("attachments"));
     const ChatEvidence::AttachmentEvidence attachments = ChatEvidence::attachments(db(), m_chatId, m_userMessage);
+    attachmentStep.done(1, {
+        {QStringLiteral("sources"), attachments.sources.size()},
+        {QStringLiteral("warnings"), attachments.warnings.size()},
+    });
     throwIfAborted();
     QSet<QString> attachedFileIds;
 
@@ -936,6 +1017,7 @@ void ChatRunJob::prepare()
         }
     }
 
+    LiveEvents::Step retrievalStep(QStringLiteral("ai"), QStringLiteral("retrieval"), {{QStringLiteral("skipped"), skipRetrieval}});
     const ChatEvidence::RetrievalEvidence retrieval = skipRetrieval
         ? ChatEvidence::RetrievalEvidence()
         : ChatEvidence::libraryRetrieval(db(), m_chatId, m_libraryId, m_userMessage, attachedFileIds);
@@ -948,6 +1030,13 @@ void ChatRunJob::prepare()
             retrievedFileIds.insert(fileId);
         }
     }
+
+    retrievalStep.done(1, {
+        {QStringLiteral("sources"), retrieval.manifestSources.size()},
+        {QStringLiteral("files"), retrievedFileIds.size()},
+        {QStringLiteral("warnings"), retrieval.warnings.size()},
+        {QStringLiteral("contextIncluded"), retrieval.contextMessage.has_value()},
+    });
 
     emitEvent(QStringLiteral("retrieval.completed"), {
         {QStringLiteral("attachedSourceCount"), attachments.sources.size()},
@@ -1049,8 +1138,20 @@ void ChatRunJob::prepare()
         {QStringLiteral("omittedHistoryMessageCount"), omittedHistoryMessageCount},
     });
 
+    LiveEvents::Step compileStep(QStringLiteral("ai"), QStringLiteral("context-compile"), {
+        {QStringLiteral("compiler"), compilerId},
+        {QStringLiteral("version"), compilerVersion},
+        {QStringLiteral("sourceMessages"), sourceMessages.size()},
+    });
     const ContextCompilers::Compiled compiled =
         ContextCompilers::compile(db(), compilerId, compilerVersion, m_chatId, userMessageId, sourceMessages, config);
+    compileStep.done(1, {
+        {QStringLiteral("included"), compiled.manifest.value(QStringLiteral("includedMessageIds")).toList().size()},
+        {QStringLiteral("omitted"), compiled.manifest.value(QStringLiteral("omittedMessageIds")).toList().size()},
+        {QStringLiteral("providerMessages"), compiled.providerMessages.size()},
+        {QStringLiteral("estimatedTokens"), compiled.manifest.value(QStringLiteral("estimatedInputTokens")).toInt()},
+        {QStringLiteral("warnings"), compiled.warnings.size()},
+    });
     QVariantList warnings;
 
     for (const QString &warning : compiled.warnings + attachments.warnings + retrieval.warnings) {
@@ -1247,6 +1348,11 @@ void ChatRunJob::prepare()
         {QStringLiteral("omittedHistoryMessageCount"), omittedHistoryMessageCount},
         {QStringLiteral("estimatedInputTokens"), estimatedInputTokens},
     });
+    prepareStep.done(1, {
+        {QStringLiteral("estimatedTokens"), estimatedInputTokens},
+        {QStringLiteral("tools"), m_tools.size()},
+        {QStringLiteral("instructionChars"), m_instructions.size()},
+    });
 
     m_config = AIProvider::configFor(m_provider, m_worker.databasePath());
 
@@ -1397,6 +1503,13 @@ void ChatRunJob::openStream(const QJsonObject &body)
     m_roundToolCalls.clear();
     m_roundText.clear();
     m_stream = new OpenAIResponseStream(m_worker.network(), m_config, body, this);
+    if (m_traceRun) {
+        m_roundSpan = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("provider-round"), {
+            {QStringLiteral("round"), m_round},
+            {QStringLiteral("endpoint"), m_config.chatCompletions ? QStringLiteral("chat-completions") : QStringLiteral("responses")},
+        }, m_traceRun);
+        m_stream->setTraceParent(m_roundSpan);
+    }
     connect(m_stream, &OpenAIResponseStream::textDelta, this, [this](const QString &delta) {
         guarded([this, &delta]() {
             m_text += delta;
@@ -1417,6 +1530,7 @@ void ChatRunJob::openStream(const QJsonObject &body)
     });
     connect(m_stream, &OpenAIResponseStream::finished, this, [this](const QString &responseId) {
         if (m_stream) {
+            endRoundTrace(1, m_stream->stats());
             m_stream->deleteLater();
             m_stream = nullptr;
         }
@@ -1425,6 +1539,7 @@ void ChatRunJob::openStream(const QJsonObject &body)
     });
     connect(m_stream, &OpenAIResponseStream::failed, this, [this](const QString &message) {
         if (m_stream) {
+            endRoundTrace(0, m_stream->stats());
             m_stream->deleteLater();
             m_stream = nullptr;
         }
@@ -1470,9 +1585,22 @@ void ChatRunJob::roundFinished(const QString &responseId)
     QJsonArray outputs;
     const QList<QVariantMap> calls = m_roundToolCalls;
     QList<QVariantMap> executed;
+    LiveEvents::Step toolRound(QStringLiteral("ai"), QStringLiteral("tool-round"), {
+        {QStringLiteral("round"), m_round},
+        {QStringLiteral("calls"), calls.size()},
+    }, m_traceRun);
+    qint64 toolResultBytes = 0;
 
     for (const QVariantMap &call : calls) {
         ++m_toolCallCount;
+        // Tool name and call id are identifiers; arguments and results stay
+        // out of the trace (only their sizes).
+        LiveEvents::Step toolStep(QStringLiteral("ai"), QStringLiteral("tool"), {
+            {QStringLiteral("tool"), call.value(QStringLiteral("name")).toString().left(64)},
+            {QStringLiteral("callId"), call.value(QStringLiteral("callId")).toString().left(64)},
+            {QStringLiteral("round"), m_round},
+            {QStringLiteral("argumentBytes"), call.value(QStringLiteral("arguments")).toString().toUtf8().size()},
+        });
         const QVariantMap output = executeToolCall(call);
         executed.append(output);
         const QString name = call.value(QStringLiteral("name")).toString();
@@ -1496,7 +1624,17 @@ void ChatRunJob::roundFinished(const QString &responseId)
             }
         }
 
+        const qint64 serializeNs = toolStep.id() ? LiveEvents::nowNs() : -1;
         const QString serialized = JsonValues::toJsonString(output);
+        if (toolStep.id()) {
+            const qint64 bytes = serialized.toUtf8().size();
+            toolResultBytes += bytes;
+            toolStep.done(output.value(QStringLiteral("ok")).toBool() ? 1 : 0, {
+                {QStringLiteral("resultBytes"), bytes},
+                {QStringLiteral("serializeMs"), std::round((LiveEvents::nowNs() - serializeNs) / 1e4) / 100.0},
+                {QStringLiteral("errorCode"), output.value(QStringLiteral("error")).toMap().value(QStringLiteral("code")).toString().left(32)},
+            });
+        }
         m_toolResultEstimatedTokens += ContextCompilers::estimateTokens(serialized);
         outputs.append(QJsonObject{
             {QStringLiteral("type"), QStringLiteral("function_call_output")},
@@ -1504,6 +1642,8 @@ void ChatRunJob::roundFinished(const QString &responseId)
             {QStringLiteral("output"), serialized},
         });
     }
+
+    toolRound.done(1, {{QStringLiteral("resultBytes"), toolResultBytes}});
 
     // A layout-only request that the workspace carried out needs no second
     // model round to confirm it: the reply comes from the results.
@@ -1677,6 +1817,7 @@ void ChatRunJob::finish(const QString &text)
         {QStringLiteral("reasoningEffort"), layoutReasoningEffort()},
     });
 
+    LiveEvents::Step persistStep(QStringLiteral("ai"), QStringLiteral("persist"), {}, m_traceRun);
     const QString assistantId = m_assistantMessage.value(QStringLiteral("id")).toString();
     const QVariantMap assistant = ChatRepository::updateMessage(db(), assistantId, finalText, QStringLiteral("complete"));
     QVariantList retrievalOutcomes;
@@ -1726,6 +1867,7 @@ void ChatRunJob::finish(const QString &text)
             {QStringLiteral("characterCount"), content.size()},
         });
     }
+    persistStep.done(1);
 
     settle();
 }
@@ -1736,6 +1878,8 @@ void ChatRunJob::fail(const QString &rawMessage)
         return;
     }
 
+    endRoundTrace(0, m_stream ? m_stream->stats() : StreamStats{});
+
     if (m_stream) {
         m_stream->abort();
         m_stream->deleteLater();
@@ -1744,6 +1888,8 @@ void ChatRunJob::fail(const QString &rawMessage)
 
     const QString message = JsCompat::isBlank(rawMessage) ? QStringLiteral("The AI Run failed unexpectedly.") : rawMessage;
     const QString assistantId = m_assistantMessage.value(QStringLiteral("id")).toString();
+    m_outcome = m_aborted ? QStringLiteral("cancelled") : QStringLiteral("failed");
+    LiveEvents::Step persistStep(QStringLiteral("ai"), QStringLiteral("persist"), {{QStringLiteral("outcome"), m_outcome}}, m_traceRun);
 
     try {
         // completeChatTurnSession's catch
@@ -1781,6 +1927,7 @@ void ChatRunJob::fail(const QString &rawMessage)
     } catch (const std::exception &error) {
         qWarning() << "[AIRuntime] Could not settle a failed AI Run:" << error.what();
     }
+    persistStep.done(1);
 
     settle();
 }
@@ -1788,7 +1935,28 @@ void ChatRunJob::fail(const QString &rawMessage)
 void ChatRunJob::settle()
 {
     m_settled = true;
+    const qint64 flushNs = m_traceRun ? LiveEvents::nowNs() : -1;
     m_worker.flushDeltas(m_runId);
+    if (m_traceRun) {
+        m_persistNs += LiveEvents::nowNs() - flushNs;
+        QVariantMap fields{
+            {QStringLiteral("runId"), m_runId},
+            {QStringLiteral("outcome"), m_outcome},
+            {QStringLiteral("rounds"), m_round + 1},
+            {QStringLiteral("toolRounds"), m_toolRoundCount},
+            {QStringLiteral("toolCalls"), m_toolCallCount},
+            {QStringLiteral("eventWrites"), m_persistCalls},
+            {QStringLiteral("eventWriteMs"), std::round(m_persistNs / 1e4) / 100.0},
+            {QStringLiteral("eventWriteMaxMs"), std::round(m_persistMaxNs / 1e4) / 100.0},
+        };
+        if (m_inputTokens >= 0) {
+            fields.insert(QStringLiteral("inputTokens"), m_inputTokens);
+        }
+        if (m_outputTokens >= 0) {
+            fields.insert(QStringLiteral("outputTokens"), m_outputTokens);
+        }
+        LiveEvents::end(std::exchange(m_traceRun, 0), m_outcome == QStringLiteral("completed") ? 1 : 0, fields);
+    }
     m_worker.jobFinished(m_runId);
     deleteLater();
 }
@@ -2012,9 +2180,13 @@ bool AIRuntime::ready() const
     return m_ready;
 }
 
-void AIRuntime::invoke(std::function<QVariant(AIWorker &)> job, QObject *context, Callback done)
+void AIRuntime::invoke(std::function<QVariant(AIWorker &)> job, QObject *context, Callback done, const char *operation)
 {
     QPointer<QObject> guarded(context);
+    // For the Observatory: how long the job waited for the AI thread, how
+    // long it ran there, and how long its result waited for the caller.
+    const qint64 queuedNs = LiveEvents::recording() ? LiveEvents::nowNs() : -1;
+    const quint64 callerParent = LiveEvents::currentParent();
 
     if (!m_ready || !m_worker) {
         if (done && context) {
@@ -2029,21 +2201,36 @@ void AIRuntime::invoke(std::function<QVariant(AIWorker &)> job, QObject *context
     AIWorker *worker = m_worker;
     QMetaObject::invokeMethod(
         worker,
-        [worker, job = std::move(job), guarded, done = std::move(done)]() {
+        [worker, job = std::move(job), guarded, done = std::move(done), queuedNs, callerParent, operation]() {
             CoreResult result;
-
-            try {
-                result.value = job(*worker);
-                result.ok = true;
-            } catch (const CoreError &error) {
-                result.errorMessage = error.message();
-                result.errorDetails = error.details();
-            } catch (const std::exception &error) {
-                result.errorMessage = QString::fromUtf8(error.what());
+            const quint64 call = LiveEvents::beginAt(queuedNs, QStringLiteral("ai"), QString::fromLatin1(operation), {}, callerParent);
+            if (call) {
+                LiveEvents::span(QStringLiteral("ai"), QStringLiteral("queue-wait"), queuedNs, LiveEvents::nowNs(), -1, {}, call);
             }
 
+            {
+                LiveEvents::ParentScope parent(call);
+                try {
+                    result.value = job(*worker);
+                    result.ok = true;
+                } catch (const CoreError &error) {
+                    result.errorMessage = error.message();
+                    result.errorDetails = error.details();
+                } catch (const std::exception &error) {
+                    result.errorMessage = QString::fromUtf8(error.what());
+                }
+            }
+            LiveEvents::end(call, result.ok ? 1 : 0);
+
             if (done && guarded) {
-                QMetaObject::invokeMethod(guarded.data(), [done, result]() { done(result); }, Qt::QueuedConnection);
+                const qint64 postedNs = call ? LiveEvents::nowNs() : -1;
+                QMetaObject::invokeMethod(guarded.data(), [done, result, postedNs, call]() {
+                    if (postedNs >= 0) {
+                        LiveEvents::span(QStringLiteral("ai"), QStringLiteral("callback-delay"), postedNs, LiveEvents::nowNs(), -1, {}, call);
+                    }
+                    LiveEvents::ParentScope parent(call);
+                    done(result);
+                }, Qt::QueuedConnection);
             }
         },
         Qt::QueuedConnection
@@ -2052,12 +2239,12 @@ void AIRuntime::invoke(std::function<QVariant(AIWorker &)> job, QObject *context
 
 void AIRuntime::startChatRun(const QString &chatId, const QString &content, QObject *context, Callback done)
 {
-    invoke([chatId, content](AIWorker &worker) { return QVariant(worker.startChatRun(chatId, content)); }, context, std::move(done));
+    invoke([chatId, content](AIWorker &worker) { return QVariant(worker.startChatRun(chatId, content)); }, context, std::move(done), "start-chat-run");
 }
 
 void AIRuntime::cancelRun(const QString &runId, QObject *context, Callback done)
 {
-    invoke([runId](AIWorker &worker) { return QVariant(worker.cancelRun(runId)); }, context, std::move(done));
+    invoke([runId](AIWorker &worker) { return QVariant(worker.cancelRun(runId)); }, context, std::move(done), "cancel-run");
 }
 
 void AIRuntime::runsForChat(const QString &chatId, QObject *context, Callback done)

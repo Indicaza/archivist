@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QtTest>
 
 #include <cmath>
@@ -133,6 +134,72 @@ private slots:
 
         LiveEvents::setSink(nullptr);
         LiveEvents::end(open); // after the recording: ignored, no crash
+    }
+
+    // A Scope parents what its thread does while it is open; work handed to
+    // another thread names its parent; every event says which thread made it.
+    void spansNestByCauseAcrossThreads()
+    {
+        Live::Session session;
+        session.reset(LiveEvents::nowNs());
+        LiveEvents::setSink(&session);
+
+        quint64 outer = 0;
+        quint64 request = 0;
+        {
+            LiveEvents::Scope run(QStringLiteral("ai"), QStringLiteral("run"));
+            outer = run.id();
+            QVERIFY(outer > 0);
+            QCOMPARE(LiveEvents::currentParent(), outer);
+            {
+                LiveEvents::Scope prepare(QStringLiteral("ai"), QStringLiteral("prepare"));
+                QCOMPARE(LiveEvents::currentParent(), prepare.id());
+                LiveEvents::marker(QStringLiteral("ai"), QStringLiteral("inside-prepare"));
+            }
+            request = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("http-attempt"));
+            QThread worker;
+            worker.setObjectName(QStringLiteral("ArchivistAI"));
+            QObject *context = new QObject;
+            context->moveToThread(&worker);
+            worker.start();
+            QMetaObject::invokeMethod(context, [outer]() {
+                LiveEvents::ParentScope parent(outer);
+                LiveEvents::Scope tool(QStringLiteral("ai"), QStringLiteral("tool"));
+            }, Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(context, [context]() { delete context; }, Qt::BlockingQueuedConnection);
+            worker.quit();
+            worker.wait();
+            LiveEvents::end(request, 1);
+        }
+        QCOMPARE(LiveEvents::currentParent(), quint64(0));
+
+        QHash<QString, QJsonObject> byName;
+        for (const QJsonValue &value : Live::eventsJson(session.snapshot()).value(QStringLiteral("events")).toArray()) {
+            byName.insert(value.toObject().value(QStringLiteral("name")).toString(), value.toObject());
+        }
+        QCOMPARE(byName.size(), 5);
+        const auto id = [&](const char *name) { return static_cast<quint64>(byName.value(QLatin1String(name)).value(QStringLiteral("id")).toDouble()); };
+        const auto parent = [&](const char *name) { return static_cast<quint64>(byName.value(QLatin1String(name)).value(QStringLiteral("parent")).toDouble()); };
+        QCOMPARE(id("run"), outer);
+        QCOMPARE(parent("run"), quint64(0));
+        QCOMPARE(parent("prepare"), outer);
+        QCOMPARE(parent("inside-prepare"), id("prepare"));
+        QCOMPARE(id("http-attempt"), request);
+        QCOMPARE(parent("http-attempt"), outer);
+        QCOMPARE(parent("tool"), outer);
+        QCOMPARE(byName.value(QStringLiteral("tool")).value(QStringLiteral("thread")).toString(), QStringLiteral("ArchivistAI"));
+        QVERIFY(!byName.value(QStringLiteral("run")).value(QStringLiteral("thread")).toString().isEmpty());
+
+        // Read back from the stream, ids and parents survive.
+        const Live::Snapshot back = Live::fromStream(QJsonDocument(Live::chunkJson(session.snapshot())).toJson(QJsonDocument::Compact) + "\n");
+        bool sawTool = false;
+        for (const LiveEvents::Event &event : back.events) {
+            if (event.name == QLatin1String("tool")) {
+                sawTool = event.parent == outer && event.thread == QLatin1String("ArchivistAI") && event.id > 0;
+            }
+        }
+        QVERIFY(sawTool);
+        LiveEvents::setSink(nullptr);
     }
 
     void fieldsKeepOnlyShortScalars()

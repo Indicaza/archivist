@@ -106,8 +106,8 @@ public:
     void addSample(const Sample &sample);
 
     void addEvent(LiveEvents::Event event) override;
-    quint64 openSpan(LiveEvents::Event event) override;
-    void closeSpan(quint64 token, qint64 endNs, int ok, const QVariantMap &fields) override;
+    bool openSpan(LiveEvents::Event event) override;
+    void closeSpan(quint64 id, qint64 endNs, int ok, const QVariantMap &fields) override;
 
     // Everything recorded since the previous call (windows: all of them),
     // for the crash-safe stream on disk.
@@ -133,7 +133,6 @@ private:
     QList<Sample> m_samples;
     QList<LiveEvents::Event> m_events;
     QHash<quint64, LiveEvents::Event> m_open;
-    quint64 m_nextToken = 1;
     qint64 m_droppedEvents = 0;
     qint64 m_droppedProbes = 0;
     qint64 m_droppedSamples = 0;

@@ -155,23 +155,23 @@ void UiLab::addEvent(LiveEvents::Event event)
     m_events.append({std::move(event), action});
 }
 
-quint64 UiLab::openSpan(LiveEvents::Event event)
+bool UiLab::openSpan(LiveEvents::Event event)
 {
     const int action = m_action.load(std::memory_order_relaxed);
     QMutexLocker lock(&m_eventsMutex);
     if (m_events.size() + m_open.size() >= kMaxEvents) {
         ++m_dropped;
-        return 0;
+        return false;
     }
-    const quint64 token = m_nextToken++;
-    m_open.insert(token, {std::move(event), action});
-    return token;
+    const quint64 id = event.id;
+    m_open.insert(id, {std::move(event), action});
+    return true;
 }
 
-void UiLab::closeSpan(quint64 token, qint64 endNs, int ok, const QVariantMap &fields)
+void UiLab::closeSpan(quint64 id, qint64 endNs, int ok, const QVariantMap &fields)
 {
     QMutexLocker lock(&m_eventsMutex);
-    auto it = m_open.find(token);
+    auto it = m_open.find(id);
     if (it == m_open.end()) {
         return;
     }
@@ -179,7 +179,7 @@ void UiLab::closeSpan(quint64 token, qint64 endNs, int ok, const QVariantMap &fi
     m_open.erase(it);
     recorded.event.endNs = endNs;
     recorded.event.ok = ok;
-    for (auto field = fields.constBegin(); field != fields.constEnd() && recorded.event.fields.size() < 8; ++field) {
+    for (auto field = fields.constBegin(); field != fields.constEnd() && recorded.event.fields.size() < LiveEvents::kMaxFields; ++field) {
         recorded.event.fields.insert(field.key(), field.value());
     }
     m_events.append(std::move(recorded));
@@ -203,6 +203,15 @@ QVariantMap UiLab::operations() const
         entry.insert(QStringLiteral("ok"), event.ok < 0 ? QVariant() : QVariant(event.ok == 1));
         if (!event.fields.isEmpty()) {
             entry.insert(QStringLiteral("fields"), event.fields);
+        }
+        if (event.id) {
+            entry.insert(QStringLiteral("id"), event.id);
+        }
+        if (event.parent) {
+            entry.insert(QStringLiteral("parent"), event.parent);
+        }
+        if (!event.thread.isEmpty()) {
+            entry.insert(QStringLiteral("thread"), event.thread);
         }
         return entry;
     };
