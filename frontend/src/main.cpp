@@ -1,14 +1,20 @@
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFileInfo>
+#include <QDir>
+#include <QUrl>
 #include <QGuiApplication>
+#include <QQmlAbstractUrlInterceptor>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QStringList>
 #include <QStandardPaths>
 #include <QVariantMap>
 #include <QtEnvironmentVariables>
 #include <QtWebEngineQuick>
+#include <atomic>
 #include <memory>
 #include <qqml.h>
 
@@ -45,6 +51,54 @@
 #include "Core/Support/app_profile.h"
 #include "Core/Support/login_environment.h"
 #include "Core/core_runtime.h"
+
+class SourceQmlInterceptor final : public QQmlAbstractUrlInterceptor
+{
+public:
+    explicit SourceQmlInterceptor(const QString &sourceRoot)
+        : m_sourceRoot(QDir(sourceRoot).absolutePath())
+    {
+    }
+
+    QUrl intercept(const QUrl &url, DataType type) override
+    {
+        if (type == QmldirFile || url.scheme() != QStringLiteral("qrc"))
+            return url;
+
+        const QString resource = url.path();
+        const QStringList prefixes = {
+            QStringLiteral("/qt/qml/Archivist/qml/"),
+            QStringLiteral("/qt/qml/Archivist/"),
+        };
+
+        for (const QString &prefix : prefixes) {
+            if (!resource.startsWith(prefix))
+                continue;
+
+            const QString relative = resource.mid(prefix.size());
+            if (relative.isEmpty() || relative.startsWith(QStringLiteral("../"))
+                || relative.contains(QStringLiteral("/../")))
+                return url;
+
+            const QString source = QDir(m_sourceRoot).absoluteFilePath(relative);
+            if (QFileInfo(source).isFile()) {
+                m_redirects.fetch_add(1, std::memory_order_relaxed);
+                return QUrl::fromLocalFile(source);
+            }
+        }
+
+        return url;
+    }
+
+    int redirectedCount() const
+    {
+        return m_redirects.load(std::memory_order_relaxed);
+    }
+
+private:
+    const QString m_sourceRoot;
+    std::atomic<int> m_redirects {0};
+};
 
 int main(int argc, char *argv[])
 {
@@ -303,7 +357,20 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Shell", &shellStore);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "HomeStore", &homeStore);
 
+    const QString qmlSourceDir = qEnvironmentVariable("ARCHIVIST_QML_SOURCE_DIR");
+    std::unique_ptr<SourceQmlInterceptor> sourceInterceptor;
+    if (!qmlSourceDir.isEmpty()) {
+        const QString rootFile = QDir(qmlSourceDir).absoluteFilePath(QStringLiteral("App.qml"));
+        if (!QFileInfo(rootFile).isFile()) {
+            qCritical().noquote() << "[Dev QML] App.qml does not exist at" << rootFile;
+            return 2;
+        }
+        sourceInterceptor = std::make_unique<SourceQmlInterceptor>(qmlSourceDir);
+    }
+
     QQmlApplicationEngine engine;
+    if (sourceInterceptor)
+        engine.addUrlInterceptor(sourceInterceptor.get());
 
     QVariantMap diagnostics;
     diagnostics.insert(
@@ -346,7 +413,9 @@ int main(int argc, char *argv[])
 
     // Marks when the root object exists inside qml-load, splitting compile
     // and create from what runs after it before loadFromModule returns.
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [uiLabBackground](QObject *object, const QUrl &) {
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [uiLabBackground, sourceInterceptorPtr = sourceInterceptor.get()](QObject *object, const QUrl &) {
+        if (sourceInterceptorPtr)
+            qInfo().noquote() << "[Dev QML] Redirected source URLs:" << sourceInterceptorPtr->redirectedCount();
         LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("qml-root-created"), {}, object ? 1 : 0);
 #if defined(Q_OS_MACOS)
         if (uiLabBackground) configureUiLabMacWindow(qobject_cast<QQuickWindow *>(object));
@@ -359,6 +428,8 @@ int main(int argc, char *argv[])
         // Compiling and creating the QML scene (the window and everything it
         // creates synchronously).
         LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("qml-load"));
+        if (sourceInterceptor)
+            qInfo().noquote() << "[Dev QML] Intercepting module resource loads from" << qmlSourceDir;
         engine.loadFromModule("Archivist", "App");
     }
     LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("enter-event-loop"));

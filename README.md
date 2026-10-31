@@ -244,6 +244,36 @@ Build and launch the backend and native Qt client in one terminal:
 npm run dev
 ```
 
+For rapid **QML-only iteration** on Qt 6.8, use the opt-in source QML
+developer loop:
+
+```bash
+npm run dev:qml
+```
+
+This runs the normal cached build once, loads the existing `Archivist` QML
+module while redirecting its resource file loads to a temporary mirror of
+`frontend/qml/`. The mirror adds the explicit module imports needed for Qt's
+filesystem loader and is recreated on edits; the tracked QML files are never
+rewritten. The watcher monitors the original source tree. Editing a
+QML, JavaScript or UI asset file restarts only the dev app without running
+CMake, Ninja, resource compilation or C++ linking. To reuse an existing
+binary without any initial build:
+
+```bash
+npm run dev:qml -- --skip-build
+```
+
+**Limitations:** this is a rapid app restart, not state-preserving in-place
+hot reload. Transient focus, scroll and unsaved UI-only state may reset.
+Persistent native workspaces and conversations still load normally; save
+unsaved edits before changing QML. The source loader is only enabled by
+`ARCHIVIST_QML_SOURCE_DIR` in this dev process, and production still loads
+compiled-in resources. The watcher does **not** rebuild C++, track CMake
+changes, regenerate icons, or rebuild the embedded web IDE. Exit it with
+Ctrl+C, run `npm run build:fast` for native changes, and restart the watcher.
+Use `npm run dev` to check ordinary packaged QML behavior before merging.
+
 Stop a previous managed development session:
 
 ```bash
