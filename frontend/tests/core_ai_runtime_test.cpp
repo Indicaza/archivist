@@ -508,6 +508,16 @@ private slots:
             QCOMPARE(parentOf(trace.value(QLatin1String(stage))), idOf(prepare));
         }
         QVERIFY(fieldsOf(trace.value(QStringLiteral("ai.context-compile"))).contains(QStringLiteral("estimatedTokens")));
+        // Retrieval and compiler stages nest under their step.
+        const QJsonObject search = trace.value(QStringLiteral("retrieval.library-search"));
+        QCOMPARE(parentOf(search), idOf(trace.value(QStringLiteral("ai.retrieval"))));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("retrieval.fts-query"))), idOf(search));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("retrieval.rank"))), idOf(search));
+        QVERIFY(fieldsOf(trace.value(QStringLiteral("retrieval.fts-query"))).value(QStringLiteral("rows")).toInt() >= 1);
+        QCOMPARE(parentOf(trace.value(QStringLiteral("retrieval.select"))), idOf(trace.value(QStringLiteral("ai.retrieval"))));
+        const QJsonObject strategy = trace.value(QStringLiteral("context.strategy"));
+        QCOMPARE(parentOf(strategy), idOf(trace.value(QStringLiteral("ai.context-compile"))));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("context.assemble"))), idOf(strategy));
 
         const QList<QJsonObject> rounds = trace.values(QStringLiteral("ai.provider-round"));
         QCOMPARE(rounds.size(), 2);

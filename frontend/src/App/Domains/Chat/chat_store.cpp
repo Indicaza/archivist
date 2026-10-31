@@ -8,6 +8,7 @@
 #include "Core/core_runtime.h"
 
 #include <algorithm>
+#include <cmath>
 #include <optional>
 #include <utility>
 #include <QDateTime>
@@ -895,6 +896,13 @@ void ChatStore::handleRunEvent(const QJsonObject &event)
 
     if (eventType == QStringLiteral("model.delta")) {
         const QString delta = payload.value(QStringLiteral("delta")).toString();
+        if (LiveEvents::recording()) {
+            if (m_runPresentation.firstDeltaNs < 0) {
+                m_runPresentation.firstDeltaNs = LiveEvents::nowNs();
+                LiveEvents::marker(QStringLiteral("chat"), QStringLiteral("ai-first-delta-received"), {{QStringLiteral("runId"), runId}});
+            }
+            ++m_runPresentation.deltas;
+        }
         ++m_runDiagnosticDeltaCount;
         m_runDiagnosticDeltaCharacters += delta.size();
         m_pendingRunDelta.append(delta);
@@ -921,6 +929,7 @@ void ChatStore::handleRunEvent(const QJsonObject &event)
         || eventType == QStringLiteral("run.failed")
     ) {
         flushPendingRunDelta();
+        endRunPresentationTrace(runId, eventType.mid(4));
     }
 
     if (eventType == QStringLiteral("run.completed")) {
@@ -1159,6 +1168,7 @@ void ChatStore::setActiveRun(const QJsonObject &run)
         m_runDiagnosticDeltaCount = 0;
         m_runDiagnosticDeltaCharacters = 0;
         m_runDiagnosticSubscriptions = 0;
+        m_runPresentation = {};
         m_runReplayPending = false;
         m_heldRunEvents.clear();
         m_activeRunClock.restart();
@@ -1457,6 +1467,7 @@ void ChatStore::clearActiveRun()
     m_runDiagnosticDeltaCount = 0;
     m_runDiagnosticDeltaCharacters = 0;
     m_runDiagnosticSubscriptions = 0;
+    m_runPresentation = {};
     m_activeRunClock.invalidate();
     m_cancellingRun = false;
     m_runSnapshotPending = false;
@@ -1477,9 +1488,41 @@ void ChatStore::flushPendingRunDelta()
         return;
     }
 
+    const qint64 startNs = m_runPresentation.firstDeltaNs >= 0 ? LiveEvents::nowNs() : -1;
     m_activeRunContent.append(m_pendingRunDelta);
     m_pendingRunDelta.clear();
     emit activeRunContentChanged();
+    if (startNs >= 0) {
+        // The bindings that show the text run inside the emit; the frame
+        // that paints it comes after.
+        const qint64 spent = LiveEvents::nowNs() - startNs;
+        m_runPresentation.flushNs += spent;
+        m_runPresentation.flushMaxNs = std::max(m_runPresentation.flushMaxNs, spent);
+        ++m_runPresentation.flushes;
+        if (!m_runPresentation.shown) {
+            m_runPresentation.shown = true;
+            LiveEvents::marker(QStringLiteral("chat"), QStringLiteral("ai-first-text-shown"), {{QStringLiteral("runId"), m_activeRunId}});
+        }
+    }
+}
+
+// One span per run for its presentation, from the first delta received to
+// the run's end: flush count and time, not one event per token.
+void ChatStore::endRunPresentationTrace(const QString &runId, const QString &outcome)
+{
+    if (m_runPresentation.firstDeltaNs < 0) {
+        return;
+    }
+    LiveEvents::span(QStringLiteral("chat"), QStringLiteral("ai-presentation"), m_runPresentation.firstDeltaNs, LiveEvents::nowNs(),
+                     outcome == QStringLiteral("completed") ? 1 : 0, {
+                         {QStringLiteral("runId"), runId},
+                         {QStringLiteral("outcome"), outcome},
+                         {QStringLiteral("deltas"), m_runPresentation.deltas},
+                         {QStringLiteral("flushes"), m_runPresentation.flushes},
+                         {QStringLiteral("flushMs"), std::round(m_runPresentation.flushNs / 1e4) / 100.0},
+                         {QStringLiteral("flushMaxMs"), std::round(m_runPresentation.flushMaxNs / 1e4) / 100.0},
+                     });
+    m_runPresentation = {};
 }
 
 void ChatStore::updateMessageContent(
