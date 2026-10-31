@@ -252,8 +252,10 @@ npm run dev:qml
 ```
 
 This runs the normal cached build once, loads the existing `Archivist` QML
-module while redirecting its resource file loads to `frontend/qml/`, then
-watches that source tree. Editing a
+module while redirecting its resource file loads to a temporary mirror of
+`frontend/qml/`. The mirror adds the explicit module imports needed for Qt's
+filesystem loader and is recreated on edits; the tracked QML files are never
+rewritten. The watcher monitors the original source tree. Editing a
 QML, JavaScript or UI asset file restarts only the dev app without running
 CMake, Ninja, resource compilation or C++ linking. To reuse an existing
 binary without any initial build:
