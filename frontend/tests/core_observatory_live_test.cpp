@@ -394,6 +394,29 @@ private slots:
         QVERIFY(Live::recoverInterrupted(root.path(), [](qint64) { return false; }) == QStringList{alive});
     }
 
+    // A pid can be reused (after a restart, say): a recording still "running"
+    // long past its length is finished even though its pid is alive, and one
+    // within its length is left alone.
+    void recordingsPastTheirLengthAreFinishedEvenIfThePidIsReused()
+    {
+        QTemporaryDir root;
+        QString error;
+        QString stale, current;
+        const QString staleDir = Live::createRunDirectory(root.path(), &stale, &error);
+        const QString currentDir = Live::createRunDirectory(root.path(), &current, &error);
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        QJsonObject old = runningSummary(stale, 333);
+        old.insert(QStringLiteral("createdAt"), now.addSecs(-3600).toString(Qt::ISODateWithMs));
+        QJsonObject fresh = runningSummary(current, 333);
+        fresh.insert(QStringLiteral("createdAt"), now.addSecs(-10).toString(Qt::ISODateWithMs));
+        QVERIFY(Live::writeJson(QDir(staleDir).filePath(QStringLiteral("summary.json")), old));
+        QVERIFY(Live::writeJson(QDir(currentDir).filePath(QStringLiteral("summary.json")), fresh));
+
+        QCOMPARE(Live::recoverInterrupted(root.path(), [](qint64) { return true; }), QStringList{stale});
+        QCOMPARE(readJson(QDir(staleDir).filePath(QStringLiteral("summary.json"))).value(QStringLiteral("status")).toString(), QStringLiteral("interrupted"));
+        QCOMPARE(readJson(QDir(currentDir).filePath(QStringLiteral("summary.json"))).value(QStringLiteral("status")).toString(), QStringLiteral("running"));
+    }
+
     void processAliveSeesThisProcess()
     {
 #if defined(Q_OS_UNIX)

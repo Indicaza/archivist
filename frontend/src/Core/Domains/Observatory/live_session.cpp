@@ -492,7 +492,8 @@ QJsonObject metricsJson(const Snapshot &snapshot)
             {QStringLiteral("eventLoopProbes"), QStringLiteral("[atMs, delayMs]: a UI-thread timer set to fire every 50 ms; delayMs is how much later it fired. "
                                                                "A large delay means the UI thread was busy (or the app was throttled in the background), not that a frame took that long to draw.")},
             {QStringLiteral("samples"), QStringLiteral("Every 500 ms: process CPU time as % of one core since the previous sample, resident memory, "
-                                                       "macOS memory footprint, and thread count. null means the platform didn't provide it.")},
+                                                       "macOS memory footprint, and thread count. null means the platform didn't provide it; "
+                                                       "cpuPercent is also null for the first sample (no full interval before it).")},
         }},
     };
 }
