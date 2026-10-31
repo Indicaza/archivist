@@ -35,14 +35,14 @@ function ideAnalyzer() {
 
 function configureAnalyzer() {
   let reset = false;
+  let reused = false;
   return {
     line(text) {
-      if (text.includes("Resetting stale frontend CMake cache")) {
-        reset = true;
-      }
+      if (text.includes("Resetting stale frontend CMake cache")) reset = true;
+      if (text.includes("CMake cache compatible; Ninja will check regeneration inputs.")) reused = true;
     },
     details() {
-      return { staleCacheReset: reset };
+      return { staleCacheReset: reset, explicitConfigureSkipped: reused };
     },
   };
 }
