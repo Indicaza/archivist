@@ -4,7 +4,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { classifyRun, labEnvironment, removeProfile } from "../ui-lab.mjs";
+import { classifyRun, labEnvironment, removeProfile, scenarioForRun } from "../ui-lab.mjs";
 import { describe, percentile, summarizeActions } from "../ui-stats.mjs";
 import { tempDir } from "./helpers.mjs";
 
