@@ -26,6 +26,10 @@ test("QML developer path is the source tree; native binary comes from existing d
 test("source QML loading is opt-in and production retains embedded module loading", async () => {
   const source = await readFile(path.join(root, "frontend", "src", "main.cpp"), "utf8");
   assert.match(source, /qEnvironmentVariable\("ARCHIVIST_QML_SOURCE_DIR"\)/);
-  assert.match(source, /engine\.load\(QUrl::fromLocalFile\(source\)\)/);
+  assert.match(source, /engine\.addUrlInterceptor\(sourceInterceptor\.get\(\)\)/);
+  assert.match(source, /QQmlAbstractUrlInterceptor/);
+  assert.match(source, /QmldirFile/);
+  assert.match(source, /\/qt\/qml\/Archivist\/qml\//);
   assert.match(source, /engine\.loadFromModule\("Archivist", "App"\)/);
+  assert.doesNotMatch(source, /engine\.load\(QUrl::fromLocalFile/);
 });
