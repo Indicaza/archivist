@@ -20,6 +20,9 @@ void configureUiLabMacWindow(QQuickWindow *window)
         return;
     }
     const NSWindowCollectionBehavior existing = [nativeWindow collectionBehavior];
-    [nativeWindow setCollectionBehavior:(existing & ~NSWindowCollectionBehaviorCanJoinAllSpaces) | NSWindowCollectionBehaviorMoveToActiveSpace];
+    const NSWindowCollectionBehavior behavior = static_cast<NSWindowCollectionBehavior>(
+        (static_cast<NSUInteger>(existing) & ~static_cast<NSUInteger>(NSWindowCollectionBehaviorCanJoinAllSpaces))
+        | static_cast<NSUInteger>(NSWindowCollectionBehaviorMoveToActiveSpace));
+    [nativeWindow setCollectionBehavior:behavior];
     [nativeWindow setIgnoresMouseEvents:YES];
 }
