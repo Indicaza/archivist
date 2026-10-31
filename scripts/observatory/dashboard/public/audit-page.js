@@ -3,7 +3,7 @@
 // audit-to-audit comparison. Every button calls the same observatory.audit.*
 // operations an agent calls; the findings and comparison come from the
 // shared audit.mjs, so the page, the CLI and Copy for AI agree.
-import { auditMarkdown, compareAudits, PRESETS, previousAudit, RULES, SEVERITIES } from "./audit.mjs";
+import { auditMarkdown, compareAudits, findingMarkdown, PRESETS, previousAudit, RULES, SEVERITIES } from "./audit.mjs";
 import { artifactUrl, control, hasControlKey, loadBaselines, runDetails } from "./data.js";
 import { empty, gitText, h, kv, ms, statusPill, table, when } from "./dom.js";
 import { copyText } from "./lab.js";
@@ -217,8 +217,11 @@ function tile(label, value, sub, tone = "") {
   return h("div", { class: `tile ${tone}` }, h("span", { class: "tile-label" }, label), h("span", { class: "tile-value" }, value), sub ? h("span", { class: "tile-sub" }, sub) : null);
 }
 
+let currentAuditId = null;
+
 export async function auditView(run, summary) {
   const audit = run.audit;
+  currentAuditId = run.runId;
   const comparison = await comparisonFor(run);
   const parts = [];
   const counts = audit.counts;
@@ -231,7 +234,11 @@ export async function auditView(run, summary) {
     tile("Medium", counts.medium, "findings"),
     tile("Low and info", counts.low + counts.info, "findings"),
     tile("Runs", `${passed}/${audit.children.length}`, "passed"),
-    ...Object.entries(audit.highlights?.scenarios ?? {}).map(([id, entry]) => tile(entry.name, ms(id === "startup" && entry.firstFrameMedianMs != null ? entry.firstFrameMedianMs : entry.settledMedianMs), id === "startup" ? "first frame" : "median settled")),
+    ...Object.entries(audit.highlights?.scenarios ?? {}).map(([id, entry]) => {
+      const ai = audit.highlights?.ai?.[id];
+      if (ai) return tile(entry.name, ms(ai.medians?.firstVisibleTextMs ?? ai.medians?.turnMs), ai.medians?.firstVisibleTextMs != null ? "first text shown" : "AI turn, median");
+      return tile(entry.name, ms(id === "startup" && entry.firstFrameMedianMs != null ? entry.firstFrameMedianMs : entry.settledMedianMs), id === "startup" ? "first frame" : "median settled");
+    }),
     audit.highlights?.build ? tile("Build", ms(audit.highlights.build.totalMs), audit.highlights.build.classification ?? "") : null));
   parts.push(comparisonStrip(run, comparison));
   parts.push(findingsSection(audit.findings, run));
@@ -315,7 +322,20 @@ function findingRow(finding) {
       finding.evidence?.length ? h("div", { class: "evidence" }, h("span", { class: "muted small" }, "Evidence"),
         h("ul", {}, finding.evidence.map((item) => h("li", { class: "small" },
           h("a", { class: "mono", href: `#/run/${item.runId}` }, item.runId.split("-").slice(-2).join("-")), " ", item.text)))) : null,
-      inspect ? h("button", { type: "button", onclick: () => openInspector(inspect.runId, inspect.step) }, "Show the operations") : null));
+      h("div", { class: "row" },
+        inspect ? h("button", { type: "button", onclick: () => openInspector(inspect.runId, inspect.step) }, finding.rule.startsWith("ai.") ? "Show the turn" : "Show the operations") : null,
+        copyFinding(finding))));
+}
+
+function copyFinding(finding) {
+  const status = h("span", { class: "muted small", role: "status" });
+  return h("span", { class: "row" }, h("button", {
+    type: "button",
+    onclick: async () => {
+      const text = findingMarkdown(finding, { auditId: currentAuditId, redact: makeRedactor({ root: context.getState().root || null }) });
+      status.textContent = (await copyText(text)) ? "Copied this finding as Markdown." : "Couldn't reach the clipboard.";
+    },
+  }, "Copy this finding"), status);
 }
 
 // ---- operations inside each action (an Outliner for one run) -------------------------
@@ -357,8 +377,11 @@ async function inspectorSection(uiRuns) {
       tree.replaceChildren(h("p", { class: "muted small" }, "Pick an action to see what ran inside it."));
       return;
     }
+    const turns = (data.trace?.ai?.turns ?? []).filter((turn) => turn.action === action.index);
     tree.replaceChildren(
       h("div", { class: "row-between" }, h("strong", {}, `#${action.index} ${action.label ?? action.op} (${action.phase}${action.iteration ? `, iteration ${action.iteration}` : ""})`), h("span", { class: "muted small" }, `${ms(action.durationMs)} · settled ${ms(action.settledMs)}`)),
+      ...turns.map((turn) => turnTimeline(turn)),
+      turns.length ? h("h4", {}, "Every operation inside the action, by time") : null,
       opTree(action),
       kv([
         ["Unattributed", action.window
@@ -444,6 +467,89 @@ async function inspectorSection(uiRuns) {
     strip, h("div", { class: "inspector-grid" }, h("div", { class: "inspector-list" }, actions), h("div", { class: "inspector-tree" }, tree)));
   await load();
   return section;
+}
+
+// ---- one AI turn as tracks, one lane per thread (by cause, not by time) ----------------
+
+const LANE_ORDER = ["main", "ArchivistAI", "ArchivistCoreWriter"];
+const LANE_TEXT = { main: "UI thread", ArchivistAI: "AI thread", ArchivistCoreWriter: "Database writer" };
+const MARK_TEXT = {
+  "ai.first-byte": "first byte", "ai.first-delta": "first model text",
+  "chat.ai-first-delta-received": "text reached the chat", "chat.ai-first-text-shown": "first text shown",
+};
+
+function turnBars(turn) {
+  const bars = [];
+  const marks = [];
+  const walk = (node, depthByThread, parentThread) => {
+    const thread = node.thread ?? parentThread ?? "unknown";
+    const depth = depthByThread[thread] ?? 0;
+    bars.push({ ...node, thread, depth });
+    for (const marker of node.markers ?? []) {
+      // A first-byte marker on a refused attempt is not the answer's.
+      if (marker.name === "ai.first-byte" && node.ok === false) continue;
+      marks.push({ ...marker, thread });
+    }
+    for (const child of node.children ?? []) walk(child, { ...depthByThread, [thread]: depth + 1 }, thread);
+  };
+  walk(turn.call ?? turn.tree, {}, turn.thread);
+  if (turn.presentationSpan) bars.push({ ...turn.presentationSpan, depth: 0, children: [], fields: {} });
+  for (const marker of turn.presentationMarks ?? []) marks.push(marker);
+  return { bars, marks };
+}
+
+function turnTimeline(turn) {
+  const { bars, marks } = turnBars(turn);
+  const starts = bars.map((bar) => bar.startMs ?? 0);
+  const ends = bars.map((bar) => (bar.startMs ?? 0) + (bar.durationMs ?? 0));
+  const origin = Math.min(0, ...starts);
+  const span = Math.max(1, Math.max(...ends) - origin);
+  const at = (value) => `${Math.max(0, Math.min(100, ((value - origin) / span) * 100))}%`;
+  const threads = [...new Set(bars.map((bar) => bar.thread))].sort((a, b) => (LANE_ORDER.indexOf(a) + 1 || 99) - (LANE_ORDER.indexOf(b) + 1 || 99));
+
+  const ruler = h("div", { class: "tt-ruler" });
+  const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find((value) => span / value <= 8) ?? 20000;
+  for (let tick = Math.ceil(origin / step) * step; tick <= origin + span; tick += step) {
+    const label = h("span", { class: "tt-tick" }, ms(tick));
+    label.style.left = at(tick);
+    ruler.append(label);
+  }
+  const lanes = threads.map((thread) => {
+    const mine = bars.filter((bar) => bar.thread === thread);
+    const rows = Math.max(...mine.map((bar) => bar.depth)) + 1;
+    const track = h("div", { class: "tt-track" });
+    track.style.height = `${rows * 18 + 2}px`;
+    for (const bar of mine) {
+      const category = bar.name.split(".")[0];
+      const fields = Object.entries(bar.fields ?? {}).filter(([key]) => key !== "runId").map(([key, value]) => `${key} ${value}`).join(", ");
+      const title = `${bar.name}: ${ms(bar.durationMs)}${bar.selfMs != null && bar.children?.length ? `, self ${ms(bar.selfMs)}` : ""} at +${ms((bar.startMs ?? 0))}${fields ? `\n${fields}` : ""}`;
+      const node = h("div", { class: `tt-bar cat-${category}${bar.ok === false ? " failed" : ""}${bar.name.endsWith("wait") ? " waiting" : ""}`, title, role: "img", "aria-label": title },
+        h("span", {}, bar.name.replace(/^ai\./, "")));
+      node.style.left = at(bar.startMs ?? 0);
+      node.style.width = `${Math.max(0.25, ((bar.durationMs ?? 0) / span) * 100)}%`;
+      node.style.top = `${bar.depth * 18}px`;
+      track.append(node);
+    }
+    for (const mark of marks.filter((entry) => entry.thread === thread)) {
+      const line = h("div", { class: "tt-mark", title: `${MARK_TEXT[mark.name] ?? mark.name} at +${ms(mark.atMs)}` });
+      line.style.left = at(mark.atMs);
+      track.append(line);
+    }
+    return h("div", { class: "tt-lane" }, h("div", { class: "tt-label small" }, LANE_TEXT[thread] ?? thread), track);
+  });
+  const firsts = [
+    ["Queued", turn.queueWaitMs], ["Prepared", turn.prepare?.durationMs], ["First byte", turn.firstNetworkByteMs],
+    ["First model text", turn.firstModelDeltaMs], ["First text shown", turn.firstVisibleTextMs], ["Saved", turn.persistMs],
+  ];
+  return h("div", { class: "turn-timeline" },
+    h("div", { class: "row-between" },
+      h("strong", {}, "AI turn ", h("span", { class: `pill ${turn.outcome === "completed" ? "good" : turn.outcome === "cancelled" ? "" : "bad"}` }, turn.outcome ?? "?")),
+      h("span", { class: "muted small" }, `${ms(turn.durationMs)} · ${turn.rounds.length} provider round${turn.rounds.length === 1 ? "" : "s"} · ${turn.tools.length} tool call${turn.tools.length === 1 ? "" : "s"}${turn.tokens?.input != null ? ` · ${turn.tokens.input} in / ${turn.tokens.output} out tokens` : ""}`)),
+    h("div", { class: "tt-firsts small" }, firsts.map(([label, value]) => h("span", {}, h("span", { class: "muted" }, `${label} `), value == null ? "not measured" : ms(value)))),
+    h("div", { class: "tt-grid" }, h("div", { class: "tt-lane" }, h("div", { class: "tt-label" }), ruler), lanes),
+    h("p", { class: "muted small" }, "Lanes are threads; a bar sits under the span that caused it. Times are from the start of the run; ticks mark the first byte, the first model text and when the chat showed it. ",
+      turn.unattributedMs ? `${ms(turn.unattributedMs)} of the run is inside no stage. ` : "",
+      turn.missing?.length ? `Not measured: ${turn.missing.join("; ")}.` : ""));
 }
 
 function slowestName(nodes = []) {

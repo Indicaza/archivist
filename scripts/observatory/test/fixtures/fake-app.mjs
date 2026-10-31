@@ -2,6 +2,7 @@
 // Stands in for the Archivist binary in UI Lab runner tests. FAKE_APP_MODE
 // picks the behaviour; it writes ui-events.json like the in-app driver.
 import { writeFileSync } from "node:fs";
+import { syntheticAiRun } from "./ai-trace.mjs";
 
 const mode = process.env.FAKE_APP_MODE || "pass";
 const output = process.env.ARCHIVIST_UI_LAB_OUTPUT;
@@ -50,7 +51,17 @@ const slowOperations = () => {
   return { clock: "LiveEvents::nowNs", collecting: true, probeMs: 50, stallMs: 50, operations, open: [], stalls, dropped: 0 };
 };
 
-if (mode === "slow") {
+// "ai": AI turns, as a current build traces them (see ai-trace.mjs).
+// FAKE_AI_KNOBS (JSON) injects one slowdown or failure; FAKE_APP_SCALE
+// stretches retrieval and compilation. It reports where the runner pointed
+// its provider, without ever printing a key.
+if (mode === "ai") {
+  const base = process.env.OPENAI_BASE_URL ?? "";
+  const key = process.env.OPENAI_API_KEY;
+  console.log(`ai-env base=${/^http:\/\/127\.0\.0\.1:/.test(base) ? "local" : base ? "remote" : "unset"} key=${key === "observatory-offline-no-key" ? "offline" : key ? "other" : "unset"}`);
+  writeFileSync(output, JSON.stringify(syntheticAiRun({ knobs: JSON.parse(process.env.FAKE_AI_KNOBS || "{}"), scale: SCALE })));
+  process.exit(0);
+} else if (mode === "slow") {
   const slowAction = (index, phase) => ({ ...action(index, phase, true, index % 2 ? 280 * SCALE : 20), startMs: index * 400, endMs: index * 400 + (index % 2 ? 300 * SCALE : 30) });
   writeFileSync(output, JSON.stringify({ ...report("passed", [slowAction(0, "setup"), slowAction(1, "warmup"), slowAction(2, "measured"), slowAction(3, "measured")]), readyMs: 0, clock: { source: "LiveEvents::nowNs", runStartMs: RUN_START }, operations: slowOperations() }));
   process.exit(0);

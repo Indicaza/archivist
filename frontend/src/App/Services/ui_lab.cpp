@@ -1,6 +1,7 @@
 #include "App/Services/ui_lab.h"
 
 #include "Core/Domains/Chats/chat_repository.h"
+#include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
 #include "Core/Support/app_profile.h"
 #include "Core/core_runtime.h"
@@ -384,6 +385,19 @@ bool UiLab::seedChats(const QVariantMap &spec)
     QDir().mkpath(libraryRoot);
     const quint32 seed = spec.value(QStringLiteral("seed"), 1).toUInt();
     const QVariantList chats = spec.value(QStringLiteral("chats")).toList();
+    // A synthetic Library for retrieval: small deterministic notes, written
+    // here and indexed (scan) once the conversations exist.
+    const int files = qBound(0, spec.value(QStringLiteral("files")).toInt(), 2000);
+    for (int index = 0; index < files; ++index) {
+        QFile file(QDir(libraryRoot).filePath(QStringLiteral("note-%1.md").arg(index, 4, 10, QLatin1Char('0'))));
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QString body = QStringLiteral("# Note %1\n\n").arg(index);
+            for (int paragraph = 0; paragraph < 4; ++paragraph) {
+                body += fixtureMessage(seed + 101, index * 4 + paragraph) + QStringLiteral("\n\n");
+            }
+            file.write(body.toUtf8());
+        }
+    }
     core->write(
         [libraryRoot, seed, chats](CoreDatabase &database) {
             LiveEvents::Scope live(QStringLiteral("ui-lab"), QStringLiteral("seed-chats"));
@@ -411,18 +425,46 @@ bool UiLab::seedChats(const QVariantMap &spec)
             }
             // Nothing selected, so the scenario chooses what opens first.
             ChatRepository::selectChat(database, QString());
-            return QVariant(QVariantMap{{QStringLiteral("chats"), ids}, {QStringLiteral("messages"), total}});
+            return QVariant(QVariantMap{{QStringLiteral("chats"), ids}, {QStringLiteral("messages"), total}, {QStringLiteral("libraryId"), libraryId}});
         },
         this,
-        [this](const CoreResult &result) {
+        [this, files](const CoreResult &result) {
             if (!result.ok) {
                 m_seed = {{QStringLiteral("state"), QStringLiteral("failed")}, {QStringLiteral("error"), result.errorMessage}};
                 return;
             }
             QVariantMap seeded = result.value.toMap();
-            seeded.insert(QStringLiteral("state"), QStringLiteral("done"));
-            m_seed = seeded;
-        });
+            if (files == 0) {
+                seeded.insert(QStringLiteral("state"), QStringLiteral("done"));
+                m_seed = seeded;
+                return;
+            }
+            // Indexing opens its own transactions, so it can't run inside
+            // the write above.
+            CoreRuntime *core = CoreRuntime::active();
+            const QString libraryId = seeded.value(QStringLiteral("libraryId")).toString();
+            if (!core || libraryId.isEmpty()) {
+                m_seed = {{QStringLiteral("state"), QStringLiteral("failed")}, {QStringLiteral("error"), QStringLiteral("no library to index")}};
+                return;
+            }
+            core->run(
+                [libraryId](CoreDatabase &database) {
+                    LiveEvents::Scope live(QStringLiteral("ui-lab"), QStringLiteral("index-library"));
+                    return QVariant(LibraryFiles::scan(database, libraryId));
+                },
+                this,
+                [this, seeded, files](const CoreResult &scanned) mutable {
+                    if (!scanned.ok) {
+                        m_seed = {{QStringLiteral("state"), QStringLiteral("failed")}, {QStringLiteral("error"), scanned.errorMessage}};
+                        return;
+                    }
+                    seeded.insert(QStringLiteral("files"), files);
+                    seeded.insert(QStringLiteral("state"), QStringLiteral("done"));
+                    m_seed = seeded;
+                },
+                "ui-lab.index-library");
+        },
+        "ui-lab.seed-chats");
     return true;
 }
 

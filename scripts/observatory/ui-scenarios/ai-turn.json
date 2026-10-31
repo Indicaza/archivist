@@ -1,0 +1,181 @@
+{
+  "id": "ai-turn",
+  "version": 1,
+  "name": "Full AI turn (mocked)",
+  "description": "Whole AI turns against a local mock provider scripted to be slow to answer, refuse once and be retried, call a tool, stream with a long pause, and be cancelled part way. Measures every stage of a turn, from the call to the reply on screen, including the network and stream behaviour Archivist sees.",
+  "initialConditions": "Fresh disposable profile, 1280x840 window, Research layout, one chat view. Fixture: seed 13, a Library of 30 synthetic notes (indexed), conversation 'Lab Turn' (4 messages). Provider: the local mock with the script below, the same every run. No API calls.",
+  "workload": {
+    "fixture": "UiLab::fixtureMessage",
+    "seed": 13,
+    "library": {
+      "files": 30
+    },
+    "chats": {
+      "turn": 4
+    }
+  },
+  "ai": {
+    "provider": "mock",
+    "script": [
+      {
+        "status": 503,
+        "retryAfterMs": 50,
+        "firstByteDelayMs": 20
+      },
+      {
+        "firstByteDelayMs": 300,
+        "toolCall": {
+          "name": "list_directory",
+          "arguments": "{\"path\":\"\",\"limit\":10}"
+        }
+      },
+      {
+        "firstByteDelayMs": 120,
+        "text": "The Library holds thirty notes about archive layout, render panels and the harbour of words.",
+        "chunks": 12,
+        "gapMs": 60,
+        "pauseAt": 6,
+        "pauseMs": 1200,
+        "usage": {
+          "input": 1400,
+          "output": 24
+        }
+      },
+      {
+        "firstByteDelayMs": 50,
+        "text": "A long reply that the scenario stops part way through, word by word, so cancelling is measured too.",
+        "chunks": 40,
+        "gapMs": 100
+      }
+    ]
+  },
+  "methods": {
+    "seedChats": "fixture: UiLab.seedChats writes the conversations, and with files a synthetic Library it then indexes, to the test profile's database",
+    "refreshChats": "store-call: ChatStore.refresh (what the app does on start)",
+    "openView": "store-call: Docking.openView",
+    "selectChat": "store-call: ChatStore.selectChat (what picking a conversation in the side panel does)",
+    "sendChatMessage": "store-call: ChatStore.sendMessage (what the composer's Send does)",
+    "cancelChatRun": "store-call: ChatStore.cancelActiveRun (what Stop does)"
+  },
+  "seed": 13,
+  "warmupIterations": 0,
+  "iterations": 1,
+  "actionTimeoutMs": 30000,
+  "settleQuietMs": 150,
+  "readyTimeoutMs": 60000,
+  "timeoutMs": 240000,
+  "setup": [
+    {
+      "op": "returnToWorkspace",
+      "label": "show workspace",
+      "expect": {
+        "homeActive": false
+      }
+    },
+    {
+      "op": "setPanelOpen",
+      "open": false,
+      "label": "close side panel",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "applyLayout",
+      "layoutId": "research",
+      "label": "layout research",
+      "expect": {
+        "currentLayoutId": "research"
+      }
+    },
+    {
+      "op": "seedChats",
+      "seed": 13,
+      "files": 30,
+      "chats": [
+        {
+          "key": "turn",
+          "title": "Lab Turn",
+          "messages": 4
+        }
+      ],
+      "label": "seed library and conversation",
+      "expect": {
+        "seeded": true
+      }
+    },
+    {
+      "op": "refreshChats",
+      "label": "list conversations",
+      "expect": {
+        "chatsListed": [
+          "turn"
+        ]
+      }
+    },
+    {
+      "op": "selectChat",
+      "key": "turn",
+      "label": "select conversation",
+      "expect": {
+        "chatShown": {
+          "key": "turn",
+          "minMessages": 4
+        }
+      }
+    },
+    {
+      "op": "openView",
+      "key": "chat",
+      "typeId": "archivist.chat",
+      "resource": {
+        "kind": "chat",
+        "id": "seed:turn"
+      },
+      "title": "Lab Turn",
+      "label": "open chat view",
+      "expect": {
+        "viewsOpen": [
+          "chat"
+        ],
+        "chatShown": {
+          "key": "turn",
+          "minMessages": 1
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "sendChatMessage",
+      "text": "Test the library tools: list what is in the Library.",
+      "label": "turn with retry, tool and slow stream",
+      "expect": {
+        "runSettled": {
+          "status": "complete"
+        }
+      }
+    },
+    {
+      "op": "sendChatMessage",
+      "text": "Write a long answer about render panels.",
+      "label": "start a reply to cancel",
+      "expect": {
+        "runStreaming": {
+          "minChars": 10
+        }
+      }
+    },
+    {
+      "op": "cancelChatRun",
+      "label": "cancel the reply",
+      "expect": {
+        "runSettled": {
+          "status": "cancelled"
+        }
+      }
+    }
+  ],
+  "teardown": []
+}

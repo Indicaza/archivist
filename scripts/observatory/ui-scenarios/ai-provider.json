@@ -1,0 +1,109 @@
+{
+  "id": "ai-provider",
+  "version": 1,
+  "name": "Provider latency (real calls)",
+  "description": "Sends three short synthetic messages to the AI provider Archivist is configured with, through a local proxy that allows at most 6 requests and 64 output tokens each, and records time to first byte, first token and the whole reply. Opt-in only: it costs a little money and sends synthetic text to the provider.",
+  "initialConditions": "Fresh disposable profile, 1280x840 window. Fixture: seed 17, conversation 'Lab Provider' (2 messages), no Library files, so no Library text is sent. Provider: the one configured (key from the environment or the app's saved key), through the capped proxy.",
+  "workload": {
+    "fixture": "UiLab::fixtureMessage",
+    "seed": 17,
+    "chats": {
+      "provider": 2
+    },
+    "messages": 3
+  },
+  "ai": {
+    "provider": "real",
+    "maxRequests": 6,
+    "maxOutputTokens": 64
+  },
+  "methods": {
+    "seedChats": "fixture: UiLab.seedChats writes the conversations, and with files a synthetic Library it then indexes, to the test profile's database",
+    "refreshChats": "store-call: ChatStore.refresh (what the app does on start)",
+    "openView": "store-call: Docking.openView",
+    "selectChat": "store-call: ChatStore.selectChat (what picking a conversation in the side panel does)",
+    "sendChatMessage": "store-call: ChatStore.sendMessage (what the composer's Send does)",
+    "cancelChatRun": "store-call: ChatStore.cancelActiveRun (what Stop does)"
+  },
+  "seed": 17,
+  "warmupIterations": 0,
+  "iterations": 3,
+  "actionTimeoutMs": 60000,
+  "settleQuietMs": 150,
+  "readyTimeoutMs": 60000,
+  "timeoutMs": 300000,
+  "setup": [
+    {
+      "op": "returnToWorkspace",
+      "label": "show workspace",
+      "expect": {
+        "homeActive": false
+      }
+    },
+    {
+      "op": "setPanelOpen",
+      "open": false,
+      "label": "close side panel",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "applyLayout",
+      "layoutId": "research",
+      "label": "layout research",
+      "expect": {
+        "currentLayoutId": "research"
+      }
+    },
+    {
+      "op": "seedChats",
+      "seed": 17,
+      "chats": [
+        {
+          "key": "provider",
+          "title": "Lab Provider",
+          "messages": 2
+        }
+      ],
+      "label": "seed conversation",
+      "expect": {
+        "seeded": true
+      }
+    },
+    {
+      "op": "refreshChats",
+      "label": "list conversations",
+      "expect": {
+        "chatsListed": [
+          "provider"
+        ]
+      }
+    },
+    {
+      "op": "selectChat",
+      "key": "provider",
+      "label": "select conversation",
+      "expect": {
+        "chatShown": {
+          "key": "provider",
+          "minMessages": 2
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "sendChatMessage",
+      "text": "Reply with the single word: ready.",
+      "label": "short provider turn",
+      "expect": {
+        "runSettled": {
+          "status": "complete"
+        }
+      }
+    }
+  ],
+  "teardown": []
+}

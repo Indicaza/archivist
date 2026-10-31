@@ -16,9 +16,10 @@ import { loadBudgets } from "../comparisons.mjs";
 import { artifactFile, listRunIds, loadRunsById, readRunSummary } from "../dashboard/records.mjs";
 import {
   AUDIT_SCHEMA, AUDIT_SCHEMA_VERSION, auditHighlights, auditMarkdown, blindSpots, compareAudits, countBySeverity, evaluateFindings,
-  FINDINGS_SCHEMA, PRESETS, previousAudit, RULES, RULES_VERSION, SEVERITIES,
+  findingMarkdown, FINDINGS_SCHEMA, PRESETS, previousAudit, RULES, RULES_VERSION, SEVERITIES,
 } from "../dashboard/public/audit.mjs";
 import { normalizeRun } from "../dashboard/public/normalize.mjs";
+import { turnSummary } from "../dashboard/public/trace.mjs";
 import { redactJson } from "../dashboard/public/redact.mjs";
 import { collectMachine, collectSource } from "../metadata.mjs";
 import { createRunDir, SCHEMA_VERSION, writeJsonAtomic } from "../storage.mjs";
@@ -158,19 +159,26 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
     },
     "observatory.audit.run": {
       description: "Start an audit in the background: the preset's build and/or UI scenarios as one test job, then findings. Returns the job at once; poll observatory.audit.status.",
-      cli: "npm run observatory -- audit run --preset quick|ui|build|complete [--repeat <n>] [--wait] --json",
+      cli: "npm run observatory -- audit run --preset quick|ui|ai|ai-turn|build|complete [--repeat <n>] [--wait] --json  (provider: also --allow-provider-calls)",
       input: {
         preset: { type: "string", enum: Object.keys(PRESETS), required: true },
         repeat: { type: "integer", min: 1, max: MAX_REPEAT, description: "Rounds of each scenario (default: the preset's)" },
+        allowProviderCalls: { type: "boolean", default: false, description: "Required, and only allowed, for the provider preset: it calls the real AI provider (capped requests and tokens)." },
       },
       sideEffects: "Starts a background job like observatory.tests.run. Build presets run an incremental build of build/frontend-debug (never a clean build; nothing is deleted). Writes one Observatory run per build and scenario round, and an audit run at the end.",
       async run(ctx, input) {
         const preset = PRESETS[input.preset];
+        if (preset.providerCalls && input.allowProviderCalls !== true) {
+          throw new ControlError("invalid-input", `The ${preset.name} preset calls the real AI provider: ${preset.description} Run it again with allowProviderCalls: true (CLI: --allow-provider-calls) to confirm.`);
+        }
+        if (!preset.providerCalls && input.allowProviderCalls === true) {
+          throw new ControlError("invalid-input", `allowProviderCalls is only for the provider preset; ${preset.name} never calls the AI provider.`);
+        }
         const scenarios = await scenarioDefinitions(ctx.scenarioDir);
         const missing = preset.scenarios.filter((id) => !scenarios.some((entry) => entry.id === id));
         if (missing.length) throw new ControlError("invalid-input", `The ${preset.name} preset needs scenarios that aren't here: ${missing.join(", ")}.`);
         const repeat = preset.scenarios.length ? input.repeat ?? preset.repeat : 1;
-        const job = await startTests(ctx, { scenarios: preset.scenarios, repeat, build: preset.build, audit: { preset: preset.id } });
+        const job = await startTests(ctx, { scenarios: preset.scenarios, repeat, build: preset.build, audit: { preset: preset.id }, ...(preset.providerCalls ? { allowProviderCalls: true } : {}) });
         return { job, preset };
       },
     },
@@ -223,15 +231,21 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
     },
     "observatory.audit.findings": {
       description: "An audit's findings (each with rule, subsystem, severity, measured impact, evidence run ids, confidence and next step) and the rules that produced them.",
-      cli: "npm run observatory -- audit findings <audit-id> [--severity high|medium|low|info] [--subsystem <name>] --json",
+      cli: "npm run observatory -- audit findings <audit-id> [--severity high|medium|low|info] [--subsystem <name>] [--finding <finding-id>] --json",
       input: {
         auditId: AUDIT_ID,
         severity: { type: "string", enum: SEVERITIES },
         subsystem: { type: "string", pattern: "^[a-z][a-z0-9-]{0,31}$" },
+        findingId: { type: "string", pattern: "^[a-z][a-z0-9.-]{0,63}(:[^\\u0000-\\u001f]{1,300})?$" },
       },
       sideEffects: "none",
       async run(ctx, input) {
         const { run } = await requireAudit(ctx, input.auditId);
+        if (input.findingId) {
+          const finding = run.audit.findings.find((entry) => entry.id === input.findingId);
+          if (!finding) throw new ControlError("not-found", `Audit ${run.runId} has no finding ${input.findingId}.`);
+          return { auditId: run.runId, finding, rule: RULES.find((rule) => rule.id === finding.rule) ?? null, markdown: findingMarkdown(finding, { auditId: run.runId, redact: redactorFor(ctx.root) }) };
+        }
         const findings = run.audit.findings.filter((finding) => (!input.severity || finding.severity === input.severity) && (!input.subsystem || finding.subsystem === input.subsystem));
         return { auditId: run.runId, preset: run.audit.preset, rulesVersion: run.audit.rulesVersion, counts: run.audit.counts, findings, rules: RULES };
       },
@@ -293,6 +307,32 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
           stalls: (operations.stalls ?? []).filter((stall) => stall.atMs >= input.fromMs && stall.atMs <= to),
           between: (operations.between ?? []).filter((op) => op.startMs + op.durationMs >= input.fromMs && op.startMs <= to),
           startup: operations.startup ?? null,
+        };
+      },
+    },
+    "observatory.audit.trace": {
+      description: "The AI turns and database jobs a UI run traced: every turn's stages by cause (span ids and parents) with their threads, the three firsts (network byte, model text, text shown), retries, tools, tokens as the provider reported them, unattributed time and what wasn't measured. Timings, counts and sizes only: the trace carries no prompt, reply, tool argument or SQL.",
+      cli: "npm run observatory -- audit trace <run-id> [--turn <n>] --json",
+      input: {
+        runId: { type: "string", pattern: runIdPattern, required: true },
+        turn: { type: "integer", min: 0, max: 10_000 },
+      },
+      sideEffects: "none",
+      async run(ctx, input) {
+        const { operations } = await uiOperations(ctx, input.runId);
+        const trace = operations.trace;
+        if (!trace?.available) {
+          return { runId: input.runId, available: false, reason: trace?.reason ?? "this run's operations artifact has no trace (recorded before trace schema 1)" };
+        }
+        const turns = trace.ai?.turns ?? [];
+        if (input.turn != null && !turns[input.turn]) throw new ControlError("not-found", `Run ${input.runId} has ${turns.length} AI turn(s); there is no turn ${input.turn}.`);
+        const chosen = input.turn != null ? [turns[input.turn]] : turns;
+        return {
+          runId: input.runId, available: true, schema: trace.schema, schemaVersion: trace.schemaVersion,
+          threads: trace.threads, events: trace.events, spans: trace.spans, dropped: trace.dropped ?? 0,
+          basis: "Spans nest by cause: each carries its parent's id, across threads. Times are ms from the turn's ai.run start. selfMs is a span minus the union of its children; nothing is filled in for a stage that wasn't measured (see missing).",
+          turns: chosen.map((turn, index) => ({ index: input.turn ?? index, summary: turnSummary(turn), ...turn })),
+          db: trace.db?.jobs ?? [],
         };
       },
     },

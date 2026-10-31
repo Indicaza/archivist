@@ -122,7 +122,7 @@ export async function exportEvidence(root, runId, { category = null, includeRawL
       await add(`runs/${childId}/summary.json`, redactJson(child.loaded.summary, redact), { role: "run-summary", schemaVersion: child.loaded.summary.schemaVersion ?? null, description: `Run ${childId}'s summary.json, redacted.` });
       const operations = await readArtifact(child.loaded.dir, child.loaded.summary, "operations");
       if (operations?.text) {
-        await add(`runs/${childId}/ui-operations.json`, redactJson(parseJson(operations.text), redact), { role: "operations", description: "Every action's operation tree, markers and stalls." });
+        await add(`runs/${childId}/ui-operations.json`, redactJson(parseJson(operations.text), redact), { role: "operations", description: "Every action's operation tree, markers and stalls, and the AI turn and database trace (timings, counts and sizes only)." });
       }
     }
   }

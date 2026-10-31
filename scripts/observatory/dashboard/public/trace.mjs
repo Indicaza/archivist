@@ -111,11 +111,13 @@ function stage(node, from) {
   if (!node) return null;
   return {
     name: node.name,
+    thread: node.thread,
     startMs: since(from, node.startMs),
     durationMs: node.durationMs,
     selfMs: node.selfMs,
     ok: node.ok,
     fields: node.fields,
+    markers: node.markers.map((marker) => ({ name: marker.name, atMs: since(from, marker.startMs), fields: marker.fields })),
     children: node.children.map((child) => stage(child, from)),
   };
 }
@@ -210,6 +212,7 @@ export function aiTurns(rawEvents) {
 
     turns.push({
       runId,
+      action: run.action ?? null,
       thread: run.thread,
       provider: run.fields.provider ?? null,
       model: run.fields.model ?? null,
@@ -256,6 +259,12 @@ export function aiTurns(rawEvents) {
       outlivedMs: run.outlivedMs,
       missing,
       tree: stage(run, run),
+      // The call that queued the run (its queue wait, and the reply's
+      // delivery back on the caller's thread), from the run's start.
+      call: call ? stage(call, run) : null,
+      // What the chat view did, on the UI thread.
+      presentationMarks: mine.filter((event) => event.kind !== "span").map((event) => ({ name: event.name, thread: event.thread, atMs: since(run, event.startMs) })),
+      presentationSpan: presented ? { name: presented.name, thread: presented.thread, startMs: since(run, presented.startMs), durationMs: round(presented.endMs - presented.startMs) } : null,
     });
   }
   return turns;
@@ -269,7 +278,7 @@ export function dbJobs(rawEvents) {
     if (!["db.read", "db.write", "db.run"].includes(job.name)) continue;
     const op = job.fields.op ?? "unnamed";
     const key = `${job.name}\t${op}`;
-    if (!groups.has(key)) groups.set(key, { kind: job.name.slice(3), op, n: 0, failed: 0, rows: [], queue: [], execute: [], callback: [], uiThread: 0, uiThreadMs: 0 });
+    if (!groups.has(key)) groups.set(key, { kind: job.name.slice(3), op, n: 0, failed: 0, rows: [], queue: [], execute: [], callback: [], uiThread: 0, uiThreadMs: 0, uiThreadMaxMs: 0 });
     const entry = groups.get(key);
     entry.n += 1;
     if (job.ok === false) entry.failed += 1;
@@ -283,6 +292,7 @@ export function dbJobs(rawEvents) {
     if (execute?.thread === "main") {
       entry.uiThread += 1;
       entry.uiThreadMs += execute.durationMs ?? 0;
+      entry.uiThreadMaxMs = Math.max(entry.uiThreadMaxMs, execute.durationMs ?? 0);
     }
   }
   const stats = (values) => (values.length ? { medianMs: round(median(values)), maxMs: round(Math.max(...values)), totalMs: round(values.reduce((a, b) => a + b, 0)) } : null);
@@ -296,7 +306,7 @@ export function dbJobs(rawEvents) {
     execute: stats(entry.execute),
     callbackDelay: stats(entry.callback),
     // CoreRuntime::read runs the query on the calling thread.
-    uiThreadSync: entry.uiThread ? { n: entry.uiThread, totalMs: round(entry.uiThreadMs) } : null,
+    uiThreadSync: entry.uiThread ? { n: entry.uiThread, totalMs: round(entry.uiThreadMs), maxMs: round(entry.uiThreadMaxMs) } : null,
   })).sort((a, b) => (b.execute?.totalMs ?? 0) + (b.queueWait?.totalMs ?? 0) - (a.execute?.totalMs ?? 0) - (a.queueWait?.totalMs ?? 0));
 }
 

@@ -267,6 +267,20 @@ and the UI state it must `expect`. No randomness (`seed` is null).
   between them. `chatShown` waits until the conversation is selected and its
   first page (160 messages) is in the store; `settledMs` then covers the
   rendering that follows. Store calls, as the side panel makes them.
+- **ai-pipeline** (v1): seeds a Library of 80 synthetic notes (indexed, so
+  retrieval has something to search) and a short and a long conversation,
+  then sends chat messages in each against the local mock provider
+  ("fast": it answers at once). It measures Archivist's own side of an AI
+  turn: preparation, retrieval, context compilation, database work, saving
+  and showing the reply. No API calls.
+- **ai-turn** (v1): one scripted full turn against the mock: a refused
+  request (503) and its retry, a tool call, a slow stream with a long pause
+  and reported usage, and a long reply that the scenario cancels part way.
+  No API calls.
+- **ai-provider** (v1, opt-in): three short requests to the real provider
+  (synthetic prompts), through a local proxy that refuses after 6 requests
+  and caps output at 64 tokens. Only runs with `--allow-provider-calls`; it is
+  in no preset but `provider`, and `tests run --scenario all` skips it.
 - **startup** (v1): a fresh profile started until the workspace is ready
   (`readyMs`), with the stages main() reports on the operations timeline.
   The operating system's file cache is not flushed, so this is a fresh
@@ -841,7 +855,10 @@ or `npm run observatory -- audit run --preset quick --wait` (add `--json`).
 | `quick` | startup + workspace, 1 round | A first look. One round never calls a regression. |
 | `ui` (Full UI) | startup, sidebar, workspace, chat, 3 rounds | The UI loop: enough runs to compare two audits. |
 | `build` | one incremental build of `build/frontend-debug` | Why it rebuilt and where the build time goes. |
-| `complete` | `build`, then `ui` against what it built | Both. |
+| `ai` (AI Pipeline Audit) | ai-pipeline, 3 rounds, local mock provider | Archivist's side of an AI turn. Offline, no API calls. |
+| `ai-turn` (Full AI Turn Audit) | ai-turn, 3 rounds, local mock provider | Every stage of a turn, retries, tools, a cancel. No API calls. |
+| `provider` (Provider Latency Audit) | ai-provider, 1 round, real provider | Provider latency. Refused without `--allow-provider-calls`; the page asks first. |
+| `complete` | `build`, then `ui` and the offline AI scenarios against what it built | Everything that makes no API calls. |
 
 Build presets never clean or delete anything: the build is the normal
 incremental build (a first-ever build is a full one because nothing exists
@@ -874,7 +891,8 @@ finding near its threshold can flip on noise, and the page says so.
 
 **For agents.** `audit presets | run | status | cancel | list | findings |
 compare | report | timeline <run-id> [--from --to] | operation <run-id>
-<action> | export`, all as `observatory.audit.*` operations with `--json`.
+<action> | trace <run-id> [--turn <n>] | export`, all as `observatory.audit.*`
+operations with `--json`.
 `audit report` is the Copy for AI Markdown; `audit export` writes the audit
 report plus every run's own report, summary and operation trees.
 
@@ -889,6 +907,108 @@ time, unattributed time and stalls), the build diagnostics (jobs, wall vs
 summed time, the longest chain, why it rebuilt, slowest compiles, most
 included headers, the time trace if recorded), the runs, the rules and the
 blind spots. Compare takes two audits too.
+
+### AI audits
+
+The AI presets reuse the UI Lab and the audit machinery; the trace
+(`### Traces: AI turns and database jobs` above) is what they read.
+
+**Providers.** Each AI scenario names its provider in `ai.provider`:
+
+- `offline`: the app is pointed at a closed local port. Nothing can leave the machine.
+- `mock` (`ai-provider.mjs`, `startMockProvider`): a local server for
+  `GET /models` and `POST /responses`, answering from a script. It has
+  named behaviours (`fast`, `slow-first-byte`, `slow-stream`, `retry`,
+  `interrupted`, `failure`, `tool-round`, `cancel-me`), or a scenario's own
+  `script`: per request a status (with `retryAfterMs`), a first-byte delay,
+  a tool call, text in chunks with gaps and a pause, a cut-off stream, and
+  usage. It counts requests and bytes and keeps no body. The runner
+  removes `OPENAI_API_KEY` from the app's environment and gives it a
+  placeholder key, so a mocked audit can't use yours.
+- `real`: refused unless the run says `--allow-provider-calls` (the
+  `audit.run` input `allowProviderCalls: true`, which is only accepted for
+  the `provider` preset). The app keeps its own key (environment,
+  `backend/.env` or Keychain); only its base URL is pointed at a local proxy
+  (`startProviderProxy`). The proxy forwards only `authorization`,
+  `content-type`, `accept` and the OpenAI organization and project headers.
+  It refuses past `maxRequests` (6) with a 429 the app won't retry, and caps
+  `max_output_tokens` (64). It records counts, statuses, sizes, first-byte
+  times and durations, never a header value or a body.
+
+The mock was checked against the app's real provider code: each named
+behaviour, served by the Node mock, drives `AIRuntime` to the expected
+outcome (completed, retried once, failed with `remote-closed`, failed with
+an HTTP status, two rounds with one tool, cancelled), with the attempts and
+retry waits traced as the native test expects.
+
+**Findings (rules v3).** Read from each run's trace digest
+(`summary.operations.trace.aiTurns` and `.db`):
+
+| Rule | When |
+| ---- | ---- |
+| `ai.failed-turns` | A turn ended failed or interrupted. A cancel is not a failure. |
+| `ai.slow-preparation` | Preparation ≥ 250 ms (≥ 1 s high). Names the largest stage. |
+| `ai.slow-retrieval` | Retrieval ≥ 150 ms (≥ 500 ms high). |
+| `ai.slow-context-compile` | Context compilation ≥ 100 ms (≥ 400 ms high), with the compiler, message counts and estimated tokens. |
+| `db.queue-contention` | A database job's median queue wait ≥ 20 ms and at least its execution time (≥ 100 ms high). |
+| `db.ui-thread-sync` | A synchronous read on the UI thread ≥ 16 ms at once (≥ 50 ms high). |
+| `ai.slow-tool` | A tool's median ≥ 250 ms (≥ 1 s high). |
+| `ai.excess-tool-rounds` | 4 or more tool rounds in a turn. |
+| `ai.first-token-latency` | First model text ≥ 1.5 s (≥ 4 s high), split into Archivist's preparation and the wait for the provider. |
+| `ai.stream-pauses` | A pause of 1 s or more between provider events. |
+| `ai.retries` | A refused and retried request (≥ 1 s of waiting: medium). |
+| `ai.slow-presentation` | First text shown ≥ 100 ms after the model text arrived (≥ 250 ms high). |
+| `ai.unattributed` | ≥ 50 ms and ≥ 20% of a turn inside no stage. |
+| `ai.missing-instrumentation` | A stage a fully instrumented turn reports is missing. |
+| `trace.dropped-events` | The recording dropped events. |
+
+Times are medians over a scenario's turns. With a mocked provider, provider-side
+findings say "injected by the mock provider", because the scenario put those
+waits there. AI spans, retrieval and context spans, and database queue waits
+are left out of the generic `ui.slow-operation` rule. Chat sends
+(`sendChatMessage`) are left out of `ui.slow-step`. Each cause is reported
+once.
+
+**Comparisons.** Three categories, `ui:ai-pipeline`, `ui:ai-turn` and
+`ui:ai-provider`, with metrics `ai.turn`, `ai.prepare`, `ai.retrieval`,
+`ai.contextCompile`, `ai.firstNetworkByte`, `ai.firstModelDelta`,
+`ai.firstVisibleText`, `ai.persist` and `ai.dbQueueWait`. Each is a median over
+a run's completed turns; cancelled and failed turns are counted, not timed.
+Two compatibility fields keep different workloads apart: `aiProvider`
+(provider kind, mock script and upstream host) and `traceSchema`. A mocked
+run is never compared with a real one.
+
+**Inspecting a turn.** In "Operations inside each action", an action that
+sent a chat message shows its AI turn as tracks, one lane per thread (UI
+thread, AI thread, database writer). Each bar sits under the span that
+caused it, retry and queue waits are hatched, failed attempts are red, and
+ticks mark the first byte, the first model text and when the chat showed
+it. Above the tracks are the firsts (queued, prepared, first byte, first
+model text, first text shown, saved). Below them are unattributed time
+and anything not measured. The full operation tree by time follows.
+
+**Reports.**
+
+- **Concise:** Copy for AI and `audit report` add an "AI turns" table
+  (medians per scenario, turns completed, cancelled and failed) and the AI
+  blind spots.
+- **Selected finding:** "Copy this finding" on the page, or
+  `audit findings <audit-id> --finding <finding-id>` (Markdown; `--json`
+  for the object), gives one finding with its rule, basis, evidence and the
+  command to read its trace.
+- **Full bundle:** `audit export` includes each run's
+  `ui-operations.json` with its trace.
+- **Trace by cause:** `audit trace <run-id> [--turn <n>]` gives every turn's
+  summary, or with `--json`, its stage tree with threads, markers, firsts,
+  retries, tools, tokens, unattributed time and what wasn't measured, plus
+  the run's database jobs.
+
+**Privacy.** These traces never hold prompts, replies, tool arguments,
+file contents, SQL or its parameters, keys, headers or paths. They hold
+names of stages and tools, counts, sizes, statuses, error kinds and times.
+The mock and the proxy keep no bodies or header values. A test reads every
+recorded artifact of a mocked audit and checks that a fake key put in the
+environment appears in none of them.
 
 ## Live recordings (flight recorder)
 

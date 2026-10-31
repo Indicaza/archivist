@@ -99,7 +99,7 @@ test("database jobs separate queue wait from execution and flag UI-thread reads"
   assert.equal(write.execute.medianMs, 2);
   assert.equal(write.uiThreadSync, null);
   const read = jobs.find((job) => job.op === "ChatStore");
-  assert.deepEqual(read.uiThreadSync, { n: 1, totalMs: 28 });
+  assert.deepEqual(read.uiThreadSync, { n: 1, totalMs: 28, maxMs: 28 });
 });
 
 test("a trace from a build without span ids says so", () => {
