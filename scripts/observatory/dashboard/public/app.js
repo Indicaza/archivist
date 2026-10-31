@@ -7,6 +7,7 @@ import { buildReport, categoryLabel, categoryOf, resolveBudgets } from "./regres
 import { filterRuns } from "./filter.mjs";
 import { axisMs, empty, gitText, h, kindLabel, kv, legend, ms, OK, runLink, shortSha, statusPill, table, when } from "./dom.js";
 import { comparisonCopyButton, configureLab, copyForAiButton, exportButton, labPage } from "./lab.js";
+import { configureLive, livePage } from "./live-page.js";
 
 const view = document.getElementById("view");
 const state = { runs: [], options: {}, root: "", error: null };
@@ -247,6 +248,7 @@ function runsPage(params) {
 }
 
 async function runPage(runId) {
+  if (runDetails(runId).run.kind === "live-session") return livePage(runId);
   const data = runDetails(runId);
   const { run, summary } = data;
   const parts = [
@@ -565,11 +567,23 @@ async function render() {
     else if (section === "compare") content = await comparePage(params);
     else if (section === "baselines") content = await baselinesPage();
     else if (section === "lab") content = await labPage();
+    else if (section === "live") content = await livePage(path.split("/")[2] ?? null);
     else content = overview();
   } catch (error) {
     content = empty(`Something went wrong: ${error.message}`);
   }
   view.replaceChildren(...[content].flat(Infinity).filter(Boolean));
+}
+
+// Read the runs again without re-rendering (the caller navigates next).
+async function loadOnly() {
+  try {
+    const data = await loadRuns();
+    state.runs = data.runs;
+    state.options = data.options;
+  } catch (error) {
+    state.error = error.message;
+  }
 }
 
 async function refresh() {
@@ -589,6 +603,7 @@ async function refresh() {
 function start() {
   initControl();
   configureLab({ getState: () => state, refresh });
+  configureLive({ getState: () => state, refresh: loadOnly, go });
   document.getElementById("refresh").addEventListener("click", refresh);
   window.addEventListener("hashchange", render);
   refresh();

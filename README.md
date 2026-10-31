@@ -298,6 +298,16 @@ coding agent. Agents get the same controls as JSON:
 npm run observatory -- capabilities --json
 ```
 
+To see what the app does while you use it, open Observatory's **Live** page,
+press **Start recording**, use the app, and press **Stop**: you get a
+timeline of frame swaps, UI-thread delays, CPU, memory and sidebar/workspace
+operations, with **Copy for AI** and **Export evidence**. With **Let agents
+record** on, an agent can do the same:
+
+```bash
+npm run observatory -- live record --duration 30 --json
+```
+
 Regenerate the locally vendored icon assets and Seti registry after changing the icon manifest or vendor script:
 
 ```bash

@@ -9,7 +9,8 @@
 //   GET api/baselines                     { baselines, baselinesError, budgets,
 //                                           budgetsSource, budgetsError }
 //
-// With --control it also answers POST api/control/<operation> (the
+// With --control it also answers POST api/live/<op> (as observatory.live.<op>)
+// and POST api/control/<operation> (the
 // operations in ../control/operations.mjs), guarded by ../control/gate.mjs:
 // this session's key, same-origin, JSON only. Without it, it stays read-only.
 //
@@ -40,6 +41,8 @@ export const PAGE_FILES = {
   "diagnostic.mjs": "text/javascript; charset=utf-8",
   "dom.js": "text/javascript; charset=utf-8",
   "lab.js": "text/javascript; charset=utf-8",
+  "live.mjs": "text/javascript; charset=utf-8",
+  "live-page.js": "text/javascript; charset=utf-8",
 };
 
 const SECURITY_HEADERS = {
@@ -110,6 +113,13 @@ export function createDashboardServer({ root, port, control = null }) {
       const url = new URL(request.url, "http://localhost");
       if (url.pathname.startsWith("/api/control/")) {
         return serveControl(request, response, decodeURIComponent(url.pathname.slice(13)), control, allowedOrigins());
+      }
+      // The same address the app answers for its live recorder, so the page
+      // calls one URL in both hosts; here it goes through the control
+      // operations, which reach the app only while agent access is on.
+      if (url.pathname.startsWith("/api/live/")) {
+        const op = url.pathname.slice(10);
+        return serveControl(request, response, /^[a-z][a-z-]{0,19}$/.test(op) ? `observatory.live.${op}` : "observatory.live.?", control, allowedOrigins());
       }
       if (request.method !== "GET" && request.method !== "HEAD") {
         return fail(response, 405, "The dashboard is read-only.");

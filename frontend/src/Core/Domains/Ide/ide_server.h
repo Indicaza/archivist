@@ -1,11 +1,14 @@
 #pragma once
 
 #include "Core/Database/core_database.h"
+#include "Core/Domains/Observatory/observatory_records.h"
 
 #include <QObject>
 #include <QString>
 #include <QThreadPool>
 #include <QUrl>
+
+#include <functional>
 
 class LanguageSupportService;
 class QTcpServer;
@@ -31,6 +34,9 @@ class IdeServer final : public QObject
     // This session's key for the Observatory test controls. Only the
     // Observatory panel passes it to its page; see Observatory/observatory_control.h.
     Q_PROPERTY(QString observatoryControlToken READ observatoryControlToken CONSTANT)
+    // Whether coding agents on this computer may start and stop live
+    // recordings (off until the person turns it on in Observatory > Live).
+    Q_PROPERTY(bool observatoryAgentAccess READ observatoryAgentAccess NOTIFY observatoryAgentAccessChanged)
 
 public:
     explicit IdeServer(QObject *parent = nullptr);
@@ -47,11 +53,24 @@ public:
     [[nodiscard]] bool ready() const;
     [[nodiscard]] quint16 port() const;
 
+    // Answers /observatory/api/live/<operation> (the live recorder lives in
+    // the app layer, so it registers itself here). `caller` is "panel" or "agent".
+    using LiveHandler = std::function<Observatory::Response(const QString &operation, const QByteArray &body, const QString &caller)>;
+    void setLiveHandler(LiveHandler handler);
+
+    [[nodiscard]] bool observatoryAgentAccess() const { return !m_agentToken.isEmpty(); }
+    // On: writes <Observatory root>/live/agent-access.json (readable only by
+    // this user) with this server's address and a fresh key; agents use it to
+    // reach the live recorder. Off (and at quit): deletes the file and the key.
+    Q_INVOKABLE bool setObservatoryAgentAccess(bool enabled);
+    [[nodiscard]] static QString agentAccessFile();
+
     [[nodiscard]] static QString defaultDistributionPath();
     [[nodiscard]] static quint16 defaultPort();
 
 signals:
     void stateChanged();
+    void observatoryAgentAccessChanged();
 
 private:
     friend class IdeHttpConnection;
@@ -61,6 +80,8 @@ private:
     QString m_databasePath;
     QString m_distributionPath;
     QByteArray m_observatoryControlToken;
+    QByteArray m_agentToken;
+    LiveHandler m_liveHandler;
     TerminalSessionManager *m_terminals = nullptr;
     LanguageSupportService *m_languageSupport = nullptr;
     QThreadPool m_pool;

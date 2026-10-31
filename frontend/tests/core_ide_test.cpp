@@ -348,6 +348,117 @@ private slots:
         QCOMPARE(reply.json().value(QStringLiteral("events")).toList().size(), 1);
     }
 
+    // The live recorder's routes: the panel (its origin and key) and, only
+    // while the person allows it, local agents (the key in agent-access.json).
+    void observatoryLiveRequestsNeedTheRightKey()
+    {
+        QTemporaryDir records;
+        qputenv("ARCHIVIST_OBSERVATORY_DIR", records.path().toUtf8());
+        IdeServer server;
+        QVERIFY(server.start(m_databasePath, m_distribution));
+        server.setLiveHandler([](const QString &operation, const QByteArray &body, const QString &caller) {
+            const QByteArray json = QJsonDocument(QJsonObject{
+                {QStringLiteral("schema"), QStringLiteral("archivist.observatory.response")},
+                {QStringLiteral("ok"), true},
+                {QStringLiteral("result"), QJsonObject{
+                    {QStringLiteral("operation"), operation},
+                    {QStringLiteral("caller"), caller},
+                    {QStringLiteral("body"), QString::fromUtf8(body)},
+                }},
+            }).toJson(QJsonDocument::Compact);
+            return Observatory::Response{200, "application/json", json, {}};
+        });
+        const quint16 port = server.port();
+        const QByteArray panelOrigin = "Origin: " + origin(server);
+        const QByteArray panelKey = "X-Observatory-Token: " + server.observatoryControlToken().toUtf8();
+        HttpReply reply;
+        auto post = [&](const QByteArray &operation, const QList<QByteArray> &headers, const QByteArray &body = "{}", const QByteArray &method = "POST") {
+            std::atomic_bool done = false;
+            std::thread worker([&]() {
+                reply = request(port, method, "/observatory/api/live/" + operation, body, headers);
+                done = true;
+            });
+            QElapsedTimer waited;
+            waited.start();
+            while (!done && waited.elapsed() < 10000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            }
+            worker.join();
+            return reply.json();
+        };
+        const auto code = [](const QVariantMap &json) {
+            return json.value(QStringLiteral("error")).toMap().value(QStringLiteral("code")).toString();
+        };
+
+        QVariantMap json = post("status", {panelOrigin, panelKey});
+        QCOMPARE(reply.status, 200);
+        QCOMPARE(json.value(QStringLiteral("result")).toMap().value(QStringLiteral("caller")).toString(), QStringLiteral("panel"));
+        QCOMPARE(json.value(QStringLiteral("result")).toMap().value(QStringLiteral("agentAccess")).toBool(), false);
+
+        post("status", {panelOrigin, "X-Observatory-Token: wrong"});
+        QCOMPARE(reply.status, 401);
+        post("status", {"Origin: https://evil.example", panelKey});
+        QCOMPARE(reply.status, 403);
+        post("status", {panelOrigin, panelKey, "Sec-Fetch-Site: cross-site"});
+        QCOMPARE(reply.status, 403);
+        post("status", {panelOrigin, panelKey}, {}, "GET");
+        QCOMPARE(reply.status, 405);
+        post("..%2Fcontrol", {panelOrigin, panelKey});
+        QCOMPARE(reply.status, 400);
+
+        // Agents are refused until the person turns access on.
+        json = post("start", {});
+        QCOMPARE(reply.status, 403);
+        QCOMPARE(code(json), QStringLiteral("agent-access-off"));
+        QVERIFY(!QFile::exists(IdeServer::agentAccessFile()));
+
+        post("agent-access", {panelOrigin, panelKey}, R"({"enabled":"yes"})");
+        QCOMPARE(reply.status, 400);
+        json = post("agent-access", {panelOrigin, panelKey}, R"({"enabled":true})");
+        QCOMPARE(reply.status, 200);
+        QCOMPARE(json.value(QStringLiteral("result")).toMap().value(QStringLiteral("agentAccess")).toBool(), true);
+        QVERIFY(server.observatoryAgentAccess());
+        QFile accessFile(IdeServer::agentAccessFile());
+        QVERIFY(accessFile.exists());
+        QCOMPARE(accessFile.permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther | QFileDevice::WriteGroup | QFileDevice::WriteOther),
+                 QFileDevice::Permissions());
+        QVERIFY(accessFile.open(QIODevice::ReadOnly));
+        const QJsonObject access = QJsonDocument::fromJson(accessFile.readAll()).object();
+        accessFile.close();
+        QCOMPARE(access.value(QStringLiteral("endpoint")).toString(), QStringLiteral("http://127.0.0.1:%1/observatory/api/live/").arg(port));
+        const QByteArray agentKey = "X-Observatory-Agent-Token: " + access.value(QStringLiteral("token")).toString().toUtf8();
+        QVERIFY(access.value(QStringLiteral("token")).toString() != server.observatoryControlToken());
+
+        json = post("start", {agentKey}, R"({"durationSeconds":30})");
+        QCOMPARE(reply.status, 200);
+        QCOMPARE(json.value(QStringLiteral("result")).toMap().value(QStringLiteral("caller")).toString(), QStringLiteral("agent"));
+        QCOMPARE(json.value(QStringLiteral("result")).toMap().value(QStringLiteral("body")).toString(), QStringLiteral(R"({"durationSeconds":30})"));
+        post("start", {"X-Observatory-Agent-Token: wrong"});
+        QCOMPARE(reply.status, 401);
+        post("start", {panelKey}); // the panel's key is not an agent key
+        QCOMPARE(reply.status, 401);
+        post("start", {agentKey, "Sec-Fetch-Site: cross-site"}); // a web page without Origin
+        QCOMPARE(reply.status, 403);
+        post("agent-access", {agentKey}, R"({"enabled":true})"); // agents can't grant themselves access
+        QCOMPARE(reply.status, 403);
+        post("agent-access", {panelOrigin, panelKey}, R"({"enabled":true})"); // a fresh key replaces the old one
+        post("start", {agentKey});
+        QCOMPARE(reply.status, 401);
+
+        post("agent-access", {panelOrigin, panelKey}, R"({"enabled":false})");
+        QCOMPARE(reply.status, 200);
+        QVERIFY(!QFile::exists(IdeServer::agentAccessFile()));
+        QCOMPARE(code(post("start", {agentKey})), QStringLiteral("agent-access-off"));
+
+        // Stopping the server takes the file away with its address.
+        QVERIFY(server.setObservatoryAgentAccess(true));
+        QVERIFY(QFile::exists(IdeServer::agentAccessFile()));
+        server.stop();
+        QVERIFY(!QFile::exists(IdeServer::agentAccessFile()));
+        QVERIFY(!server.observatoryAgentAccess());
+        qunsetenv("ARCHIVIST_OBSERVATORY_DIR");
+    }
+
     void runsATerminalOverAWebSocket()
     {
         IdeServer server;

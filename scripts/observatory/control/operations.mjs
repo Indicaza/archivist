@@ -21,6 +21,7 @@ import { collectSource } from "../metadata.mjs";
 import { findAppBinary, overallTimeoutMs } from "../ui-lab.mjs";
 import { exportEvidence, loadRunEvidence } from "./evidence.mjs";
 import { ACTIVE, cancelJob, JOB_ID, JOB_STATUSES, listJobIds, MAX_REPEAT, refreshJob, runProgress, startJob } from "./jobs.mjs";
+import { LIVE_DURATIONS, LIVE_ERROR_CODES, LIVE_HTTP_STATUS, liveOperations, MAX_WINDOW_MS } from "./live-operations.mjs";
 
 export const RESPONSE_SCHEMA = "archivist.observatory.response";
 export const RESPONSE_SCHEMA_VERSION = 1;
@@ -37,6 +38,7 @@ export const ERROR_CODES = {
   "controls-disabled": "This dashboard was started read-only.",
   unauthorized: "The request did not carry this session's control key.",
   "forbidden-origin": "The request came from another web page.",
+  ...LIVE_ERROR_CODES,
   internal: "Something unexpected failed; the message says what.",
 };
 
@@ -63,6 +65,7 @@ export function errorEnvelope(operation, error) {
 export const HTTP_STATUS = {
   "invalid-input": 400, "unknown-operation": 404, "not-found": 404, "unreadable-record": 422, busy: 409, "not-running": 409,
   "no-binary": 409, "controls-disabled": 404, unauthorized: 401, "forbidden-origin": 403, internal: 500,
+  ...LIVE_HTTP_STATUS,
 };
 
 // ---- input validation --------------------------------------------------------------
@@ -85,6 +88,10 @@ export function validate(spec, input) {
     }
     if (rule.type === "integer") {
       if (typeof given === "string" && /^-?\d+$/.test(given)) given = Number(given);
+      if (rule.enum && !rule.enum.includes(given)) {
+        problems.push(`"${key}" must be one of ${rule.enum.join(", ")}`);
+        continue;
+      }
       if (!Number.isInteger(given) || (rule.min !== undefined && given < rule.min) || (rule.max !== undefined && given > rule.max)) {
         problems.push(`"${key}" must be a whole number from ${rule.min} to ${rule.max}`);
         continue;
@@ -172,6 +179,7 @@ function compactRun(run) {
       settledMedianMs: run.ui.settled?.medianMs ?? null, settledP95Ms: run.ui.settled?.p95Ms ?? null, frameGapMedianMs: run.ui.frameGap?.medianMs ?? null,
     });
   }
+  if (run.live) Object.assign(base, { durationMs: run.live.durationMs, stopReason: run.live.stopReason, partial: run.live.partial, frameGaps: run.live.frameGaps, stalls: run.live.stalls, worstMs: run.live.worstMs });
   if (run.build) Object.assign(base, { classification: run.build.classification, totalMs: run.build.totalMs, failedPhase: run.build.failedPhase });
   return base;
 }
@@ -205,7 +213,7 @@ async function categoryForRun(ctx, runId, withRunIds = []) {
   return result?.status === "no-baseline" ? null : result;
 }
 
-async function requireRun(ctx, runId) {
+export async function requireRun(ctx, runId) {
   const loaded = await readRunSummary(ctx.root, runId);
   const exists = loaded && (await stat(loaded.dir).catch(() => null))?.isDirectory();
   if (!exists) throw new ControlError("not-found", `No run ${runId} in the Observatory folder.`);
@@ -253,7 +261,7 @@ export const OPERATIONS = {
         operations: Object.entries(OPERATIONS).map(([name, op]) => ({ name, description: op.description, cli: op.cli, input: op.input, sideEffects: op.sideEffects })),
         errorCodes: ERROR_CODES,
         jobStatuses: JOB_STATUSES,
-        limits: { maxRepeat: MAX_REPEAT, concurrentUiTests: 1, maxArtifactBytes: MAX_ARTIFACT_BYTES },
+        limits: { maxRepeat: MAX_REPEAT, concurrentUiTests: 1, maxArtifactBytes: MAX_ARTIFACT_BYTES, liveDurationsSeconds: LIVE_DURATIONS, concurrentLiveRecordings: 1, maxLiveWindowMs: MAX_WINDOW_MS },
         exitCodes: { 0: "ok", 1: "the operation failed (see error.code)", 2: "invalid input or unknown operation", 4: "busy: another UI test is running" },
         target: await describeTarget(ctx),
         scenarios: (await scenarioDefinitions(ctx.scenarioDir)).map(({ id, name, version }) => ({ id, name, version })),
@@ -339,9 +347,9 @@ export const OPERATIONS = {
   },
   "observatory.runs.list": {
     description: "Recorded runs, newest first, as compact records (status, identity and headline measurements).",
-    cli: "npm run observatory -- runs list [--kind build|ui-scenario|runtime-log] [--scenario <id>] [--status <s>] [--limit <n>] --json",
+    cli: "npm run observatory -- runs list [--kind build|ui-scenario|runtime-log|live-session] [--scenario <id>] [--status <s>] [--limit <n>] --json",
     input: {
-      kind: { type: "string", enum: ["build", "ui-scenario", "runtime-log"] },
+      kind: { type: "string", enum: ["build", "ui-scenario", "runtime-log", "live-session"] },
       scenario: { type: "string", pattern: SCENARIO_ID.source },
       status: { type: "string", pattern: "^[a-z-]{1,20}$" },
       limit: { type: "integer", min: 1, max: 500, default: 20 },
@@ -429,7 +437,7 @@ export const OPERATIONS = {
       const category = await categoryForRun(ctx, input.runId, input.withRunIds);
       const report = diagnosticReport({
         runId: input.runId, summary: evidence.loaded.summary, events: evidence.events, scenario: evidence.scenario, category,
-        logText: evidence.log?.text ?? null, redact: makeRedactor({ root: ctx.root, repo: ctx.repoRoot, home: os.homedir() }),
+        logText: evidence.log?.text ?? null, live: evidence.live, redact: makeRedactor({ root: ctx.root, repo: ctx.repoRoot, home: os.homedir() }),
       });
       return { markdown: report.markdown, facts: report.facts };
     },
@@ -450,6 +458,7 @@ export const OPERATIONS = {
       return result;
     },
   },
+  ...liveOperations({ ControlError, requireRun, runIdPattern: RUN_ID_PATTERN }),
 };
 
 // One call: validate, run, wrap. Never throws.

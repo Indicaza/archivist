@@ -575,6 +575,9 @@ private:
     QSettings m_settings;
     QTimer m_saveTimer;
     bool m_resizing = false;
+    // Open live-recorder spans (Observatory) for the drag and the split resize.
+    quint64 m_liveDrag = 0;
+    quint64 m_liveResize = 0;
 
     Workspace::DragSource m_drag;
     Workspace::DropTarget m_dropTarget;

@@ -1,6 +1,7 @@
 #include "App/Domains/Workspace/workspace_store.h"
 
 #include "App/Domains/Documents/document_store.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Domains/Workspace/workspace_codec.h"
 #include "Core/Domains/Workspace/workspace_commands.h"
 #include "Core/Domains/Workspace/workspace_placement.h"
@@ -14,6 +15,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSet>
+
+#include <cmath>
 
 Q_LOGGING_CATEGORY(lcWellTiming, "archivist.wells.timing", QtWarningMsg)
 
@@ -113,6 +116,17 @@ WorkspaceStore::WorkspaceStore(QObject *parent)
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(400);
     connect(&m_saveTimer, &QTimer::timeout, this, &WorkspaceStore::saveNow);
+    // A magnet drag ends here however it ends (docked, put away, refused, cancelled).
+    connect(this, &WorkspaceStore::dragFinished, this, [this](const QString &outcome, const QVariantMap &details) {
+        if (m_liveDrag) {
+            const QVariantMap target = details.value(QStringLiteral("target")).toMap();
+            LiveEvents::end(m_liveDrag, outcome == QLatin1String("committed") ? 1 : 0, {
+                {QStringLiteral("outcome"), outcome},
+                {QStringLiteral("into"), target.isEmpty() ? QStringLiteral("none") : target.firstKey()},
+            });
+            m_liveDrag = 0;
+        }
+    });
     m_aimTimer.setSingleShot(true);
     connect(&m_aimTimer, &QTimer::timeout, this, [this]() {
         if (m_drag.kind != DragSource::Kind::None && m_aimTarget.isValid()) {
@@ -314,19 +328,25 @@ void WorkspaceStore::publish()
 {
     // Where publishing spends its time, QML's reactions included (they run
     // inside these signals). Off unless archivist.wells.timing is on.
-    const bool timing = lcWellTiming().isDebugEnabled();
+    // The same stages go to the Observatory live recorder while it records.
+    const bool logTiming = lcWellTiming().isDebugEnabled();
+    const qint64 liveStart = LiveEvents::recording() ? LiveEvents::nowNs() : -1;
+    const bool timing = logTiming || liveStart >= 0;
     QElapsedTimer clock;
     if (timing) {
         clock.start();
     }
     qint64 stamp = 0;
     QStringList stages;
+    QVariantMap stageMs;
     auto lap = [&](const char *stage) {
         if (!timing) {
             return;
         }
         const qint64 now = clock.nsecsElapsed();
-        stages.append(QStringLiteral("%1 %2").arg(QLatin1String(stage)).arg((now - stamp) / 1e6, 0, 'f', 2));
+        const double ms = (now - stamp) / 1e6;
+        stages.append(QStringLiteral("%1 %2").arg(QLatin1String(stage)).arg(ms, 0, 'f', 2));
+        stageMs.insert(QLatin1String(stage), std::round(ms * 100) / 100);
         stamp = now;
     };
     QList<QVariantMap> viewRows;
@@ -482,8 +502,11 @@ void WorkspaceStore::publish()
         normalizeComposer();
     }
     lap("composer");
-    if (timing) {
+    if (logTiming) {
         qCDebug(lcWellTiming).noquote() << "publish:" << stages.join(QStringLiteral(", ")) << "ms";
+    }
+    if (liveStart >= 0) {
+        LiveEvents::span(QStringLiteral("workspace"), QStringLiteral("publish"), liveStart, LiveEvents::nowNs(), -1, stageMs);
     }
 }
 
@@ -1042,11 +1065,17 @@ bool WorkspaceStore::activateView(const QString &viewId)
         return false;
     }
 
+    LiveEvents::Scope live(QStringLiteral("workspace"), QStringLiteral("switch-tab"));
+    if (LiveEvents::recording()) {
+        const ViewRecord *view = m_model.view(viewId);
+        live.setField(QStringLiteral("viewType"), view ? view->typeId : QString());
+    }
     const QString previous = m_model.focusedAnchorId();
     m_model.focusAnchor(m_model.anchorOfView(viewId));
     publish();
     tuckAwayFloatingPanels(previous);
     emit viewFocused(viewId);
+    live.setOk(true);
     return true;
 }
 
@@ -1520,7 +1549,12 @@ void WorkspaceStore::setResizing(bool resizing)
     }
 
     m_resizing = resizing;
-    if (!resizing) {
+    if (resizing) {
+        LiveEvents::end(m_liveResize);
+        m_liveResize = LiveEvents::begin(QStringLiteral("workspace"), QStringLiteral("resize-split"));
+    } else {
+        LiveEvents::end(m_liveResize, 1);
+        m_liveResize = 0;
         scheduleSave();
     }
 }
@@ -1551,6 +1585,8 @@ bool WorkspaceStore::beginDrag(const QString &kind, const QString &id)
     }
 
     m_drag = source;
+    LiveEvents::end(m_liveDrag);
+    m_liveDrag = LiveEvents::begin(QStringLiteral("workspace"), QStringLiteral("drag"), {{QStringLiteral("kind"), kind}});
     m_dropTarget = {};
     m_dropAllowed = false;
     m_landingRect = {};
@@ -2224,19 +2260,23 @@ bool WorkspaceStore::setSurfaceGeometry(
 
 QString WorkspaceStore::detachView(const QString &viewId, double x, double y, double width, double height, const QString &screenName)
 {
+    LiveEvents::Scope live(QStringLiteral("workspace"), QStringLiteral("undock"), {{QStringLiteral("kind"), QStringLiteral("view")}, {QStringLiteral("how"), QStringLiteral("window")}});
     if (m_drag.kind != DragSource::Kind::None) {
         cancelDrag();
     }
     const OpResult result = m_model.detachView(viewId, QRectF(x, y, width, height), screenName);
+    live.setOk(result.ok);
     return check(result) ? result.createdId : QString();
 }
 
 QString WorkspaceStore::detachAnchor(const QString &anchorId, double x, double y, double width, double height, const QString &screenName)
 {
+    LiveEvents::Scope live(QStringLiteral("workspace"), QStringLiteral("undock"), {{QStringLiteral("kind"), QStringLiteral("anchor")}, {QStringLiteral("how"), QStringLiteral("window")}});
     if (m_drag.kind != DragSource::Kind::None) {
         cancelDrag();
     }
     const OpResult result = m_model.detachAnchor(anchorId, QRectF(x, y, width, height), screenName);
+    live.setOk(result.ok);
     return check(result) ? result.createdId : QString();
 }
 
@@ -2404,6 +2444,8 @@ bool WorkspaceStore::applyLayoutDocument(const QJsonObject &layout, const QStrin
 
 bool WorkspaceStore::applyLayout(const QString &layoutId)
 {
+    LiveEvents::Scope live(QStringLiteral("workspace"), QStringLiteral("change-layout"));
+    live.setOk(false);
     const QJsonObject layout = layoutDocument(layoutId);
 
     if (layout.isEmpty()) {
@@ -2416,6 +2458,7 @@ bool WorkspaceStore::applyLayout(const QString &layoutId)
     }
 
     emit layoutApplied(layoutId, currentLayoutName());
+    live.setOk(true);
     return true;
 }
 

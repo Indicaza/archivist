@@ -152,6 +152,40 @@ code.cmd { display: inline-block; font-family: var(--mono); font-size: 12px; bac
 input.narrow { width: 5em; }
 .actions-card { display: flex; flex-wrap: wrap; gap: 4px 32px; align-items: flex-start; margin-bottom: 16px; }
 .actions-card > * { flex: 1 1 280px; }
+/* Live page */
+.live-recorder { margin-bottom: 20px; }
+.live-recorder .filters { margin: 10px 0 4px; }
+.filters label.grow { flex: 1 1 260px; }
+input.wide { width: 100%; }
+.live-indicator { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 15px; }
+/* Static on purpose: an animation would add frames to the recording. */
+.live-indicator .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+.agent-access { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
+.agent-access label { display: inline-flex; gap: 6px; align-items: center; font-weight: 500; }
+.agent-access p { margin: 4px 0 0; }
+p.lead { font-size: 15px; margin: 0 0 16px; max-width: 80ch; }
+.timeline-wrap { overflow-x: auto; }
+.chart.timeline { min-width: 720px; touch-action: none; user-select: none; cursor: crosshair; }
+.timeline .lane-name { fill: var(--text); font-size: 12px; font-weight: 500; }
+.timeline .lane-sub, .timeline .tick { fill: var(--muted); font-size: 10px; }
+.timeline .gridline.faint { stroke-dasharray: 1 6; }
+.timeline .bars { stroke: var(--series-1); stroke-width: 1; fill: none; }
+.timeline .bars.long { stroke: var(--warn); stroke-width: 2; }
+.timeline .line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
+.timeline .op { fill: var(--series-2); }
+.timeline .op.marker { fill: var(--text); }
+.timeline .op.failed { fill: var(--bad); }
+.timeline .spike { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1; cursor: pointer; }
+.timeline .spike:hover, .timeline .spike:focus { fill: var(--bad); fill-opacity: 0.3; outline: none; }
+.timeline .spike-guide { fill: var(--bad-soft); fill-opacity: 0.5; pointer-events: none; }
+.timeline .spike-id { fill: var(--bad); font-size: 10px; font-weight: 600; pointer-events: none; }
+.timeline .note line { stroke: var(--series-5); stroke-width: 2; stroke-dasharray: 4 3; }
+.timeline .cursor { stroke: var(--muted); stroke-width: 1; pointer-events: none; }
+.timeline .selection { fill: var(--accent-soft); stroke: var(--accent); pointer-events: none; }
+.readout { color: var(--muted); min-height: 1.5em; margin-top: 6px; overflow-wrap: anywhere; }
+.card.detail { margin-top: 12px; outline: none; }
+.card.detail .cards { margin: 8px 0; }
+ul.events { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
 @media (max-width: 720px) {
   main { padding: 16px; }
   .two { grid-template-columns: 1fr; }

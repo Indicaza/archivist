@@ -1,4 +1,5 @@
 import QtQuick
+import Archivist.Services 1.0
 
 // The draggable right edge of a side panel (the Explorer, Home's sidebar).
 // Drag to resize; double-click for the default width. The shell owns the
@@ -10,6 +11,9 @@ Item {
     required property Item coordinateItem
 
     readonly property bool resizing: resizeArea.pressed
+
+    // The Observatory live recorder's span for the current drag (0 when not recording).
+    property real liveResize: 0
 
     signal resizeRequested(real pointerX)
     signal resetRequested()
@@ -38,6 +42,14 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.SplitHCursor
+        onPressedChanged: {
+            if (pressed) {
+                root.liveResize = LiveRecorder.begin("sidebar", "resize")
+            } else {
+                LiveRecorder.end(root.liveResize, true)
+                root.liveResize = 0
+            }
+        }
         onPositionChanged: function(mouse) {
             if (!pressed) {
                 return

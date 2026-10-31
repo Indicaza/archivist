@@ -119,6 +119,57 @@ Rectangle {
             Layout.fillWidth: true
         }
 
+        // Shown while the Observatory live recorder runs, wherever the
+        // Observatory panel is. Click to stop. Deliberately static (no
+        // pulsing): an animation here would add frames to the recording.
+        Rectangle {
+            id: liveRecording
+
+            visible: LiveRecorder.recording
+            Layout.preferredHeight: 24
+            Layout.preferredWidth: liveRecordingRow.implicitWidth + 18
+            radius: 12
+            color: liveRecordingHover.hovered ? "#4a2328" : "#3a1d21"
+            border.width: 1
+            border.color: "#b8434d"
+
+            Row {
+                id: liveRecordingRow
+
+                anchors.centerIn: parent
+                spacing: 6
+
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: "#ff5a64"
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    readonly property int elapsed: LiveRecorder.elapsedSeconds
+                    readonly property int total: LiveRecorder.durationSeconds
+                    text: "Recording " + Math.floor(elapsed / 60) + ":" + String(elapsed % 60).padStart(2, "0")
+                        + " / " + Math.floor(total / 60) + ":" + String(total % 60).padStart(2, "0")
+                    color: "#ffd9dc"
+                    font.pixelSize: 12
+                }
+            }
+
+            HoverHandler {
+                id: liveRecordingHover
+            }
+
+            TapHandler {
+                onTapped: LiveRecorder.stop("user")
+            }
+
+            ToolTip.visible: liveRecordingHover.hovered
+            ToolTip.text: "Observatory is recording performance. Click to stop."
+        }
+
         IconButton {
             id: codeThemeButton
 

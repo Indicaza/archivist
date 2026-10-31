@@ -586,6 +586,118 @@ Commits and SHA-256 hashes are kept. Nothing is uploaded anywhere.
   the checkout is, so its reports hide repository paths under your home
   folder too. The CLI keeps them as `<repo>/…`.
 
+## Live recordings (flight recorder)
+
+Press **Start recording**, use Archivist the way that felt slow, and press
+**Stop** (or let it stop by itself). The recording opens as a timeline you
+can click, plus the same **Copy for AI** and **Export evidence** buttons as
+every other run. Agents can do the same through `observatory.live.*`.
+
+### For people
+
+- Inside Archivist: open the Observatory panel and pick **Live**. Choose a
+  length (15, 30, 60 or 120 s; 30 by default), optionally name it, and press
+  **Start recording**. A red **Recording m:ss** pill shows in the top bar for
+  as long as it runs; clicking it stops the recording.
+- **Add marker** drops a note at that moment ("felt slow here").
+- When it stops, the recording opens: a summary sentence, frames per window,
+  how late the UI thread answered, CPU, memory, threads, and a timeline with
+  one lane per window, the UI thread, CPU, memory and the instrumented
+  operations. Highlighted moments are clickable; drag across the timeline to
+  see everything in a time range.
+- The browser dashboard (`--control`) shows the same page. It can record only
+  while **Let agents record** is on in the app, because it goes through the
+  same door as an agent.
+
+### For agents
+
+```bash
+npm run observatory -- live status --json
+npm run observatory -- live record --duration 30 --label "open big project" --json   # start, wait, return the result
+npm run observatory -- live start --duration 60 --json
+npm run observatory -- live mark "opened the 2k-file project" --json
+npm run observatory -- live stop --json
+npm run observatory -- live list --json
+npm run observatory -- live get <run-id> --json
+npm run observatory -- live spikes <run-id> --json
+npm run observatory -- live window <run-id> --from 3000 --to 4000 --json
+npm run observatory -- live compare <base-run-id> <run-id> --json
+npm run observatory -- report <run-id>
+npm run observatory -- export <run-id>
+```
+
+`status/start/stop/mark/wait/record` reach the running app, and only while
+the person has turned on **Let agents record** in the Live panel. The other
+commands read saved recordings and work any time. `observatory.live.status`
+answers `available: false` (not an error) while access is off.
+
+### How the app is reached
+
+Turning on **Let agents record** writes
+`<Observatory folder>/live/agent-access.json` (mode 0600) with the app's
+loopback address, a fresh random key and the app's process id. Turning it
+off, or quitting Archivist, deletes it. The CLI reads that file and calls
+`POST http://127.0.0.1:<port>/observatory/api/live/<status|start|stop|mark>`
+with the key in `X-Observatory-Agent-Token`. The app accepts that key only
+for those four operations, only from requests without a browser `Origin`,
+and only while access is on. Only the panel (same origin, the panel key) can
+turn access on or off. The CLI refuses an address that isn't 127.0.0.1, so
+the key never goes anywhere else. Nothing is uploaded.
+
+### What is recorded
+
+A `live-session` run (`<timestamp>-live-<hex>`) with:
+
+| File | What |
+| ---- | ---- |
+| `summary.json` | identity (source, app, Qt, machine), status, `live` (duration, who started and stopped it, windows, statistics, notable moments) |
+| `metrics.json` | every frame swap per window, every UI-thread probe, every resource sample (ms since the start) |
+| `events.json` | operations (spans with durations), markers and notes, in time order |
+| `live-stream.ndjson` | what was flushed every second while recording, for crash recovery |
+
+- **Frames:** `QQuickWindow::frameSwapped` per window, timed on the render
+  thread. An interval is not GPU time, compositor latency or when the frame
+  reached the screen. Qt draws only when something changes, so long idle
+  intervals are normal.
+- **UI thread:** a 50 ms timer on the UI thread; how late it fires.
+- **Resources (every 500 ms):** process CPU as % of one core, resident
+  memory, macOS memory footprint (`phys_footprint`), thread count. Anything
+  the platform doesn't provide is recorded as `null` and listed as missing.
+- **Operations:** sidebar open/close/section/resize, workspace publish (with
+  the `archivist.wells.timing` stages), layout changes, tab switches, split
+  resizes, magnet drags and undocking, wells minimize/restore, chat
+  conversation switches. Names and a few small fields only: no content,
+  typing, file names or clipboard. `archivist.wells.timing` logging keeps
+  working as before.
+- **Notable moments:** a frame gap of 50–250 ms between steady frames; a
+  longer gap only when it overlaps a UI-thread stall (otherwise it's idle);
+  a UI-thread delay of 50 ms or more. Each is listed with the operations it
+  *occurred during* or near. That is correlation, never a cause.
+
+### Limits and safety
+
+- One recording at a time; 15/30/60/120 s only; it always stops at the
+  length (and on quit). Memory is bounded (200k frames, 20k events, 6k
+  probes, 1k samples); anything past that is counted as dropped.
+- Nothing is written on the UI or render threads: a single writer thread
+  saves the stream every second and the final files at the end.
+- If the app dies while recording, the next launch marks that run
+  `interrupted` with `partial: true` and rebuilds what it can from the stream.
+- The Live page itself updates once a second while recording (its
+  indicator is static on purpose). With the panel open, those redraws show up
+  as a few frames per second in the recording; close or hide the panel for
+  the cleanest numbers.
+- Live recordings have no baseline (what you do differs each time). Use
+  `live compare` on two recordings of the same interaction.
+
+### Overhead
+
+Measured with the real recorder on Linux (Qt 6.4, offscreen software
+rendering, one window redrawing every 16 ms, four alternating 10 s rounds
+with recording off and on): frame interval median 20.5 ms and p95 20.7–20.8
+ms either way, and process CPU 1.8% off vs 1.9% on (of one core). This was
+not measured on macOS or with the real Archivist UI.
+
 ## Code
 
 | File | Responsibility |
@@ -613,6 +725,8 @@ Commits and SHA-256 hashes are kept. Nothing is uploaded anywhere.
 | `control/gate.mjs` | Who may call the controls over HTTP |
 | `control/human.mjs` | Plain-text output of the control commands |
 | `control/zip.mjs` | A small ZIP writer for exports |
+| `control/live.mjs` | Reaching the running app's live recorder (agent-access.json, 127.0.0.1 only) |
+| `control/live-operations.mjs` | The `observatory.live.*` operations |
 | `dashboard/server.mjs` | The browser dashboard's local, read-only server |
 | `dashboard/records.mjs` | Reading runs and artifacts from disk for that server |
 | `dashboard/public/` | The page: plain JavaScript, no dependencies |
@@ -623,11 +737,15 @@ Commits and SHA-256 hashes are kept. Nothing is uploaded anywhere.
 | `dashboard/public/diagnostic.mjs` | The Copy for AI report (shared by the page and the CLI) |
 | `dashboard/public/redact.mjs` | Redaction for reports and exports |
 | `dashboard/public/lab.js` | The Test Lab page and the Copy for AI / Export buttons |
+| `dashboard/public/live.mjs` | Live recording analysis: moments, context, ranges, comparison, report (shared by the page and the CLI) |
+| `dashboard/public/live-page.js` | The Live page: recorder controls and the timeline |
 | `dashboard/public/dom.js` | The page's DOM and formatting helpers |
 | `dashboard/public/filter.mjs` | Run filters |
 | `dashboard/public/preview.mjs` | Paging and searching a log |
 | `frontend/src/Core/Domains/Observatory/` | The same requests, served inside Archivist; `observatory_control.*` hands control requests to the CLI |
 | `frontend/qml/App/Workbench/Observatory/` | The Observatory panel |
+| `frontend/src/Core/Domains/Observatory/live_*.{h,cpp}`, `process_metrics.*` | The recorder's buffers, statistics, files and process metrics |
+| `frontend/src/App/Services/live_recorder.*` | The recorder service in the app (windows, probes, writer thread) |
 
 ## Testing the collector
 
@@ -638,3 +756,7 @@ npm run test:observatory
 Uses Node's built-in test runner with small temporary subprocesses and a
 stand-in app (`test/fixtures/fake-app.mjs`); it needs no Qt build. The
 dashboard tests use the made-up runs in `test/fixtures/dashboard-runs.mjs`.
+The live tests use `test/fixtures/live/`, a short recording made by the real
+recorder (Linux, offscreen), and a stand-in recorder
+(`test/fixtures/fake-live-app.mjs`). The native side is covered by
+`core-observatory-live-test` and `live-recorder-test` (`npm run test:native`).

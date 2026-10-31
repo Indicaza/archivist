@@ -40,7 +40,8 @@ function parseJson(text) {
   }
 }
 
-// What a report needs from a run's folder. { loaded, events, scenario, logText }
+// What a report needs from a run's folder: { loaded, events, eventsDocument,
+// scenario, log, live } (live: metrics.json and events.json of a live recording).
 export async function loadRunEvidence(root, runId) {
   const loaded = await readRunSummary(root, runId);
   if (!loaded?.summary) return { loaded };
@@ -48,12 +49,16 @@ export async function loadRunEvidence(root, runId) {
   const events = parseJson((await readArtifact(dir, summary, "events"))?.text);
   const scenario = parseJson((await readArtifact(dir, summary, "scenario"))?.text);
   const log = await readArtifact(dir, summary, "log");
+  const live = summary.kind === "live-session"
+    ? { metrics: parseJson((await readArtifact(dir, summary, "metrics"))?.text), events }
+    : null;
   return {
     loaded,
     events: Array.isArray(events?.actions) ? events.actions : null,
     eventsDocument: events,
     scenario,
     log,
+    live,
   };
 }
 
@@ -68,7 +73,7 @@ export async function exportEvidence(root, runId, { category = null, includeRawL
   const { summary, dir: runDir } = evidence.loaded;
   const redact = redactorFor(root);
   const report = diagnosticReport({
-    runId, summary, events: evidence.events, scenario: evidence.scenario, category, logText: evidence.log?.text ?? null, redact,
+    runId, summary, events: evidence.events, scenario: evidence.scenario, category, logText: evidence.log?.text ?? null, live: evidence.live, redact,
   });
 
   const exportId = makeRunId("evidence", now);
@@ -86,7 +91,14 @@ export async function exportEvidence(root, runId, { category = null, includeRawL
   await add("report.md", report.markdown, { role: "report", important: true, description: "The diagnostic report (what Copy for AI copies). Read this first." });
   await add("diagnostic.json", report.facts, { role: "facts", important: true, schema: report.facts.schema, schemaVersion: report.facts.schemaVersion, description: "The report's facts as data." });
   await add("summary.json", redactJson(summary, redact), { role: "summary", important: true, schema: `archivist.observatory.${summary.kind ?? "run"}`, schemaVersion: summary.schemaVersion ?? null, description: "The run's summary.json, with paths and secrets redacted." });
-  if (evidence.eventsDocument) {
+  if (evidence.live) {
+    if (evidence.live.metrics) {
+      await add("metrics.json", evidence.live.metrics, { role: "live-metrics", schema: evidence.live.metrics.schema ?? null, schemaVersion: evidence.live.metrics.schemaVersion ?? null, description: "Every frame swap, event-loop probe and resource sample of the recording (times in ms since it started)." });
+    }
+    if (evidence.live.events) {
+      await add("events.json", redactJson(evidence.live.events, redact), { role: "live-events", schema: evidence.live.events.schema ?? null, schemaVersion: evidence.live.events.schemaVersion ?? null, description: "Operations, markers and notes recorded, in time order (notes redacted)." });
+    }
+  } else if (evidence.eventsDocument) {
     await add("ui-events.json", redactJson(evidence.eventsDocument, redact), { role: "events", schema: evidence.eventsDocument.schema ?? null, schemaVersion: evidence.eventsDocument.schemaVersion ?? null, description: "Every UI action the in-app driver recorded, with its timings." });
   }
   if (evidence.scenario) {
