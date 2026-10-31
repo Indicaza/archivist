@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QUrl>
 #include <QGuiApplication>
+#include <QQmlAbstractUrlInterceptor>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -48,6 +49,46 @@
 #include "Core/Support/app_profile.h"
 #include "Core/Support/login_environment.h"
 #include "Core/core_runtime.h"
+
+class SourceQmlInterceptor final : public QQmlAbstractUrlInterceptor
+{
+public:
+    explicit SourceQmlInterceptor(const QString &sourceRoot)
+        : m_sourceRoot(QDir(sourceRoot).absolutePath())
+    {
+    }
+
+    QUrl intercept(const QUrl &url, DataType type) override
+    {
+        if (type == QmldirFile || url.scheme() != QStringLiteral("qrc"))
+            return url;
+
+        const QString resource = url.path();
+        const QStringList prefixes = {
+            QStringLiteral("/qt/qml/Archivist/qml/"),
+            QStringLiteral("/qt/qml/Archivist/"),
+        };
+
+        for (const QString &prefix : prefixes) {
+            if (!resource.startsWith(prefix))
+                continue;
+
+            const QString relative = resource.mid(prefix.size());
+            if (relative.isEmpty() || relative.startsWith(QStringLiteral("../"))
+                || relative.contains(QStringLiteral("/../")))
+                return url;
+
+            const QString source = QDir(m_sourceRoot).absoluteFilePath(relative);
+            if (QFileInfo(source).isFile())
+                return QUrl::fromLocalFile(source);
+        }
+
+        return url;
+    }
+
+private:
+    const QString m_sourceRoot;
+};
 
 int main(int argc, char *argv[])
 {
@@ -306,7 +347,20 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Shell", &shellStore);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "HomeStore", &homeStore);
 
+    const QString qmlSourceDir = qEnvironmentVariable("ARCHIVIST_QML_SOURCE_DIR");
+    std::unique_ptr<SourceQmlInterceptor> sourceInterceptor;
+    if (!qmlSourceDir.isEmpty()) {
+        const QString rootFile = QDir(qmlSourceDir).absoluteFilePath(QStringLiteral("App.qml"));
+        if (!QFileInfo(rootFile).isFile()) {
+            qCritical().noquote() << "[Dev QML] App.qml does not exist at" << rootFile;
+            return 2;
+        }
+        sourceInterceptor = std::make_unique<SourceQmlInterceptor>(qmlSourceDir);
+    }
+
     QQmlApplicationEngine engine;
+    if (sourceInterceptor)
+        engine.addUrlInterceptor(sourceInterceptor.get());
 
     QVariantMap diagnostics;
     diagnostics.insert(
@@ -362,18 +416,9 @@ int main(int argc, char *argv[])
         // Compiling and creating the QML scene (the window and everything it
         // creates synchronously).
         LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("qml-load"));
-        const QString qmlSourceDir = qEnvironmentVariable("ARCHIVIST_QML_SOURCE_DIR");
-        if (!qmlSourceDir.isEmpty()) {
-            const QString source = QDir(qmlSourceDir).absoluteFilePath(QStringLiteral("App.qml"));
-            if (!QFileInfo::exists(source)) {
-                qCritical().noquote() << "[Dev QML] App.qml does not exist at" << source;
-                return 2;
-            }
-            qInfo().noquote() << "[Dev QML] Loading source files from" << qmlSourceDir;
-            engine.load(QUrl::fromLocalFile(source));
-        } else {
-            engine.loadFromModule("Archivist", "App");
-        }
+        if (sourceInterceptor)
+            qInfo().noquote() << "[Dev QML] Intercepting module resource loads from" << qmlSourceDir;
+        engine.loadFromModule("Archivist", "App");
     }
     LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("enter-event-loop"));
 
