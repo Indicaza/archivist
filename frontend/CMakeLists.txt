@@ -514,6 +514,20 @@ if(ARCHIVIST_BUILD_TESTS)
     add_test(NAME live-recorder-test COMMAND live-recorder-test)
     set_tests_properties(live-recorder-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 
+    # The UI Lab's operation collection and stall probe (offscreen).
+    qt_add_executable(ui-lab-test
+        tests/ui_lab_test.cpp
+        src/App/Services/ui_lab.cpp
+        src/App/Services/ui_lab.h
+        src/App/Services/live_recorder.cpp
+        src/App/Services/live_recorder.h
+    )
+    target_include_directories(ui-lab-test PRIVATE src)
+    target_link_libraries(ui-lab-test PRIVATE archivist-core Qt6::Gui Qt6::Quick Qt6::Test)
+    set_target_properties(ui-lab-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME ui-lab-test COMMAND ui-lab-test)
+    set_tests_properties(ui-lab-test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+
     qt_add_executable(core-database-test tests/core_database_test.cpp)
     target_link_libraries(core-database-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-database-test PROPERTIES MACOSX_BUNDLE FALSE)

@@ -283,7 +283,7 @@ export const OPERATIONS = {
   },
   "observatory.tests.run": {
     description: "Start UI scenarios in the background (one test at a time), each in a fresh disposable profile. Returns the job at once; poll observatory.tests.status.",
-    cli: "npm run observatory -- tests run [--scenario sidebar|workspace|all] [--repeat <n>] [--build] [--wait] --json",
+    cli: "npm run observatory -- tests run [--scenario sidebar|workspace|chat|startup|all] [--repeat <n>] [--build] [--wait] --json",
     input: {
       scenario: { type: "string", pattern: "^(all|[a-z][a-z0-9-]{0,31})$", default: "all", description: "A scenario id, or all" },
       repeat: { type: "integer", min: 1, max: MAX_REPEAT, default: 1, description: "Rounds of every chosen scenario" },

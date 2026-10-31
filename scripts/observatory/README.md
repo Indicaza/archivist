@@ -127,13 +127,51 @@ capture still leaves the phases it finished.
   classification comes from `.ninja_log` when the build succeeded, and from
   the dry run when it failed.
 
+### Build evidence: every job, and why it rebuilt
+
+Each build also writes `build-evidence.json` (every job, up to 20,000) and
+a compact `evidence` block in `summary.json`. All of it comes from Ninja's
+own records and tools; nothing is guessed:
+
+| Field | Source | What it says |
+| ----- | ------ | ------------ |
+| `jobs` in `build-evidence.json` | `.ninja_log` (this build's lines) | Each job's outputs, start and end (Ninja's clock, ms from Ninja's start), duration, `category` (compile, link, archive, autogen, qml, resources, cmake, other, from the Ninja rule) and `source` file (`ninja -t compdb`) |
+| `evidence.timing` | the jobs | `wallMs` (first start to last end), `summedJobMs` (parallel work added up: **not** wall time), peak and average parallel jobs, the longest job |
+| `evidence.criticalPath` | `ninja -t query` | The longest chain of jobs that ran where each depends on the previous one. **An approximation**: it ignores time a job waited for a free slot and doesn't follow edges through jobs that didn't run |
+| `evidence.rebuild` | `ninja -d explain -n` (the plan phase, before the build) | Why Ninja rebuilt: `causes` are changed inputs Ninja named (header, source, generated, cmake), each with how many outputs and compiles it triggered; an input that was itself rebuilt is a link in a chain, not a cause. `propagated` counts outputs that were dirty only because an input of theirs was rebuilt. `commandLineChanged` and `missingOutputs` are listed apart |
+| `cause.includedBy` | `ninja -t deps` | How many objects include a changed header, by the compiler's own dependency records |
+| `evidence.headers.mostIncluded` | `ninja -t deps` | The repository headers included by the most objects (fan-out) |
+| `evidence.compilerCache` | ccache `--print-stats` / sccache `--show-stats` before and after | Hits, misses and uncacheable compiles **observed during this build**, only when the build is set up with a launcher; `configured: false` otherwise |
+| `evidence.notes` | | What couldn't be established and why |
+
+`build-evidence.json` has `schema: "archivist.observatory.build-evidence"`,
+`schemaVersion: 1`.
+
+**Compiler profiling (opt-in):** `npm run observatory -- build
+--time-trace` builds in its own directory (`build/frontend-time-trace`,
+configured like `scripts/qt-configure` plus Clang's `-ftime-trace`), so the
+normal build's flags never change. The first run is a full build there. It
+writes `time-trace.json` (`archivist.observatory.time-trace` v1): frontend,
+backend and template-instantiation totals, and the headers and templates
+that cost the most across the compiles that ran. Clang only records events
+over 500 µs, and header and template times are inclusive (a header's time
+contains what it includes), so they rank, they don't add up. Each compile
+also gets slower and writes a JSON file next to its object. It needs Clang
+(Apple's Clang on macOS); other compilers are refused. Profiled builds are
+never compared with normal ones.
+
 ### What it cannot tell you yet
 
-- Whether a compiler cache actually hit (only whether one is configured).
+- Compiler-cache numbers when no launcher is configured (Archivist doesn't
+  set one by default).
 - Clean-build times, unless the build directory happened to be empty. A
   deliberate clean-build experiment is future work.
-- `sumOfStepDurationsMs` is not CPU time: steps run in parallel and include
-  waiting. Wall-clock build time is `native-build.durationMs`.
+- `sumOfStepDurationsMs` and `summedJobMs` are not CPU time: jobs run in
+  parallel and include waiting. Wall-clock build time is
+  `native-build.durationMs`.
+- The critical path is an approximation (above), and why a CMake
+  regeneration or AUTOGEN step ran is only as specific as Ninja's explain
+  output (often "output older than most recent input").
 - Durations from one run are noisy; compare several runs on the same machine.
 - Anything about the running app other than imported wells timings.
 
@@ -222,6 +260,50 @@ and the UI state it must `expect`. No randomness (`seed` is null).
   and restore them; verify all four are open. Layouts, tabs and opening are
   store calls; minimize/restore go through the workspace's own functions.
 
+- **chat** (v1): seeds two deterministic conversations into the test
+  profile's database (`UiLab.seedChats`, seed 7: "Lab Big" with 600
+  messages, "Lab Small" with 20; long paragraphs, Markdown lists and code
+  blocks from `UiLab::fixtureMessage`), opens a chat view, then switches
+  between them. `chatShown` waits until the conversation is selected and its
+  first page (160 messages) is in the store; `settledMs` then covers the
+  rendering that follows. Store calls, as the side panel makes them.
+- **startup** (v1): a fresh profile started until the workspace is ready
+  (`readyMs`), with the stages main() reports on the operations timeline.
+  The operating system's file cache is not flushed, so this is a fresh
+  profile, not a first-launch-after-boot cold start.
+
+### Operations inside each action
+
+The app reports its own work through `LiveEvents` (the same spans and
+markers the live recorder sees). In a UI Lab instance, `UiLab` collects
+them from the start, on the same clock the driver times actions with
+(`LiveEvents::nowNs`), and tags each with the action that was running when
+it began. It also runs an event-loop probe (every 50 ms; 50 ms or more late
+is a stall). The live recorder refuses to start in a UI Lab instance, so
+the two never compete for the stream.
+
+The runner turns that into `ui-operations.json`
+(`archivist.observatory.ui-operations` v1) and `summary.operations`:
+
+- **per action:** the spans nested by time (a span inside another is shown
+  as its child; spans from other threads can nest this way without one
+  calling the other, so the tree means "during", not "called by"), each
+  with `selfMs` (its time minus the union of its children), the stalls
+  during it, markers, and `unattributedMs` (the action minus the union of
+  its top-level spans; overlapping spans are never added up), plus spans
+  that began in it and ended after it (`outlived`);
+- **per step:** each operation's median and max over measured iterations;
+- **startup:** `qt-init`, `profile`, `core-runtime` (database and
+  migrations), `ai-runtime`, `ide-host`, `qml-load`, entering the event
+  loop, the first frame after the lab attached, and `readyMs`, all in ms
+  since main() was entered. Time before main() isn't measured.
+
+Instrumented today: startup stages; chat (`open-conversation` from the
+selection to the first page handed to QML, with `load-message-page` on the
+database thread, `map-messages` and `publish-messages`); the workspace,
+wells, sidebar and shell events the recorder already had. Explorer,
+Monaco/WebEngine and streaming replies are not instrumented yet.
+
 ### What it can't tell you yet
 
 - `settledMs` is when drawing stopped, not when pixels reached the screen
@@ -230,7 +312,12 @@ and the UI state it must `expect`. No randomness (`seed` is null).
 - Drags are sent as a press, 8 moves and a release in one go, not spread
   over frames like a hand.
 - Tab clicks, the layout picker and Magnet drag-and-drop are not driven by
-  input yet; view contents are empty-state Previews, not real documents.
+  input yet; workspace view contents are empty-state Previews, not real
+  documents. There are no Large Library or IDE (Monaco) scenarios yet, and
+  chat scrolling and streaming replies aren't exercised.
+- Operations are only what the app reports through `LiveEvents`: time in
+  QML layout or painting shows up as unattributed or as frames, not as named
+  work.
 - Wells timing lines have no timestamps, so they are attached to the run
   (`runtimeTiming`, same process), not to individual actions.
 - The runner's own logic is tested with a stand-in app; the in-app driver is
@@ -821,7 +908,12 @@ space and slower unfiltered scans.
   overhead and the history scaling above.
 - **Not verified here:** anything on macOS (Qt 6.8, Metal, `phys_footprint`,
   App Nap throttling), the full Archivist UI, `npm run test:native` as a
-  whole, and the UI Lab against a real `build/frontend-debug`.
+  whole, and the UI Lab against a real `build/frontend-debug`. In
+  particular the new chat and startup scenarios, the startup and chat spans
+  in a real app, and `--time-trace` on the Archivist tree have only been
+  compiled and unit-tested here (the UiLab collector and chat seeding run
+  for real in `ui-lab-test`; build evidence runs for real against a small
+  CMake project in `test/build-evidence.test.mjs`).
 
 ## Code
 
@@ -832,6 +924,9 @@ space and slower unfiltered scans.
 | `build-phases.mjs` | The Archivist build phases and build classification |
 | `metadata.mjs` | Git, machine and toolchain facts |
 | `ninja.mjs` | Ninja progress output and `.ninja_log` |
+| `build-evidence.mjs` | Every job, rebuild causes, header fan-out, wall vs summed time, dependency chain, compiler-cache counters |
+| `time-trace.mjs` | Summing Clang `-ftime-trace` files (opt-in profiling build) |
+| `ui-operations.mjs` | UI Lab actions opened up into the operations and stalls inside them |
 | `runtime-log.mjs` | Parsing `archivist.wells.timing` lines |
 | `storage.mjs` | Record location, run ids, atomic writes |
 | `report.mjs` | The build terminal summary |
@@ -871,6 +966,7 @@ space and slower unfiltered scans.
 | `frontend/qml/App/Workbench/Observatory/` | The Observatory panel |
 | `frontend/src/Core/Domains/Observatory/live_*.{h,cpp}`, `process_metrics.*` | The recorder's buffers, statistics, files and process metrics |
 | `frontend/src/App/Services/live_recorder.*` | The recorder service in the app (windows, probes, writer thread) |
+| `frontend/src/App/Services/ui_lab.*` | The UI Lab's hook in the app: clock, frames, input, operations and stalls, chat fixtures |
 
 ## Testing the collector
 
