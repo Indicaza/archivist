@@ -221,7 +221,21 @@ export function evaluateFindings(children) {
     for (const [key, entry] of stepKeys) {
       const typical = median(entry.values.map((value) => value.ms));
       if (typical == null || typical < 100) continue;
-      const seen = entry.values.filter((value) => value.ms >= 100).length;
+      const valid = entry.values.filter((value) => typeof value.ms === "number" && Number.isFinite(value.ms));
+      const minimum = passed.length === 1 ? 1 : Math.ceil(passed.length * 2 / 3);
+      if (valid.length < minimum) {
+        add("ui.sparse-settled", `${scenario}:${key}`, {
+          subsystem: "instrumentation", severity: "info",
+          summary: `${name}, step ${entry.step} (${entry.label}): only ${valid.length} of ${passed.length} runs measured settled-frame latency. The ${msText(typical)} observed value is not sufficient to rank this step as slow.`,
+          impact: null,
+          evidence: entry.values.map((value) => ({ runId: value.runId, step: entry.step, text: `settled ${msText(value.ms)}` })),
+          confidence: confidence(valid.length, passed.length),
+          nextStep: "Inspect missing or timed-out frame settling, active animations and UI-thread stalls before comparing this step.",
+          scenario,
+        });
+        continue;
+      }
+      const seen = valid.filter((value) => value.ms >= 100).length;
       const cause = slowestLeaf(passed, key);
       add("ui.slow-step", `${scenario}:${key}`, {
         subsystem: "ui", severity: typical >= 250 ? "high" : "medium",
@@ -255,7 +269,7 @@ export function evaluateFindings(children) {
         }
         // Only v2 operations measure unattributed time and its window the
         // same way; older runs are left out rather than compared wrongly.
-        if (step.unattributedMedianMs != null && step.windowMedianMs != null && !observation.has(stepKey)) {
+        if (step.unattributedMedianMs != null && step.windowMedianMs != null && !observation.has(stepKey) && !step.expectedTransition) {
           if (!unattributed.has(stepKey)) unattributed.set(stepKey, { step: step.step, label: step.label, values: [] });
           unattributed.get(stepKey).values.push({ runId: run.runId, ms: step.unattributedMedianMs, window: step.windowMedianMs, basis: step.windowBasis });
         }
