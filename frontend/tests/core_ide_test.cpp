@@ -413,6 +413,10 @@ private slots:
         QCOMPARE(reply.status, 403);
         QCOMPARE(code(json), QStringLiteral("agent-access-off"));
         QVERIFY(!QFile::exists(IdeServer::agentAccessFile()));
+        // A key an agent made up, or wrote into its own agent-access.json, opens nothing.
+        json = post("start", {"X-Observatory-Agent-Token: " + QByteArray(32, 'a')});
+        QCOMPARE(reply.status, 403);
+        QCOMPARE(code(json), QStringLiteral("agent-access-off"));
 
         post("agent-access", {panelOrigin, panelKey}, R"({"enabled":"yes"})");
         QCOMPARE(reply.status, 400);

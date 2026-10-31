@@ -17,6 +17,7 @@ import { crc32 } from "../control/zip.mjs";
 import { createDashboardServer } from "../dashboard/server.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
 import { makeRedactor } from "../dashboard/public/redact.mjs";
+import { callLive } from "../control/live.mjs";
 import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR } from "../paths.mjs";
 import { fixtureBuild, fixtureUiRun, writeFixtureRuns } from "./fixtures/dashboard-runs.mjs";
 import { tempDir } from "./helpers.mjs";
@@ -497,6 +498,7 @@ describe("evidence export", () => {
     assert.equal(manifest.schema, "archivist.observatory.evidence");
     assert.deepEqual(manifest.readFirst, ["report.md", "diagnostic.json"]);
     assert.equal(manifest.redaction.rawLogsIncluded, false);
+    assert.match(manifest.redaction.limits, /not everything/, "the manifest doesn't claim redaction is complete");
     const names = manifest.files.map((file) => file.path);
     for (const name of ["report.md", "diagnostic.json", "summary.json", "ui-events.json", "scenario.json", "log-excerpt.txt"]) assert.ok(names.includes(name), name);
     assert.ok(!names.some((name) => name.startsWith("raw/")));
@@ -622,5 +624,41 @@ describe("HTTP controls", () => {
     const origins = new Set(["http://127.0.0.1:1"]);
     assert.equal(checkControlRequest({ method: "POST", headers: {} }, { token: null, origins }).code, "controls-disabled");
     assert.equal(checkControlRequest({ method: "POST", headers: { origin: "http://127.0.0.1:1", "content-type": "application/json", "x-observatory-token": "" } }, { token: "abc", origins }).code, "unauthorized");
+  });
+});
+
+// Security regressions: what an agent or a web page on this computer must
+// not be able to do, whatever the person's settings.
+describe("security regressions", () => {
+  const writeAccess = async (root, access) => {
+    await mkdir(path.join(root, "live"), { recursive: true });
+    await writeFile(path.join(root, "live", "agent-access.json"), JSON.stringify(access));
+  };
+  const valid = { schema: "archivist.observatory.live-access", endpoint: "http://127.0.0.1:3334/observatory/api/live/", token: "a".repeat(32), pid: process.pid };
+
+  test("an agent can't turn agent access on: there is no such operation outside the app", async () => {
+    const root = await tempDir();
+    const response = await dispatch({ root, repoRoot: REPO_ROOT }, "observatory.live.agent-access", { enabled: true });
+    assert.equal(response.error.code, "unknown-operation");
+    await assert.rejects(callLive(root, "agent-access", { enabled: true }, { fetchImpl: () => assert.fail("nothing is sent") }), { code: "unknown-operation" });
+  });
+
+  test("the key is only sent to 127.0.0.1, and not for a dead app or a forged file", async () => {
+    const root = await tempDir();
+    const never = () => assert.fail("nothing is sent");
+    for (const endpoint of ["http://example.com/observatory/api/live/", "http://localhost:3334/observatory/api/live/", "https://127.0.0.1:3334/observatory/api/live/", "http://127.0.0.1:3334/elsewhere/"]) {
+      await writeAccess(root, { ...valid, endpoint });
+      await assert.rejects(callLive(root, "status", {}, { fetchImpl: never }), { code: "unreadable-record" }, endpoint);
+    }
+    await writeAccess(root, { ...valid, token: "short" });
+    await assert.rejects(callLive(root, "status", {}, { fetchImpl: never }), { code: "unreadable-record" });
+    await writeAccess(root, { ...valid, pid: 999999 });
+    await assert.rejects(callLive(root, "status", {}, { fetchImpl: never, alive: () => false }), { code: "app-not-running" });
+  });
+
+  test("raw logs need an explicit opt-in; the default is redacted", async () => {
+    const op = OPERATIONS["observatory.runs.artifact"];
+    assert.equal(op.input.raw.default, false);
+    assert.equal(OPERATIONS["observatory.reports.export"].input.includeRawLogs.default, false);
   });
 });

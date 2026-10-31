@@ -433,7 +433,7 @@ export const OPERATIONS = {
     },
   },
   "observatory.reports.generate": {
-    description: "The Copy for AI diagnostic report for a run: compact Markdown plus the same facts as data. Paths and secrets are redacted; raw logs are never included.",
+    description: "The Copy for AI diagnostic report for a run: compact Markdown plus the same facts as data. Paths and common secret formats are redacted (pattern matching, not a guarantee); raw logs are never included.",
     cli: "npm run observatory -- report <run-id> [--json]",
     input: {
       runId: { type: "string", pattern: RUN_ID_PATTERN, required: true },
