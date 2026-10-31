@@ -285,6 +285,7 @@ export function analyzeOperations(events) {
       op: action.op,
       label: action.label,
       kind: OBSERVATION_OPS.has(action.op) ? "observation" : "interaction",
+      expectedTransition: action.expectedTransition === true,
       startMs: round(action.startMs),
       durationMs: round(timings.elapsedMs),
       settledMs: action.settledMs ?? null,
@@ -307,9 +308,10 @@ export function analyzeOperations(events) {
   const perStep = new Map();
   for (const action of actions.filter((a) => a.phase === "measured")) {
     const key = `${action.step}\t${action.label ?? action.op}`;
-    if (!perStep.has(key)) perStep.set(key, { step: action.step, label: action.label ?? action.op, kind: action.kind, runs: 0, ops: new Map(), parents: new Map(), unattributed: [], windows: [], bases: new Set(), stalls: 0 });
+    if (!perStep.has(key)) perStep.set(key, { step: action.step, label: action.label ?? action.op, kind: action.kind, expectedTransition: action.expectedTransition, runs: 0, ops: new Map(), parents: new Map(), unattributed: [], windows: [], bases: new Set(), stalls: 0 });
     const entry = perStep.get(key);
     entry.runs += 1;
+    entry.expectedTransition = entry.expectedTransition || action.expectedTransition;
     entry.unattributed.push(action.unattributedMs);
     entry.windows.push(action.window.ms);
     entry.bases.add(action.window.basis);
@@ -326,6 +328,7 @@ export function analyzeOperations(events) {
     step: entry.step,
     label: entry.label,
     kind: entry.kind,
+    expectedTransition: entry.expectedTransition,
     runs: entry.runs,
     stalls: entry.stalls,
     // Both medians come from the same actions and the same window.
