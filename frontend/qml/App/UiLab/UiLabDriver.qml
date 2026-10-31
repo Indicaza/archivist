@@ -428,7 +428,7 @@ Item {
         var quietSince = Math.max(last, current.stateAt)
         if (now - quietSince >= settleQuietMs) {
             completeAction(last > current.t0 ? last : null, false)
-        } else if (now - current.t0 > actionTimeoutMs) {
+        } else if (now - current.stateAt > settleTimeoutMs) {
             // Rendering never went quiet (something keeps animating).
             completeAction(null, true)
         }
