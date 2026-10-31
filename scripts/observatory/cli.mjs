@@ -23,7 +23,7 @@ import { phaseLine, formatBuildSummary } from "./report.mjs";
 import { parseRuntimeLog, summarizeEvents } from "./runtime-log.mjs";
 import {
   binaryIdentity, classifyRun, createProfile, exitCodeForStatus, findAppBinary, labEnvironment, overallTimeoutMs,
-  readEvents, removeProfile, runApp,
+  readEvents, removeProfile, runApp, scenarioForRun,
 } from "./ui-lab.mjs";
 import { spawn } from "node:child_process";
 import { createDashboardServer } from "./dashboard/server.mjs";
