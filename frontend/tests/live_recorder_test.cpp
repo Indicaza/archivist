@@ -160,7 +160,14 @@ private slots:
         for (qsizetype i = 1; i < swaps.size(); ++i) {
             QVERIFY(swaps.at(i).toDouble() >= swaps.at(i - 1).toDouble());
         }
-        QVERIFY(metrics.value(QStringLiteral("samples")).toArray().size() >= 5);
+        const QJsonArray samples = metrics.value(QStringLiteral("samples")).toArray();
+        QVERIFY(samples.size() >= 5);
+        // The first sample has no full interval behind it, so no CPU figure.
+        QVERIFY(samples.at(0).toObject().value(QStringLiteral("cpuPercent")).isNull());
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+        QVERIFY(samples.at(1).toObject().value(QStringLiteral("cpuPercent")).isDouble());
+#endif
+        QCOMPARE(live.value(QStringLiteral("measurementVersion")).toInt(), Live::kMeasurementVersion);
         QCOMPARE(metrics.value(QStringLiteral("windows")).toArray().at(0).toObject().value(QStringLiteral("width")).toInt(), 320);
     }
 

@@ -22,7 +22,11 @@ namespace Live
 {
 // Bump when what a measurement means changes; recordings with different
 // versions are not compared.
-inline constexpr int kMeasurementVersion = 1;
+//  1: first recorder.
+//  2: CPU % is left unknown for a sample taken less than half a sample
+//     interval after the previous reading (the first one at start), which
+//     inflated the maximum and the mean of short recordings.
+inline constexpr int kMeasurementVersion = 2;
 
 struct WindowInfo
 {

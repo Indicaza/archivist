@@ -424,7 +424,11 @@ private:
         QPointer<IdeHttpConnection> self(this);
         const bool head = m_request.method == "HEAD";
 
-        m_server->m_pool.start([self, relativePath, head]() {
+        if (!reserveObservatorySlot(QString())) {
+            return;
+        }
+
+        m_server->m_observatoryPool.start([self, relativePath, head, server = m_server]() {
             Observatory::Response response;
 
             try {
@@ -442,7 +446,26 @@ private:
                 },
                 Qt::QueuedConnection
             );
+            server->m_observatoryRequests.fetch_sub(1);
         });
+    }
+
+    // Counts one more Observatory request against the cap, or answers 503.
+    // `operation` names a control operation (its error envelope), else empty.
+    bool reserveObservatorySlot(const QString &operation)
+    {
+        if (m_server->m_observatoryRequests.fetch_add(1) >= IdeServer::kMaxObservatoryRequests) {
+            m_server->m_observatoryRequests.fetch_sub(1);
+            const QString message = QStringLiteral("The Observatory is answering too many requests at once. Try again in a moment.");
+            if (operation.isEmpty()) {
+                respondJson(503, errorBody(message));
+            } else {
+                const Observatory::Response response = Observatory::controlError(503, operation, QStringLiteral("unavailable"), message);
+                respond(response.status, response.contentType, response.body, response.body.size(), response.headers);
+            }
+            return false;
+        }
+        return true;
     }
 
     // Starts, checks or cancels Observatory tests, or writes reports, by
@@ -484,7 +507,17 @@ private:
         const QByteArray input = m_request.body;
         const QString root = Observatory::defaultRoot();
 
-        m_server->m_pool.start([self, operation, input, root]() {
+        if (Observatory::reachesTheRunningApp(operation)) {
+            refuse(400, QStringLiteral("invalid-input"),
+                QStringLiteral("Inside Archivist, live recording status, start, stop, mark and wait go to /observatory/api/live/<operation>."));
+            return;
+        }
+
+        if (!reserveObservatorySlot(operation)) {
+            return;
+        }
+
+        m_server->m_observatoryPool.start([self, operation, input, root, server = m_server]() {
             const Observatory::Response response = Observatory::runControlOperation(root, operation, input);
 
             QMetaObject::invokeMethod(
@@ -496,6 +529,7 @@ private:
                 },
                 Qt::QueuedConnection
             );
+            server->m_observatoryRequests.fetch_sub(1);
         });
     }
 
@@ -895,6 +929,8 @@ IdeServer::IdeServer(QObject *parent)
 {
     m_pool.setMaxThreadCount(2);
     m_pool.setExpiryTimeout(30000);
+    m_observatoryPool.setMaxThreadCount(2);
+    m_observatoryPool.setExpiryTimeout(30000);
 }
 
 IdeServer::~IdeServer()
@@ -1058,6 +1094,7 @@ void IdeServer::stop()
     }
 
     m_pool.waitForDone();
+    m_observatoryPool.waitForDone();
 
     const QObjectList owned = children();
 

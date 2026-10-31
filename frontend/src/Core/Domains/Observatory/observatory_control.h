@@ -30,6 +30,11 @@ bool sameControlToken(const QByteArray &given, const QByteArray &expected);
 // "observatory.tests.run" and the like: lowercase words joined by dots.
 bool isControlOperationName(const QString &operation);
 
+// observatory.live.status/start/stop/mark/wait: operations that reach the
+// running app's recorder. The control bridge refuses them; the panel calls
+// /observatory/api/live/<operation> instead.
+bool reachesTheRunningApp(const QString &operation);
+
 // scripts/observatory/cli.mjs in a development build (repository paths),
 // else empty: a bundled release has no test runner to drive.
 QString controlScriptPath();

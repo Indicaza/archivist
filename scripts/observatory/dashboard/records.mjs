@@ -23,9 +23,14 @@ export async function readRunSummary(root, runId) {
   }
 }
 
-// Every run's summary as stored, newest first: { runId, summary, error }.
-// This is what the page receives; it normalizes them itself.
-export async function listRawRuns(root) {
+// How many runs the dashboard page receives: the newest ones, plus any a
+// baseline names. Keep in step with kMaxListedRuns in observatory_records.cpp.
+export const MAX_LISTED_RUNS = 2000;
+// Summaries read at once, so a long history doesn't open thousands of files together.
+const READ_BATCH = 64;
+
+// Run ids in the runs folder, newest first (ids start with their time). No file is read.
+export async function listRunIds(root) {
   let names;
   try {
     names = (await readdir(runsDir(root), { withFileTypes: true }))
@@ -37,11 +42,41 @@ export async function listRawRuns(root) {
     }
     throw error;
   }
-  const runs = await Promise.all(names.map(async (runId) => {
-    const { summary, error } = await readRunSummary(root, runId);
-    return { runId, summary, error };
-  }));
-  return runs.sort((a, b) => b.runId.localeCompare(a.runId));
+  return names.sort((a, b) => b.localeCompare(a));
+}
+
+// The summaries of these runs as stored, in the order given: { runId, summary, error }.
+export async function readRawRuns(root, runIds) {
+  const runs = [];
+  for (let index = 0; index < runIds.length; index += READ_BATCH) {
+    runs.push(...await Promise.all(runIds.slice(index, index + READ_BATCH).map(async (runId) => {
+      const loaded = await readRunSummary(root, runId);
+      return { runId, summary: loaded?.summary ?? null, error: loaded ? loaded.error : "not a run id" };
+    })));
+  }
+  return runs;
+}
+
+// Every run's summary as stored, newest first: { runId, summary, error }.
+export async function listRawRuns(root) {
+  return readRawRuns(root, await listRunIds(root));
+}
+
+// What the page receives: the newest MAX_LISTED_RUNS runs plus `keep` (the
+// runs baselines name), with how many were left out so the page can say so.
+export async function listRawRunsForPage(root, { keep = [], limit = MAX_LISTED_RUNS } = {}) {
+  const ids = await listRunIds(root);
+  const chosen = new Set(ids.slice(0, limit));
+  const present = new Set(ids);
+  for (const id of keep) if (present.has(id)) chosen.add(id);
+  const listed = ids.filter((id) => chosen.has(id));
+  return { runs: await readRawRuns(root, listed), total: ids.length, omitted: ids.length - listed.length, limit };
+}
+
+// The run ids baselines.json names (empty when it is missing or unreadable).
+export async function baselineRunIds(root) {
+  const { value } = await readJsonFile(path.join(root, "baselines.json"));
+  return Object.values(value?.baselines ?? {}).flatMap((entry) => (Array.isArray(entry?.runIds) ? entry.runIds.filter((id) => typeof id === "string") : []));
 }
 
 // The repository's budgets; <root>/budgets.json overrides them on one machine.
@@ -72,9 +107,16 @@ export async function readBaselinesAndBudgets(root) {
   };
 }
 
+const normalized = ({ runId, summary, error }) => (summary ? normalizeRun(runId, summary) : unreadableRun(runId, error));
+
 // Every run, normalized, newest first. Unreadable runs are listed, not dropped.
 export async function loadRuns(root) {
-  return (await listRawRuns(root)).map(({ runId, summary, error }) => (summary ? normalizeRun(runId, summary) : unreadableRun(runId, error)));
+  return (await listRawRuns(root)).map(normalized);
+}
+
+// Only these runs, normalized (a missing one comes back unreadable).
+export async function loadRunsById(root, runIds) {
+  return (await readRawRuns(root, [...new Set(runIds)])).map(normalized);
 }
 
 // Artifacts a run lists in its summary, by name; only these are served.

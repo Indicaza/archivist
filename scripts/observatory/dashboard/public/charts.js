@@ -102,3 +102,59 @@ export function stackedBars({ bars, format, width = 640, height = 240 }) {
   });
   return svg;
 }
+
+// Two runs side by side, one row per measure. Each row is scaled on its own
+// (to the larger of the two), so measures with different units sit together.
+// Built from divs, not SVG, so it reflows at any panel size.
+// rows: [{ label, a, b, format, verdict: "better"|"worse"|"same"|null, change }]
+export function pairedBars({ rows, names = ["A", "B"] }) {
+  const bar = (value, max, which) => {
+    const fill = document.createElement("span");
+    fill.className = `pb-fill ${which}`;
+    fill.style.width = value == null || !(max > 0) ? "0" : `${Math.max(1.5, (Math.abs(value) / max) * 100)}%`;
+    const track = document.createElement("span");
+    track.className = "pb-track";
+    track.append(fill);
+    return track;
+  };
+  const root = document.createElement("div");
+  root.className = "paired";
+  const key = document.createElement("div");
+  key.className = "pb-key";
+  names.forEach((name, index) => {
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.className = index === 0 ? "a" : "b";
+    item.append(swatch, document.createTextNode(name));
+    key.append(item);
+  });
+  root.append(key);
+  for (const row of rows) {
+    const max = Math.max(Math.abs(row.a ?? 0), Math.abs(row.b ?? 0));
+    const line = document.createElement("div");
+    line.className = "pb-row";
+    const head = document.createElement("div");
+    head.className = "pb-head";
+    const label = document.createElement("span");
+    label.className = "pb-label";
+    label.textContent = row.label;
+    const change = document.createElement("span");
+    change.className = `pb-change ${row.verdict ?? ""}`;
+    change.textContent = row.change ?? "";
+    head.append(label, change);
+    const values = document.createElement("div");
+    values.className = "pb-bars";
+    for (const [value, which] of [[row.a, "a"], [row.b, "b"]]) {
+      const cell = document.createElement("div");
+      cell.className = "pb-bar";
+      const text = document.createElement("span");
+      text.className = "pb-value";
+      text.textContent = value == null ? "—" : row.format(value);
+      cell.append(bar(value, max, which), text);
+      values.append(cell);
+    }
+    line.append(head, values);
+    root.append(line);
+  }
+  return root;
+}

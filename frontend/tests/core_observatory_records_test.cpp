@@ -76,6 +76,37 @@ private slots:
         QVERIFY(build.value(QStringLiteral("error")).isNull());
     }
 
+    // A long history is cut to the newest runs plus those a baseline names,
+    // and the body says how many were left out (as the Node server does).
+    void aLongHistoryListsTheNewestAndTheBaselineRuns()
+    {
+        QTemporaryDir root;
+        const auto make = [&](const QString &runId) {
+            write(QDir(root.path()).filePath(QStringLiteral("runs/%1/summary.json").arg(runId)), R"({"schemaVersion":1,"kind":"build"})");
+        };
+        const QStringList ids{
+            QStringLiteral("20261001T000000-000Z-build-000001"), QStringLiteral("20261002T000000-000Z-build-000002"),
+            QStringLiteral("20261003T000000-000Z-build-000003"), QStringLiteral("20261004T000000-000Z-build-000004"),
+            QStringLiteral("20261005T000000-000Z-build-000005"),
+        };
+        for (const QString &id : ids) {
+            make(id);
+        }
+        write(QDir(root.path()).filePath(QStringLiteral("baselines.json")),
+              R"({"schema":"archivist.observatory.baselines","baselines":{"build.incremental":{"runIds":["20261001T000000-000Z-build-000001","20261099T000000-000Z-build-00dead"]}}})");
+
+        const QJsonObject body = json(Observatory::runsListing(root.path(), 2));
+        QStringList listed;
+        for (const QJsonValue &entry : body.value(QStringLiteral("runs")).toArray()) {
+            listed.append(entry.toObject().value(QStringLiteral("runId")).toString());
+        }
+        QCOMPARE(listed, (QStringList{ids[4], ids[3], ids[0]}));
+        QCOMPARE(body.value(QStringLiteral("total")).toInt(), 5);
+        QCOMPARE(body.value(QStringLiteral("omitted")).toInt(), 2);
+        QCOMPARE(body.value(QStringLiteral("limit")).toInt(), 2);
+        QCOMPARE(json(Observatory::runsListing(root.path())).value(QStringLiteral("omitted")).toInt(), 0);
+    }
+
     void aMissingFolderListsNothing()
     {
         const QJsonObject body = json(Observatory::runsListing(QDir(m_root.path()).filePath(QStringLiteral("nowhere"))));
