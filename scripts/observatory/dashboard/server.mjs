@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkControlRequest, readBody } from "../control/gate.mjs";
 import { ControlError, dispatch, errorEnvelope, HTTP_STATUS } from "../control/operations.mjs";
-import { artifactFile, artifactPath, listRawRuns, MAX_ARTIFACT_BYTES, readBaselinesAndBudgets, readRunSummary, RUN_ID } from "./records.mjs";
+import { artifactFile, artifactPath, baselineRunIds, listRawRunsForPage, MAX_ARTIFACT_BYTES, readBaselinesAndBudgets, readRunSummary, RUN_ID } from "./records.mjs";
 
 export const PAGE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 // Every file the page is made of. Nothing outside this list is served.
@@ -129,7 +129,7 @@ export function createDashboardServer({ root, port, control = null }) {
         return send(response, 200, await readFile(path.join(PAGE_DIR, file)), PAGE_FILES[file]);
       }
       if (url.pathname === "/api/runs") {
-        return send(response, 200, { root, runs: await listRawRuns(root) });
+        return send(response, 200, { root, ...(await listRawRunsForPage(root, { keep: await baselineRunIds(root) })) });
       }
       if (url.pathname === "/api/baselines") {
         return send(response, 200, await readBaselinesAndBudgets(root));

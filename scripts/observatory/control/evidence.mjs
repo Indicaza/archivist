@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { artifactFile, MAX_ARTIFACT_BYTES, readRunSummary } from "../dashboard/records.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
-import { logExcerpt, makeRedactor, REDACTION_RULES, redactJson } from "../dashboard/public/redact.mjs";
+import { logExcerpt, makeRedactor, REDACTION_LIMITS, REDACTION_RULES, redactJson } from "../dashboard/public/redact.mjs";
 import { REPO_ROOT } from "../paths.mjs";
 import { makeRunId } from "../storage.mjs";
 import { zipBuffer } from "./zip.mjs";
@@ -136,7 +136,7 @@ export async function exportEvidence(root, runId, { category = null, includeRawL
     kind: summary.kind ?? null,
     status: summary.status ?? null,
     readFirst: ["report.md", "diagnostic.json"],
-    redaction: { applied: true, rules: REDACTION_RULES, rawLogsIncluded: includeRawLogs },
+    redaction: { applied: true, rules: REDACTION_RULES, limits: REDACTION_LIMITS, rawLogsIncluded: includeRawLogs },
     files,
   };
   await add("manifest.json", manifest, { role: "manifest" });

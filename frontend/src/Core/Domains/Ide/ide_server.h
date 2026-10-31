@@ -8,6 +8,7 @@
 #include <QThreadPool>
 #include <QUrl>
 
+#include <atomic>
 #include <functional>
 
 class LanguageSupportService;
@@ -65,6 +66,15 @@ public:
     Q_INVOKABLE bool setObservatoryAgentAccess(bool enabled);
     [[nodiscard]] static QString agentAccessFile();
 
+    // Observatory page reads and control operations run on their own two
+    // threads, so a slow export or a queue of polls never delays the editor's
+    // Library requests (which use the other pool). At most
+    // kMaxObservatoryRequests wait or run at once; more are refused with 503.
+    static constexpr int kMaxObservatoryRequests = 8;
+    // For tests: the pool Observatory work runs on.
+    [[nodiscard]] QThreadPool &observatoryPoolForTesting() { return m_observatoryPool; }
+    [[nodiscard]] int observatoryRequestsInFlight() const { return m_observatoryRequests.load(); }
+
     [[nodiscard]] static QString defaultDistributionPath();
     [[nodiscard]] static quint16 defaultPort();
 
@@ -84,5 +94,8 @@ private:
     LiveHandler m_liveHandler;
     TerminalSessionManager *m_terminals = nullptr;
     LanguageSupportService *m_languageSupport = nullptr;
+    // Declared before the pools: their destructors wait for tasks that use it.
+    std::atomic_int m_observatoryRequests{0};
     QThreadPool m_pool;
+    QThreadPool m_observatoryPool;
 };

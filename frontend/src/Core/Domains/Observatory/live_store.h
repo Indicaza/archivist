@@ -47,8 +47,13 @@ struct Ending
 bool finish(const QString &directory, QJsonObject running, const Snapshot &snapshot, qint64 endNs,
             const Ending &ending, QString *error = nullptr, int unreadableStreamLines = 0);
 
+// How long past its requested length a recording may still be "running"
+// (saving it takes well under a second; this leaves room for a stalled app).
+inline constexpr qint64 kRunningGraceMs = 5 * 60 * 1000;
+
 // Finishes every live recording still marked "running" whose app process is
-// gone (isAlive(pid) is false). Returns the run ids it finished.
+// gone (isAlive(pid) is false), or that is more than kRunningGraceMs past its
+// requested length (its pid may have been reused). Returns the run ids it finished.
 QStringList recoverInterrupted(const QString &root, const std::function<bool(qint64)> &isAlive);
 
 bool processAlive(qint64 pid);

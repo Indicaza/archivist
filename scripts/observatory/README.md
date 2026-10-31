@@ -9,6 +9,33 @@ compare the records, baselines that flag regressions, and controls that
 let people (the Test Lab) and agents (`--json`) run tests and hand the
 results to an AI.
 
+**Architecture in one paragraph.** Every record is a folder under
+`<Observatory folder>/runs/<time>-<kind>-<hex>/` with a `summary.json` and
+the files it lists; there is no database or index, and nothing is uploaded.
+The Node CLI (`cli.mjs`) writes build, UI test and runtime-log runs, and
+holds every control operation (`control/operations.mjs`). The app writes live
+recordings itself (`frontend/src/App/Services/live_recorder.*`) and serves the
+dashboard page from its loopback IDE host at `/observatory/`; for test
+controls it runs `node cli.mjs control <operation>` on two worker threads of
+its own. The same page also runs in a browser from `dashboard/server.mjs`.
+Analysis code under `dashboard/public/*.mjs` is shared by the page and the
+CLI, so both read a run the same way.
+
+## When to use Observatory
+
+- **A build feels slower:** `npm run observatory:build` a few times before and
+  after, then `baseline compare`. It says regression, improvement, no
+  meaningful change, or not enough evidence.
+- **A scripted UI interaction got slower (sidebar, wells, tabs):** run the UI
+  Lab scenario three or more rounds and compare with its baseline.
+- **Something felt janky while using the app:** make a live recording of the
+  same interaction, then `live spikes` and `live compare` with a recording
+  made before the change. One recording each is a hint, not proof.
+- **Handing a problem to an agent:** Copy for AI or Export evidence on the run.
+- **Not for:** profiling (no stack samples: it says *when* the UI thread was
+  busy, not *what* ran), GPU or compositor timing, production telemetry,
+  automatic diagnosis, or comparing a debug build with a release build.
+
 ## Run a capture
 
 ```bash
@@ -531,6 +558,13 @@ They are marked `redacted: false, sensitive: true`.
 
 Commits and SHA-256 hashes are kept. Nothing is uploaded anywhere.
 
+Redaction is pattern matching, not a guarantee. It misses a secret in a
+format it doesn't know (a short password with no `password=` before it, a
+key in an unusual form) and private text that isn't a path, a name in a
+path, or an e-mail address. Read a report or export before sharing it. The
+manifest says so (`redaction.limits`). Raw logs are left out unless you ask
+for them (`--raw-logs`, or the checkbox, which asks again).
+
 ### How starting tests is protected
 
 - **Read-only by default.** The browser dashboard stays read-only unless
@@ -644,6 +678,12 @@ and only while access is on. Only the panel (same origin, the panel key) can
 turn access on or off. The CLI refuses an address that isn't 127.0.0.1, so
 the key never goes anywhere else. Nothing is uploaded.
 
+Inside the app, the panel's test controls never send `observatory.live.
+status/start/stop/mark/wait` through the Node script: the app refuses them
+on its control route (they belong to `/observatory/api/live/`), because the
+script would call back into the app and `wait` would hold a worker thread
+for minutes. `live wait` is a CLI loop of short `status` calls.
+
 ### What is recorded
 
 A `live-session` run (`<timestamp>-live-<hex>`) with:
@@ -663,6 +703,13 @@ A `live-session` run (`<timestamp>-live-<hex>`) with:
 - **Resources (every 500 ms):** process CPU as % of one core, resident
   memory, macOS memory footprint (`phys_footprint`), thread count. Anything
   the platform doesn't provide is recorded as `null` and listed as missing.
+  CPU is also `null` for a sample taken less than half an interval after the
+  previous reading, which is always the case for the first one.
+- **Measurement version** (`live.measurementVersion`, in `summary.json` and
+  `metrics.json`): 1 was the first recorder; 2 leaves that first CPU sample
+  out (in version 1 it was noise, 181.9 % in the fixture recording, and
+  inflated max and mean CPU). Recordings with different versions, or
+  different probe or sample intervals, are not compared.
 - **Operations:** sidebar open/close/section/resize, workspace publish (with
   the `archivist.wells.timing` stages), layout changes, tab switches, split
   resizes, magnet drags and undocking, wells minimize/restore, chat
@@ -679,24 +726,92 @@ A `live-session` run (`<timestamp>-live-<hex>`) with:
 - One recording at a time; 15/30/60/120 s only; it always stops at the
   length (and on quit). Memory is bounded (200k frames, 20k events, 6k
   probes, 1k samples); anything past that is counted as dropped.
-- Nothing is written on the UI or render threads: a single writer thread
-  saves the stream every second and the final files at the end.
+- Writing happens on a single writer thread (the stream every second, the
+  final files at the end), with one exception: the first `summary.json` is
+  written on the UI thread when recording starts, before anything is
+  measured, so a failure to write can be reported to the caller (1.4–8.7 ms
+  measured on Linux; not measured on macOS).
 - If the app dies while recording, the next launch marks that run
   `interrupted` with `partial: true` and rebuilds what it can from the stream.
+  A run still `running` more than 5 minutes past its length is finished the
+  same way even if its process id now belongs to another program.
 - The Live page itself updates once a second while recording (its
   indicator is static on purpose). With the panel open, those redraws show up
   as a few frames per second in the recording; close or hide the panel for
   the cleanest numbers.
 - Live recordings have no baseline (what you do differs each time). Use
-  `live compare` on two recordings of the same interaction.
+  `live compare` on two recordings of the same interaction. Besides refusing
+  incompatible recordings, it warns when they come from a debug and a
+  release build, different machines, systems, Qt or app versions, the same
+  build, uncommitted changes, partial or failed recordings, recordings that
+  dropped data, ones where the app left the foreground, very different
+  lengths, or different windows.
 
 ### Overhead
 
 Measured with the real recorder on Linux (Qt 6.4, offscreen software
-rendering, one window redrawing every 16 ms, four alternating 10 s rounds
-with recording off and on): frame interval median 20.5 ms and p95 20.7–20.8
-ms either way, and process CPU 1.8% off vs 1.9% on (of one core). This was
-not measured on macOS or with the real Archivist UI.
+rendering, one window redrawing every 16 ms, alternating rounds with
+recording off and on):
+
+| | Recording off | Recording on |
+| --- | --- | --- |
+| Frame interval, median | 20.47 ms | 20.48–20.49 ms |
+| Frame interval, p95 | 20.71–20.76 ms | 20.72–20.76 ms |
+| Process CPU (% of one core) | 1.6–1.7 % | 1.8–1.9 % |
+
+UI-thread work per recording: `ProcessMetrics::read()` every 500 ms (median
+23 µs, p95 39–60 µs), `start()` median 1.4–1.8 ms and p95 2.7–8.7 ms over
+two measurements, `stop()` 0.13–0.37 ms.
+None of this was measured on macOS or with the real Archivist UI.
+
+## Resource limits
+
+| What | Limit | Past it |
+| --- | --- | --- |
+| One live recording | 15/30/60/120 s, one at a time | refused (`busy`) |
+| Recorder memory | 200k frames, 20k events (256 open), 6k probes, 1k samples | counted as dropped; shown in the summary, Copy for AI and `live compare` |
+| Stream read on recovery | 256 MB | the rest is ignored |
+| Artifacts served or read | 32 MB each | refused |
+| Control script answer | 8 MB, 60 s | `internal` error |
+| Observatory requests in the app | 2 worker threads, 8 waiting or running | `503 unavailable` |
+| Runs sent to the dashboard page | newest 2,000 plus those baselines name | the page says how many it left out; the CLI reads all |
+| `live wait` | 300 s | `timed-out` (exit 124) |
+| UI tests | one at a time per Observatory folder | `busy` (exit 4) |
+
+Run folders are never deleted automatically; a long history only costs disk
+space and slower unfiltered scans.
+
+## Reproducing the measurements
+
+- **History scaling:** write N synthetic runs and time the listings.
+  Measured on Linux, median of 5 reads (before → after this change):
+
+  | Runs | Page listing (app) | Page body | `tests status` poll | `runs list` | `live list` |
+  | --- | --- | --- | --- | --- | --- |
+  | 100 | 22 → 14 ms | 0.27 MB | 18 → 1.4 ms | 16 → 4 ms | 17 → 9 ms |
+  | 1,000 | 142 → 154 ms | 2.7 MB | 191 → 1.0 ms | 170 → 5 ms | 161 → 67 ms |
+  | 10,000 | 1,557 → 342 ms | 26.8 → 5.4 MB | 1,826 → 1.5 ms | 1,818 → 20 ms | 1,654 → 612 ms |
+
+  A filtered `runs list` (`--kind`, `--status`, `--scenario`) still reads
+  every summary (1.8 s at 10,000 runs).
+- **Recorder overhead:** a test window redrawing every 16 ms, recorded and
+  not recorded in alternating rounds of the same length, comparing frame
+  intervals and process CPU; the per-call costs above are timed with
+  `QElapsedTimer` around each call.
+- **Diagnostic check:** a scripted session with a 90 ms stall during a
+  `workspace.publish` span and a 320 ms stall during a
+  `chat.switch-conversation` span; `live spikes` lists the 320 ms one first
+  and names the span each occurred during.
+
+## What is and isn't verified
+
+- **Verified here (Linux, Qt 6.4, offscreen):** the Node suite, the native
+  Observatory, recorder, records and IDE host tests, the lock under real
+  competing processes, the control route under saturation, the recorder's
+  overhead and the history scaling above.
+- **Not verified here:** anything on macOS (Qt 6.8, Metal, `phys_footprint`,
+  App Nap throttling), the full Archivist UI, `npm run test:native` as a
+  whole, and the UI Lab against a real `build/frontend-debug`.
 
 ## Code
 

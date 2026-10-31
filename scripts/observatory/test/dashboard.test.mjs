@@ -7,7 +7,7 @@ import { compareRuns, SAME_WITHIN_PCT } from "../dashboard/public/compare.mjs";
 import { filterOptions, filterRuns } from "../dashboard/public/filter.mjs";
 import { normalizeRun, SUPPORTED_SCHEMA_VERSION } from "../dashboard/public/normalize.mjs";
 import { previewText } from "../dashboard/public/preview.mjs";
-import { artifactPath, loadRuns } from "../dashboard/records.mjs";
+import { artifactPath, baselineRunIds, listRawRunsForPage, loadRuns, loadRunsById } from "../dashboard/records.mjs";
 import { createDashboardServer, PAGE_DIR, PAGE_FILES } from "../dashboard/server.mjs";
 import { SCHEMA_VERSION } from "../storage.mjs";
 import { dashboardFixtures, writeDashboardFixtures } from "./fixtures/dashboard-runs.mjs";
@@ -136,6 +136,32 @@ describe("loading records", () => {
     await loadRuns(root);
     assert.deepEqual(await readdir(dir), beforeFiles);
     assert.equal((await stat(path.join(dir, "summary.json"))).mtimeMs, beforeTime);
+  });
+});
+
+describe("long histories", () => {
+  const ids = [1, 2, 3, 4, 5].map((n) => `2026100${n}T000000-000Z-build-00000${n}`);
+  let dir;
+  before(async () => {
+    dir = await tempDir();
+    for (const id of ids) {
+      await mkdir(path.join(dir, "runs", id), { recursive: true });
+      await writeFile(path.join(dir, "runs", id, "summary.json"), JSON.stringify({ schemaVersion: 1, kind: "build" }));
+    }
+    await writeFile(path.join(dir, "baselines.json"), JSON.stringify({ schema: "archivist.observatory.baselines", baselines: { "build.incremental": { runIds: [ids[0], "20261099T000000-000Z-build-00dead"] } } }));
+  });
+
+  test("the page gets the newest runs plus the baseline's, and how many were left out (as the app does)", async () => {
+    const keep = await baselineRunIds(dir);
+    const listing = await listRawRunsForPage(dir, { keep, limit: 2 });
+    assert.deepEqual(listing.runs.map((run) => run.runId), [ids[4], ids[3], ids[0]]);
+    assert.deepEqual({ total: listing.total, omitted: listing.omitted, limit: listing.limit }, { total: 5, omitted: 2, limit: 2 });
+    assert.equal((await listRawRunsForPage(dir, { keep })).omitted, 0);
+  });
+
+  test("reading runs by id reads only those, and a missing one comes back unreadable", async () => {
+    const runs = await loadRunsById(dir, [ids[2], ids[2], "20261099T000000-000Z-build-00dead"]);
+    assert.deepEqual(runs.map((run) => [run.runId, run.readable]), [[ids[2], true], ["20261099T000000-000Z-build-00dead", false]]);
   });
 });
 
@@ -338,6 +364,8 @@ describe("local server", () => {
   test("lists raw summaries, unreadable ones with their error", async () => {
     const list = await get("/api/runs");
     assert.equal(list.json.root, root);
+    assert.equal(list.json.omitted, 0);
+    assert.equal(list.json.total, runs.length);
     assert.equal(list.json.runs.length, runs.length);
     const broken = list.json.runs.find((entry) => entry.runId === ID.broken);
     assert.equal(broken.summary, null);

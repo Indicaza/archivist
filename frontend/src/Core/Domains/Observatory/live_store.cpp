@@ -2,6 +2,7 @@
 
 #include "observatory_records.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -227,6 +228,22 @@ QJsonObject environmentFacts()
     };
 }
 
+namespace
+{
+// A recording always stops by itself at its length, so one still marked
+// "running" well past it was left by an app that is gone, even when its pid
+// now belongs to another process (pids are reused, for example after a restart).
+bool pastItsLength(const QJsonObject &summary)
+{
+    const QDateTime createdAt = QDateTime::fromString(summary.value(QStringLiteral("createdAt")).toString(), Qt::ISODateWithMs);
+    const double durationS = summary.value(QStringLiteral("live")).toObject().value(QStringLiteral("requestedDurationS")).toDouble();
+    if (!createdAt.isValid() || !(durationS > 0)) {
+        return false;
+    }
+    return createdAt.addMSecs(static_cast<qint64>(durationS * 1000) + kRunningGraceMs) < QDateTime::currentDateTimeUtc();
+}
+} // namespace
+
 QStringList recoverInterrupted(const QString &root, const std::function<bool(qint64)> &isAlive)
 {
     QStringList recovered;
@@ -248,7 +265,7 @@ QStringList recoverInterrupted(const QString &root, const std::function<bool(qin
             continue;
         }
         const qint64 pid = static_cast<qint64>(summary.value(QStringLiteral("app")).toObject().value(QStringLiteral("pid")).toDouble());
-        if (isAlive(pid)) {
+        if (isAlive(pid) && !pastItsLength(summary)) {
             continue;
         }
         QFile stream(dir.filePath(QStringLiteral("live-stream.ndjson")));
