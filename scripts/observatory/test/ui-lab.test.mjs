@@ -90,6 +90,23 @@ test("an unknown scenario is a usage error", async () => {
   assert.match(result.stderr, /Available: ai-pipeline, ai-provider, ai-turn, chat, sidebar, startup, workspace/);
 });
 
+test("smoke scenario is shorter and never mutates the canonical workload", () => {
+  const original = { id: "workspace", name: "Workspace", version: 2, initialConditions: "Fresh profile.", warmupIterations: 1, iterations: 5, settleQuietMs: 120 };
+  const fast = scenarioForRun(original, { fast: true, background: true });
+  assert.equal(original.iterations, 5);
+  assert.equal(original.version, 2);
+  assert.equal(fast.iterations, 2);
+  assert.equal(fast.warmupIterations, 0);
+  assert.equal(fast.settleQuietMs, 70);
+  assert.equal(fast.version, 11002);
+  assert.match(fast.name, /smoke/);
+  assert.match(fast.initialConditions, /frame presentation may differ/);
+  const full = scenarioForRun(original);
+  assert.deepEqual(full, original);
+  assert.notEqual(fast.version, scenarioForRun(original, { fast: true }).version);
+  assert.notEqual(fast.version, scenarioForRun(original, { background: true }).version);
+});
+
 test("the lab environment isolates the profile and drops Archivist switches", () => {
   const env = labEnvironment({ PATH: "/bin", ARCHIVIST_DB_PATH: "/real.db", ARCHIVIST_LEGACY_WORKSPACE: "1", QT_LOGGING_RULES: "x" },
     { profileDir: "/tmp/archivist-ui-lab-1", scenarioFile: "/r/scenario.json", eventsFile: "/r/ui-events.json" });
