@@ -1,14 +1,14 @@
 {
   "id": "ai-pipeline",
-  "version": 1,
+  "version": 2,
   "name": "AI pipeline (offline)",
-  "description": "Sends chat messages in a short and a long conversation, with a synthetic Library to search, against a local mock provider that answers at once. What it measures is Archivist's own side of an AI turn: preparation, retrieval, context compilation, database work, persistence and showing the reply.",
-  "initialConditions": "Fresh disposable profile, 1280x840 window, Research layout, one chat view. Fixture: seed 11, a Library of 80 synthetic notes (indexed), conversations 'Lab Short' (6 messages) and 'Lab Long' (400 messages). Provider: the local mock ('fast': one short reply, no delay). No API calls.",
+  "description": "Sends explicit Library-search requests in short and long synthetic conversations against an indexed Library of 300 notes and a local fast mock provider. Measures real retrieval, context compilation, database work, persistence and UI publication; no API calls.",
+  "initialConditions": "Fresh disposable profile, 1280x840 window, Research layout, one chat view. Fixture: seed 11, a Library of 300 synthetic notes (indexed), conversations 'Lab Short' (6 messages) and 'Lab Long' (400 messages). Provider: the local mock ('fast': one short reply, no delay). No API calls.",
   "workload": {
     "fixture": "UiLab::fixtureMessage",
     "seed": 11,
     "library": {
-      "files": 80
+      "files": 300
     },
     "chats": {
       "short": 6,
@@ -62,7 +62,7 @@
     {
       "op": "seedChats",
       "seed": 11,
-      "files": 80,
+      "files": 300,
       "chats": [
         {
           "key": "short",
@@ -136,7 +136,7 @@
     },
     {
       "op": "sendChatMessage",
-      "text": "Which notes talk about the archive layout and render panels?",
+      "text": "Search the Library for notes about archive layout and render panels, and identify the most relevant sources.",
       "label": "ask in short conversation",
       "expect": {
         "runSettled": {
@@ -157,7 +157,7 @@
     },
     {
       "op": "sendChatMessage",
-      "text": "Summarize what we decided about the panel layout earlier in this conversation.",
+      "text": "Search the Library for notes about the panel layout, and summarize related decisions from earlier in this conversation.",
       "label": "ask in long conversation",
       "expect": {
         "runSettled": {
