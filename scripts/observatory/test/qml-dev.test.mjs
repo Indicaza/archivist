@@ -37,10 +37,10 @@ test("source QML loading is opt-in and production retains embedded module loadin
 });
 
 test("QML staging preserves pragmas and ensures module types remain importable", () => {
-  assert.equal(withDevModuleImport("import QtQuick\\nItem {}\\n", "App.qml"), "import QtQuick\\nItem {}\\n");
-  assert.equal(withDevModuleImport("import QtQuick\\nItem {}\\n", "App/Topbar/CodeThemePicker.qml"), "import Archivist 1.0\\nimport QtQuick\\nItem {}\\n");
-  assert.equal(withDevModuleImport("pragma Singleton\\n\\nimport QtQuick\\nItem {}\\n", "App/Icons/SetiFont.qml"), "pragma Singleton\\nimport Archivist 1.0\\n\\nimport QtQuick\\nItem {}\\n");
-  const existing = "import Archivist 1.0\\nimport QtQuick\\nItem {}\\n";
+  assert.equal(withDevModuleImport("import QtQuick\nItem {}\n", "App.qml"), "import QtQuick\nItem {}\n");
+  assert.equal(withDevModuleImport("import QtQuick\nItem {}\n", "App/Topbar/CodeThemePicker.qml"), "import Archivist 1.0\nimport QtQuick\nItem {}\n");
+  assert.equal(withDevModuleImport("pragma Singleton\n\nimport QtQuick\nItem {}\n", "App/Icons/SetiFont.qml"), "pragma Singleton\nimport Archivist 1.0\n\nimport QtQuick\nItem {}\n");
+  const existing = "import Archivist 1.0\nimport QtQuick\nItem {}\n";
   assert.equal(withDevModuleImport(existing, "App/Icon.qml"), existing);
   assert.equal(withDevModuleImport("function hi() {}", "App/Icons/IconRegistry.js"), "function hi() {}");
 });
@@ -52,17 +52,17 @@ test("dev mirror carries file-system relative imports and icons without changing
   try {
     await mkdir(path.join(source, "App", "Icons"), { recursive: true });
     await mkdir(path.join(source, "App", "Topbar"), { recursive: true });
-    await writeFile(path.join(source, "App.qml"), 'import "App/Topbar"\\nItem {}\\n');
-    await writeFile(path.join(source, "App", "Topbar", "CodeThemePicker.qml"), 'import QtQuick\\nItem { AppIcon {} }\\n');
-    await writeFile(path.join(source, "App", "Icons", "AppIcon.qml"), 'import QtQuick\\nItem {}\\n');
+    await writeFile(path.join(source, "App.qml"), 'import "App/Topbar"\nItem {}\n');
+    await writeFile(path.join(source, "App", "Topbar", "CodeThemePicker.qml"), 'import QtQuick\nItem { AppIcon {} }\n');
+    await writeFile(path.join(source, "App", "Icons", "AppIcon.qml"), 'import QtQuick\nItem {}\n');
     await writeFile(path.join(source, "App", "Icons", "icon.svg"), "<svg/>");
     await refreshDevQmlTree(source, staged);
     const picker = await readFile(path.join(staged, "App", "Topbar", "CodeThemePicker.qml"), "utf8");
-    assert.match(picker, /^import Archivist 1.0\\n/);
+    assert.match(picker, /^import Archivist 1.0\n/);
     assert.match(picker, /AppIcon/);
     assert.equal(await readFile(path.join(staged, "App", "Icons", "icon.svg"), "utf8"), "<svg/>");
-    assert.equal(await readFile(path.join(source, "App", "Topbar", "CodeThemePicker.qml"), "utf8"), 'import QtQuick\\nItem { AppIcon {} }\\n');
-    await writeFile(path.join(source, "App", "Topbar", "CodeThemePicker.qml"), 'import QtQuick\\nItem { AppIcon { visible: false } }\\n');
+    assert.equal(await readFile(path.join(source, "App", "Topbar", "CodeThemePicker.qml"), "utf8"), 'import QtQuick\nItem { AppIcon {} }\n');
+    await writeFile(path.join(source, "App", "Topbar", "CodeThemePicker.qml"), 'import QtQuick\nItem { AppIcon { visible: false } }\n');
     await refreshDevQmlTree(source, staged);
     assert.match(await readFile(path.join(staged, "App", "Topbar", "CodeThemePicker.qml"), "utf8"), /visible: false/);
   } finally {
