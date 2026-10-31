@@ -877,7 +877,7 @@ Do not use `QT_QPA_PLATFORM=offscreen` for normal graphics profiling.
 `npm run observatory -- audit run --preset smoke --wait` to skip the
 build and run one short round of startup, sidebar, workspace and offline
 AI pipeline. Its scenario versions differ from full runs because it
-disables warm-up iterations and caps repetitions and settling waits. It
+disables warm-up iterations, caps repetitions, limits quiet waits to 70 ms and caps waiting for continuous animations to 900 ms after the expected state is reached. State correctness still uses the normal action timeout, and a never-quiet scene reports missing settled-frame evidence. It
 is a functional/diagnostic spot check, **not** statistically reliable
 regression evidence. To run all scenarios but only once, use
 `npm run observatory -- audit run --preset complete --repeat 1 --wait`.
