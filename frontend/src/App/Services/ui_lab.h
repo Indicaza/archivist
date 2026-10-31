@@ -78,8 +78,8 @@ public:
 
     // LiveEvents::Sink (any thread).
     void addEvent(LiveEvents::Event event) override;
-    quint64 openSpan(LiveEvents::Event event) override;
-    void closeSpan(quint64 token, qint64 endNs, int ok, const QVariantMap &fields) override;
+    bool openSpan(LiveEvents::Event event) override;
+    void closeSpan(quint64 id, qint64 endNs, int ok, const QVariantMap &fields) override;
 
     // Records every frame the window swaps (QQuickWindow::frameSwapped, on
     // the render thread, timed there).
@@ -118,7 +118,6 @@ private:
     mutable QMutex m_eventsMutex;
     QList<Recorded> m_events;
     QHash<quint64, Recorded> m_open;
-    quint64 m_nextToken = 1;
     int m_dropped = 0;
     QList<QVariantMap> m_stalls;
     QTimer m_probe;

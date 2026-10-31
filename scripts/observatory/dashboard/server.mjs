@@ -44,6 +44,7 @@ export const PAGE_FILES = {
   "live.mjs": "text/javascript; charset=utf-8",
   "live-page.js": "text/javascript; charset=utf-8",
   "audit.mjs": "text/javascript; charset=utf-8",
+  "trace.mjs": "text/javascript; charset=utf-8",
   "audit-page.js": "text/javascript; charset=utf-8",
 };
 

@@ -283,26 +283,138 @@ is a stall). The live recorder refuses to start in a UI Lab instance, so
 the two never compete for the stream.
 
 The runner turns that into `ui-operations.json`
-(`archivist.observatory.ui-operations` v1) and `summary.operations`:
+(`archivist.observatory.ui-operations` v2) and `summary.operations`:
 
 - **per action:** the spans nested by time (a span inside another is shown
   as its child; spans from other threads can nest this way without one
   calling the other, so the tree means "during", not "called by"), each
   with `selfMs` (its time minus the union of its children), the stalls
-  during it, markers, and `unattributedMs` (the action minus the union of
-  its top-level spans; overlapping spans are never added up), plus spans
-  that began in it and ended after it (`outlived`);
-- **per step:** each operation's median and max over measured iterations;
+  during it, markers, and its time split up (below), plus spans that began
+  in it and ended after it (`outlived`);
+- **per step:** each operation's median and max over measured iterations,
+  and the median response window and unattributed time, from the same
+  actions;
 - **startup:** `qt-init`, `profile`, `core-runtime` (database and
   migrations), `ai-runtime`, `ide-host`, `qml-load`, entering the event
   loop, the first frame after the lab attached, and `readyMs`, all in ms
-  since main() was entered. Time before main() isn't measured.
+  since main() was entered. Time before main() isn't measured. `phases`
+  splits the same time without overlap: native initialization, QML load
+  (synchronous; `qmlLoad` splits it at the `qml-root-created` marker),
+  event loop to first frame (work QML deferred past the event loop), first
+  frame to usable UI, background work after ready, rendering settling, and
+  the intentional idle observation. A phase with no evidence is `null`.
+- **trace:** AI turns and database jobs, built from span ids (see
+  [Traces](#traces-ai-turns-and-database-jobs)).
+
+#### An action's time, split up (v2)
+
+Every time is measured from the action's start:
+
+| Field | Ends when |
+| --- | --- |
+| `timings.dispatchMs` | the call or input returned |
+| `timings.stateMs` | the expected UI state was first seen |
+| `timings.lastFrameMs` | the last frame swapped before rendering went quiet |
+| `timings.settledMs` | max(state, last frame): the response is complete |
+| `timings.renderSettleMs` | settled minus state: rendering catching up |
+| `timings.quietWaitMs` | elapsed minus settled: the driver watching for quiet |
+| `timings.elapsedMs` | the action's whole window (`durationMs`) |
+
+The **response window** (`window`) is input to settled (`basis:
+"settled"`), to state when nothing was drawn, or the whole elapsed time for
+a failed or never-quiet action. `coveredMs` is the union of span time inside
+the window and `unattributedMs` the rest, so `coveredMs + unattributedMs =
+window.ms` exactly and unattributed time can never exceed its window. Span
+time after the window is `afterWindowMs` (before it, `beforeWindowMs`),
+never clipped away silently.
+
+v1 measured unattributed time against the whole elapsed window (which
+holds the 120–300 ms quiet wait) while audits compared it with settled
+time, which is how "2.33 s unexplained of 2.01 s" could happen. Audits
+(rules version 2) only use v2 numbers.
+
+Steps whose op is `noop` (the idle after startup) are `kind:
+"observation"`: they watch the app and are never counted as slow
+interactions.
 
 Instrumented today: startup stages; chat (`open-conversation` from the
 selection to the first page handed to QML, with `load-message-page` on the
-database thread, `map-messages` and `publish-messages`); the workspace,
-wells, sidebar and shell events the recorder already had. Explorer,
-Monaco/WebEngine and streaming replies are not instrumented yet.
+database thread, `map-messages` and `publish-messages`); AI turns, database
+jobs, retrieval and context compilation (see Traces); the workspace, wells,
+sidebar and shell events the recorder already had. Explorer and
+Monaco/WebEngine are not instrumented yet.
+
+### Traces: AI turns and database jobs
+
+`LiveEvents` spans carry an `id`, a `parent` and the `thread` they were made
+on (`main`, `ArchivistAI`, `ArchivistCoreWriter`, `pool`). A `Scope` or
+`Step` is the parent of what its thread does while it is open; work handed
+to another thread names its parent (`ParentScope`, or the id). So a trace
+nests by cause, across threads. A child may outlive its parent (work it
+started); that is reported as `outlivedMs`. `trace.mjs`
+(`archivist.observatory.trace` v1) reads any events with ids, from the UI
+Lab or the live recorder, into trees and into:
+
+**An AI turn** (`ai.run`, root `ai.start-chat-run`):
+
+```
+ai.start-chat-run            the call from the UI thread
+├─ ai.queue-wait             posted until the AI thread ran it
+├─ ai.run                    runId, provider, model, outcome, rounds, tool calls,
+│  │                         run-event writes (count, total, max), provider-reported tokens
+│  ├─ ai.model-catalog       only when the model list is refreshed
+│  ├─ ai.prepare
+│  │  ├─ ai.conversation-load        messages
+│  │  ├─ ai.workspace-describe       when a workspace is attached
+│  │  ├─ ai.attachments              sources, warnings
+│  │  ├─ ai.retrieval                sources, files, skipped
+│  │  │  ├─ retrieval.library-search
+│  │  │  │  ├─ retrieval.fts-query   rows (retrieval.index-repair if it rebuilt)
+│  │  │  │  └─ retrieval.rank        candidates
+│  │  │  └─ retrieval.select         included, omitted, tokens
+│  │  └─ ai.context-compile          compiler, included, omitted, estimatedTokens
+│  │     └─ context.strategy
+│  │        ├─ context.chat-search   candidates (auto-balanced compilers)
+│  │        └─ context.assemble
+│  ├─ ai.provider-round      round, endpoint, attempts, events, deltas, bytes, longest gap,
+│  │  │                      gaps of 1 s or more, tool calls, tokens
+│  │  ├─ ai.request-serialize        bytes
+│  │  ├─ ai.http-attempt             status, bytes sent/received, error (timeout,
+│  │  │  │                           connection-refused, http-status, ...), retry, cancelled
+│  │  │  └─ ai.first-byte (marker)
+│  │  ├─ ai.retry-wait               waitMs
+│  │  └─ ai.first-delta (marker)
+│  ├─ ai.tool-round          round, calls, resultBytes
+│  │  └─ ai.tool             tool, callId, round, argument/result bytes, serializeMs, errorCode
+│  └─ ai.persist
+└─ ai.callback-delay         result posted until the UI thread ran the callback
+chat.ai-first-delta-received, chat.ai-first-text-shown (markers), chat.ai-presentation
+                             on the UI thread, matched by runId: flushes and their time
+```
+
+`aiTurns()` reports, per turn: queue wait, preparation and its stages,
+each round with its attempts (status, retry, error), retry waits, first
+byte and first delta from the round's start, stream statistics, tools,
+persistence, and three different firsts from the run's start: first network
+byte, first model delta and first text shown. Tokens are only what the
+provider reported; no price is computed. `unattributedMs` is the run's time
+no direct child covers, and `missing` names expected stages the trace
+doesn't have (an uninstrumented gap is never shown as zero).
+
+**Database jobs** (`db.write`, `db.read`, `db.run`): `op` is the name the
+caller passed or its class name, never SQL or parameters; `queue-wait`,
+`execute` (on the thread that ran it) and `callback-delay` are children, and
+`rows` is set when the result is a list. `CoreRuntime::read()` runs on the
+calling thread, so an `execute` on `main` is the UI thread blocked;
+`dbJobs()` totals those as `uiThreadSync`. The AI thread's own database
+connection (run events, chat messages) is measured as the run's event
+writes and `ai.persist`, not as `db.*` jobs.
+
+What is never in a trace: API keys, headers, prompts, model output, file
+names or paths, tool arguments or results (only their sizes), SQL or its
+parameters. Each event holds at most 12 short scalar fields; there is no
+per-token event (the stream is counted, not logged). DNS, TCP and TLS times
+are not reported: Qt doesn't expose them, and they are not guessed.
 
 ### What it can't tell you yet
 
@@ -922,6 +1034,21 @@ UI-thread work per recording: `ProcessMetrics::read()` every 500 ms (median
 23 µs, p95 39–60 µs), `start()` median 1.4–1.8 ms and p95 2.7–8.7 ms over
 two measurements, `stop()` 0.13–0.37 ms.
 None of this was measured on macOS or with the real Archivist UI.
+
+The event API itself, before and after span ids (Linux, release build, the
+same minimal sink, three alternating runs, ns per call):
+
+| | Not recording | Recording |
+| --- | --- | --- |
+| `Scope`, before / after | 11–18 / 12–21 | 157–161 / 206–216 |
+| `begin` + `end`, before / after | 7–15 / 10–16 | 200–222 / 263–273 |
+| `marker`, before / after | 5–6 / 6–9 | 122–133 / 166–182 |
+
+Not recording is one atomic load either way (the spread is noise). While
+recording, an id, a parent and a thread label add about 50–60 ns per event.
+A mocked AI turn with a retry and a tool round makes 31 events, about
+30 µs of recording work with the real session sink (about 1 µs per event
+there) against a turn of hundreds of milliseconds.
 
 ## Resource limits
 

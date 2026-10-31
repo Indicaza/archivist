@@ -103,9 +103,12 @@ describe("findings rules", () => {
   });
 
   test("one run says so; failures, missing operations, unexplained time and frame gaps", () => {
-    const single = evaluateFindings([{ runId: "a", summary: uiSummary({ steps: [[0, "x", 150]], operations: [{ step: 0, label: "x", runs: 1, stalls: 0, unattributedMedianMs: 120, operations: [] }], frameGap: 50 }) }]);
+    const single = evaluateFindings([{ runId: "a", summary: uiSummary({ steps: [[0, "x", 150]], operations: [{ step: 0, label: "x", runs: 1, stalls: 0, windowMedianMs: 150, unattributedMedianMs: 120, operations: [] }], frameGap: 50 }) }]);
     assert.equal(single.find((finding) => finding.rule === "ui.slow-step").confidence.level, "single-run");
     assert.ok(single.some((finding) => finding.rule === "ui.unattributed"), "120 of 150 ms outside every span");
+    // v1 operations (no window) are not compared against settled times.
+    const v1 = evaluateFindings([{ runId: "a", summary: uiSummary({ steps: [[0, "x", 150]], operations: [{ step: 0, label: "x", runs: 1, stalls: 0, unattributedMedianMs: 120, operations: [] }] }) }]);
+    assert.ok(!v1.some((finding) => finding.rule === "ui.unattributed"));
     assert.match(single.find((finding) => finding.rule === "ui.frame-gap").summary, /60 Hz/);
     const failed = evaluateFindings([{ runId: "f", summary: uiSummary({ status: "failed", steps: [[0, "x", 500]] }) }]);
     assert.deepEqual(failed.map((finding) => finding.rule), ["ui.failed-actions"], "a failed run's timings are not used");
@@ -113,6 +116,20 @@ describe("findings rules", () => {
     assert.deepEqual(old.map((finding) => finding.rule), ["ui.no-operations"]);
     const startup = evaluateFindings([{ runId: "s", summary: uiSummary({ scenario: "startup", steps: [[0, "noop", 5]], startup: { stages: [{ name: "qml-load", durationMs: 1200 }, { name: "profile", durationMs: 4 }] } }) }]);
     assert.deepEqual(startup.map((finding) => [finding.rule, finding.severity]), [["startup.slow-stage", "high"]]);
+  });
+
+  // Zach's Quick Audit: the idle step after startup (op noop) took 2 s to
+  // go quiet and was reported as a slow user interaction, and as 2.33 s
+  // unexplained of 2.01 s.
+  test("the idle observation after startup is not a slow interaction; startup phases are their own rule", () => {
+    const summary = uiSummary({ scenario: "startup", steps: [[0, "idle after ready", 2010]], operations: [{ step: 0, label: "idle after ready", kind: "observation", runs: 1, stalls: 0, windowBasis: "settled", windowMedianMs: 2010, unattributedMedianMs: 2010, operations: [] }], startup: {
+      stages: [{ name: "qml-load", durationMs: 120 }],
+      phases: [{ id: "first-frame", label: "Event loop to first frame", ms: 420 }, { id: "first-usable", label: "First frame to usable UI", ms: 30 }, { id: "idle-observation", label: "Intentional idle observation", ms: 300 }],
+    } });
+    summary.stats.steps[0].op = "noop";
+    const findings = evaluateFindings([{ runId: "s", summary }]);
+    assert.deepEqual(findings.map((finding) => finding.rule), ["startup.slow-phase"]);
+    assert.match(findings[0].summary, /Event loop to first frame/);
   });
 
   test("build rules read the job evidence", () => {

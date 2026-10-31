@@ -335,6 +335,12 @@ int main(int argc, char *argv[])
         Qt::QueuedConnection
     );
 
+    // Marks when the root object exists inside qml-load, splitting compile
+    // and create from what runs after it before loadFromModule returns.
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [](QObject *object, const QUrl &) {
+        LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("qml-root-created"), {}, object ? 1 : 0);
+    });
+
     {
         // Compiling and creating the QML scene (the window and everything it
         // creates synchronously).

@@ -55,6 +55,24 @@ void setLocalBaseUrl(const QString &url);
 [[nodiscard]] QString errorMessageFor(int status, const QByteArray &body);
 }
 
+// What one streamed round cost on the wire, for the Observatory. Collected
+// only while a LiveEvents recording runs; never content. -1: not seen.
+struct StreamStats
+{
+    int attempts = 0;          // HTTP requests sent (1 + retries)
+    qint64 bytesSent = 0;      // request bodies, every attempt
+    qint64 bytesReceived = 0;  // response bodies, every attempt
+    int events = 0;            // server-sent events parsed
+    int deltas = 0;            // text deltas among them
+    qint64 firstByteNs = -1;   // first response byte of the attempt that streamed
+    qint64 firstDeltaNs = -1;  // first text delta
+    qint64 maxGapNs = -1;      // longest wait between two events
+    int longGaps = 0;          // waits of 1 s or more
+    int inputTokens = -1;      // as the provider reported them, if it did
+    int outputTokens = -1;
+    int status = 0;            // HTTP status of the last attempt
+};
+
 // One streamed POST /responses round (or /chat/completions for a local
 // server), retried like the SDK until the first byte of the stream arrives.
 class OpenAIResponseStream final : public QObject
@@ -64,6 +82,11 @@ class OpenAIResponseStream final : public QObject
 public:
     OpenAIResponseStream(QNetworkAccessManager *network, AIProvider::OpenAIConfig config, QJsonObject body, QObject *parent = nullptr);
     ~OpenAIResponseStream() override;
+
+    // The LiveEvents span this round's attempts, retry waits and markers
+    // belong to (0: none).
+    void setTraceParent(quint64 parent) { m_traceParent = parent; }
+    [[nodiscard]] const StreamStats &stats() const { return m_stats; }
 
     void start();
     void abort();
@@ -97,6 +120,17 @@ private:
     int m_attempt = 0;
     bool m_streaming = false;
     bool m_done = false;
+
+    // Observatory tracing (see StreamStats).
+    void endAttempt(int ok, const QVariantMap &fields);
+    void noteEvent(bool delta);
+    quint64 m_traceParent = 0;
+    quint64 m_attemptSpan = 0;
+    quint64 m_retrySpan = 0;
+    qint64 m_lastEventNs = -1;
+    qint64 m_attemptBytes = 0;
+    bool m_tracing = false;
+    StreamStats m_stats;
 };
 
 // GET /models, for model discovery.

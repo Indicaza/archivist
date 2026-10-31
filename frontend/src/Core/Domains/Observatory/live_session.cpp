@@ -90,6 +90,15 @@ QJsonObject eventJson(const LiveEvents::Event &event, qint64 startNs)
     if (!event.fields.isEmpty()) {
         object.insert(QStringLiteral("fields"), QJsonObject::fromVariantMap(event.fields));
     }
+    if (event.id) {
+        object.insert(QStringLiteral("id"), static_cast<double>(event.id));
+    }
+    if (event.parent) {
+        object.insert(QStringLiteral("parent"), static_cast<double>(event.parent));
+    }
+    if (!event.thread.isEmpty()) {
+        object.insert(QStringLiteral("thread"), event.thread);
+    }
     return object;
 }
 
@@ -105,6 +114,9 @@ LiveEvents::Event eventFromJson(const QJsonObject &object)
     const QJsonValue ok = object.value(QStringLiteral("ok"));
     event.ok = ok.isBool() ? (ok.toBool() ? 1 : 0) : -1;
     event.fields = LiveEvents::cleanFields(object.value(QStringLiteral("fields")).toObject().toVariantMap());
+    event.id = static_cast<quint64>(object.value(QStringLiteral("id")).toDouble());
+    event.parent = static_cast<quint64>(object.value(QStringLiteral("parent")).toDouble());
+    event.thread = object.value(QStringLiteral("thread")).toString().left(32);
     return event;
 }
 
@@ -267,22 +279,22 @@ void Session::addEvent(LiveEvents::Event event)
     m_events.append(std::move(event));
 }
 
-quint64 Session::openSpan(LiveEvents::Event event)
+bool Session::openSpan(LiveEvents::Event event)
 {
     QMutexLocker lock(&m_mutex);
     if (m_events.size() + m_open.size() >= m_limits.maxEvents || m_open.size() >= 256) {
         ++m_droppedEvents;
-        return 0;
+        return false;
     }
-    const quint64 token = m_nextToken++;
-    m_open.insert(token, std::move(event));
-    return token;
+    const quint64 id = event.id;
+    m_open.insert(id, std::move(event));
+    return true;
 }
 
-void Session::closeSpan(quint64 token, qint64 endNs, int ok, const QVariantMap &fields)
+void Session::closeSpan(quint64 id, qint64 endNs, int ok, const QVariantMap &fields)
 {
     QMutexLocker lock(&m_mutex);
-    auto it = m_open.find(token);
+    auto it = m_open.find(id);
     if (it == m_open.end()) {
         return;
     }

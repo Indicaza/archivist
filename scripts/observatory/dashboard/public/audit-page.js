@@ -361,7 +361,15 @@ async function inspectorSection(uiRuns) {
       h("div", { class: "row-between" }, h("strong", {}, `#${action.index} ${action.label ?? action.op} (${action.phase}${action.iteration ? `, iteration ${action.iteration}` : ""})`), h("span", { class: "muted small" }, `${ms(action.durationMs)} · settled ${ms(action.settledMs)}`)),
       opTree(action),
       kv([
-        ["Unattributed", `${ms(action.unattributedMs)} of ${ms(action.durationMs)}: time inside no instrumented operation`],
+        ["Unattributed", action.window
+          ? `${ms(action.unattributedMs)} of the ${ms(action.window.ms)} response window (${action.window.basis}): time inside no instrumented operation`
+          : `${ms(action.unattributedMs)} of ${ms(action.durationMs)}: time inside no instrumented operation (older run: measured against the whole action)`],
+        ["Timings", action.timings ? [
+          `dispatch ${ms(action.timings.dispatchMs)}`, `state ${ms(action.timings.stateMs)}`, `last frame ${ms(action.timings.lastFrameMs)}`,
+          `settled ${ms(action.timings.settledMs)}`, `quiet wait ${ms(action.timings.quietWaitMs)}`, `elapsed ${ms(action.timings.elapsedMs)}`,
+        ].join(" · ") : null],
+        ["After the window", action.afterWindowMs ? `${ms(action.afterWindowMs)} of span time ran after the response window` : null],
+        ["Kind", action.kind === "observation" ? "observation (watches the app; not a user interaction)" : null],
         ["Stalls", action.stalls?.length ? action.stalls.map((stall) => `${ms(stall.lateMs)} late at +${ms(stall.atMs)}`).join(", ") : "none"],
         ["Markers", action.markers?.length ? action.markers.map((marker) => `${marker.name} +${ms(marker.atMs)}`).join(", ") : null],
         ["Still running after", action.outlived?.length ? action.outlived.map((op) => `${op.name} (+${ms(op.endsAfterMs)})`).join(", ") : null],
@@ -378,14 +386,16 @@ async function inspectorSection(uiRuns) {
       const block = h("button", { type: "button", class: `tl-block ph-${action.phase}${action.stalls?.length ? " stalled" : ""}`, "data-index": action.index, title: `#${action.index} ${action.label ?? action.op}: ${ms(action.durationMs)}${action.stalls?.length ? `, ${action.stalls.length} stall(s)` : ""}`, onclick: () => showAction(action) });
       block.style.flexGrow = String(Math.max(action.durationMs ?? 0, 1) / total * 100);
       const covered = h("span", { class: "tl-covered" });
+      const windowMs = action.window?.ms ?? action.durationMs;
       covered.style.width = `${action.durationMs ? Math.min(100, Math.round(((action.coveredMs ?? 0) / action.durationMs) * 100)) : 0}%`;
+      covered.title = `${ms(action.coveredMs)} of a ${ms(windowMs)} response window in operations`;
       block.append(covered);
       return block;
     }));
-    actions.replaceChildren(shown.length ? table(["#", "Step", { label: "Duration", num: true }, { label: "In operations", num: true }, { label: "Unattributed", num: true }, { label: "Stalls", num: true }, "Slowest inside"],
+    actions.replaceChildren(shown.length ? table(["#", "Step", { label: "Duration", num: true }, { label: "Window", num: true }, { label: "In operations", num: true }, { label: "Unattributed", num: true }, { label: "Stalls", num: true }, "Slowest inside"],
       shown.slice(0, 300).map((action) => ({
         source: action,
-        cells: [action.index, action.label ?? action.op, ms(action.durationMs), ms(action.coveredMs), ms(action.unattributedMs), action.stalls?.length || "", slowestName(action.operations)],
+        cells: [action.index, action.label ?? action.op, ms(action.durationMs), ms(action.window?.ms ?? action.durationMs), ms(action.coveredMs), ms(action.unattributedMs), action.stalls?.length || "", slowestName(action.operations)],
       })), { onRow: showAction }) : empty("No actions in this phase."));
     for (const row of actions.querySelectorAll("tbody tr")) {
       const index = Number(row.firstChild.textContent);

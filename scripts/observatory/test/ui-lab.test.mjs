@@ -166,10 +166,10 @@ test("operations inside each action are attributed, nested and not double-counte
   assert.equal(summary.operations.collected, true);
   assert.equal(summary.operations.slowest[0].name, "chat.open-conversation");
   assert.ok(summary.operations.slowest.some((op) => op.name === "chat.publish-messages" && op.durationMs === 210 && op.action === 3));
-  const step = summary.operations.steps.find((entry) => entry.step === 1);
-  assert.equal(step.runs, 1, "measured iterations only");
-  assert.equal(step.operations[0].name, "chat.open-conversation");
-  assert.equal(step.stalls, 1);
+  const measuredStep = summary.operations.steps.find((entry) => entry.step === 1);
+  assert.equal(measuredStep.runs, 1, "measured iterations only");
+  assert.equal(measuredStep.operations[0].name, "chat.open-conversation");
+  assert.equal(measuredStep.stalls, 1);
   assert.equal(summary.operations.startup.stages[0].name, "qt-init");
   assert.equal(summary.operations.startup.firstFrameMs, 1380);
   assert.equal(summary.operations.startup.readyMs, 1500);
@@ -181,8 +181,18 @@ test("operations inside each action are attributed, nested and not double-counte
   assert.equal(open.name, "chat.open-conversation");
   assert.deepEqual(open.children.map((child) => child.name), ["chat.load-message-page", "chat.publish-messages"]);
   assert.equal(open.selfMs, 20, "260 ms minus the 240 ms of its two children");
+  assert.equal(action.window.basis, "settled");
+  assert.equal(action.window.ms, 280, "the response ends at the last frame (280 ms), not after the 20 ms quiet wait");
+  assert.equal(action.timings.elapsedMs, 300);
+  assert.equal(action.timings.quietWaitMs, 20);
   assert.equal(action.coveredMs, 260);
-  assert.equal(action.unattributedMs, 40, "the 300 ms action minus the union of its spans, not the sum");
+  assert.equal(action.unattributedMs, 20, "the 280 ms window minus the union of its spans, not the sum");
+  assert.equal(action.coveredMs + action.unattributedMs, action.window.ms);
+  assert.equal(action.afterWindowMs, 0);
+  const step = summary.operations.steps.find((entry) => entry.step === 1);
+  assert.equal(step.windowMedianMs, 280);
+  assert.ok(step.unattributedMedianMs <= step.windowMedianMs);
+  assert.equal(summary.operations.schemaVersion, 2);
   assert.deepEqual(action.stalls, [{ atMs: 45, lateMs: 190 }]);
 });
 

@@ -279,7 +279,8 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
           if (at + (action.durationMs ?? 0) < input.fromMs || at > to) continue;
           actions.push({
             index: action.index, startMs: action.startMs ?? null, phase: action.phase, step: action.step, label: action.label ?? action.op, durationMs: action.durationMs,
-            coveredMs: action.coveredMs, unattributedMs: action.unattributedMs,
+            kind: action.kind ?? null, window: action.window ?? null, timings: action.timings ?? null,
+            coveredMs: action.coveredMs, unattributedMs: action.unattributedMs, afterWindowMs: action.afterWindowMs ?? null,
             operations: (action.operations ?? []).map((node) => ({ name: node.name, startMs: node.startMs, durationMs: node.durationMs, selfMs: node.selfMs, children: node.children?.length ?? 0 })),
             stalls: action.stalls, outlived: action.outlived,
           });
@@ -306,7 +307,7 @@ export function auditOperations({ ControlError, requireRun, runIdPattern, descri
         if (!action) throw new ControlError("not-found", `Run ${input.runId} has no action ${input.action}.`);
         return {
           runId: input.runId, action,
-          basis: "Spans nest by time containment (inside, not necessarily called by). selfMs = a span minus the union of its children; unattributedMs = the action minus the union of its top-level spans.",
+          basis: "Spans nest by time containment (inside, not necessarily called by). selfMs = a span minus the union of its children; unattributedMs = the response window (input to settled; see window.basis) minus the union of the spans inside it, so coveredMs + unattributedMs = window.ms; afterWindowMs is span time after the window. Runs before ui-operations v2 measured against the whole action.",
         };
       },
     },
