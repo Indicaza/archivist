@@ -11,8 +11,8 @@ ApplicationWindow {
     height: 840
     minimumWidth: 960
     minimumHeight: 640
+    flags: ArchivistDiagnostics.uiLabBackground === true ? (Qt.Window | Qt.WindowDoesNotAcceptFocus) : Qt.Window
     visible: true
-    flags: ArchivistDiagnostics.uiLabBackground === true ? Qt.Window | Qt.WindowDoesNotAcceptFocus : Qt.Window
     title: "Archivist"
     color: theme.appBg
 
