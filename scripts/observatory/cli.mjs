@@ -289,19 +289,8 @@ async function uiCommandLocked(options, collected) {
 
 async function uiScenarioCommand(name, options) {
   const root = observatoryRoot();
-  const scenario = JSON.parse(await readFile(path.join(SCENARIO_DIR, `${name}.json`), "utf8"));
   const background = process.platform === "darwin" && process.env.ARCHIVIST_UI_LAB_FOREGROUND !== "1";
-  if (options.fast === true) {
-    scenario.version += 1000;
-    scenario.name += " (smoke)";
-    scenario.warmupIterations = 0;
-    scenario.iterations = Math.min(2, scenario.iterations ?? 1);
-    scenario.settleQuietMs = Math.min(70, scenario.settleQuietMs ?? 120);
-  }
-  if (background) {
-    scenario.version += 10000;
-    scenario.initialConditions += " UI Lab macOS background window (no focus or Spaces switching intended); frame presentation may differ when obscured.";
-  }
+  const scenario = scenarioForRun(JSON.parse(await readFile(path.join(SCENARIO_DIR, `${name}.json`), "utf8")), { fast: options.fast === true, background });
   const { runId, dir } = await createRunDir(root, `ui-${name}`);
   await options.onRunCreated?.(runId);
   const summaryPath = path.join(dir, "summary.json");
