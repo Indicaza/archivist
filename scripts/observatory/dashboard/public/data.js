@@ -84,6 +84,79 @@ export async function loadBaselines() {
   return getJson("api/baselines");
 }
 
+export async function runScenario(runId) {
+  if (!runDetails(runId).artifacts.includes("scenario")) return null;
+  try {
+    return JSON.parse((await artifactText(runId, "scenario")).text);
+  } catch {
+    return null;
+  }
+}
+
+// The run's log text for the report's error lines, if it is small enough to read.
+export async function runLogText(runId) {
+  if (!runDetails(runId).artifacts.includes("log")) return null;
+  try {
+    return (await artifactText(runId, "log")).text;
+  } catch {
+    return null;
+  }
+}
+
+// ---- controls -------------------------------------------------------------------
+// Running tests and writing exports need this session's control key. The
+// dashboard prints a link carrying it (#control=<key>); Archivist's panel
+// opens the page with it. It never leaves this page except in the
+// X-Observatory-Token header of a same-origin request.
+
+const KEY_STORAGE = "archivist.observatory.control";
+let controlKey = null;
+
+export function initControl() {
+  // #control=<key>, optionally &to=<page>; the key is removed from the address at once.
+  const match = location.hash.match(/^#control=([A-Za-z0-9_-]{16,128})(?:&to=([a-z]{1,20}))?$/);
+  if (match) {
+    controlKey = match[1];
+    try {
+      sessionStorage.setItem(KEY_STORAGE, controlKey);
+    } catch {
+      // kept in memory only
+    }
+    history.replaceState(null, "", `${location.pathname}${location.search}#/${match[2] ?? ""}`);
+    return;
+  }
+  try {
+    controlKey = sessionStorage.getItem(KEY_STORAGE);
+  } catch {
+    controlKey = null;
+  }
+}
+
+export function hasControlKey() {
+  return Boolean(controlKey);
+}
+
+// Always resolves to a response envelope ({ ok, result } or { ok: false, error }).
+export async function control(operation, input = {}) {
+  if (!controlKey) {
+    return { ok: false, error: { code: "controls-disabled", message: "This page has no control key." } };
+  }
+  let response;
+  try {
+    response = await fetch(`api/control/${encodeURIComponent(operation)}`, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-Observatory-Token": controlKey },
+      body: JSON.stringify(input),
+    });
+  } catch (error) {
+    return { ok: false, error: { code: "internal", message: `The dashboard server didn't answer: ${error.message}` } };
+  }
+  const body = await response.json().catch(() => null);
+  if (body && typeof body.ok === "boolean") return body;
+  return { ok: false, error: { code: response.status === 404 || response.status === 405 ? "controls-disabled" : "internal", message: errorMessage(body, response.status) } };
+}
+
 export function compare(a, b) {
   const runs = [record(a), record(b)];
   return { runs, comparison: compareRuns(runs[0], runs[1]) };

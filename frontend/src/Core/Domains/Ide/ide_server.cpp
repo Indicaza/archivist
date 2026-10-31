@@ -6,6 +6,7 @@
 #include "Core/Domains/Ide/web_socket_connection.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
+#include "Core/Domains/Observatory/observatory_control.h"
 #include "Core/Domains/Observatory/observatory_records.h"
 #include "Core/Support/json_values.h"
 #include "Core/core_error.h"
@@ -277,6 +278,12 @@ private:
             return;
         }
 
+        // The panel's test controls: POST only, checked in serveObservatoryControl.
+        if (path.startsWith(QStringLiteral("/observatory/api/control/"))) {
+            serveObservatoryControl(path.mid(25));
+            return;
+        }
+
         if (path.startsWith(QStringLiteral("/observatory/"))) {
             if (!get) {
                 respondJson(405, errorBody(QStringLiteral("The Observatory dashboard is read-only.")));
@@ -423,6 +430,60 @@ private:
                 [self, response, head]() {
                     if (self) {
                         self->respond(response.status, response.contentType, head ? QByteArray() : response.body, response.body.size(), response.headers);
+                    }
+                },
+                Qt::QueuedConnection
+            );
+        });
+    }
+
+    // Starts, checks or cancels Observatory tests, or writes reports, by
+    // handing the operation to scripts/observatory (observatory_control.h).
+    // It changes things, so on top of the Host and Origin checks in handle()
+    // it needs: POST, JSON, the page's own origin (not just "no origin"),
+    // and this session's control key, which only the Observatory panel has.
+    void serveObservatoryControl(const QString &operation)
+    {
+        const auto refuse = [this, &operation](int status, const QString &code, const QString &message) {
+            const Observatory::Response response = Observatory::controlError(status, operation, code, message);
+            respond(response.status, response.contentType, response.body, response.body.size(), response.headers);
+        };
+
+        if (m_request.method != "POST") {
+            refuse(405, QStringLiteral("invalid-input"), QStringLiteral("Control operations are POST requests."));
+            return;
+        }
+
+        const QString origin = QString::fromLatin1(m_request.headers.value("origin"));
+        const QByteArray site = m_request.headers.value("sec-fetch-site");
+
+        if (origin.isEmpty() || !allowedOrigins().contains(origin) || (!site.isEmpty() && site != "same-origin")) {
+            refuse(403, QStringLiteral("forbidden-origin"), QStringLiteral("Control requests must come from the Observatory page itself."));
+            return;
+        }
+
+        if (!m_request.headers.value("content-type").toLower().startsWith("application/json")) {
+            refuse(400, QStringLiteral("invalid-input"), QStringLiteral("Send the input as application/json."));
+            return;
+        }
+
+        if (!Observatory::sameControlToken(m_request.headers.value("x-observatory-token"), m_server->m_observatoryControlToken)) {
+            refuse(401, QStringLiteral("unauthorized"), QStringLiteral("This page doesn't have the control key. Reopen the Observatory panel."));
+            return;
+        }
+
+        QPointer<IdeHttpConnection> self(this);
+        const QByteArray input = m_request.body;
+        const QString root = Observatory::defaultRoot();
+
+        m_server->m_pool.start([self, operation, input, root]() {
+            const Observatory::Response response = Observatory::runControlOperation(root, operation, input);
+
+            QMetaObject::invokeMethod(
+                qApp,
+                [self, response]() {
+                    if (self) {
+                        self->respond(response.status, response.contentType, response.body, response.body.size(), response.headers);
                     }
                 },
                 Qt::QueuedConnection
@@ -702,6 +763,7 @@ private:
 
 IdeServer::IdeServer(QObject *parent)
     : QObject(parent)
+    , m_observatoryControlToken(Observatory::newControlToken())
 {
     m_pool.setMaxThreadCount(2);
     m_pool.setExpiryTimeout(30000);
@@ -831,6 +893,11 @@ QUrl IdeServer::url() const
 QUrl IdeServer::observatoryUrl() const
 {
     return ready() ? QUrl(QStringLiteral("http://127.0.0.1:%1/observatory/").arg(m_server->serverPort())) : QUrl();
+}
+
+QString IdeServer::observatoryControlToken() const
+{
+    return QString::fromLatin1(m_observatoryControlToken);
 }
 
 bool IdeServer::ready() const

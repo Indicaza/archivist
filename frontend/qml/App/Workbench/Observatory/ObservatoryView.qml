@@ -2,9 +2,11 @@ import QtQuick
 import QtWebEngine
 import Archivist.Services
 
-// The Observatory dashboard in a panel: the same read-only page as
+// The Observatory dashboard in a panel: the same page as
 // `npm run observatory:dashboard`, served by the app's own loopback host.
-// It only shows the page; links to whole log files open in the browser.
+// The page is opened with this session's control key in its fragment, so
+// its Test Lab can run UI tests; no other page gets the key. Links to whole
+// log files open in the browser.
 Item {
     id: root
 
@@ -24,7 +26,9 @@ Item {
 
         objectName: "observatory.webView"
         anchors.fill: parent
-        url: root.pageUrl.length > 0 ? root.pageUrl : "about:blank"
+        // The fragment never reaches a server; the page keeps the key for its
+        // own same-origin control requests (data.js).
+        url: root.pageUrl.length > 0 ? root.pageUrl + "#control=" + IdeServer.observatoryControlToken : "about:blank"
         backgroundColor: root.theme.workspaceBg
         zoomFactor: root.theme.uiScale
         visible: root.loaded
@@ -32,6 +36,8 @@ Item {
         settings.javascriptCanOpenWindows: false
         settings.localContentCanAccessFileUrls: false
         settings.localContentCanAccessRemoteUrls: false
+        // Copy for AI writes a report to the clipboard when a button is pressed.
+        settings.javascriptCanAccessClipboard: true
 
         // Stays on the dashboard; nothing else loads in this panel.
         onNavigationRequested: function(request) {

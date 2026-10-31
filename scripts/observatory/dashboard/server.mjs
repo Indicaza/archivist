@@ -9,12 +9,18 @@
 //   GET api/baselines                     { baselines, baselinesError, budgets,
 //                                           budgetsSource, budgetsError }
 //
-// Binds to 127.0.0.1, answers GET/HEAD only, accepts only localhost Host
-// headers, and serves nothing else from disk.
+// With --control it also answers POST api/control/<operation> (the
+// operations in ../control/operations.mjs), guarded by ../control/gate.mjs:
+// this session's key, same-origin, JSON only. Without it, it stays read-only.
+//
+// Binds to 127.0.0.1, accepts only localhost Host headers, and serves
+// nothing else from disk.
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkControlRequest, readBody } from "../control/gate.mjs";
+import { ControlError, dispatch, errorEnvelope, HTTP_STATUS } from "../control/operations.mjs";
 import { artifactFile, artifactPath, listRawRuns, MAX_ARTIFACT_BYTES, readBaselinesAndBudgets, readRunSummary, RUN_ID } from "./records.mjs";
 
 export const PAGE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
@@ -30,6 +36,10 @@ export const PAGE_FILES = {
   "normalize.mjs": "text/javascript; charset=utf-8",
   "preview.mjs": "text/javascript; charset=utf-8",
   "regression.mjs": "text/javascript; charset=utf-8",
+  "redact.mjs": "text/javascript; charset=utf-8",
+  "diagnostic.mjs": "text/javascript; charset=utf-8",
+  "dom.js": "text/javascript; charset=utf-8",
+  "lab.js": "text/javascript; charset=utf-8",
 };
 
 const SECURITY_HEADERS = {
@@ -71,11 +81,25 @@ async function serveArtifact(response, root, runId, name) {
   });
 }
 
-export function createDashboardServer({ root, port }) {
-  const allowedHosts = () => {
-    const actual = server.address()?.port ?? port;
-    return new Set([`127.0.0.1:${actual}`, `localhost:${actual}`]);
-  };
+async function serveControl(request, response, operation, control, origins) {
+  const denied = checkControlRequest(request, { token: control?.token, origins });
+  if (denied) return send(response, HTTP_STATUS[denied.code], errorEnvelope(operation, new ControlError(denied.code, denied.message)));
+  let input;
+  try {
+    const text = await readBody(request);
+    input = text.trim() ? JSON.parse(text) : {};
+  } catch (error) {
+    return send(response, 400, errorEnvelope(operation, new ControlError("invalid-input", `The body is not valid JSON: ${error.message}`)));
+  }
+  const result = await dispatch(control.ctx, operation, input);
+  return send(response, result.ok ? 200 : HTTP_STATUS[result.error.code] ?? 500, result);
+}
+
+// control: null (read-only) or { token, ctx } for --control.
+export function createDashboardServer({ root, port, control = null }) {
+  const actualPort = () => server.address()?.port ?? port;
+  const allowedHosts = () => new Set([`127.0.0.1:${actualPort()}`, `localhost:${actualPort()}`]);
+  const allowedOrigins = () => new Set([`http://127.0.0.1:${actualPort()}`, `http://localhost:${actualPort()}`]);
   const server = createServer(async (request, response) => {
     try {
       // Another site can't reach this server through DNS tricks: only
@@ -83,10 +107,13 @@ export function createDashboardServer({ root, port }) {
       if (!allowedHosts().has(String(request.headers.host ?? ""))) {
         return fail(response, 403, "Only localhost requests are answered.");
       }
+      const url = new URL(request.url, "http://localhost");
+      if (url.pathname.startsWith("/api/control/")) {
+        return serveControl(request, response, decodeURIComponent(url.pathname.slice(13)), control, allowedOrigins());
+      }
       if (request.method !== "GET" && request.method !== "HEAD") {
         return fail(response, 405, "The dashboard is read-only.");
       }
-      const url = new URL(request.url, "http://localhost");
       const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
       if (Object.hasOwn(PAGE_FILES, file)) {
         return send(response, 200, await readFile(path.join(PAGE_DIR, file)), PAGE_FILES[file]);

@@ -32,6 +32,9 @@ if (mode === "pass") {
 } else if (mode === "crash") {
   writeFileSync(output, JSON.stringify(report("running", [action(0, "setup", true, 20)])));
   process.kill(process.pid, "SIGKILL");
+} else if (mode === "driver-timeout") {
+  writeFileSync(output, JSON.stringify(report("timeout", [action(0, "setup", true, 20)], "the scenario ran past its timeoutMs")));
+  process.exit(2);
 } else if (mode === "hang") {
   writeFileSync(output, JSON.stringify(report("running", [])));
   setInterval(() => {}, 1000);

@@ -79,6 +79,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Ide/language_support.h
     src/Core/Domains/Ide/ide_server.cpp
     src/Core/Domains/Ide/ide_server.h
+    src/Core/Domains/Observatory/observatory_control.cpp
+    src/Core/Domains/Observatory/observatory_control.h
     src/Core/Domains/Observatory/observatory_records.cpp
     src/Core/Domains/Observatory/observatory_records.h
     src/Core/Support/json_values.h

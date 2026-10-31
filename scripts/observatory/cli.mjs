@@ -7,9 +7,10 @@
 //   node scripts/observatory/cli.mjs dashboard [--port <n>] [--no-open]
 //   node scripts/observatory/cli.mjs baseline set|list|remove|compare ...
 //   node scripts/observatory/cli.mjs check [--no-collect] [--strict] [--repeat <n>]
-import { copyFile, readdir, readFile } from "node:fs/promises";
+//   node scripts/observatory/cli.mjs capabilities | scenarios | tests | runs | report | export | control
+//   (see USAGE; --json gives the versioned envelopes in control/operations.mjs)
+import { copyFile, readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { archivistBuildPhases, buildConditionsBefore, classifyBuild } from "./build-phases.mjs";
 import { exitCodeFor, runCapture } from "./capture.mjs";
@@ -24,14 +25,17 @@ import { spawn } from "node:child_process";
 import { createDashboardServer } from "./dashboard/server.mjs";
 import { baselineCommand, checkReport, compareAfterRun, loadBudgets } from "./comparisons.mjs";
 import { formatUiSummary } from "./ui-report.mjs";
+import { acquireLock, readJob, releaseLock, setStatus, writeJob, ACTIVE } from "./control/jobs.mjs";
+import { dispatch, exitCodeFor as responseExitCode, scenarioDefinitions } from "./control/operations.mjs";
+import { formatResponse } from "./control/human.mjs";
+import { newControlToken } from "./control/gate.mjs";
+import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR } from "./paths.mjs";
 import { summarizeActions } from "./ui-stats.mjs";
 import {
   SCHEMA_VERSION, closeLog, createRunDir, listRunIds, observatoryRoot, openLog, readSummary, runsDir, writeJsonAtomic,
 } from "./storage.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const BUILD_DIR = path.join(ROOT, "build", "frontend-debug");
-const SCENARIO_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui-scenarios");
+const ROOT = REPO_ROOT;
 
 const USAGE = `Archivist Observatory
 
@@ -39,7 +43,7 @@ const USAGE = `Archivist Observatory
   npm run observatory -- ingest-runtime <log> [--label <text>] [--build-run <runId>]
   npm run observatory:ui [-- --scenario sidebar|workspace] [--skip-build] [--keep-profile]
   npm run observatory -- show [runId]
-  npm run observatory:dashboard [-- --port <n>] [--no-open]
+  npm run observatory:dashboard [-- --port <n>] [--no-open] [--control]
 
   npm run observatory -- baseline set <run-id> [<run-id> ...] [--note <text>]
   npm run observatory -- baseline list
@@ -53,6 +57,27 @@ const USAGE = `Archivist Observatory
   --no-collect only compares runs already recorded. Exit codes: 0 done
   (including inconclusive results), 1 a functional failure, 5 a confirmed
   regression with --strict.
+
+Controls (the same operations the dashboard's Test Lab uses; add --json
+for a versioned JSON envelope on stdout and nothing else):
+
+  npm run observatory -- capabilities
+  npm run observatory -- scenarios list
+  npm run observatory -- tests run [--scenario sidebar|workspace|all] [--repeat <n>] [--build] [--wait]
+  npm run observatory -- tests status [<job-id>]
+  npm run observatory -- tests cancel <job-id>
+  npm run observatory -- tests list
+  npm run observatory -- runs list [--kind <k>] [--scenario <id>] [--status <s>] [--limit <n>]
+  npm run observatory -- show <run-id> --json
+  npm run observatory -- runs artifact <run-id> <events|log|scenario> [--tail <lines>] [--raw]
+  npm run observatory -- runs compare <run-id> [<run-id> ...]
+  npm run observatory -- report <run-id>                   (Markdown for an AI)
+  npm run observatory -- export <run-id> [--raw-logs]      (evidence .zip)
+  npm run observatory:dashboard -- --control               (Test Lab in the browser)
+
+  Exit codes: 0 ok, 1 failed, 2 invalid input, 4 another UI test is running;
+  tests run --wait: 0 completed, 1 failed, 70 interrupted, 124 timed out,
+  130 cancelled.
 
 Records are stored in $ARCHIVIST_OBSERVATORY_DIR, or by default
 ${observatoryRoot()}`;
@@ -133,10 +158,33 @@ async function buildCommand(options) {
 }
 
 async function scenarioNames() {
-  return (await readdir(SCENARIO_DIR)).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -5)).sort();
+  return (await scenarioDefinitions(SCENARIO_DIR)).map((entry) => entry.id);
 }
 
+// A test binary set by whoever started the controller (the test suite uses
+// it for the stand-in app). Never taken from a request.
+function appOverride() {
+  return process.env.ARCHIVIST_OBSERVATORY_APP ? path.resolve(process.env.ARCHIVIST_OBSERVATORY_APP) : null;
+}
+
+// One UI test at a time, whether it was started here, by a job or by the
+// dashboard. A job already holds the lock for its own runs.
 async function uiCommand(options, collected = []) {
+  if (options.jobId) return uiCommandLocked(options, collected);
+  const root = observatoryRoot();
+  const lock = await acquireLock(root, { owner: "cli", pid: process.pid });
+  if (!lock.ok) {
+    console.error(`Another UI test is running (${lock.holder?.jobId ? `job ${lock.holder.jobId}` : `process ${lock.holder?.pid}`}). Wait for it, or: npm run observatory -- tests cancel <job-id>`);
+    return 4;
+  }
+  try {
+    return await uiCommandLocked(options, collected);
+  } finally {
+    await releaseLock(root, { owner: "cli", pid: process.pid });
+  }
+}
+
+async function uiCommandLocked(options, collected) {
   const available = await scenarioNames();
   const names = options.scenario ? [options.scenario] : available;
   const unknown = names.filter((name) => !available.includes(name));
@@ -155,7 +203,7 @@ async function uiCommand(options, collected = []) {
     }
     buildRunId = build.runId;
   }
-  const binary = options.app ? path.resolve(options.app) : await findAppBinary(BUILD_DIR);
+  const binary = options.app ? path.resolve(options.app) : appOverride() ?? await findAppBinary(BUILD_DIR);
   if (!binary) {
     console.error(`No Archivist binary in ${path.relative(ROOT, BUILD_DIR)}. Run npm run observatory:build first.`);
     return 2;
@@ -177,6 +225,7 @@ async function uiScenarioCommand(name, options) {
   const root = observatoryRoot();
   const scenario = JSON.parse(await readFile(path.join(SCENARIO_DIR, `${name}.json`), "utf8"));
   const { runId, dir } = await createRunDir(root, `ui-${name}`);
+  await options.onRunCreated?.(runId);
   const summaryPath = path.join(dir, "summary.json");
   const eventsPath = path.join(dir, "ui-events.json");
   const logPath = path.join(dir, "runtime.log");
@@ -417,6 +466,185 @@ async function checkCommand(options) {
   return checkReport(root, options);
 }
 
+// ---- control operations (agents and the dashboard share these) -------------
+
+function controlContext() {
+  return {
+    root: observatoryRoot(), repoRoot: ROOT, buildDir: BUILD_DIR, scenarioDir: SCENARIO_DIR, cliPath: CLI_PATH,
+    appBinary: appOverride(), env: process.env,
+  };
+}
+
+// --json: stdout carries only the JSON document. Anything the existing
+// commands print while working goes to stderr instead.
+function jsonStdout() {
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk, encoding, callback) => process.stderr.write(chunk, encoding, callback);
+  return (value) => write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function runOperation(operation, input, { json = false } = {}) {
+  const print = json ? jsonStdout() : null;
+  const response = await dispatch(controlContext(), operation, input);
+  if (print) print(response);
+  else if (response.ok) console.log(formatResponse(response));
+  else console.error(formatResponse(response));
+  return responseExitCode(response);
+}
+
+const JOB_EXIT = { completed: 0, failed: 1, interrupted: 70, "timed-out": 124, cancelled: 130 };
+
+async function testsCommand(action, args, values) {
+  if (action === "run") {
+    const input = { scenario: values.scenario ?? "all", repeat: values.repeat ?? 1, build: values.build };
+    if (!values.wait) return runOperation("observatory.tests.run", input, values);
+    const print = values.json ? jsonStdout() : null;
+    const ctx = controlContext();
+    let response = await dispatch(ctx, "observatory.tests.run", input);
+    if (response.ok) {
+      const { jobId } = response.result.job;
+      console.error(`Job ${jobId} started; waiting for it to finish.`);
+      let last = "";
+      do {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        response = await dispatch(ctx, "observatory.tests.status", { jobId });
+        const current = response.result?.job?.progress?.current;
+        const line = current ? `${current.scenario ?? ""} round ${current.round ?? ""}: ${current.phase ?? ""} ${current.actionsDone ?? "?"}/${current.actionsPlanned ?? "?"} actions` : response.result?.job?.status;
+        if (line !== last) console.error(line);
+        last = line;
+      } while (response.ok && ACTIVE.has(response.result.job.status));
+    }
+    if (print) print(response);
+    else console.log(formatResponse(response));
+    return response.ok ? JOB_EXIT[response.result.job.status] ?? 1 : responseExitCode(response);
+  }
+  if (action === "status") return runOperation("observatory.tests.status", { jobId: args[0] }, values);
+  if (action === "cancel") return runOperation("observatory.tests.cancel", { jobId: args[0] }, values);
+  if (action === "list" || !action) return runOperation("observatory.tests.list", { limit: values.limit }, values);
+  console.error(`Unknown tests action "${action}". Use run, status, cancel or list.`);
+  return 2;
+}
+
+async function runsCommand(action, args, values) {
+  if (action === "list" || !action) {
+    return runOperation("observatory.runs.list", { kind: values.kind, scenario: values.scenario, status: values.status, limit: values.limit }, values);
+  }
+  if (action === "get") return runOperation("observatory.runs.get", { runId: args[0] }, values);
+  if (action === "artifact") return runOperation("observatory.runs.artifact", { runId: args[0], name: args[1], tailLines: values.tail, raw: values.raw }, values);
+  if (action === "compare") return runOperation("observatory.runs.compare", { runIds: args }, values);
+  console.error(`Unknown runs action "${action}". Use list, get, artifact or compare.`);
+  return 2;
+}
+
+// `control <operation>`: the input as JSON on stdin, the response as JSON
+// on stdout. Archivist's IDE host runs this for the in-app panel.
+async function controlCommandFromStdin(operation) {
+  let text = "";
+  if (!process.stdin.isTTY) {
+    for await (const chunk of process.stdin) {
+      text += chunk;
+      if (text.length > 64 * 1024) break;
+    }
+  }
+  let input = {};
+  const print = jsonStdout();
+  try {
+    input = text.trim() ? JSON.parse(text) : {};
+  } catch (error) {
+    print({ schema: "archivist.observatory.response", schemaVersion: 1, operation, ok: false, error: { code: "invalid-input", message: `The input is not valid JSON: ${error.message}` } });
+    return 2;
+  }
+  const response = await dispatch(controlContext(), operation, input);
+  print(response);
+  return responseExitCode(response);
+}
+
+// The background half of `tests run`: runs the job's scenarios through the
+// ordinary UI Lab runner and keeps job.json up to date. Started only by
+// control/jobs.mjs startJob.
+async function jobRunCommand(jobId) {
+  const root = observatoryRoot();
+  const loaded = await readJob(root, jobId);
+  if (!loaded?.job) {
+    console.error(`No readable job ${jobId}.`);
+    return 2;
+  }
+  const { job } = loaded;
+  if (!ACTIVE.has(job.status)) {
+    console.error(`Job ${jobId} is already ${job.status}.`);
+    return 2;
+  }
+  let cancelled = false;
+  const onSignal = () => {
+    cancelled = true;
+  };
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+  signals.forEach((name) => process.on(name, onSignal));
+  const save = () => writeJob(root, job);
+  setStatus(job, "running", { pid: process.pid, startedAt: new Date().toISOString() });
+  await save();
+  let stopped = false;
+  try {
+    if (job.request.build) {
+      job.current = { phase: "building", scenario: null, round: null, runId: null };
+      await save();
+      const build = await buildCommand({ label: `test-lab ${jobId}`, follow: false });
+      job.buildRunId = build.runId;
+      if (build.exitCode === 130) cancelled = true;
+      else if (build.exitCode !== 0) job.error = "The build failed, so no scenario ran.";
+      stopped = build.exitCode !== 0;
+    }
+    for (let round = 1; round <= job.request.repeat && !stopped; round += 1) {
+      for (const scenario of job.request.scenarios) {
+        if (cancelled) break;
+        job.current = { phase: "starting app", scenario, round, runId: null };
+        await save();
+        const collected = [];
+        const exitCode = await uiCommand({
+          scenario, "skip-build": true, label: `test-lab ${jobId}`, jobId,
+          onRunCreated: async (runId) => {
+            job.current = { phase: "running scenario", scenario, round, runId };
+            await save();
+          },
+        }, collected);
+        const runId = collected[0] ?? null;
+        let status = null;
+        if (runId) {
+          try {
+            status = (await readSummary(root, runId)).summary.status;
+          } catch {
+            status = "unreadable";
+          }
+        }
+        job.runs.push({ runId, scenario, round, status, exitCode });
+        await save();
+        if (exitCode === 130) cancelled = true;
+        if (!runId) {
+          job.error = "The scenario did not start (no Archivist binary?). See job.log.";
+          stopped = true;
+          break;
+        }
+      }
+      if (cancelled) break;
+    }
+  } catch (error) {
+    job.error = error.message;
+    stopped = true;
+  }
+  const statuses = job.runs.map((entry) => entry.status);
+  const status = cancelled ? "cancelled"
+    : statuses.includes("timeout") ? "timed-out"
+    : stopped || job.runs.length < job.plan.totalRuns || statuses.some((entry) => entry !== "passed") ? "failed"
+    : "completed";
+  if (cancelled) job.cancelRequestedAt ??= new Date().toISOString();
+  job.current = null;
+  setStatus(job, status, { exitCode: JOB_EXIT[status] });
+  await save();
+  await releaseLock(root, { jobId });
+  signals.forEach((name) => process.off(name, onSignal));
+  return JOB_EXIT[status];
+}
+
 const DEFAULT_DASHBOARD_PORT = 4317;
 
 async function dashboardCommand(options) {
@@ -426,7 +654,10 @@ async function dashboardCommand(options) {
     return 2;
   }
   const root = observatoryRoot();
-  const server = createDashboardServer({ root, port });
+  // --control: the page may also run tests and write exports, but only with
+  // this session's key, which is in the link printed below.
+  const token = options.control ? newControlToken() : null;
+  const server = createDashboardServer({ root, port, control: token ? { token, ctx: controlContext() } : null });
   try {
     await new Promise((resolve, reject) => {
       server.once("error", reject);
@@ -440,8 +671,11 @@ async function dashboardCommand(options) {
     }
     throw error;
   }
-  const url = `http://127.0.0.1:${server.address().port}/`;
-  console.log(`Observatory dashboard: ${url}\nReading records (read-only) from ${root}\nPress Ctrl+C to stop.`);
+  const base = `http://127.0.0.1:${server.address().port}/`;
+  const url = token ? `${base}#control=${token}&to=lab` : base;
+  console.log(token
+    ? `Observatory dashboard with controls: ${url}\nOnly a page opened from this link can run tests. Records: ${root}\nPress Ctrl+C to stop.`
+    : `Observatory dashboard: ${url}\nReading records (read-only) from ${root}\nAdd --control to run tests from the page.\nPress Ctrl+C to stop.`);
   if (options.open && process.platform === "darwin") {
     spawn("open", [url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
   }
@@ -476,6 +710,15 @@ async function main(argv) {
       repeat: { type: "string" },
       budgets: { type: "string" },
       open: { type: "boolean", default: true },
+      control: { type: "boolean", default: false },
+      build: { type: "boolean", default: false },
+      wait: { type: "boolean", default: false },
+      raw: { type: "boolean", default: false },
+      "raw-logs": { type: "boolean", default: false },
+      kind: { type: "string" },
+      status: { type: "string" },
+      limit: { type: "string" },
+      tail: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -491,9 +734,22 @@ async function main(argv) {
       return build.exitCode;
     }
     case "ui": {
+      const print = values.json ? jsonStdout() : null;
       const collected = [];
       const exitCode = await uiCommand(values, collected);
-      if (collected.length && values.compare) await compareAfterRun(observatoryRoot(), collected);
+      if (print) {
+        const ctx = controlContext();
+        const runs = [];
+        for (const runId of collected) runs.push((await dispatch(ctx, "observatory.runs.get", { runId })).result?.run ?? { runId, status: "unreadable" });
+        const comparison = collected.length ? await dispatch(ctx, "observatory.runs.compare", { runIds: collected }) : null;
+        print({
+          schema: "archivist.observatory.response", schemaVersion: 1, operation: "observatory.ui", ok: exitCode === 0,
+          result: { exitCode, runs, comparison: comparison?.ok ? comparison.result.report : null },
+          ...(exitCode === 0 ? {} : { error: { code: exitCode === 2 ? "invalid-input" : exitCode === 4 ? "busy" : "test-failed", message: `The UI test exited with code ${exitCode}; see the runs' status and error.` } }),
+        });
+      } else if (collected.length && values.compare) {
+        await compareAfterRun(observatoryRoot(), collected);
+      }
       return exitCode;
     }
     case "baseline":
@@ -503,7 +759,32 @@ async function main(argv) {
     case "ingest-runtime":
       return ingestRuntimeCommand(argument, values);
     case "show":
+      if (values.json) return runOperation("observatory.runs.get", { runId: argument ?? (await listRunIds(observatoryRoot())).at(-1) }, values);
       return showCommand(argument);
+    case "capabilities":
+      return runOperation("observatory.capabilities", {}, values);
+    case "scenarios":
+      return runOperation("observatory.scenarios.list", {}, values);
+    case "tests":
+      return testsCommand(argument, positionals.slice(2), values);
+    case "runs":
+      return runsCommand(argument, positionals.slice(2), values);
+    case "report": {
+      if (values.json) return runOperation("observatory.reports.generate", { runId: argument }, values);
+      const response = await dispatch(controlContext(), "observatory.reports.generate", { runId: argument });
+      if (!response.ok) {
+        console.error(formatResponse(response));
+        return responseExitCode(response);
+      }
+      process.stdout.write(response.result.markdown);
+      return 0;
+    }
+    case "export":
+      return runOperation("observatory.reports.export", { runId: argument, includeRawLogs: values["raw-logs"] }, values);
+    case "control":
+      return controlCommandFromStdin(argument);
+    case "job-run":
+      return jobRunCommand(argument);
     case "dashboard":
       return dashboardCommand(values);
     default:
