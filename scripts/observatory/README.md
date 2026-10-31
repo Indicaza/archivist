@@ -6,7 +6,7 @@ pieces so far: build capture, the UI Lab (scripted UI scenarios timed in a
 real, isolated app instance), and an import of the existing
 `archivist.wells.timing` runtime logs, plus a local dashboard to browse and
 compare the records, baselines that flag regressions, and controls that
-let people (the Test Lab) and agents (`--json`) run tests and hand the
+let people (the Record page) and agents (`--json`) run tests and hand the
 results to an AI.
 
 **Architecture in one paragraph.** Every record is a folder under
@@ -275,26 +275,35 @@ npm run observatory:dashboard -- --port 4400 --no-open
 Both show the same page over the records above. They read them and never
 write, rename or delete anything. Press Ctrl+C to stop the browser version.
 
-- **Overview**: latest build, latest run of each UI scenario, build and UI
-  trends, recent failures, the machine, and "since the previous comparable
-  run" changes.
-- **Builds**: phases per build, cached vs rebuilt IDE bundle, build kind,
-  status, and each build's log.
-- **UI performance**: settled and state latency (median, p95, max) per
-  scenario version, per-step tables for the latest run, failures. This is
-  action latency, not frame time; frame gaps are shown separately.
-- **Compare**: any two runs as baseline and candidate. Shows Git, build
-  configuration, machine and scenario for both, then every metric with the
-  absolute and percentage change and better / worse / about the same
-  (within 2%) / not measured in both. Runs of different kinds, different
-  scenarios or different scenario versions are refused with the reason.
-  Different hardware, OS, build type, compiler, Qt, build kind, IDE cache,
-  dirty trees and failed runs are warned about. It makes no claim of
-  statistical significance: each side is one run.
-- **Runs**: every run, filterable by type, result, scenario, branch, commit,
-  date and text; tick two to compare. A run's page has its metadata,
-  phases or actions, and a searchable, paged preview of its log files with a
-  link to the full file.
+The page has three places, picked from the switch in the top bar:
+
+- **Record**: a big **Record** button with the length (15, 30, 60 or 120 s),
+  an optional name, and the latest runs beside it. **Run a scripted UI
+  test** folds open underneath for the repeatable UI scenarios.
+- **History**: every run as one list, with a chip per kind (recordings,
+  builds, UI tests, runtime logs), a search box (name, branch, commit) and
+  trend charts for the kind shown. Tick two runs of the same kind and press
+  **Compare**.
+- **Compare**: pick a **Before** and an **After** (or swap them). Both runs'
+  Git, build and machine details sit side by side, then a count of better /
+  worse / about the same (within 2%) and paired bars for each measure, with
+  the change. Recordings, builds and UI tests compare with their own kind;
+  different kinds, scenarios, scenario versions, or recordings with a
+  different measurement version or sampling interval are refused with the
+  reason. Different hardware, OS, build type, compiler, Qt, build kind, IDE
+  cache, dirty trees and failed runs are warned about. Each side is one run,
+  so no claim of statistical significance is made. **Regression check**
+  folds open at the bottom (see Baselines).
+
+Every run has its own page: tiles with the headline numbers, the timeline
+for a recording, and folds for phases, steps, details and a searchable,
+paged preview of each log. Its action bar has **Compare with previous**,
+**Compare with…**, **Copy for AI** and **Export evidence**.
+
+The layout follows the panel's shape: side by side when wide, one column when
+narrow, a tighter header when short, and icons only in the switch below
+about 440 px. Old links (`#/builds`, `#/runs`, `#/baselines`, `#/live`,
+`#/lab`, …) still open the matching place.
 
 Runs that never finished show as `incomplete`, summaries that can't be parsed
 as `unreadable`, and summaries from a newer `schemaVersion` are listed but not
@@ -406,26 +415,26 @@ performance data; they are listed separately as functional failures.
 and inconclusive results, unless `--strict`), 1 a functional failure or an
 error, 2 usage, 5 a confirmed regression under `--strict`.
 
-The dashboard's **Baselines** page shows each category's baseline, what it
+The **Regression check** on the dashboard's Compare page shows each category's baseline, what it
 was compared with, every metric's verdict, slowest-step changes and a trend
 chart with the baseline runs marked. It is read-only: baselines are set from
 the command line.
 
-## Controls: Test Lab, agents, Copy for AI
+## Controls: UI tests, agents, Copy for AI
 
 People and agents drive the same controller (`control/operations.mjs`):
-people through the dashboard's **Test Lab** and its buttons, agents through
+people through the dashboard's **Record** page and its buttons, agents through
 the CLI with `--json`. Both start the same jobs, read the same records and
 get the same reports.
 
 ### For people
 
-- **In Archivist:** open the Observatory panel and go to **Test Lab**. Its
-  controls are on already.
+- **In Archivist:** open the Observatory panel and open **Run a scripted UI
+  test** on the Record page. Its controls are on already.
 - **In a browser:** run `npm run observatory:dashboard -- --control` and open
   the link it prints. Without `--control` the dashboard stays read-only.
 
-From the Test Lab you can:
+From there you can:
 
 - Pick All, Sidebar Stress or Workspace Stress, set the number of rounds
   (1–10), and choose whether to build first. Building is off by default, so
@@ -441,8 +450,8 @@ From the Test Lab you can:
   each run.
 
 **Copy for AI** puts a short Markdown report on the clipboard. It is on
-every run page, on Test Lab results, and on every category of the Baselines
-page. **Export evidence** writes a redacted folder and `.zip` for an agent
+every run page, on UI test results, and on every category of the
+Regression check. **Export evidence** writes a redacted folder and `.zip` for an agent
 that can't read your Observatory folder.
 
 ### For agents
@@ -614,7 +623,7 @@ for them (`--raw-logs`, or the checkbox, which asks again).
   percentage is invented.
 - **No downloads in the app.** In the in-app panel, Export shows the
   `.zip` path (with a Copy path button) instead of downloading it.
-- **Build tests stay on the command line.** The Test Lab runs UI
+- **Build tests stay on the command line.** The dashboard runs UI
   scenarios; builds are still recorded with `npm run observatory:build`.
 - **Slightly different redaction in the page.** The page doesn't know where
   the checkout is, so its reports hide repository paths under your home
@@ -629,11 +638,12 @@ every other run. Agents can do the same through `observatory.live.*`.
 
 ### For people
 
-- Inside Archivist: open the Observatory panel and pick **Live**. Choose a
-  length (15, 30, 60 or 120 s; 30 by default), optionally name it, and press
-  **Start recording**. A red **Recording m:ss** pill shows in the top bar for
-  as long as it runs; clicking it stops the recording.
-- **Add marker** drops a note at that moment ("felt slow here").
+- Inside Archivist: open the Observatory panel; it opens on **Record**.
+  Choose a length (15, 30, 60 or 120 s; 30 by default), optionally name it,
+  and press **Record**. A red dot shows in the top bar for as long as it
+  runs, on every page; clicking it brings you back to **Stop**.
+- **Mark** (or Enter in the note box) drops a note at that moment ("felt
+  slow here").
 - When it stops, the recording opens: a summary sentence, frames per window,
   how late the UI thread answered, CPU, memory, threads, and a timeline with
   one lane per window, the UI thread, CPU, memory and the instrumented
@@ -735,7 +745,7 @@ A `live-session` run (`<timestamp>-live-<hex>`) with:
   `interrupted` with `partial: true` and rebuilds what it can from the stream.
   A run still `running` more than 5 minutes past its length is finished the
   same way even if its process id now belongs to another program.
-- The Live page itself updates once a second while recording (its
+- The Record page itself updates once a second while recording (its
   indicator is static on purpose). With the panel open, those redraws show up
   as a few frames per second in the recording; close or hide the panel for
   the cleanest numbers.
@@ -851,9 +861,9 @@ space and slower unfiltered scans.
 | `dashboard/public/regression.mjs` | Baseline comparison rules and the report (shared by the CLI and the page) |
 | `dashboard/public/diagnostic.mjs` | The Copy for AI report (shared by the page and the CLI) |
 | `dashboard/public/redact.mjs` | Redaction for reports and exports |
-| `dashboard/public/lab.js` | The Test Lab page and the Copy for AI / Export buttons |
+| `dashboard/public/lab.js` | The scripted UI test panel and the Copy for AI / Export buttons |
 | `dashboard/public/live.mjs` | Live recording analysis: moments, context, ranges, comparison, report (shared by the page and the CLI) |
-| `dashboard/public/live-page.js` | The Live page: recorder controls and the timeline |
+| `dashboard/public/live-page.js` | The recorder and a recording's page with its timeline |
 | `dashboard/public/dom.js` | The page's DOM and formatting helpers |
 | `dashboard/public/filter.mjs` | Run filters |
 | `dashboard/public/preview.mjs` | Paging and searching a log |
