@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QSet>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -169,6 +170,9 @@ const QStringList &pageFiles()
         QStringLiteral("lab.js"),
         QStringLiteral("live.mjs"),
         QStringLiteral("live-page.js"),
+        QStringLiteral("audit.mjs"),
+        QStringLiteral("trace.mjs"),
+        QStringLiteral("audit-page.js"),
     };
     return files;
 }
@@ -190,15 +194,30 @@ QList<QByteArray> securityHeaders()
     };
 }
 
-Response runsListing(const QString &root)
+Response runsListing(const QString &root, int limit)
 {
     QStringList names = QDir(runsDirectory(root)).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     names.erase(std::remove_if(names.begin(), names.end(), [](const QString &name) { return !isRunId(name); }), names.end());
     std::sort(names.begin(), names.end(), std::greater<QString>());
 
+    // The newest `limit`, and the runs a baseline compares against.
+    QSet<QString> keep;
+    const QJsonObject baselines = readJsonFile(QDir(root).filePath(QStringLiteral("baselines.json"))).value.toObject().value(QStringLiteral("baselines")).toObject();
+    for (const QJsonValue &entry : baselines) {
+        for (const QJsonValue &id : entry.toObject().value(QStringLiteral("runIds")).toArray()) {
+            keep.insert(id.toString());
+        }
+    }
+    QStringList listed;
+    for (qsizetype index = 0; index < names.size(); ++index) {
+        if (index < limit || keep.contains(names.at(index))) {
+            listed.append(names.at(index));
+        }
+    }
+
     QJsonArray runs;
 
-    for (const QString &runId : names) {
+    for (const QString &runId : std::as_const(listed)) {
         const Summary summary = readSummary(QDir(runsDirectory(root)).filePath(runId));
         runs.append(QJsonObject{
             {QStringLiteral("runId"), runId},
@@ -207,7 +226,13 @@ Response runsListing(const QString &root)
         });
     }
 
-    const QJsonObject body{{QStringLiteral("root"), root}, {QStringLiteral("runs"), runs}};
+    const QJsonObject body{
+        {QStringLiteral("root"), root},
+        {QStringLiteral("runs"), runs},
+        {QStringLiteral("total"), static_cast<double>(names.size())},
+        {QStringLiteral("omitted"), static_cast<double>(names.size() - listed.size())},
+        {QStringLiteral("limit"), limit},
+    };
     return {200, jsonType(), QJsonDocument(body).toJson(QJsonDocument::Compact), securityHeaders()};
 }
 

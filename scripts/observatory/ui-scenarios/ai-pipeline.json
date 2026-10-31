@@ -1,0 +1,170 @@
+{
+  "id": "ai-pipeline",
+  "version": 1,
+  "name": "AI pipeline (offline)",
+  "description": "Sends chat messages in a short and a long conversation, with a synthetic Library to search, against a local mock provider that answers at once. What it measures is Archivist's own side of an AI turn: preparation, retrieval, context compilation, database work, persistence and showing the reply.",
+  "initialConditions": "Fresh disposable profile, 1280x840 window, Research layout, one chat view. Fixture: seed 11, a Library of 80 synthetic notes (indexed), conversations 'Lab Short' (6 messages) and 'Lab Long' (400 messages). Provider: the local mock ('fast': one short reply, no delay). No API calls.",
+  "workload": {
+    "fixture": "UiLab::fixtureMessage",
+    "seed": 11,
+    "library": {
+      "files": 80
+    },
+    "chats": {
+      "short": 6,
+      "long": 400
+    }
+  },
+  "ai": {
+    "provider": "mock",
+    "behaviour": "fast"
+  },
+  "methods": {
+    "seedChats": "fixture: UiLab.seedChats writes the conversations, and with files a synthetic Library it then indexes, to the test profile's database",
+    "refreshChats": "store-call: ChatStore.refresh (what the app does on start)",
+    "openView": "store-call: Docking.openView",
+    "selectChat": "store-call: ChatStore.selectChat (what picking a conversation in the side panel does)",
+    "sendChatMessage": "store-call: ChatStore.sendMessage (what the composer's Send does)",
+    "cancelChatRun": "store-call: ChatStore.cancelActiveRun (what Stop does)"
+  },
+  "seed": 11,
+  "warmupIterations": 1,
+  "iterations": 3,
+  "actionTimeoutMs": 20000,
+  "settleQuietMs": 150,
+  "readyTimeoutMs": 60000,
+  "timeoutMs": 300000,
+  "setup": [
+    {
+      "op": "returnToWorkspace",
+      "label": "show workspace",
+      "expect": {
+        "homeActive": false
+      }
+    },
+    {
+      "op": "setPanelOpen",
+      "open": false,
+      "label": "close side panel",
+      "expect": {
+        "panelOpen": false,
+        "sidebarSettled": true
+      }
+    },
+    {
+      "op": "applyLayout",
+      "layoutId": "research",
+      "label": "layout research",
+      "expect": {
+        "currentLayoutId": "research"
+      }
+    },
+    {
+      "op": "seedChats",
+      "seed": 11,
+      "files": 80,
+      "chats": [
+        {
+          "key": "short",
+          "title": "Lab Short",
+          "messages": 6
+        },
+        {
+          "key": "long",
+          "title": "Lab Long",
+          "messages": 400
+        }
+      ],
+      "label": "seed library and conversations",
+      "expect": {
+        "seeded": true
+      }
+    },
+    {
+      "op": "refreshChats",
+      "label": "list conversations",
+      "expect": {
+        "chatsListed": [
+          "short",
+          "long"
+        ]
+      }
+    },
+    {
+      "op": "selectChat",
+      "key": "short",
+      "label": "select short",
+      "expect": {
+        "chatShown": {
+          "key": "short",
+          "minMessages": 6
+        }
+      }
+    },
+    {
+      "op": "openView",
+      "key": "chat",
+      "typeId": "archivist.chat",
+      "resource": {
+        "kind": "chat",
+        "id": "seed:short"
+      },
+      "title": "Lab Short",
+      "label": "open chat view",
+      "expect": {
+        "viewsOpen": [
+          "chat"
+        ],
+        "chatShown": {
+          "key": "short",
+          "minMessages": 1
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "selectChat",
+      "key": "short",
+      "label": "open short conversation",
+      "expect": {
+        "chatShown": {
+          "key": "short",
+          "minMessages": 6
+        }
+      }
+    },
+    {
+      "op": "sendChatMessage",
+      "text": "Which notes talk about the archive layout and render panels?",
+      "label": "ask in short conversation",
+      "expect": {
+        "runSettled": {
+          "status": "complete"
+        }
+      }
+    },
+    {
+      "op": "selectChat",
+      "key": "long",
+      "label": "open long conversation",
+      "expect": {
+        "chatShown": {
+          "key": "long",
+          "minMessages": 100
+        }
+      }
+    },
+    {
+      "op": "sendChatMessage",
+      "text": "Summarize what we decided about the panel layout earlier in this conversation.",
+      "label": "ask in long conversation",
+      "expect": {
+        "runSettled": {
+          "status": "complete"
+        }
+      }
+    }
+  ],
+  "teardown": []
+}

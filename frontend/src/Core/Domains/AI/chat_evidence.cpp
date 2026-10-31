@@ -3,6 +3,7 @@
 #include "Core/Domains/Chats/chat_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Support/js_compat.h"
 #include "Core/Support/json_values.h"
 #include "Core/core_error.h"
@@ -354,6 +355,10 @@ RetrievalEvidence libraryRetrieval(
         }
     }
 
+    // Budgeting the candidates into evidence blocks.
+    LiveEvents::Step selectStep(QStringLiteral("retrieval"), QStringLiteral("select"), {
+        {QStringLiteral("candidates"), retrieval.value(QStringLiteral("candidates")).toList().size()},
+    });
     QStringList sourceBlocks;
     QHash<QString, int> chunksPerFile;
     int remainingTokens = maximumRetrievalEvidenceTokens;
@@ -425,6 +430,12 @@ RetrievalEvidence libraryRetrieval(
             QStringLiteral("Automatically retrieved from the selected Library using SQLite FTS5.")
         ));
     }
+
+    selectStep.done(1, {
+        {QStringLiteral("included"), evidence.manifestSources.size()},
+        {QStringLiteral("omitted"), evidence.outcomes.size() - evidence.manifestSources.size()},
+        {QStringLiteral("tokens"), maximumRetrievalEvidenceTokens - remainingTokens},
+    });
 
     if (sourceBlocks.isEmpty()) {
         return evidence;

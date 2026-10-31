@@ -12,7 +12,10 @@ import { writeFixtureRuns } from "./dashboard-runs.mjs";
 
 const DURATIONS = [15, 30, 60, 120];
 
-export async function startFakeLiveApp(root, { pid = process.pid, writeAccess = true } = {}) {
+// finalizeMs: how long "finalizing" lasts; outcome: the saved status
+// (completed, failed, interrupted); limitMs: stop by "time-limit" after this
+// long (the real app uses the recording's duration).
+export async function startFakeLiveApp(root, { pid = process.pid, writeAccess = true, finalizeMs = 50, outcome = "completed", limitMs = null } = {}) {
   const token = randomBytes(24).toString("base64url");
   const calls = [];
   let state = "idle";
@@ -31,16 +34,22 @@ export async function startFakeLiveApp(root, { pid = process.pid, writeAccess = 
   };
   const failure = (code, message) => ({ error: { code, message } });
 
+  // Like the app: "finalizing" until the files are on disk, then idle with lastRun.
   const finish = async (reason) => {
     const run = current;
-    state = "idle";
-    current = null;
     const { summary, files } = liveFixtures()[LIVE_FIXTURE_ID];
     const saved = structuredClone(summary);
-    Object.assign(saved, { runId: run.runId, label: run.label ?? null, createdAt: new Date(run.startedAt).toISOString() });
+    Object.assign(saved, { runId: run.runId, label: run.label ?? null, createdAt: new Date(run.startedAt).toISOString(), status: outcome });
     saved.live = { ...saved.live, stopReason: reason, startedBy: "agent", requestedDurationS: run.durationSeconds };
     await writeFixtureRuns(root, { [run.runId]: { summary: saved, files } });
-    lastRun = { runId: run.runId, status: "completed" };
+    lastRun = { runId: run.runId, status: outcome, stopReason: reason, finishedAt: new Date().toISOString(), error: outcome === "failed" ? "fixture: write failed" : null };
+    state = "idle";
+    current = null;
+  };
+  const stopNow = (reason) => {
+    clearTimeout(current.limit);
+    state = "finalizing";
+    setTimeout(() => finish(reason), finalizeMs);
   };
 
   const handle = async (operation, input) => {
@@ -54,12 +63,12 @@ export async function startFakeLiveApp(root, { pid = process.pid, writeAccess = 
         counter += 1;
         current = { runId: `20261030T18000${counter % 10}-000Z-live-${String(counter).padStart(6, "a")}`, label: input.label ?? null, durationSeconds, startedAt: Date.now(), marks: 0 };
         state = "recording";
+        if (limitMs != null) current.limit = setTimeout(() => { if (state === "recording") stopNow("time-limit"); }, limitMs);
         return status();
       }
       case "stop": {
         if (state !== "recording") return failure("not-recording", "No live recording is running.");
-        state = "finalizing";
-        setTimeout(() => finish("agent"), 50);
+        stopNow("agent");
         return status();
       }
       case "mark": {

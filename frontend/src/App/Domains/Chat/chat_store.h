@@ -249,6 +249,9 @@ private:
     QVariantList m_chats;
     QVariantList m_archivedChats;
     QString m_selectedChatId;
+    // Observatory: from selecting a conversation to its first page of
+    // messages published to QML (0 when nothing is being timed).
+    quint64 m_liveOpen = 0;
     QVariantList m_messages;
     ChatMessageModel *m_messageModel = nullptr;
     QVariantList m_attachments;
@@ -280,6 +283,17 @@ private:
     int m_runReconnectAttempts = 0;
     int m_runDiagnosticEventCount = 0;
     int m_runDiagnosticDeltaCount = 0;
+    // Observatory: how the active run's text reached the view (-1: none yet).
+    struct RunPresentationTrace
+    {
+        qint64 firstDeltaNs = -1;
+        qint64 flushNs = 0;
+        qint64 flushMaxNs = 0;
+        int flushes = 0;
+        int deltas = 0;
+        bool shown = false;
+    } m_runPresentation;
+    void endRunPresentationTrace(const QString &runId, const QString &outcome);
     int m_runDiagnosticDeltaCharacters = 0;
     int m_runDiagnosticSubscriptions = 0;
     bool m_assigningAgent = false;

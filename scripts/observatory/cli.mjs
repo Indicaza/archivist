@@ -12,6 +12,10 @@
 import { copyFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { collectBuildEvidence } from "./build-evidence.mjs";
+import { summarizeTraces } from "./time-trace.mjs";
+import { analyzeOperations } from "./ui-operations.mjs";
+import { providerFor, ProviderRefused } from "./ai-provider.mjs";
 import { archivistBuildPhases, buildConditionsBefore, classifyBuild } from "./build-phases.mjs";
 import { exitCodeFor, runCapture } from "./capture.mjs";
 import { collectMachine, collectSource, collectToolchain } from "./metadata.mjs";
@@ -27,9 +31,11 @@ import { baselineCommand, checkReport, compareAfterRun, loadBudgets } from "./co
 import { formatUiSummary } from "./ui-report.mjs";
 import { acquireLock, readJob, releaseLock, setStatus, writeJob, ACTIVE } from "./control/jobs.mjs";
 import { dispatch, exitCodeFor as responseExitCode, scenarioDefinitions } from "./control/operations.mjs";
+import { writeAuditRecord } from "./control/audit.mjs";
 import { formatResponse } from "./control/human.mjs";
 import { newControlToken } from "./control/gate.mjs";
-import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR } from "./paths.mjs";
+import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR, TIME_TRACE_DIR } from "./paths.mjs";
+const DEFAULT_BUILD_DIR = BUILD_DIR;
 import { summarizeActions } from "./ui-stats.mjs";
 import {
   SCHEMA_VERSION, closeLog, createRunDir, listRunIds, observatoryRoot, openLog, readSummary, runsDir, writeJsonAtomic,
@@ -41,7 +47,7 @@ const USAGE = `Archivist Observatory
 
   npm run observatory:build [-- --label <text>] [--follow]
   npm run observatory -- ingest-runtime <log> [--label <text>] [--build-run <runId>]
-  npm run observatory:ui [-- --scenario sidebar|workspace] [--skip-build] [--keep-profile]
+  npm run observatory:ui [-- --scenario sidebar|workspace|chat|startup|ai-pipeline|ai-turn] [--skip-build] [--keep-profile]
   npm run observatory -- show [runId]
   npm run observatory:dashboard [-- --port <n>] [--no-open] [--control]
 
@@ -63,7 +69,7 @@ for a versioned JSON envelope on stdout and nothing else):
 
   npm run observatory -- capabilities
   npm run observatory -- scenarios list
-  npm run observatory -- tests run [--scenario sidebar|workspace|all] [--repeat <n>] [--build] [--wait]
+  npm run observatory -- tests run [--scenario sidebar|workspace|chat|startup|ai-pipeline|ai-turn|all] [--repeat <n>] [--build] [--wait]
   npm run observatory -- tests status [<job-id>]
   npm run observatory -- tests cancel <job-id>
   npm run observatory -- tests list
@@ -74,6 +80,26 @@ for a versioned JSON envelope on stdout and nothing else):
   npm run observatory -- report <run-id>                   (Markdown for an AI)
   npm run observatory -- export <run-id> [--raw-logs]      (evidence .zip)
   npm run observatory:dashboard -- --control               (Test Lab in the browser)
+
+Audits (one press: build and/or UI scenarios, then findings with the rules
+that produced them; Observatory > Record in the dashboard):
+
+  npm run observatory -- audit presets
+  npm run observatory -- audit run --preset quick|ui|ai|ai-turn|build|complete [--repeat <n>] [--wait]
+  npm run observatory -- audit run --preset provider --allow-provider-calls  (real provider: asks first, capped)
+  npm run observatory -- audit status [<job-id>]
+  npm run observatory -- audit cancel <job-id>
+  npm run observatory -- audit list [--preset <p>] [--limit <n>]
+  npm run observatory -- audit findings <audit-id> [--severity <s>] [--subsystem <name>] [--finding <id>]
+  npm run observatory -- audit compare <audit-id> [<baseline-audit-id>]
+  npm run observatory -- audit report <audit-id>          (Markdown for an AI)
+  npm run observatory -- audit timeline <run-id> [--from <ms>] [--to <ms>] [--limit <n>]
+  npm run observatory -- audit operation <run-id> <action-index>
+  npm run observatory -- audit trace <run-id> [--turn <n>]  (AI turns by cause)
+  npm run observatory -- audit export <audit-id> [--raw-logs]
+
+  The build and complete presets run an incremental build of
+  build/frontend-debug; nothing is cleaned or deleted.
 
 Live recordings (the app's flight recorder; Observatory > Live in Archivist):
 
@@ -102,6 +128,9 @@ ${observatoryRoot()}`;
 
 async function buildCommand(options) {
   const root = observatoryRoot();
+  // --time-trace: the opt-in profiling build in its own directory.
+  const timeTrace = options["time-trace"] === true;
+  const BUILD_DIR = timeTrace ? TIME_TRACE_DIR : DEFAULT_BUILD_DIR;
   const { runId, dir } = await createRunDir(root, "build");
   const summaryPath = path.join(dir, "summary.json");
   const logPath = path.join(dir, "build.log");
@@ -126,7 +155,7 @@ async function buildCommand(options) {
     source,
     environment,
     toolchain: null,
-    buildConditions: { buildDir: path.relative(ROOT, BUILD_DIR), before, classification: null },
+    buildConditions: { buildDir: path.relative(ROOT, BUILD_DIR), before, classification: null, profiling: timeTrace ? "clang-time-trace" : null },
     phases: [],
     errors: [],
     artifacts: { log: "build.log" },
@@ -138,8 +167,9 @@ async function buildCommand(options) {
   console.log(`Observatory run ${runId}${options.follow ? "" : " (full output in build.log)"}`);
 
   let state;
+  const evidence = {};
   try {
-    state = await runCapture(archivistBuildPhases({ root: ROOT, buildDir: BUILD_DIR }), {
+    state = await runCapture(archivistBuildPhases({ root: ROOT, buildDir: BUILD_DIR, evidence, timeTrace }), {
       log,
       echo: options.follow,
       onPhaseDone: (phase) => console.log(`  ${phaseLine(phase)}`),
@@ -162,6 +192,23 @@ async function buildCommand(options) {
   summary.finishedAt = new Date().toISOString();
   summary.toolchain = await collectToolchain(BUILD_DIR);
   summary.buildConditions.classification = classifyBuild(before, state.phases);
+  if (evidence.explain) {
+    try {
+      const collected = await collectBuildEvidence({ root: ROOT, buildDir: BUILD_DIR, ...evidence });
+      await writeJsonAtomic(path.join(dir, "build-evidence.json"), collected.artifact);
+      summary.evidence = collected.summary;
+      summary.artifacts.evidence = "build-evidence.json";
+      if (timeTrace) {
+        const compiled = collected.artifact.jobs.filter((job) => job.category === "compile").map((job) => job.output);
+        const traces = await summarizeTraces(BUILD_DIR, compiled, { relative: (file) => file.startsWith(`${ROOT}/`) ? file.slice(ROOT.length + 1) : file });
+        await writeJsonAtomic(path.join(dir, "time-trace.json"), traces);
+        summary.artifacts.timeTrace = "time-trace.json";
+        summary.timeTrace = { ...traces, headers: traces.headers.slice(0, 10), templates: traces.templates.slice(0, 10), slowestUnits: traces.slowestUnits.slice(0, 10) };
+      }
+    } catch (error) {
+      summary.errors.push({ phase: null, message: `Build evidence could not be collected: ${error.message}` });
+    }
+  }
   for (const phase of state.phases) {
     if (phase.error) {
       summary.errors.push({ phase: phase.name, message: phase.error.message });
@@ -175,8 +222,8 @@ async function buildCommand(options) {
   return { exitCode: summary.exitCode, runId };
 }
 
-async function scenarioNames() {
-  return (await scenarioDefinitions(SCENARIO_DIR)).map((entry) => entry.id);
+async function scenarioNames({ includeProvider = false } = {}) {
+  return (await scenarioDefinitions(SCENARIO_DIR)).filter((entry) => includeProvider || !entry.providerCalls).map((entry) => entry.id);
 }
 
 // A test binary set by whoever started the controller (the test suite uses
@@ -203,8 +250,9 @@ async function uiCommand(options, collected = []) {
 }
 
 async function uiCommandLocked(options, collected) {
-  const available = await scenarioNames();
-  const names = options.scenario ? [options.scenario] : available;
+  const available = await scenarioNames({ includeProvider: true });
+  // Without --scenario: every scenario except the opt-in provider ones.
+  const names = options.scenario ? [options.scenario] : await scenarioNames();
   const unknown = names.filter((name) => !available.includes(name));
   if (unknown.length) {
     console.error(`Unknown scenario: ${unknown.join(", ")}. Available: ${available.join(", ")}`);
@@ -295,13 +343,40 @@ async function uiScenarioCommand(name, options) {
   await writeJsonAtomic(summaryPath, summary);
   console.log(`UI Lab: ${scenario.name}, run ${runId}`);
 
+  // The AI provider this run may talk to: never the real one unless asked.
+  let provider;
+  try {
+    provider = await providerFor(scenario, { allowProviderCalls: options["allow-provider-calls"] === true });
+  } catch (error) {
+    if (!(error instanceof ProviderRefused)) throw error;
+    // Refused before anything started: recorded as a failed run that says why.
+    summary.status = "failed";
+    summary.error = error.message;
+    summary.exitCode = 2;
+    summary.finishedAt = new Date().toISOString();
+    summary.ai = { provider: scenario.ai?.provider ?? null, refused: true };
+    await writeJsonAtomic(summaryPath, summary);
+    console.error(error.message);
+    return { exitCode: 2, runId };
+  }
+  summary.ai = provider.summary;
+  await writeJsonAtomic(summaryPath, summary);
+
   const profileDir = await createProfile();
-  const app = await runApp({
-    command: options.binary,
-    env: labEnvironment(process.env, { profileDir, scenarioFile: scenarioPath, eventsFile: eventsPath }),
-    logFile: logPath,
-    timeoutMs: options.timeout ? Number(options.timeout) * 1000 : overallTimeoutMs(scenario),
-  });
+  const baseEnv = labEnvironment(process.env, { profileDir, scenarioFile: scenarioPath, eventsFile: eventsPath });
+  if (!provider.keepKey) delete baseEnv.OPENAI_API_KEY;
+  let app;
+  try {
+    app = await runApp({
+      command: options.binary,
+      env: { ...baseEnv, ...provider.env },
+      logFile: logPath,
+      timeoutMs: options.timeout ? Number(options.timeout) * 1000 : overallTimeoutMs(scenario),
+    });
+  } finally {
+    const providerStats = await provider.close();
+    if (providerStats) summary.ai = { ...summary.ai, ...providerStats };
+  }
   const events = await readEvents(eventsPath);
   const outcome = classifyRun(app, events);
   const actions = events?.actions ?? [];
@@ -336,6 +411,13 @@ async function uiScenarioCommand(name, options) {
     firstFailure: actions.find((action) => !action.ok) ?? null,
   };
   summary.stats = summarizeActions(actions);
+  // What happened inside each action (LiveEvents spans, stalls), if this app build reports them.
+  const operations = analyzeOperations(events);
+  summary.operations = operations.summary;
+  if (operations.artifact) {
+    await writeJsonAtomic(path.join(dir, "ui-operations.json"), operations.artifact);
+    summary.artifacts.operations = "ui-operations.json";
+  }
   summary.runtimeTiming = {
     category: "archivist.wells.timing",
     relationship: "same-process",
@@ -543,6 +625,86 @@ async function testsCommand(action, args, values) {
   return 2;
 }
 
+async function auditCommand(action, args, values) {
+  switch (action ?? "list") {
+    case "presets":
+      return runOperation("observatory.audit.presets", {}, values);
+    case "run": {
+      const input = { preset: values.preset, repeat: values.repeat ?? undefined, ...(values["allow-provider-calls"] ? { allowProviderCalls: true } : {}) };
+      if (!values.wait) return runOperation("observatory.audit.run", input, values);
+      const print = values.json ? jsonStdout() : null;
+      const ctx = controlContext();
+      let response = await dispatch(ctx, "observatory.audit.run", input);
+      if (response.ok) {
+        const { jobId } = response.result.job;
+        console.error(`Audit job ${jobId} started; waiting for it to finish.`);
+        let last = "";
+        do {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          response = await dispatch(ctx, "observatory.audit.status", { jobId });
+          const current = response.result?.job?.progress?.current;
+          const line = current ? `${current.scenario ?? ""}${current.round ? ` round ${current.round}` : ""}: ${current.phase ?? ""}` : response.result?.job?.status;
+          if (line !== last) console.error(line);
+          last = line;
+        } while (response.ok && ACTIVE.has(response.result.job.status));
+      }
+      if (print) print(response);
+      else console.log(formatResponse(response));
+      return response.ok ? JOB_EXIT[response.result.job.status] ?? 1 : responseExitCode(response);
+    }
+    case "status":
+      return runOperation("observatory.audit.status", { jobId: args[0] }, values);
+    case "cancel":
+      return runOperation("observatory.audit.cancel", { jobId: args[0] }, values);
+    case "list":
+      return runOperation("observatory.audit.list", { preset: values.preset, limit: values.limit }, values);
+    case "findings":
+      if (values.finding && !values.json) {
+        const response = await dispatch(controlContext(), "observatory.audit.findings", { auditId: args[0], findingId: values.finding });
+        if (!response.ok) {
+          console.error(formatResponse(response));
+          return responseExitCode(response);
+        }
+        process.stdout.write(response.result.markdown);
+        return 0;
+      }
+      return runOperation("observatory.audit.findings", { auditId: args[0], severity: values.severity, subsystem: values.subsystem, findingId: values.finding }, values);
+    case "compare":
+      return runOperation("observatory.audit.compare", { auditId: args[0], baselineAuditId: args[1] }, values);
+    case "report": {
+      if (values.json) return runOperation("observatory.audit.report", { auditId: args[0] }, values);
+      const response = await dispatch(controlContext(), "observatory.audit.report", { auditId: args[0] });
+      if (!response.ok) {
+        console.error(formatResponse(response));
+        return responseExitCode(response);
+      }
+      process.stdout.write(response.result.markdown);
+      return 0;
+    }
+    case "timeline":
+      return runOperation("observatory.audit.timeline", { runId: args[0], fromMs: values.from, toMs: values.to, limit: values.limit }, values);
+    case "operation":
+      return runOperation("observatory.audit.operation", { runId: args[0], action: args[1] }, values);
+    case "trace": {
+      if (values.json) return runOperation("observatory.audit.trace", { runId: args[0], turn: values.turn }, values);
+      const response = await dispatch(controlContext(), "observatory.audit.trace", { runId: args[0], turn: values.turn });
+      if (!response.ok) {
+        console.error(formatResponse(response));
+        return responseExitCode(response);
+      }
+      const result = response.result;
+      if (!result.available) console.log(`No trace: ${result.reason}`);
+      else console.log([...result.turns.map((turn) => turn.summary), result.dropped ? `(${result.dropped} events were dropped while recording)` : null].filter(Boolean).join("\n\n") || "This run traced no AI turns.");
+      return 0;
+    }
+    case "export":
+      return runOperation("observatory.audit.export", { auditId: args[0], includeRawLogs: values["raw-logs"] }, values);
+    default:
+      console.error(`Unknown audit action "${action}". Use presets, run, status, cancel, list, findings, compare, report, timeline, operation, trace or export.`);
+      return 2;
+  }
+}
+
 async function liveCommand(action, args, values) {
   const duration = values.duration ?? undefined;
   switch (action ?? "status") {
@@ -663,6 +825,7 @@ async function jobRunCommand(jobId) {
         const collected = [];
         const exitCode = await uiCommand({
           scenario, "skip-build": true, label: `test-lab ${jobId}`, jobId,
+          "allow-provider-calls": job.request.allowProviderCalls === true,
           onRunCreated: async (runId) => {
             job.current = { phase: "running scenario", scenario, round, runId };
             await save();
@@ -699,6 +862,15 @@ async function jobRunCommand(jobId) {
     : "completed";
   if (cancelled) job.cancelRequestedAt ??= new Date().toISOString();
   job.current = null;
+  if (job.request.audit) {
+    // The audit is written whatever happened, from the runs that finished.
+    job.current = { phase: "writing findings", scenario: null, round: null, runId: null };
+    await save();
+    const written = await writeAuditRecord(root, job, { repoRoot: ROOT, status });
+    job.auditRunId = written.runId ?? null;
+    if (written.error) job.error = [job.error, `The audit record could not be written: ${written.error}`].filter(Boolean).join(" ");
+    job.current = null;
+  }
   setStatus(job, status, { exitCode: JOB_EXIT[status] });
   await save();
   await releaseLock(root, { jobId });
@@ -755,11 +927,16 @@ async function main(argv) {
     allowNegative: true,
     options: {
       label: { type: "string" },
+      preset: { type: "string" },
+      severity: { type: "string" },
+      subsystem: { type: "string" },
       follow: { type: "boolean", default: false },
+      "time-trace": { type: "boolean", default: false },
       "build-run": { type: "string" },
       scenario: { type: "string" },
       "skip-build": { type: "boolean", default: false },
       "keep-profile": { type: "boolean", default: false },
+      "allow-provider-calls": { type: "boolean", default: false },
       timeout: { type: "string" },
       app: { type: "string" },
       port: { type: "string" },
@@ -783,6 +960,8 @@ async function main(argv) {
       duration: { type: "string" },
       from: { type: "string" },
       to: { type: "string" },
+      turn: { type: "string" },
+      finding: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -835,6 +1014,8 @@ async function main(argv) {
       return runsCommand(argument, positionals.slice(2), values);
     case "live":
       return liveCommand(argument, positionals.slice(2), values);
+    case "audit":
+      return auditCommand(argument, positionals.slice(2), values);
     case "report": {
       if (values.json) return runOperation("observatory.reports.generate", { runId: argument }, values);
       const response = await dispatch(controlContext(), "observatory.reports.generate", { runId: argument });

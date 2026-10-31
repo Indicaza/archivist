@@ -1,16 +1,20 @@
-// Archivist Observatory dashboard. Reads runs from the local server and
-// renders them; never writes anything. All text is set with textContent.
-import { lineChart, stackedBars } from "./charts.js";
-import { compareRuns, SAME_WITHIN_PCT } from "./compare.mjs";
-import { artifactPreview, artifactUrl, compare, initControl, loadBaselines, loadRuns, runDetails, runEvents } from "./data.js";
+// Archivist Observatory. Three places: Record (make a recording or run a
+// scripted test), History (everything recorded, with trends) and Compare
+// (two runs side by side, and the regression check against baselines).
+// Reads runs from the host and renders them; all text is set as text.
+import { lineChart, pairedBars, stackedBars } from "./charts.js";
+import { SAME_WITHIN_PCT } from "./compare.mjs";
+import { artifactPreview, artifactUrl, compare, hasControlKey, initControl, liveArtifacts, loadBaselines, loadRuns, runDetails, runEvents } from "./data.js";
 import { buildReport, categoryLabel, categoryOf, resolveBudgets } from "./regression.mjs";
 import { filterRuns } from "./filter.mjs";
-import { axisMs, empty, gitText, h, kindLabel, kv, legend, ms, OK, runLink, shortSha, statusPill, table, when } from "./dom.js";
-import { comparisonCopyButton, configureLab, copyForAiButton, exportButton, labPage } from "./lab.js";
-import { configureLive, livePage } from "./live-page.js";
+import { axisMs, empty, gitText, h, kindLabel, kv, legend, ms, OK, shortSha, statusPill, table, when } from "./dom.js";
+import { comparisonCopyButton, configureLab, copyForAiButton, exportButton, testPanel } from "./lab.js";
+import { configureLive, recorderHero, recordingView } from "./live-page.js";
+import { auditComparison, auditHero, auditView, configureAudit } from "./audit-page.js";
+import { bytes, compareLive, liveModel } from "./live.mjs";
 
 const view = document.getElementById("view");
-const state = { runs: [], options: {}, root: "", error: null };
+const state = { runs: [], options: {}, root: "", error: null, listing: null };
 
 const PHASES = [
   ["ide-bundle", "IDE bundle", "var(--series-3)"],
@@ -20,6 +24,16 @@ const PHASES = [
 ];
 const SCENARIO_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)"];
 
+// What each kind of run is called and shows at a glance.
+const KINDS = {
+  audit: { name: "Audit", plural: "Audits", glyph: "A" },
+  "live-session": { name: "Recording", plural: "Recordings", glyph: "●" },
+  build: { name: "Build", plural: "Builds", glyph: "B" },
+  "ui-scenario": { name: "UI test", plural: "UI tests", glyph: "T" },
+  "runtime-log": { name: "Runtime log", plural: "Runtime logs", glyph: "L" },
+};
+const COMPARABLE = new Set(["audit", "live-session", "build", "ui-scenario"]);
+
 function chronological(runs) {
   return [...runs].sort((a, b) => a.runId.localeCompare(b.runId));
 }
@@ -28,264 +42,380 @@ function byKind(kind) {
   return state.runs.filter((run) => run.kind === kind && run.readable && run.supported);
 }
 
-// The latest earlier run that the comparison logic accepts against `run`.
+// The latest earlier run that compares with `run` (same kind; same scenario and version for UI tests).
 function previousComparable(run) {
-  const earlier = state.runs.filter((other) => other.runId < run.runId && other.kind === run.kind && OK.has(other.status)
-    && (run.kind !== "ui-scenario" || (other.ui?.scenarioId === run.ui?.scenarioId && other.ui?.scenarioVersion === run.ui?.scenarioVersion)));
-  return earlier[0] ?? null;
+  return state.runs.find((other) => other.runId < run.runId && other.kind === run.kind && other.readable && other.supported
+    && (OK.has(other.status) || other.status === "completed")
+    && (run.kind !== "ui-scenario" || (other.ui?.scenarioId === run.ui?.scenarioId && other.ui?.scenarioVersion === run.ui?.scenarioVersion))
+    && (run.kind !== "audit" || other.audit?.preset === run.audit?.preset)) ?? null;
 }
 
-// ---- pages ------------------------------------------------------------------
+function title(run) {
+  if (run.kind === "audit") return run.label ?? "Audit";
+  if (run.kind === "live-session") return run.label ?? "Recording";
+  if (run.kind === "ui-scenario") return run.ui?.scenarioName ?? "UI test";
+  if (run.kind === "build") return run.label ?? `${run.build?.classification ?? ""} build`.trim();
+  return run.label ?? kindLabel(run);
+}
 
-function overview() {
-  if (!state.runs.length) {
-    return [h("div", { class: "page-head" }, h("h2", {}, "Overview")),
-      empty("No Observatory runs yet.", h("span", {}, "Record one with ", h("code", {}, "npm run observatory:build"), " or ", h("code", {}, "npm run observatory:ui"), "."))];
+// The one number a run is known by.
+function figure(run) {
+  if (!run.readable) return { value: "—", sub: "can't be read" };
+  if (!run.supported) return { value: "—", sub: "newer format" };
+  if (run.audit) return { value: String(run.audit.counts.total), sub: run.audit.counts.high ? `${run.audit.counts.high} high` : run.audit.counts.total === 1 ? "finding" : "findings" };
+  if (run.build) return { value: ms(run.build.totalMs), sub: "total" };
+  if (run.ui) return { value: ms(run.ui.settled?.medianMs), sub: "median" };
+  if (run.live) return { value: ms(run.live.worstMs ?? null), sub: "worst delay" };
+  if (run.runtime) return { value: String(run.runtime.events ?? 0), sub: "events" };
+  return { value: "—", sub: "" };
+}
+
+function runCard(run, { selectable = false, selected = null } = {}) {
+  const kind = KINDS[run.kind] ?? { name: run.kind, glyph: "?" };
+  const { value, sub } = figure(run);
+  const card = h("a", { class: `run-card k-${run.kind}`, href: `#/run/${run.runId}` },
+    h("span", { class: "run-glyph", "aria-hidden": "true" }, kind.glyph),
+    h("span", { class: "run-body" },
+      h("span", { class: "run-title" }, title(run)),
+      h("span", { class: "run-meta" }, [kind.name, when(run.createdAt), run.source?.commit ? shortSha(run.source.commit) : null].filter(Boolean).join(" · "))),
+    h("span", { class: "run-figure" }, h("strong", {}, value), h("span", {}, sub)),
+    OK.has(run.status) || run.status === "completed" ? null : statusPill(run.status));
+  if (!selectable) return card;
+  const box = h("input", { type: "checkbox", "aria-label": `Select ${title(run)} to compare`, checked: selected?.has(run.runId) || null });
+  box.addEventListener("change", () => selected.toggle(run.runId, box.checked));
+  return h("div", { class: "run-row" }, h("label", { class: "pick" }, box), card);
+}
+
+function pageHead(heading, ...rest) {
+  return h("div", { class: "page-head" }, h("h2", {}, heading), ...rest);
+}
+
+// ---- Record -------------------------------------------------------------------
+
+async function recordPage(params) {
+  const recent = state.runs.filter((run) => run.readable).slice(0, 6);
+  return h("div", { class: "record-layout" },
+    h("div", { class: "record-main" }, auditHero(), recorderHero(), await testPanel({ open: params.get("test") === "1" })),
+    h("aside", { class: "record-side" },
+      h("div", { class: "side-head" }, h("h3", {}, "Latest"), state.runs.length ? h("a", { href: "#/history" }, "All history") : null),
+      recent.length ? h("div", { class: "run-list" }, recent.map((run) => runCard(run)))
+        : h("p", { class: "muted small" }, "Nothing recorded yet. Your first recording shows up here.")));
+}
+
+// ---- History ------------------------------------------------------------------
+
+const PAGE = 60;
+
+function historyPage(params) {
+  const type = params.get("type") ?? "all";
+  const q = params.get("q") ?? "";
+  const shownCount = Number(params.get("n")) || PAGE;
+  const present = new Set(state.runs.map((run) => run.kind));
+  const link = (changes) => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(changes)) if (value) next.set(key, value); else next.delete(key);
+    return `#/history?${next}`;
+  };
+  const chips = h("div", { class: "chips", role: "tablist", "aria-label": "Show" },
+    [["all", "All"], ...Object.entries(KINDS).filter(([kind]) => present.has(kind)).map(([kind, info]) => [kind, info.plural])]
+      .map(([value, label]) => h("a", { class: `chip${type === value ? " on" : ""}`, href: link({ type: value === "all" ? null : value, n: null }), role: "tab", "aria-selected": type === value ? "true" : "false" }, label)));
+  const search = h("input", { type: "search", value: q, placeholder: "Search name, branch, commit", "aria-label": "Search runs", class: "search" });
+  search.addEventListener("change", () => go(link({ q: search.value.trim() || null, n: null })));
+
+  const runs = filterRuns(state.runs, { kind: type === "all" ? "" : type, q });
+  const picked = new Set();
+  const compareBar = h("div", { class: "compare-bar", hidden: true });
+  const selected = {
+    has: (id) => picked.has(id),
+    toggle: (id, on) => {
+      if (on) picked.add(id); else picked.delete(id);
+      const ids = [...picked].sort();
+      const kinds = new Set(ids.map((id2) => state.runs.find((run) => run.runId === id2)?.kind));
+      compareBar.hidden = ids.length === 0;
+      compareBar.replaceChildren(
+        h("span", {}, ids.length === 1 ? "Pick one more to compare" : ids.length === 2 ? (kinds.size === 1 ? "Ready to compare" : "Pick two of the same kind") : "Pick just two"),
+        h("button", { class: "primary", type: "button", disabled: !(ids.length === 2 && kinds.size === 1) || null, onclick: () => go(`#/compare?a=${ids[0]}&b=${ids[1]}`) }, "Compare"),
+        h("button", { type: "button", onclick: () => { picked.clear(); render(); } }, "Clear"));
+    },
+  };
+
+  const parts = [pageHead("History", h("span", { class: "muted small" }, `${runs.length} of ${state.runs.length}`)),
+    h("div", { class: "toolbar" }, chips, search)];
+  if (state.listing?.omitted) {
+    parts.push(h("p", { class: "muted small" }, `Showing ${(state.listing.total - state.listing.omitted).toLocaleString()} of ${state.listing.total.toLocaleString()} runs: the newest, and those baselines use. The CLI reads all of them.`));
   }
+  const charts = trends(type);
+  if (charts.length) parts.push(h("div", { class: "charts" }, charts));
+  if (!state.runs.length) {
+    parts.push(empty("Nothing recorded yet.", h("span", {}, "Make a recording on ", h("a", { href: "#/record" }, "Record"), ", or run ", h("code", {}, "npm run observatory:build"), ".")));
+    return parts;
+  }
+  parts.push(h("h3", { class: "list-head" }, "Runs ", h("span", { class: "muted small" }, "tick two to compare")),
+    runs.length ? h("div", { class: "run-list" }, runs.slice(0, shownCount).map((run) => runCard(run, { selectable: COMPARABLE.has(run.kind), selected }))) : empty("Nothing matches."),
+    runs.length > shownCount ? h("p", {}, h("a", { class: "more", href: link({ n: String(shownCount + PAGE) }) }, `Show ${Math.min(PAGE, runs.length - shownCount)} more`)) : null,
+    compareBar);
+  return parts;
+}
+
+function chartCard(heading, body, note) {
+  return h("section", { class: "card chart-card" }, h("h3", {}, heading), body, note ? h("p", { class: "muted small" }, note) : null);
+}
+
+function trends(type) {
+  const cards = [];
   const builds = byKind("build");
   const uiRuns = byKind("ui-scenario");
-  const latestBuild = builds[0];
-  const scenarios = [...new Set(uiRuns.map((run) => run.ui?.scenarioId).filter(Boolean))];
-  const failures = state.runs.filter((run) => !OK.has(run.status)).slice(0, 6);
-
-  const cards = [];
-  if (latestBuild) {
-    cards.push(h("div", { class: "card" },
-      h("h3", {}, "Latest build ", statusPill(latestBuild.status)),
-      h("div", { class: "big" }, ms(latestBuild.build?.totalMs)),
-      h("div", { class: "row muted small" }, h("span", {}, latestBuild.build?.classification ?? "kind unknown"), h("span", {}, latestBuild.build?.ideCacheReused == null ? "" : latestBuild.build.ideCacheReused ? "IDE cached" : "IDE rebuilt")),
-      h("div", { class: "row small" }, h("span", { class: "mono" }, gitText(latestBuild)), runLink(latestBuild))));
+  const recordings = byKind("live-session");
+  if ((type === "all" || type === "live-session") && recordings.length >= 2) {
+    cards.push(chartCard("Recordings: worst UI-thread delay", liveTrend(recordings.slice(0, 40)), "Lower is better. One recording each: what you did matters as much as the code."));
   }
-  for (const id of scenarios) {
-    const latest = uiRuns.find((run) => run.ui?.scenarioId === id);
-    cards.push(h("div", { class: "card" },
-      h("h3", {}, latest.ui.scenarioName ?? id, " ", statusPill(latest.status)),
-      h("div", { class: "big" }, ms(latest.ui.settled?.medianMs), h("span", { class: "muted small" }, " median settled")),
-      h("div", { class: "row muted small" }, h("span", {}, `p95 ${ms(latest.ui.settled?.p95Ms)} · max ${ms(latest.ui.settled?.maxMs)}`), h("span", {}, `${latest.ui.failedActions ?? "?"} failed`)),
-      h("div", { class: "row small" }, h("span", { class: "mono" }, gitText(latest)), runLink(latest))));
+  if ((type === "all" || type === "build") && builds.length) cards.push(chartCard("Build time", buildTrend(builds.slice(0, 30))));
+  if (type === "build" && builds.length) {
+    const recent = chronological(builds.slice(0, 30));
+    cards.push(chartCard("Phases per build", [stackedBars({
+      format: axisMs,
+      bars: recent.map((run) => ({
+        label: when(run.createdAt).split(",")[0],
+        title: `${when(run.createdAt)} · ${run.status} · ${run.build?.classification ?? "?"}\n${gitText(run)}`,
+        href: `#/run/${run.runId}`,
+        failed: !OK.has(run.status),
+        segments: PHASES.map(([key, name, color]) => ({ name, color, value: run.build?.phases?.[key] ?? null })),
+      })),
+    }), legend([...PHASES.map(([, name, color]) => [name, color]), ["Failed", "var(--bad)"]])]));
   }
-  const machine = state.runs.find((run) => run.machine?.cpuModel)?.machine;
-  if (machine) {
-    cards.push(h("div", { class: "card" }, h("h3", {}, "Machine (latest run)"),
-      kv([["CPU", machine.cpuModel], ["Cores", machine.logicalCpus], ["Memory", machine.totalMemoryBytes ? `${Math.round(machine.totalMemoryBytes / 2 ** 30)} GB` : null], ["OS", [machine.platform, machine.osVersion, machine.architecture].filter(Boolean).join(" ")]])));
-  }
-
-  // What changed since the previous comparable run, per build / scenario.
-  const latestPerSeries = [latestBuild, ...scenarios.map((id) => uiRuns.find((run) => run.ui?.scenarioId === id))].filter((run) => run && OK.has(run.status));
-  const changes = latestPerSeries.map((run) => {
-    const previous = previousComparable(run);
-    if (!previous) return null;
-    const result = compareRuns(previous, run);
-    const headline = result.metrics.find((metric) => metric.key === "totalMs" || metric.key === "settled.median");
-    return { run, previous, result, headline };
-  }).filter(Boolean);
-
-  return [
-    h("div", { class: "page-head" }, h("h2", {}, "Overview"), h("span", { class: "muted small" }, `${state.runs.length} runs`)),
-    h("div", { class: "grid cards" }, cards),
-    changes.length ? h("section", {}, h("h3", {}, "Since the previous comparable run"),
-      table(["", "Headline", "Before", "Now", "Change", "Better / worse / same", "Warnings", ""], changes.map(({ run, previous, result, headline }) => ({
-        cells: [kindLabel(run), headline?.label ?? "—", ms(headline?.baseline), ms(headline?.candidate), verdictCell(headline),
-          `${result.totals.better} / ${result.totals.worse} / ${result.totals.same}`,
-          result.warnings.length ? h("span", { class: "pill warn" }, `${result.warnings.length}`) : "none",
-          h("a", { href: `#/compare?a=${previous.runId}&b=${run.runId}` }, "Compare")],
-      })))) : null,
-    h("div", { class: "grid two" },
-      h("section", { class: "card" }, h("h3", {}, "Build time"), buildTrend(builds.slice(0, 30))),
-      h("section", { class: "card" }, h("h3", {}, "UI latency (median settled)"), uiTrend(uiRuns.slice(0, 60), "median"))),
-    h("section", {}, h("h3", {}, "Recent failures"),
-      failures.length ? table(["When", "Run", "Status", "What happened"].map((label, index) => (index === 3 ? { label, wrap: true } : label)), failures.map((run) => ({
-        source: run,
-        cells: [runLink(run), kindLabel(run), statusPill(run.status), run.error ?? run.problems?.join("; ") ?? (run.build?.failedPhase ? `failed in ${run.build.failedPhase}` : "—")],
-      })), { onRow: (run) => go(`#/run/${run.runId}`) }) : empty("No failed runs.")),
-  ];
+  if ((type === "all" || type === "ui-scenario") && uiRuns.length) cards.push(chartCard("UI tests: median settled latency", uiTrend(uiRuns.slice(0, 60), "median")));
+  if (type === "ui-scenario" && uiRuns.length) cards.push(chartCard("UI tests: p95 settled latency", uiTrend(uiRuns.slice(0, 60), "p95"), "p95 needs 20 or more measured actions."));
+  return cards;
 }
 
-function verdictCell(metric) {
-  if (!metric || metric.verdict === "missing") return h("span", { class: "muted" }, "not comparable");
-  const sign = metric.delta > 0 ? "+" : "";
-  const text = metric.unit === "ms" ? `${sign}${ms(metric.delta)}` : `${sign}${metric.delta}`;
-  return h("span", { class: `verdict-${metric.verdict}` }, `${text}${metric.deltaPct == null ? "" : ` (${sign}${metric.deltaPct}%)`}`, metric.verdict === "same" ? " · about the same" : "");
-}
-
-function buildTrend(builds) {
-  const runs = chronological(builds);
-  if (!runs.length) return empty("No builds recorded.");
-  const chart = lineChart({
+function liveTrend(recordings) {
+  const runs = chronological(recordings);
+  return [lineChart({
     count: runs.length,
     format: axisMs,
     series: [{
-      name: "Total",
-      color: "var(--series-1)",
-      points: runs.map((run, index) => ({
-        x: index,
-        y: OK.has(run.status) ? run.build?.totalMs ?? null : null,
-        failed: !OK.has(run.status),
-        title: `${when(run.createdAt)} · ${run.status}\n${ms(run.build?.totalMs)} total · ${run.build?.classification ?? "?"}\n${gitText(run)}`,
-        href: `#/run/${run.runId}`,
-      })),
+      name: "Worst delay",
+      color: "var(--series-5)",
+      points: runs.map((run, index) => ({ x: index, y: run.live?.worstMs ?? null, title: `${title(run)} · ${when(run.createdAt)}\nworst ${ms(run.live?.worstMs ?? null)} · ${run.live?.stalls ?? 0} stalls`, href: `#/run/${run.runId}` })),
     }],
+  })];
+}
+
+// ---- Compare --------------------------------------------------------------------
+
+// Which way is better for a live recording's headline figures.
+const LIVE_LOWER_IS_BETTER = new Set(["busiestWindowP50Ms", "busiestWindowP95Ms", "frameGapsPerMinute", "stallsPerMinute", "maxEventLoopDelayMs", "cpuMeanPercent", "rssGrowthBytesPerMinute"]);
+const LIVE_FORMAT = {
+  durationMs: ms, busiestWindowP50Ms: ms, busiestWindowP95Ms: ms, maxEventLoopDelayMs: ms,
+  frames: (value) => String(value), frameGapsPerMinute: (value) => `${value}/min`, stallsPerMinute: (value) => `${value}/min`,
+  cpuMeanPercent: (value) => `${value}%`, rssGrowthBytesPerMinute: (value) => `${bytes(value)}/min`,
+};
+
+function changeLabel(delta, pct, format) {
+  if (delta == null) return "";
+  const sign = delta > 0 ? "+" : delta < 0 ? "−" : "±";
+  return `${sign}${format(Math.abs(delta))}${pct == null ? "" : ` (${sign}${Math.abs(pct)}%)`}`;
+}
+
+function liveRows(comparison) {
+  return comparison.metrics.filter((metric) => metric.base != null || metric.candidate != null).map((metric) => {
+    const format = LIVE_FORMAT[metric.metric] ?? String;
+    const pct = metric.delta != null && metric.base ? Math.round((metric.delta / metric.base) * 1000) / 10 : null;
+    let verdict = null;
+    if (LIVE_LOWER_IS_BETTER.has(metric.metric) && metric.delta != null) {
+      verdict = pct != null && Math.abs(pct) < SAME_WITHIN_PCT ? "same" : metric.delta < 0 ? "better" : metric.delta > 0 ? "worse" : "same";
+    }
+    return { label: metric.label, a: metric.base, b: metric.candidate, format, verdict, change: changeLabel(metric.delta, pct, format) };
   });
-  return [chart, legend([["Total (successful builds)", "var(--series-1)"], ["Failed build (not plotted)", "var(--bad)"]])];
 }
 
-// One line per scenario version: a changed scenario is a different workload.
-function uiTrend(uiRuns, which) {
-  const runs = chronological(uiRuns);
-  const key = (run) => `${run.ui?.scenarioId} v${run.ui?.scenarioVersion}`;
-  const scenarios = [...new Set(runs.filter((run) => run.ui?.scenarioId).map(key))];
-  if (!runs.length) return empty("No UI runs recorded.", h("span", {}, "Run ", h("code", {}, "npm run observatory:ui"), "."));
-  const field = which === "p95" ? "p95Ms" : "medianMs";
-  const series = scenarios.map((id, index) => ({
-    name: id,
-    color: SCENARIO_COLORS[index % SCENARIO_COLORS.length],
-    points: runs.map((run, x) => (key(run) === id ? {
-      x,
-      y: OK.has(run.status) ? run.ui.settled?.[field] ?? null : null,
-      failed: !OK.has(run.status),
-      title: `${run.ui.scenarioName} v${run.ui.scenarioVersion} · ${run.status}\nmedian ${ms(run.ui.settled?.medianMs)} · p95 ${ms(run.ui.settled?.p95Ms)}\n${gitText(run)}`,
-      href: `#/run/${run.runId}`,
-    } : null)).filter(Boolean),
-  }));
-  return [lineChart({ count: runs.length, format: axisMs, series }),
-    legend([...series.map((line) => [line.name, line.color]), ["Failed run (not plotted)", "var(--bad)"]])];
+function runRows(comparison) {
+  return comparison.metrics.filter((metric) => metric.verdict !== "missing").map((metric) => {
+    const format = metric.unit === "ms" ? ms : (value) => `${value} ${metric.unit}`;
+    return {
+      label: metric.group && !metric.label.startsWith(metric.group) && metric.group !== "Phases" ? `${metric.group}: ${metric.label}` : metric.label,
+      a: metric.baseline, b: metric.candidate, format, verdict: metric.verdict, change: changeLabel(metric.delta, metric.deltaPct, format),
+    };
+  });
 }
 
-function buildsPage() {
-  const builds = byKind("build");
-  if (!builds.length) return [h("h2", {}, "Builds"), empty("No builds recorded.", h("span", {}, "Run ", h("code", {}, "npm run observatory:build"), "."))];
-  const recent = chronological(builds.slice(0, 30));
-  return [
-    h("div", { class: "page-head" }, h("h2", {}, "Build performance"), h("span", { class: "muted small" }, `${builds.length} builds`)),
-    h("section", { class: "card" }, h("h3", {}, "Phases per build (last 30)"),
-      stackedBars({
-        format: axisMs,
-        bars: recent.map((run) => ({
-          label: when(run.createdAt).split(",")[0],
-          title: `${when(run.createdAt)} · ${run.status} · ${run.build?.classification ?? "?"}\n${gitText(run)}`,
-          href: `#/run/${run.runId}`,
-          failed: !OK.has(run.status),
-          segments: PHASES.map(([key, name, color]) => ({ name, color, value: run.build?.phases?.[key] ?? null })),
-        })),
-      }),
-      legend([...PHASES.map(([, name, color]) => [name, color]), ["Failed", "var(--bad)"]]),
-      h("p", { class: "muted small" }, "Durations are measured per phase with a monotonic clock. Build kind (clean / incremental / no-change) is inferred from Ninja's log.")),
-    h("section", {}, h("h3", {}, "All builds"),
-      table(["When", "Status", "Kind", "IDE bundle", { label: "Configure", num: true }, { label: "Native", num: true }, { label: "Total", num: true }, { label: "Steps", num: true }, "Git", "Label"],
-        builds.map((run) => ({
-          source: run,
-          cells: [runLink(run), statusPill(run.status), run.build?.classification ?? "—",
-            run.build?.ideCacheReused == null ? "—" : run.build.ideCacheReused ? "cached" : "rebuilt",
-            ms(run.build?.phases?.configure), ms(run.build?.phases?.["native-build"]), ms(run.build?.totalMs), run.build?.ninjaWorkSteps ?? "—",
-            h("span", { class: "mono" }, gitText(run)), run.label ?? ""],
-        })), { onRow: (run) => go(`#/run/${run.runId}`) })),
-  ];
+function verdictSummary(rows) {
+  const count = (verdict) => rows.filter((row) => row.verdict === verdict).length;
+  const better = count("better");
+  const worse = count("worse");
+  const same = count("same");
+  return h("div", { class: "verdicts" },
+    h("span", { class: "v better" }, h("strong", {}, String(better)), " better"),
+    h("span", { class: "v worse" }, h("strong", {}, String(worse)), " worse"),
+    h("span", { class: "v same" }, h("strong", {}, String(same)), " about the same"));
 }
 
-function uiPage() {
-  const uiRuns = byKind("ui-scenario");
-  if (!uiRuns.length) return [h("h2", {}, "UI performance"), empty("No UI runs recorded.", h("span", {}, "Run ", h("code", {}, "npm run observatory:ui"), "."))];
-  const scenarios = [...new Set(uiRuns.map((run) => run.ui?.scenarioId).filter(Boolean))];
-  return [
-    h("div", { class: "page-head" }, h("h2", {}, "UI performance"), h("span", { class: "muted small" }, `${uiRuns.length} runs`)),
-    h("p", { class: "muted" }, "Action latency, not frame time: \"settled\" is the last frame the window drew after an action before rendering went quiet; \"state\" is when the expected UI state appeared. Only measured iterations count (warm-up excluded)."),
-    h("div", { class: "grid two" },
-      h("section", { class: "card" }, h("h3", {}, "Median settled latency"), uiTrend(uiRuns.slice(0, 60), "median")),
-      h("section", { class: "card" }, h("h3", {}, "p95 settled latency"), uiTrend(uiRuns.slice(0, 60), "p95"),
-        h("p", { class: "muted small" }, "p95 is only recorded with 20 or more measured actions."))),
-    scenarios.map((id) => {
-      const runs = uiRuns.filter((run) => run.ui?.scenarioId === id);
-      const latest = runs[0];
-      const slowest = [...(latest.ui.steps ?? [])].filter((step) => step.settledMaxMs != null).sort((a, b) => b.settledMaxMs - a.settledMaxMs).slice(0, 8);
-      return h("section", {},
-        h("h3", {}, `${latest.ui.scenarioName ?? id} · latest run `, statusPill(latest.status), " ", runLink(latest)),
-        slowest.length ? table(["Step", "Method", { label: "Settled median", num: true }, { label: "Settled max", num: true }, { label: "State median", num: true }, { label: "Failed", num: true }],
-          slowest.map((step) => ({ cells: [step.label, step.method ?? "—", ms(step.settledMedianMs), ms(step.settledMaxMs), ms(step.stateMedianMs), step.failed ?? "—"] })))
-          : empty("This run has no measured actions."),
-        h("div", { class: "small muted" }, `Runs: ${runs.length} · failed runs: ${runs.filter((run) => !OK.has(run.status)).length}`));
-    }),
-  ];
+function runOption(run, value) {
+  return h("option", { value: run.runId, selected: run.runId === value || null }, `${title(run)} · ${when(run.createdAt)}${run.source?.commit ? ` · ${shortSha(run.source.commit)}` : ""}`);
 }
 
-function runsPage(params) {
-  const filters = Object.fromEntries(["kind", "status", "scenario", "branch", "commit", "from", "to", "q"].map((key) => [key, params.get(key) ?? ""]));
-  const shown = filterRuns(state.runs, filters);
-  const selected = new Set();
-  const compareButton = h("button", { class: "primary", disabled: true, onclick: () => {
-    const [a, b] = [...selected].sort();
-    go(`#/compare?a=${a}&b=${b}`);
-  } }, "Compare selected");
-  const update = (key, value) => {
+function picker(label, value, runs, onPick) {
+  const groups = Object.entries(KINDS).filter(([kind]) => COMPARABLE.has(kind)).map(([kind, info]) => [info.plural, runs.filter((run) => run.kind === kind)]).filter(([, list]) => list.length);
+  return h("label", { class: "pick-run" }, h("span", {}, label),
+    h("select", { onchange: (event) => onPick(event.target.value) }, h("option", { value: "" }, "Choose…"),
+      groups.map(([name, list]) => h("optgroup", { label: name }, list.slice(0, 300).map((run) => runOption(run, value))))));
+}
+
+async function comparePage(params) {
+  const a = params.get("a") ?? "";
+  const b = params.get("b") ?? "";
+  const options = state.runs.filter((run) => run.readable && run.supported && COMPARABLE.has(run.kind));
+  const runA = options.find((run) => run.runId === a);
+  const set = (key, value) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value); else next.delete(key);
-    go(`#/runs?${next}`);
+    if (key === "a" && value && next.get("b")) {
+      const kind = options.find((run) => run.runId === value)?.kind;
+      if (options.find((run) => run.runId === next.get("b"))?.kind !== kind) next.delete("b");
+    }
+    go(`#/compare?${next}`);
   };
-  const select = (key, label, values) => h("label", {}, label, h("select", { onchange: (event) => update(key, event.target.value) },
-    h("option", { value: "" }, "Any"), values.map((value) => h("option", { value, selected: value === filters[key] }, value))));
-  const text = (key, label, type = "text") => h("label", {}, label, h("input", { type, value: filters[key], placeholder: type === "text" ? "any" : null, onchange: (event) => update(key, event.target.value.trim()) }));
-  return [
-    h("div", { class: "page-head" }, h("h2", {}, "Runs"), h("span", { class: "muted small" }, `${shown.length} of ${state.runs.length}`)),
-    h("div", { class: "filters" },
-      select("kind", "Type", state.options.kinds ?? []),
-      select("status", "Result", state.options.statuses ?? []),
-      select("scenario", "Scenario", state.options.scenarios ?? []),
-      text("branch", "Branch"), text("commit", "Commit"), text("from", "From", "date"), text("to", "To", "date"), text("q", "Search"),
-      h("button", { onclick: () => go("#/runs") }, "Clear"), compareButton),
-    shown.length ? table(["", "When", "Type", "Status", "Headline", "Git", "Label"], shown.map((run) => ({
-      source: run,
-      cells: [
-        h("input", { type: "checkbox", title: "Select two runs to compare", onchange: (event) => {
-          if (event.target.checked) selected.add(run.runId); else selected.delete(run.runId);
-          compareButton.disabled = selected.size !== 2;
-        } }),
-        runLink(run), kindLabel(run), statusPill(run.status),
-        !run.readable ? "summary can't be read" : !run.supported ? `newer format (schema ${run.schemaVersion ?? "?"}), not read`
-          : run.build ? ms(run.build.totalMs) : run.ui ? `${ms(run.ui.settled?.medianMs)} median` : run.runtime ? `${run.runtime.events ?? 0} events` : "—",
-        h("span", { class: "mono" }, gitText(run)), run.label ?? "",
-      ],
-    })), { onRow: (run) => go(`#/run/${run.runId}`) }) : empty("No runs match these filters."),
-  ];
+  const parts = [pageHead("Compare"),
+    h("div", { class: "pickers card" },
+      picker("Before", a, options, (value) => set("a", value)),
+      h("button", { class: "icon-btn swap", type: "button", title: "Swap before and after", "aria-label": "Swap", disabled: !(a && b) || null, onclick: () => go(`#/compare?a=${b}&b=${a}`) }, "⇄"),
+      picker("After", b, runA ? options.filter((run) => run.kind === runA.kind && run.runId !== a) : options, (value) => set("b", value)))];
+
+  if (!options.length) {
+    parts.push(empty("Nothing to compare yet.", "Make two recordings of the same thing, or record two builds or UI tests."));
+  } else if (!a || !b) {
+    const latest = options[0];
+    const previous = latest && previousComparable(latest);
+    parts.push(h("p", { class: "muted" }, "Pick a before and an after of the same kind: two recordings of the same interaction, two builds, or two rounds of the same UI test."),
+      previous ? h("p", {}, h("a", { class: "button primary", href: `#/compare?a=${previous.runId}&b=${latest.runId}` }, `Compare the latest ${KINDS[latest.kind].name.toLowerCase()} with the one before`)) : null);
+  } else {
+    parts.push(await comparison(a, b));
+  }
+
+  const check = h("details", { class: "card fold", id: "regression-check", open: params.get("check") === "1" || null },
+    h("summary", {}, h("span", { class: "fold-title" }, "Regression check"), h("span", { class: "muted small" }, "Builds and UI tests against their baselines, with budgets")));
+  check.addEventListener("toggle", async () => {
+    if (check.open && check.children.length === 1) check.append(...[await regressionCheck()].flat(Infinity).filter(Boolean));
+  }, { once: false });
+  if (check.open) check.append(...[await regressionCheck()].flat(Infinity).filter(Boolean));
+  parts.push(check);
+  return parts;
 }
 
-async function runPage(runId) {
-  if (runDetails(runId).run.kind === "live-session") return livePage(runId);
-  const data = runDetails(runId);
-  const { run, summary } = data;
-  const parts = [
-    h("div", { class: "page-head" }, h("h2", {}, kindLabel(run), " ", statusPill(run.status)), h("span", { class: "mono muted" }, run.runId)),
-  ];
-  if (run.problems?.length) {
-    parts.push(h("div", { class: "notice warn" }, h("strong", {}, "Incomplete or unusual record"), h("ul", {}, run.problems.map((problem) => h("li", {}, problem)))));
-  }
-  if (run.error) {
-    parts.push(h("div", { class: "notice bad" }, run.error));
-  }
-  if (summary) parts.push(h("div", { class: "card actions-card" }, copyForAiButton(run.runId), exportButton(run.runId)));
-  parts.push(h("div", { class: "grid cards" },
-    h("div", { class: "card" }, h("h3", {}, "Run"), kv([["Started", when(run.createdAt)], ["Finished", when(run.finishedAt)], ["Label", run.label], ["Schema", run.schemaVersion]])),
-    h("div", { class: "card" }, h("h3", {}, "Source"), kv([["Branch", run.source?.branch ?? "detached"], ["Commit", h("span", { class: "mono" }, run.source?.commit ?? "—")], ["Working tree", run.source?.dirty == null ? "unknown" : run.source.dirty ? "dirty" : "clean"]])),
-    h("div", { class: "card" }, h("h3", {}, "Build configuration"), kv([["Build type", run.config?.buildType], ["Compiler", run.config?.compiler], ["Qt", run.config?.qtVersion], ["CMake", run.config?.cmakeVersion], ["Binary", run.config?.binarySha256 ? h("span", { class: "mono" }, run.config.binarySha256.slice(0, 16)) : null]])),
-    h("div", { class: "card" }, h("h3", {}, "Machine"), kv([["CPU", run.machine?.cpuModel], ["Cores", run.machine?.logicalCpus], ["Memory", run.machine?.totalMemoryBytes ? `${Math.round(run.machine.totalMemoryBytes / 2 ** 30)} GB` : null], ["OS", [run.machine?.platform, run.machine?.osVersion, run.machine?.architecture].filter(Boolean).join(" ")]]))));
+function sideBySide(base, candidate) {
+  const side = (run, role) => h("a", { class: `side ${role}`, href: `#/run/${run.runId}` },
+    h("span", { class: "side-role" }, role === "a" ? "Before" : "After"),
+    h("strong", {}, title(run)),
+    h("span", { class: "muted small" }, [when(run.createdAt), gitText(run)].join(" · ")));
+  return h("div", { class: "sides" }, side(base, "a"), side(candidate, "b"));
+}
 
+async function comparison(a, b) {
+  const base = state.runs.find((run) => run.runId === a);
+  const candidate = state.runs.find((run) => run.runId === b);
+  if (!base || !candidate) return empty("One of these runs isn't in the history any more.");
+  const parts = [sideBySide(base, candidate)];
+  if (base.kind !== candidate.kind) {
+    parts.push(h("div", { class: "notice bad" }, `A ${KINDS[base.kind]?.name ?? base.kind} can't be compared with a ${KINDS[candidate.kind]?.name ?? candidate.kind}.`));
+    return parts;
+  }
+  if (base.kind === "audit") {
+    parts.push(...await auditComparison(base, candidate));
+    return parts;
+  }
+  let rows;
+  let blockers;
+  let warnings;
+  let notes;
+  let full = null;
+  if (base.kind === "live-session") {
+    const [left, right] = await Promise.all([a, b].map(async (id) => liveModel({ runId: id, summary: runDetails(id).summary, ...(await liveArtifacts(id)) })));
+    const result = compareLive(left, right);
+    blockers = result.blockers;
+    warnings = result.warnings;
+    notes = result.notes;
+    rows = liveRows(result);
+  } else {
+    const { comparison: result } = compare(a, b);
+    blockers = result.blockers.map((entry) => entry.message);
+    warnings = result.warnings.map((entry) => entry.message);
+    notes = [result.note];
+    rows = runRows(result);
+    full = result;
+  }
+  if (blockers.length) {
+    parts.push(h("div", { class: "notice bad" }, h("strong", {}, "These can't be compared"), h("ul", {}, blockers.map((line) => h("li", {}, line)))));
+    return parts;
+  }
+  const headline = rows.slice(0, 10);
+  parts.push(h("section", { class: "card" }, verdictSummary(rows), pairedBars({ rows: headline, names: ["Before", "After"] }),
+    rows.length > headline.length ? h("details", { class: "fold plain" }, h("summary", {}, `${rows.length - headline.length} more measures`), pairedBars({ rows: rows.slice(headline.length), names: ["Before", "After"] })) : null));
+  if (warnings.length) parts.push(h("div", { class: "notice warn" }, h("strong", {}, "Read with care"), h("ul", {}, warnings.map((line) => h("li", {}, line)))));
+  parts.push(h("ul", { class: "notes muted small" }, notes.map((note) => h("li", {}, note)), full ? h("li", {}, `Within ${SAME_WITHIN_PCT}% counts as about the same.`) : null));
+  return parts;
+}
+
+// ---- One run --------------------------------------------------------------------
+
+async function runPage(runId) {
+  const { run, summary } = runDetails(runId);
+  const kind = KINDS[run.kind] ?? { name: run.kind };
+  const previous = summary && COMPARABLE.has(run.kind) ? previousComparable(run) : null;
+  const parts = [
+    h("div", { class: "run-head" },
+      h("a", { class: "back", href: run.kind === "live-session" ? "#/record" : "#/history" }, "‹ ", run.kind === "live-session" ? "Record" : "History"),
+      h("div", { class: "run-title-row" }, h("h2", {}, title(run)), statusPill(run.status)),
+      h("p", { class: "muted small" }, [kind.name, when(run.createdAt), gitText(run)].join(" · "))),
+  ];
+  if (summary && run.kind !== "audit") {
+    parts.push(h("div", { class: "action-bar" },
+      previous ? h("a", { class: "button", href: `#/compare?a=${previous.runId}&b=${run.runId}` }, "Compare with previous") : null,
+      COMPARABLE.has(run.kind) ? h("a", { class: "button", href: `#/compare?a=${run.runId}` }, "Compare with…") : null,
+      h("div", { class: "action-ai" }, copyForAiButton(run.runId), exportButton(run.runId))));
+  }
+  if (run.problems?.length) parts.push(h("div", { class: "notice warn" }, h("strong", {}, "Incomplete or unusual record"), h("ul", {}, run.problems.map((problem) => h("li", {}, problem)))));
+  if (run.error) parts.push(h("div", { class: "notice bad" }, run.error));
+  if (run.kind === "live-session") {
+    parts.push(await recordingView(runId));
+    return parts;
+  }
+  if (run.kind === "audit" && summary && run.audit) {
+    parts.push(...await auditView(run, summary));
+    return parts;
+  }
+  parts.push(...await runDetail(run, summary));
+  return parts;
+}
+
+async function runDetail(run, summary) {
+  const parts = [];
+  const data = runDetails(run.runId);
+  if (run.build) {
+    parts.push(h("div", { class: "tiles" },
+      tileOf("Total", ms(run.build.totalMs), run.build.classification ?? ""),
+      ...PHASES.map(([key, name]) => tileOf(name, ms(run.build.phases?.[key] ?? null), "")),
+      tileOf("Ninja steps", run.build.ninjaWorkSteps ?? "—", run.build.ideCacheReused == null ? "" : run.build.ideCacheReused ? "IDE cached" : "IDE rebuilt")));
+  }
+  if (run.ui) {
+    parts.push(h("div", { class: "tiles" }, ["settled", "state", "dispatch", "frameGap"].map((field) => tileOf(
+      { settled: "Settled", state: "UI state reached", dispatch: "Dispatch", frameGap: "Longest frame gap" }[field],
+      ms(run.ui[field]?.medianMs), `median · p95 ${run.ui[field]?.p95Ms == null ? "n/a" : ms(run.ui[field].p95Ms)} · max ${ms(run.ui[field]?.maxMs)}`))));
+  }
   if (run.build && summary) {
-    parts.push(h("section", {}, h("h3", {}, "Phases"),
+    parts.push(h("details", { class: "fold plain" }, h("summary", {}, "Phases in detail"),
       table(["Phase", "Status", { label: "Duration", num: true }, "Details", { label: "Error", wrap: true }], (summary.phases ?? []).map((phase) => ({
         cells: [phase.name, statusPill(phase.status), ms(phase.durationMs ?? null), phaseDetails(phase), phase.error ? [phase.error.message, h("div", { class: "mono small" }, [].concat(phase.error.excerpt ?? []).slice(0, 4).join("\n"))] : ""],
       })))));
     const log = (summary.phases ?? []).find((phase) => phase.name === "native-build")?.details?.ninjaLog;
     if (log?.slowestSteps?.length) {
-      parts.push(h("section", {}, h("h3", {}, "Slowest Ninja steps (measured by Ninja)"),
+      parts.push(h("details", { class: "fold plain" }, h("summary", {}, "Slowest Ninja steps"),
         table(["Output", { label: "Duration", num: true }], log.slowestSteps.map((step) => ({ cells: [h("span", { class: "mono" }, step.output), ms(step.durationMs)] })))));
     }
   }
   if (run.ui) {
-    parts.push(h("section", {}, h("h3", {}, `Scenario ${run.ui.scenarioName ?? run.ui.scenarioId} v${run.ui.scenarioVersion ?? "?"}`),
-      h("div", { class: "grid cards" }, ["settled", "state", "dispatch", "frameGap"].map((field) => h("div", { class: "card" },
-        h("h3", {}, { settled: "Settled", state: "UI state reached", dispatch: "Dispatch", frameGap: "Longest frame gap" }[field]),
-        kv([["Median", ms(run.ui[field]?.medianMs)], ["p95", run.ui[field]?.p95Ms == null ? "not enough samples" : ms(run.ui[field].p95Ms)], ["Max", ms(run.ui[field]?.maxMs)], ["Samples", run.ui[field]?.n]]))))));
     parts.push(await actionsSection(run));
     if (summary?.runtimeTiming?.recognizedEvents) {
-      parts.push(h("section", {}, h("h3", {}, "archivist.wells.timing (same process)"),
+      parts.push(h("details", { class: "fold plain" }, h("summary", {}, "archivist.wells.timing (same process)"),
         table(["Operation", "Field", { label: "Count", num: true }, { label: "Mean", num: true }, { label: "Max", num: true }],
           Object.entries(summary.runtimeTiming.summary ?? {}).map(([operation, stats]) => ({ cells: [operation, stats.field, stats.count, ms(stats.meanMs), ms(stats.maxMs)] })))));
     }
@@ -295,10 +425,18 @@ async function runPage(runId) {
     parts.push(h("p", { class: "muted small" }, `Use as the ${categoryLabel(category)} baseline (with other runs if you have them): `,
       h("code", { class: "cmd" }, `npm run observatory -- baseline set ${run.runId}`)));
   }
-  if (data.artifacts.length) {
-    parts.push(artifactsSection(run.runId, data.artifacts));
-  }
+  parts.push(h("details", { class: "fold plain" }, h("summary", {}, "About this run"), kv([
+    ["Started", when(run.createdAt)], ["Finished", when(run.finishedAt)], ["Branch", run.source?.branch ?? "detached"],
+    ["Commit", run.source?.commit ? h("span", { class: "mono" }, run.source.commit) : null], ["Working tree", run.source?.dirty == null ? null : run.source.dirty ? "uncommitted changes" : "clean"],
+    ["Build type", run.config?.buildType], ["Compiler", run.config?.compiler], ["Qt", run.config?.qtVersion],
+    ["Machine", [run.machine?.cpuModel, run.machine?.logicalCpus && `${run.machine.logicalCpus} cores`, [run.machine?.platform, run.machine?.osVersion].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || null],
+    ["Run id", h("span", { class: "mono" }, run.runId)]])));
+  if (data.artifacts.length) parts.push(artifactsSection(run.runId, data.artifacts));
   return parts;
+}
+
+function tileOf(label, value, sub) {
+  return h("div", { class: "tile" }, h("span", { class: "tile-label" }, label), h("span", { class: "tile-value" }, value), sub ? h("span", { class: "tile-sub" }, sub) : null);
 }
 
 function phaseDetails(phase) {
@@ -315,7 +453,7 @@ async function actionsSection(run) {
   try {
     events = await runEvents(run.runId);
   } catch (error) {
-    return h("section", {}, h("h3", {}, "Actions"), empty(`No action records: ${error.message}`));
+    return h("p", { class: "muted small" }, `No action records: ${error.message}`);
   }
   const body = h("div");
   let phase = "measured";
@@ -333,7 +471,7 @@ async function actionsSection(run) {
     ["measured", "warmup", "setup", "teardown", "all"].map((value) => h("option", { value }, value)));
   const failedBox = h("input", { type: "checkbox", onchange: (event) => { failedOnly = event.target.checked; render(); } });
   render();
-  return h("section", {}, h("h3", {}, `Actions (${events.actions.length})`),
+  return h("details", { class: "fold plain" }, h("summary", {}, `Every action (${events.actions.length})`),
     h("div", { class: "filters" }, h("label", {}, "Phase", phaseSelect), h("label", {}, "Failed only", failedBox)),
     events.error ? h("div", { class: "notice bad" }, events.error) : null, body);
 }
@@ -363,58 +501,7 @@ function artifactsSection(runId, names) {
   };
   names.forEach((name) => tabs.append(h("button", { "data-name": name, onclick: () => { current = name; offset = 0; query = ""; load(); } }, name)));
   load();
-  return h("section", {}, h("h3", {}, "Artifacts"), tabs, output);
-}
-
-async function comparePage(params) {
-  const options = state.runs.filter((run) => run.readable && run.supported && ["build", "ui-scenario"].includes(run.kind));
-  const a = params.get("a") ?? "";
-  const b = params.get("b") ?? "";
-  const picker = (key, label, value) => h("label", {}, label, h("select", { onchange: (event) => {
-    const next = new URLSearchParams(params);
-    next.set(key, event.target.value);
-    go(`#/compare?${next}`);
-  } }, h("option", { value: "" }, "Choose a run"), options.map((run) => h("option", { value: run.runId, selected: run.runId === value },
-    `${when(run.createdAt)} · ${kindLabel(run)} · ${run.status} · ${gitText(run)}${run.label ? ` · ${run.label}` : ""}`))));
-  const parts = [
-    h("div", { class: "page-head" }, h("h2", {}, "Compare two runs")),
-    h("div", { class: "picker card" }, picker("a", "Baseline (before)", a), picker("b", "Candidate (after)", b),
-      h("button", { disabled: !a || !b, onclick: () => go(`#/compare?a=${b}&b=${a}`) }, "Swap")),
-  ];
-  if (!options.length) {
-    parts.push(empty("No build or UI runs to compare yet."));
-    return parts;
-  }
-  if (!a || !b) {
-    parts.push(h("p", { class: "muted" }, "Pick a baseline and a candidate. Builds compare with builds; UI runs compare only with the same scenario and version."));
-    return parts;
-  }
-  const { runs, comparison } = compare(a, b);
-  const [baseline, candidate] = runs;
-  parts.push(h("div", { class: "versus" }, [[baseline, "Baseline"], [candidate, "Candidate"]].map(([run, role]) => h("div", { class: "card" },
-    h("h3", {}, `${role} `, statusPill(run.status ?? "unknown")),
-    kv([["Run", run.readable ? runLink(run, run.runId) : run.runId], ["Type", kindLabel(run)], ["Scenario", run.ui ? `${run.ui.scenarioId} v${run.ui.scenarioVersion}` : null],
-      ["Git", run.source ? h("span", { class: "mono" }, gitText(run)) : null], ["Build type", run.config?.buildType], ["Compiler", run.config?.compiler], ["Qt", run.config?.qtVersion],
-      ["Build kind", run.build?.classification], ["Machine", run.machine?.cpuModel ? `${run.machine.cpuModel} · ${run.machine.logicalCpus} cores` : null], ["When", when(run.createdAt)]])))));
-  if (comparison.blockers.length) {
-    parts.push(h("div", { class: "notice bad" }, h("strong", {}, "These runs can't be compared"), h("ul", {}, comparison.blockers.map((blocker) => h("li", {}, blocker.message)))));
-    return parts;
-  }
-  if (comparison.warnings.length) {
-    parts.push(h("div", { class: "notice warn" }, h("strong", {}, "Different conditions: read the numbers with care"), h("ul", {}, comparison.warnings.map((warning) => h("li", {}, warning.message)))));
-  }
-  const { better, worse, same, missing } = comparison.totals;
-  parts.push(h("div", { class: "notice" }, `${better} better · ${worse} worse · ${same} about the same (within ${SAME_WITHIN_PCT}%) · ${missing} not measured in both. `, h("span", { class: "muted" }, comparison.note)));
-  parts.push(table(["Metric", { label: "Baseline", num: true }, { label: "Candidate", num: true }, { label: "Change", num: true }, "Verdict"],
-    comparison.metrics.map((metric) => ({
-      cells: [metric.group && !metric.label.startsWith(metric.group) ? `${metric.group}: ${metric.label}` : metric.label,
-        metric.unit === "ms" ? ms(metric.baseline) : metric.baseline ?? "—",
-        metric.unit === "ms" ? ms(metric.candidate) : metric.candidate ?? "—",
-        verdictCell(metric),
-        metric.verdict === "missing" ? h("span", { class: "pill" }, `missing in ${metric.missingIn.join(" and ")}`)
-          : h("span", { class: `pill ${metric.verdict === "better" ? "good" : metric.verdict === "worse" ? "bad" : ""}` }, metric.verdict === "same" ? "same" : metric.verdict)],
-    }))));
-  return parts;
+  return h("details", { class: "fold plain" }, h("summary", {}, "Logs and files"), tabs, output);
 }
 
 // ---- baselines and regressions --------------------------------------------------
@@ -480,9 +567,9 @@ function categoryTrend(category, entry) {
     h("p", { class: "muted small" }, category.startsWith("build:") ? "Total build time" : "Median settled action latency", ", oldest to newest.")];
 }
 
-async function baselinesPage() {
+async function regressionCheck() {
   const files = await loadBaselines();
-  const parts = [h("div", { class: "page-head" }, h("h2", {}, "Baselines and regressions"))];
+  const parts = [];
   parts.push(h("p", { class: "muted" },
     "Each workload is compared with its own baseline: the newest compatible successful runs since the baseline, against the baseline's runs. ",
     "A change counts as a regression or improvement only with enough runs on each side, past its budget, and with no overlap between the two groups' runs. ",
@@ -543,44 +630,122 @@ async function baselinesPage() {
   return parts;
 }
 
+function verdictCell(metric) {
+  if (!metric || metric.verdict === "missing") return h("span", { class: "muted" }, "not comparable");
+  const sign = metric.delta > 0 ? "+" : "";
+  const text = metric.unit === "ms" ? `${sign}${ms(metric.delta)}` : `${sign}${metric.delta}`;
+  return h("span", { class: `verdict-${metric.verdict}` }, `${text}${metric.deltaPct == null ? "" : ` (${sign}${metric.deltaPct}%)`}`, metric.verdict === "same" ? " · about the same" : "");
+}
+
+function buildTrend(builds) {
+  const runs = chronological(builds);
+  if (!runs.length) return empty("No builds recorded.");
+  const chart = lineChart({
+    count: runs.length,
+    format: axisMs,
+    series: [{
+      name: "Total",
+      color: "var(--series-1)",
+      points: runs.map((run, index) => ({
+        x: index,
+        y: OK.has(run.status) ? run.build?.totalMs ?? null : null,
+        failed: !OK.has(run.status),
+        title: `${when(run.createdAt)} · ${run.status}\n${ms(run.build?.totalMs)} total · ${run.build?.classification ?? "?"}\n${gitText(run)}`,
+        href: `#/run/${run.runId}`,
+      })),
+    }],
+  });
+  return [chart, legend([["Total (successful builds)", "var(--series-1)"], ["Failed build (not plotted)", "var(--bad)"]])];
+}
+
+// One line per scenario version: a changed scenario is a different workload.
+function uiTrend(uiRuns, which) {
+  const runs = chronological(uiRuns);
+  const key = (run) => `${run.ui?.scenarioId} v${run.ui?.scenarioVersion}`;
+  const scenarios = [...new Set(runs.filter((run) => run.ui?.scenarioId).map(key))];
+  if (!runs.length) return empty("No UI runs recorded.", h("span", {}, "Run ", h("code", {}, "npm run observatory:ui"), "."));
+  const field = which === "p95" ? "p95Ms" : "medianMs";
+  const series = scenarios.map((id, index) => ({
+    name: id,
+    color: SCENARIO_COLORS[index % SCENARIO_COLORS.length],
+    points: runs.map((run, x) => (key(run) === id ? {
+      x,
+      y: OK.has(run.status) ? run.ui.settled?.[field] ?? null : null,
+      failed: !OK.has(run.status),
+      title: `${run.ui.scenarioName} v${run.ui.scenarioVersion} · ${run.status}\nmedian ${ms(run.ui.settled?.medianMs)} · p95 ${ms(run.ui.settled?.p95Ms)}\n${gitText(run)}`,
+      href: `#/run/${run.runId}`,
+    } : null)).filter(Boolean),
+  }));
+  return [lineChart({ count: runs.length, format: axisMs, series }),
+    legend([...series.map((line) => [line.name, line.color]), ["Failed run (not plotted)", "var(--bad)"]])];
+}
+
 // ---- data and routing ---------------------------------------------------------
 
 function go(hash) {
   if (location.hash === hash) render(); else location.hash = hash;
 }
 
+// Old addresses still land somewhere sensible.
+const LEGACY = { "": "record", lab: "record?test=1", live: "record", builds: "history?type=build", ui: "history?type=ui-scenario", runs: "history", baselines: "compare?check=1" };
+
+let renderSeq = 0;
+
 async function render() {
-  const [path, query = ""] = location.hash.replace(/^#/, "").split("?");
-  const params = new URLSearchParams(query);
-  const section = path.split("/")[1] ?? "";
-  for (const link of document.querySelectorAll("#nav a")) {
-    const target = link.getAttribute("href").replace(/^#\//, "");
-    link.classList.toggle("active", target === section || (section === "run" && target === "runs"));
+  // A control link can also arrive without a reload (the panel re-opens it).
+  if (location.hash.startsWith("#control=")) {
+    initControl();
+    document.body.dataset.controls = hasControlKey() ? "on" : "off";
   }
+  const mine = ++renderSeq;
+  let [path, query = ""] = location.hash.replace(/^#/, "").split("?");
+  let section = path.split("/")[1] ?? "";
+  const id = path.split("/")[2] ?? "";
+  if (section === "live" && id) {
+    history.replaceState(null, "", `#/run/${id}`);
+    return render();
+  }
+  if (Object.hasOwn(LEGACY, section)) {
+    history.replaceState(null, "", `#/${LEGACY[section]}${query && !LEGACY[section].includes("?") ? `?${query}` : ""}`);
+    [path, query = ""] = location.hash.replace(/^#/, "").split("?");
+    section = path.split("/")[1] ?? "";
+  }
+  const params = new URLSearchParams(query);
+  const tab = section === "run" ? (state.runs.find((run) => run.runId === id)?.kind === "live-session" ? "record" : "history") : section;
+  for (const link of document.querySelectorAll("#nav a")) {
+    const on = link.dataset.tab === tab;
+    link.classList.toggle("active", on);
+    if (on) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+  }
+  document.body.dataset.page = section;
   let content;
   try {
     if (state.error) content = empty(`Can't read Observatory runs: ${state.error}`);
-    else if (section === "builds") content = buildsPage();
-    else if (section === "ui") content = uiPage();
-    else if (section === "runs") content = runsPage(params);
-    else if (section === "run") content = await runPage(path.split("/")[2] ?? "");
+    else if (section === "history") content = historyPage(params);
     else if (section === "compare") content = await comparePage(params);
-    else if (section === "baselines") content = await baselinesPage();
-    else if (section === "lab") content = await labPage();
-    else if (section === "live") content = await livePage(path.split("/")[2] ?? null);
-    else content = overview();
+    else if (section === "run") content = await runPage(id);
+    else content = await recordPage(params);
   } catch (error) {
     content = empty(`Something went wrong: ${error.message}`);
   }
+  // A slower, older render must not replace a newer page.
+  if (mine !== renderSeq) return;
   view.replaceChildren(...[content].flat(Infinity).filter(Boolean));
+  if (section !== "record") window.scrollTo(0, 0);
+}
+
+function applyLoaded(data) {
+  state.runs = data.runs;
+  state.options = data.options;
+  state.root = data.root;
+  state.listing = data.listing;
+  document.getElementById("root-path").textContent = `Reading ${data.root}`;
 }
 
 // Read the runs again without re-rendering (the caller navigates next).
 async function loadOnly() {
   try {
-    const data = await loadRuns();
-    state.runs = data.runs;
-    state.options = data.options;
+    applyLoaded(await loadRuns());
   } catch (error) {
     state.error = error.message;
   }
@@ -588,22 +753,24 @@ async function loadOnly() {
 
 async function refresh() {
   state.error = null;
-  try {
-    const data = await loadRuns();
-    state.runs = data.runs;
-    state.options = data.options;
-    state.root = data.root;
-    document.getElementById("root-path").textContent = `Reading ${data.root}`;
-  } catch (error) {
-    state.error = error.message;
-  }
+  await loadOnly();
   render();
+}
+
+// The top bar's Recording chip: shown on every page while a recording runs.
+function showStatus(status) {
+  const chip = document.getElementById("live-chip");
+  const busy = status?.recording === true;
+  chip.hidden = !busy;
+  if (busy) chip.querySelector(".chip-text").textContent = `Recording ${Math.floor((status.elapsedMs ?? 0) / 1000)} s`;
 }
 
 function start() {
   initControl();
+  document.body.dataset.controls = hasControlKey() ? "on" : "off";
   configureLab({ getState: () => state, refresh });
-  configureLive({ getState: () => state, refresh: loadOnly, go });
+  configureLive({ getState: () => state, refresh: loadOnly, go, onStatus: showStatus });
+  configureAudit({ getState: () => state, refresh: loadOnly, go });
   document.getElementById("refresh").addEventListener("click", refresh);
   window.addEventListener("hashchange", render);
   refresh();

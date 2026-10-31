@@ -17,6 +17,7 @@ import { crc32 } from "../control/zip.mjs";
 import { createDashboardServer } from "../dashboard/server.mjs";
 import { diagnosticReport } from "../dashboard/public/diagnostic.mjs";
 import { makeRedactor } from "../dashboard/public/redact.mjs";
+import { callLive } from "../control/live.mjs";
 import { BUILD_DIR, CLI_PATH, REPO_ROOT, SCENARIO_DIR } from "../paths.mjs";
 import { fixtureBuild, fixtureUiRun, writeFixtureRuns } from "./fixtures/dashboard-runs.mjs";
 import { tempDir } from "./helpers.mjs";
@@ -82,7 +83,10 @@ describe("capabilities and validation", () => {
     assert.deepEqual(Object.keys(body.result.errorCodes), Object.keys(ERROR_CODES));
     assert.equal(body.result.limits.concurrentUiTests, 1);
     assert.equal(body.result.target.exists, true);
-    assert.deepEqual(body.result.scenarios.map((entry) => entry.id), ["sidebar", "workspace"]);
+    assert.deepEqual(body.result.scenarios.map((entry) => entry.id), ["ai-pipeline", "ai-provider", "ai-turn", "chat", "sidebar", "startup", "workspace"]);
+    const provider = body.result.scenarios.find((entry) => entry.id === "ai-provider");
+    assert.equal(provider.providerCalls, true, "the provider scenario says it makes real calls");
+    assert.ok(body.result.scenarios.filter((entry) => entry.id !== "ai-provider").every((entry) => !entry.providerCalls));
   });
 
   test("scenarios are listed with what they do and how many actions they plan", async () => {
@@ -262,6 +266,54 @@ describe("test jobs", () => {
     } finally {
       stranger.kill();
     }
+  });
+
+  describe("the one-UI-test lock under competing processes", () => {
+    const CONTENDER = path.join(HERE, "fixtures", "lock-contender.mjs");
+    const contend = (root, startAt, holdMs) => new Promise((resolve) => {
+      execFile(process.execPath, [CONTENDER, root, String(startAt), String(holdMs)], (error, stdout) => resolve(stdout.trim()));
+    });
+    const round = async (root, count = 10) => {
+      const startAt = Date.now() + 700;
+      return Promise.all(Array.from({ length: count }, () => contend(root, startAt, 900)));
+    };
+
+    test("exactly one of many processes takes over a stale lock", async () => {
+      for (let i = 0; i < 4; i += 1) {
+        const root = await tempDir();
+        await mkdir(path.join(root, "jobs"), { recursive: true });
+        await writeFile(lockFile(root), JSON.stringify({ owner: "cli", pid: 999999, since: "2026-10-30T09:00:00.000Z" }));
+        const results = await round(root);
+        assert.equal(results.filter((result) => result === "won").length, 1, results.join(","));
+      }
+    });
+
+    test("exactly one wins a free lock, and a live holder's lock is never taken", async () => {
+      const root = await tempDir();
+      assert.equal((await round(root)).filter((result) => result === "won").length, 1);
+      assert.equal((await acquireLock(root, { owner: "cli", pid: process.pid })).ok, true);
+      assert.deepEqual([...new Set(await round(root, 6))], ["busy"]);
+      assert.equal(JSON.parse(await readFile(lockFile(root), "utf8")).pid, process.pid);
+    });
+
+    test("a job lock whose taker died before its runner started is stale; a fresh one is not", async () => {
+      const root = await tempDir();
+      await mkdir(path.join(root, "jobs"), { recursive: true });
+      await writeFile(lockFile(root), JSON.stringify({ owner: "job", jobId: "x", pid: null, takenBy: process.pid, since: new Date().toISOString() }));
+      assert.equal((await acquireLock(root, { owner: "cli", pid: process.pid })).ok, false);
+      await writeFile(lockFile(root), JSON.stringify({ owner: "job", jobId: "x", pid: null, takenBy: 999999, since: new Date().toISOString() }));
+      assert.equal((await acquireLock(root, { owner: "cli", pid: process.pid })).ok, true);
+    });
+
+    test("concurrent tests run requests from separate CLI processes start one job", async () => {
+      const root = await tempDir();
+      const results = await Promise.all(Array.from({ length: 5 }, () => cli(root, ["tests", "run", "--scenario", "sidebar", "--json"])));
+      const codes = results.map((result) => json(result)).map((response) => (response.ok ? "ok" : response.error.code));
+      assert.equal(codes.filter((code) => code === "ok").length, 1, codes.join(","));
+      assert.equal(codes.filter((code) => code === "busy").length, 4);
+      const jobId = results.map(json).find((response) => response.ok).result.job.jobId;
+      await waitForJob(root, jobId);
+    });
   });
 
   test("a damaged job record is reported, not guessed at", async () => {
@@ -449,6 +501,7 @@ describe("evidence export", () => {
     assert.equal(manifest.schema, "archivist.observatory.evidence");
     assert.deepEqual(manifest.readFirst, ["report.md", "diagnostic.json"]);
     assert.equal(manifest.redaction.rawLogsIncluded, false);
+    assert.match(manifest.redaction.limits, /not everything/, "the manifest doesn't claim redaction is complete");
     const names = manifest.files.map((file) => file.path);
     for (const name of ["report.md", "diagnostic.json", "summary.json", "ui-events.json", "scenario.json", "log-excerpt.txt"]) assert.ok(names.includes(name), name);
     assert.ok(!names.some((name) => name.startsWith("raw/")));
@@ -574,5 +627,41 @@ describe("HTTP controls", () => {
     const origins = new Set(["http://127.0.0.1:1"]);
     assert.equal(checkControlRequest({ method: "POST", headers: {} }, { token: null, origins }).code, "controls-disabled");
     assert.equal(checkControlRequest({ method: "POST", headers: { origin: "http://127.0.0.1:1", "content-type": "application/json", "x-observatory-token": "" } }, { token: "abc", origins }).code, "unauthorized");
+  });
+});
+
+// Security regressions: what an agent or a web page on this computer must
+// not be able to do, whatever the person's settings.
+describe("security regressions", () => {
+  const writeAccess = async (root, access) => {
+    await mkdir(path.join(root, "live"), { recursive: true });
+    await writeFile(path.join(root, "live", "agent-access.json"), JSON.stringify(access));
+  };
+  const valid = { schema: "archivist.observatory.live-access", endpoint: "http://127.0.0.1:3334/observatory/api/live/", token: "a".repeat(32), pid: process.pid };
+
+  test("an agent can't turn agent access on: there is no such operation outside the app", async () => {
+    const root = await tempDir();
+    const response = await dispatch({ root, repoRoot: REPO_ROOT }, "observatory.live.agent-access", { enabled: true });
+    assert.equal(response.error.code, "unknown-operation");
+    await assert.rejects(callLive(root, "agent-access", { enabled: true }, { fetchImpl: () => assert.fail("nothing is sent") }), { code: "unknown-operation" });
+  });
+
+  test("the key is only sent to 127.0.0.1, and not for a dead app or a forged file", async () => {
+    const root = await tempDir();
+    const never = () => assert.fail("nothing is sent");
+    for (const endpoint of ["http://example.com/observatory/api/live/", "http://localhost:3334/observatory/api/live/", "https://127.0.0.1:3334/observatory/api/live/", "http://127.0.0.1:3334/elsewhere/"]) {
+      await writeAccess(root, { ...valid, endpoint });
+      await assert.rejects(callLive(root, "status", {}, { fetchImpl: never }), { code: "unreadable-record" }, endpoint);
+    }
+    await writeAccess(root, { ...valid, token: "short" });
+    await assert.rejects(callLive(root, "status", {}, { fetchImpl: never }), { code: "unreadable-record" });
+    await writeAccess(root, { ...valid, pid: 999999 });
+    await assert.rejects(callLive(root, "status", {}, { fetchImpl: never, alive: () => false }), { code: "app-not-running" });
+  });
+
+  test("raw logs need an explicit opt-in; the default is redacted", async () => {
+    const op = OPERATIONS["observatory.runs.artifact"];
+    assert.equal(op.input.raw.default, false);
+    assert.equal(OPERATIONS["observatory.reports.export"].input.includeRawLogs.default, false);
   });
 });

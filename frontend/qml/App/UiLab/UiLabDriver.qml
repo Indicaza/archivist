@@ -13,10 +13,14 @@ import Archivist.Services 1.0
 //               quiet (settleQuietMs without a frame); null if no frame
 // plus the frames swapped in between (count, longest interval). The step's
 // method is recorded so input-driven steps are never confused with calls.
+//
+// While a step runs, UiLab tags every operation the app reports (LiveEvents
+// spans and markers) and every event-loop stall with the step's index; the
+// whole list is written once, when the run finishes ("operations").
 Item {
     id: root
 
-    readonly property int driverVersion: 1
+    readonly property int driverVersion: 2
     property var window: null
     property var shell: null
     property var scenario: UiLab ? UiLab.scenario : ({})
@@ -48,6 +52,7 @@ Item {
             scenario: { id: String(scenario.id || ""), version: Number(scenario.version || 0) },
             status: "running",
             plannedActions: plan.length,
+            clock: { source: "LiveEvents::nowNs", runStartMs: runStart },
             readyMs: null,
             isolation: null,
             error: null,
@@ -94,6 +99,8 @@ Item {
         report.status = status
         report.error = error || null
         report.totalMs = UiLab.nowMs() - runStart
+        UiLab.setAction(-1)
+        report.operations = UiLab.operations()
         save()
         UiLab.log("finished: " + status + (error ? " (" + error + ")" : ""))
         UiLab.finish(status === "passed" ? 0 : status === "failed" ? 1 : 2)
@@ -108,6 +115,25 @@ Item {
         return window && window.visible && ws && typeof ws.minimizeView === "function"
             && String(Docking.primarySurfaceId || "").length > 0
             && UiLab.lastFrameMs() >= 0
+    }
+
+    // The id of a seeded fixture chat ("big" -> its chat id), or "".
+    function seededChat(key) {
+        var chats = UiLab.seedStatus().chats || ({})
+        var id = chats[String(key)]
+        return id === undefined ? "" : String(id)
+    }
+
+    // A resource whose id is "seed:<key>" points at a seeded chat.
+    function resolveResource(resource) {
+        var copy = {}
+        for (var field in (resource || {})) {
+            copy[field] = resource[field]
+        }
+        if (typeof copy.id === "string" && copy.id.indexOf("seed:") === 0) {
+            copy.id = seededChat(copy.id.slice(5))
+        }
+        return copy
     }
 
     function viewId(key) {
@@ -183,8 +209,24 @@ Item {
         case "setPanelOpen":
             Shell.setPanelOpen(step.open === true)
             return { ok: true, method: "store-call" }
+        case "seedChats":
+            // Deterministic fixture chats in the test profile's database.
+            return UiLab.seedChats({ seed: Number(step.seed || 1), chats: step.chats || [], files: Number(step.files || 0) })
+                ? { ok: true, method: "fixture" }
+                : { ok: false, method: "fixture", error: String(UiLab.seedStatus().error || "seeding refused") }
+        case "refreshChats":
+            ChatStore.refresh()
+            return { ok: true, method: "store-call" }
+        case "selectChat":
+            // What picking a conversation in the side panel does.
+            id = seededChat(step.key)
+            if (!id) {
+                return { ok: false, method: "store-call", error: "no seeded chat " + step.key }
+            }
+            ChatStore.selectChat(id)
+            return { ok: true, method: "store-call" }
         case "openView":
-            id = String(Docking.openView(String(step.typeId), step.resource || {}, String(step.title || ""), {}))
+            id = String(Docking.openView(String(step.typeId), resolveResource(step.resource), String(step.title || ""), {}))
             if (id.length === 0) {
                 return { ok: false, method: "store-call", error: "openView returned no view" }
             }
@@ -217,6 +259,19 @@ Item {
             ws.restoreFromWell(entryId)
             return { ok: true, method: "ui-function" }
         }
+        case "sendChatMessage":
+            // What the composer's Send does in the selected conversation.
+            // The scenario's provider is a local mock or the opt-in proxy;
+            // the runner never lets the app reach a provider otherwise.
+            if (!ChatStore.selectedChatId) {
+                return { ok: false, method: "store-call", error: "no conversation selected" }
+            }
+            ChatStore.sendMessage(String(step.text || ""))
+            return { ok: true, method: "store-call" }
+        case "cancelChatRun":
+            // What the Stop button does.
+            ChatStore.cancelActiveRun()
+            return { ok: true, method: "store-call" }
         case "noop":
             return { ok: true, method: "none" }
         default:
@@ -267,6 +322,46 @@ Item {
             case "genieIdle":
                 ok = !ws || !ws.genieActive
                 break
+            case "runStreaming":
+                // The reply has started to show.
+                ok = ChatStore.responding
+                    && String(ChatStore.activeRunContent || "").length >= Number(want.minChars || 1)
+                break
+            case "runSettled": {
+                // The run is over and its reply is in the conversation with
+                // the expected status (complete, failed or cancelled).
+                var thread = ChatStore.messages || []
+                var last = thread.length ? thread[thread.length - 1] : null
+                ok = !ChatStore.responding && last !== null
+                    && String(last.role) === "assistant"
+                    && String(last.status) === String(want.status || "complete")
+                break
+            }
+            case "seeded":
+                var seed = UiLab.seedStatus()
+                if (seed.state === "failed") {
+                    return "unknown expectation: seeding failed: " + seed.error
+                }
+                ok = (seed.state === "done") === (want === true)
+                break
+            case "chatsListed": {
+                var listed = {}
+                var all = ChatStore.chats || []
+                for (var c = 0; c < all.length; c += 1) {
+                    listed[String(all[c].id)] = true
+                }
+                for (var k = 0; k < want.length; k += 1) {
+                    ok = ok && listed[seededChat(want[k])] === true
+                }
+                break
+            }
+            case "chatShown":
+                // The conversation is selected and its first page of messages
+                // is in the store (the frames that follow are the settle time).
+                ok = ChatStore.selectedChatId === seededChat(want.key)
+                    && !ChatStore.loadingMessages
+                    && (ChatStore.messages || []).length >= Number(want.minMessages || 1)
+                break
             default:
                 return "unknown expectation " + name
             }
@@ -279,6 +374,7 @@ Item {
 
     function beginAction(entry) {
         var step = entry.step
+        UiLab.setAction(cursor)
         var t0 = UiLab.nowMs()
         var outcome = dispatch(step)
         var t1 = UiLab.nowMs()
@@ -338,6 +434,7 @@ Item {
 
     function completeAction(settledAt, settleTimedOut) {
         var end = UiLab.nowMs()
+        UiLab.setAction(-1)
         var record = {
             index: current.index,
             phase: current.phase,
@@ -350,6 +447,7 @@ Item {
             error: current.error,
             timedOut: current.timedOut === true,
             startMs: current.t0 - runStart,
+            endMs: end - runStart,
             dispatchMs: current.dispatchMs,
             stateMs: current.stateAt >= 0 ? current.stateAt - current.t0 : null,
             settledMs: settledAt !== null ? Math.max(settledAt, current.stateAt) - current.t0 : null,

@@ -29,6 +29,64 @@ function buildMetrics(summary) {
     classification: summary.buildConditions?.classification?.value ?? null,
     ninjaWorkSteps: log?.basis === "measured-by-ninja" ? num(log.workSteps) : null,
     failedPhase: (summary.phases ?? []).find((entry) => entry.status === "failure" || entry.status === "interrupted")?.name ?? null,
+    profiling: summary.buildConditions?.profiling ?? null,
+    jobs: jobMetrics(summary.evidence),
+  };
+}
+
+// From build-evidence.mjs (null for builds recorded before it existed).
+function jobMetrics(evidence) {
+  if (!evidence?.timing) return null;
+  const category = (name) => evidence.byCategory?.[name] ?? null;
+  return {
+    count: num(evidence.jobs),
+    wallMs: num(evidence.timing.wallMs),
+    summedMs: num(evidence.timing.summedJobMs),
+    peakParallel: num(evidence.timing.peakParallelJobs),
+    criticalPathMs: evidence.criticalPath?.available ? num(evidence.criticalPath.lengthMs) : null,
+    compiles: num(category("compile")?.jobs ?? 0),
+    compileMs: num(category("compile")?.summedMs ?? 0),
+    linkMs: num((category("link")?.summedMs ?? 0) + (category("archive")?.summedMs ?? 0)),
+    autogenMs: num(category("autogen")?.summedMs ?? 0),
+    longestJobMs: num(evidence.timing.longestJob?.durationMs),
+  };
+}
+
+function medianOf(values) {
+  const list = values.filter((value) => typeof value === "number" && Number.isFinite(value)).sort((a, b) => a - b);
+  if (!list.length) return null;
+  const mid = Math.floor(list.length / 2);
+  return list.length % 2 ? list[mid] : (list[mid - 1] + list[mid]) / 2;
+}
+
+// AI turns (from the trace digest): medians over the run's completed turns.
+// Cancelled and failed turns are counted, not timed, so a cancel never
+// reads as a fast turn.
+function aiMetrics(summary) {
+  const trace = summary.operations?.trace;
+  if (!summary.ai && !trace?.aiTurns?.length) return null;
+  const all = trace?.aiTurns ?? [];
+  const turns = all.filter((turn) => turn.outcome === "completed");
+  const of = (read) => num(medianOf(turns.map(read)));
+  const queues = (trace?.db ?? []).map((job) => job.queueWait?.medianMs).filter((value) => value != null);
+  return {
+    provider: summary.ai?.provider ?? null,
+    behaviour: summary.ai?.behaviour ?? null,
+    upstreamHost: summary.ai?.upstreamHost ?? null,
+    traceSchema: trace?.available ? num(trace.schemaVersion) : null,
+    turns: all.length,
+    completed: turns.length,
+    failed: all.filter((turn) => turn.outcome === "failed" || turn.outcome === "interrupted").length,
+    cancelled: all.filter((turn) => turn.outcome === "cancelled").length,
+    turnMs: of((turn) => turn.durationMs),
+    prepareMs: of((turn) => turn.prepareMs),
+    retrievalMs: of((turn) => turn.stages?.retrievalMs),
+    contextCompileMs: of((turn) => turn.stages?.contextCompileMs),
+    firstNetworkByteMs: of((turn) => turn.firstNetworkByteMs),
+    firstModelDeltaMs: of((turn) => turn.firstModelDeltaMs),
+    firstVisibleTextMs: of((turn) => turn.firstVisibleTextMs),
+    persistMs: of((turn) => turn.persistMs),
+    dbQueueWaitMs: queues.length ? num(Math.max(...queues)) : null,
   };
 }
 
@@ -59,6 +117,13 @@ function uiMetrics(summary) {
       stateMedianMs: num(step.stateMs?.medianMs),
     })),
     wellsEvents: num(summary.runtimeTiming?.recognizedEvents),
+    operationsCollected: summary.operations ? summary.operations.collected === true : null,
+    ai: aiMetrics(summary),
+    startup: summary.operations?.startup ? {
+      firstFrameMs: num(summary.operations.startup.firstFrameMs),
+      eventLoopMs: num(summary.operations.startup.eventLoopMs),
+      readyMs: num(summary.operations.startup.readyMs),
+    } : null,
   };
 }
 
@@ -84,6 +149,26 @@ function liveMetrics(summary) {
     worstMs: spikes.length ? Math.max(...spikes.map((spike) => num(spike.durationMs) ?? 0)) : null,
     cpuMeanPercent: num(stats.cpu?.meanPercent),
     rssGrowthBytes: num(stats.memory?.growthRssBytes),
+  };
+}
+
+// An audit (control/audit.mjs): what ran, the runs it made, its findings.
+function auditMetrics(summary) {
+  const findings = Array.isArray(summary.findings) ? summary.findings : [];
+  const count = (severity) => findings.filter((finding) => finding.severity === severity).length;
+  return {
+    preset: summary.preset ?? null,
+    presetName: summary.presetName ?? summary.preset ?? null,
+    jobId: summary.jobId ?? null,
+    jobStatus: summary.jobStatus ?? null,
+    rulesVersion: num(summary.rulesVersion),
+    plan: summary.plan ?? null,
+    runIds: (summary.children ?? []).map((child) => child.runId).filter(Boolean),
+    children: summary.children ?? [],
+    findings,
+    counts: { high: count("high"), medium: count("medium"), low: count("low"), info: count("info"), total: findings.length },
+    highlights: summary.highlights ?? null,
+    durationMs: num(summary.durationMs),
   };
 }
 
@@ -151,6 +236,8 @@ export function normalizeRun(runId, summary) {
     record.live = liveMetrics(summary);
   } else if (supported && kind === "runtime-log") {
     record.runtime = { events: num(summary.timing?.recognizedEvents), summary: summary.timing?.summary ?? {} };
+  } else if (supported && kind === "audit") {
+    record.audit = auditMetrics(summary);
   }
   return record;
 }
@@ -159,7 +246,7 @@ export function normalizeRun(runId, summary) {
 // summary can't be read.
 export function kindFromId(runId) {
   const kind = runId.split("-").slice(2, -1).join("-");
-  return kind === "build" ? "build" : kind.startsWith("ui-") ? "ui-scenario" : kind === "runtime" ? "runtime-log" : kind === "live" ? "live-session" : "unknown";
+  return kind === "build" ? "build" : kind.startsWith("ui-") ? "ui-scenario" : kind === "runtime" ? "runtime-log" : kind === "live" ? "live-session" : kind === "audit" ? "audit" : "unknown";
 }
 
 // A run whose summary.json could not be read at all.

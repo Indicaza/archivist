@@ -1,5 +1,6 @@
 #include "library_retrieval.h"
 
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Support/js_compat.h"
 #include "Core/core_error.h"
 
@@ -404,6 +405,7 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
 {
     QElapsedTimer timer;
     timer.start();
+    LiveEvents::Scope live(QStringLiteral("retrieval"), QStringLiteral("library-search"));
     const QString normalizedQuery = JsCompat::trimmed(query);
     const QString fts = ftsQuery(normalizedQuery);
     const int clampedLimit = limit <= 0 ? defaultLimit : std::min(maximumLimit, std::max(1, limit));
@@ -457,6 +459,7 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
     // is rebuilt once from the chunks it was made from.
     QList<QVariantMap> rows;
     QVariantList repairWarnings;
+    LiveEvents::Step queryStep(QStringLiteral("retrieval"), QStringLiteral("fts-query"), {{QStringLiteral("limit"), candidateLimit}});
     try {
         rows = runQuery();
     } catch (const CoreError &error) {
@@ -467,6 +470,7 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
             return finish({QStringLiteral("Library text search failed, so this answer has no search results: ") + message});
         }
         try {
+            LiveEvents::Scope repair(QStringLiteral("retrieval"), QStringLiteral("index-repair"));
             repairSearchIndex(database);
             rows = runQuery();
             repairWarnings.append(QStringLiteral("The Library search index was damaged and has been rebuilt."));
@@ -475,6 +479,8 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
         }
     }
 
+    queryStep.done(1, {{QStringLiteral("rows"), rows.size()}});
+    LiveEvents::Step rankStep(QStringLiteral("retrieval"), QStringLiteral("rank"), {{QStringLiteral("rows"), rows.size()}});
     QList<Row> parsed;
 
     for (const QVariantMap &values : rows) {
@@ -495,6 +501,9 @@ QVariantMap search(CoreDatabase &database, const QString &query, const QString &
         candidates.append(mapCandidate(row));
     }
 
+    rankStep.done(1, {{QStringLiteral("candidates"), candidates.size()}});
+    live.setField(QStringLiteral("rows"), rows.size());
+    live.setField(QStringLiteral("candidates"), candidates.size());
     result.insert(QStringLiteral("candidates"), candidates);
     if (rows.isEmpty()) {
         repairWarnings.append(QStringLiteral("No indexed Library text matched the search query."));

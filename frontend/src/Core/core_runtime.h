@@ -61,17 +61,20 @@ public:
 
     [[nodiscard]] CoreDatabase &reader();
 
-    void write(WriteJob job, QObject *context, WriteCallback done = {});
+    // `operation` (a string literal) names the job on Observatory traces;
+    // without one the context's class name is used. Never parameters.
+    void write(WriteJob job, QObject *context, WriteCallback done = {}, const char *operation = nullptr);
 
     // Runs `job` now on the UI-thread reader and delivers the result on the
-    // next event-loop turn, matching the timing callers had with HTTP.
-    void read(const ReadJob &job, QObject *context, WriteCallback done);
+    // next event-loop turn, matching the timing callers had with HTTP. This
+    // blocks the calling thread for the whole query; traces flag it.
+    void read(const ReadJob &job, QObject *context, WriteCallback done, const char *operation = nullptr);
 
     // Runs `job` on a background thread with that thread's own connection and
     // no surrounding transaction. For slow work (filesystem walks, file reads,
     // git) that must not block the UI or hold the write lock; the job opens
     // short transactions itself with CoreDatabase::transaction().
-    void run(TaskJob job, QObject *context, WriteCallback done);
+    void run(TaskJob job, QObject *context, WriteCallback done, const char *operation = nullptr);
 
     // Where archivist.db lives: ARCHIVIST_DB_PATH, then the repository's
     // backend/data/archivist.db during development, then the user's app data.

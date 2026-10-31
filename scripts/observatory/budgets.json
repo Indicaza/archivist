@@ -50,6 +50,61 @@
         "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
       },
       "steps": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 3 }
+    },
+    "ui:chat": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion"],
+      "metrics": {
+        "settled.median": { "direction": "lower", "regressionPercent": 10, "minAbsoluteMs": 2 },
+        "settled.p95": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 4 },
+        "state.median": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 2 },
+        "frameGap.median": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 4 },
+        "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
+      },
+      "steps": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 3 }
+    },
+    "ui:startup": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion"],
+      "metrics": {
+        "startup.firstFrame": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 50 },
+        "startup.eventLoop": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 50 },
+        "appDurationMs": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 500 }
+      }
+    },
+    "ui:ai-pipeline": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion", "aiProvider", "traceSchema"],
+      "metrics": {
+        "ai.turn": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 20 },
+        "ai.prepare": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 10 },
+        "ai.retrieval": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 5 },
+        "ai.contextCompile": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 5 },
+        "ai.firstModelDelta": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 20 },
+        "ai.firstVisibleText": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 20 },
+        "ai.persist": { "direction": "lower", "regressionPercent": 25, "minAbsoluteMs": 5 },
+        "ai.dbQueueWait": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 5 },
+        "settled.median": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 10 }
+      }
+    },
+    "ui:ai-turn": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion", "aiProvider", "traceSchema"],
+      "metrics": {
+        "ai.turn": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 20 },
+        "ai.prepare": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 10 },
+        "ai.retrieval": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 5 },
+        "ai.contextCompile": { "direction": "lower", "regressionPercent": 20, "minAbsoluteMs": 5 },
+        "ai.firstModelDelta": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 20 },
+        "ai.firstVisibleText": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 20 },
+        "ai.persist": { "direction": "lower", "regressionPercent": 25, "minAbsoluteMs": 5 },
+        "ai.dbQueueWait": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 5 },
+        "settled.median": { "direction": "lower", "regressionPercent": 15, "minAbsoluteMs": 10 }
+      }
+    },
+    "ui:ai-provider": {
+      "compatibility": ["platform", "architecture", "cpuModel", "logicalCpus", "buildType", "scenarioVersion", "driverVersion", "aiProvider", "traceSchema"],
+      "metrics": {
+        "ai.firstNetworkByte": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 150 },
+        "ai.firstModelDelta": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 150 },
+        "ai.turn": { "direction": "lower", "regressionPercent": 30, "minAbsoluteMs": 300 }
+      }
     }
   }
 }

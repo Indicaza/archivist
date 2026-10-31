@@ -22,7 +22,11 @@ namespace Live
 {
 // Bump when what a measurement means changes; recordings with different
 // versions are not compared.
-inline constexpr int kMeasurementVersion = 1;
+//  1: first recorder.
+//  2: CPU % is left unknown for a sample taken less than half a sample
+//     interval after the previous reading (the first one at start), which
+//     inflated the maximum and the mean of short recordings.
+inline constexpr int kMeasurementVersion = 2;
 
 struct WindowInfo
 {
@@ -102,8 +106,8 @@ public:
     void addSample(const Sample &sample);
 
     void addEvent(LiveEvents::Event event) override;
-    quint64 openSpan(LiveEvents::Event event) override;
-    void closeSpan(quint64 token, qint64 endNs, int ok, const QVariantMap &fields) override;
+    bool openSpan(LiveEvents::Event event) override;
+    void closeSpan(quint64 id, qint64 endNs, int ok, const QVariantMap &fields) override;
 
     // Everything recorded since the previous call (windows: all of them),
     // for the crash-safe stream on disk.
@@ -129,7 +133,6 @@ private:
     QList<Sample> m_samples;
     QList<LiveEvents::Event> m_events;
     QHash<quint64, LiveEvents::Event> m_open;
-    quint64 m_nextToken = 1;
     qint64 m_droppedEvents = 0;
     qint64 m_droppedProbes = 0;
     qint64 m_droppedSamples = 0;

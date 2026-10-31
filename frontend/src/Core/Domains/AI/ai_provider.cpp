@@ -1,5 +1,6 @@
 #include "ai_provider.h"
 
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Support/secret_store.h"
 
 #include <QDateTime>
@@ -272,12 +273,54 @@ OpenAIResponseStream::~OpenAIResponseStream()
 
 void OpenAIResponseStream::start()
 {
+    m_tracing = LiveEvents::recording();
     send();
+}
+
+void OpenAIResponseStream::endAttempt(int ok, const QVariantMap &fields)
+{
+    if (!m_attemptSpan) {
+        return;
+    }
+    QVariantMap all = fields;
+    all.insert(QStringLiteral("attempt"), m_attempt + 1);
+    all.insert(QStringLiteral("bytesReceived"), m_attemptBytes);
+    LiveEvents::end(std::exchange(m_attemptSpan, 0), ok, all);
+}
+
+// Only while tracing: counts events and the waits between them (no per-
+// event records, so a long stream costs a few integers).
+void OpenAIResponseStream::noteEvent(bool delta)
+{
+    if (!m_tracing) {
+        return;
+    }
+    const qint64 now = LiveEvents::nowNs();
+    ++m_stats.events;
+    if (m_lastEventNs >= 0) {
+        const qint64 gap = now - m_lastEventNs;
+        m_stats.maxGapNs = std::max(m_stats.maxGapNs, gap);
+        if (gap >= 1000000000LL) {
+            ++m_stats.longGaps;
+        }
+    }
+    m_lastEventNs = now;
+    if (delta) {
+        ++m_stats.deltas;
+        if (m_stats.firstDeltaNs < 0) {
+            m_stats.firstDeltaNs = now;
+            LiveEvents::marker(QStringLiteral("ai"), QStringLiteral("first-delta"), {}, -1, m_traceParent);
+        }
+    }
 }
 
 void OpenAIResponseStream::abort()
 {
     m_done = true;
+    if (m_tracing) {
+        endAttempt(0, {{QStringLiteral("cancelled"), true}});
+        LiveEvents::end(std::exchange(m_retrySpan, 0), 0, {{QStringLiteral("cancelled"), true}});
+    }
 
     if (m_retryTimer) {
         m_retryTimer->stop();
@@ -298,7 +341,22 @@ void OpenAIResponseStream::send()
     m_chatToolCalls.clear();
     QNetworkRequest request = requestFor(m_config, m_config.chatCompletions ? QStringLiteral("chat/completions") : QStringLiteral("responses"));
     request.setRawHeader("Accept", "text/event-stream");
-    m_reply = m_network->post(request, QJsonDocument(m_body).toJson(QJsonDocument::Compact));
+    LiveEvents::end(std::exchange(m_retrySpan, 0), 1);
+    const qint64 serializeNs = m_tracing ? LiveEvents::nowNs() : -1;
+    const QByteArray payload = QJsonDocument(m_body).toJson(QJsonDocument::Compact);
+    if (m_tracing) {
+        LiveEvents::span(QStringLiteral("ai"), QStringLiteral("request-serialize"), serializeNs, LiveEvents::nowNs(), 1,
+                         {{QStringLiteral("bytes"), payload.size()}}, m_traceParent);
+        ++m_stats.attempts;
+        m_stats.bytesSent += payload.size();
+        m_attemptBytes = 0;
+        m_lastEventNs = -1;
+        m_attemptSpan = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("http-attempt"), {
+            {QStringLiteral("endpoint"), m_config.chatCompletions ? QStringLiteral("chat-completions") : QStringLiteral("responses")},
+            {QStringLiteral("bytesSent"), payload.size()},
+        }, m_traceParent);
+    }
+    m_reply = m_network->post(request, payload);
     connect(m_reply, &QNetworkReply::readyRead, this, &OpenAIResponseStream::handleData);
     connect(m_reply, &QNetworkReply::finished, this, &OpenAIResponseStream::handleFinished);
 }
@@ -311,6 +369,12 @@ void OpenAIResponseStream::retryOrFail(const QString &message, int retryAfterMs)
         return;
     }
 
+    if (m_tracing) {
+        m_retrySpan = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("retry-wait"), {
+            {QStringLiteral("waitMs"), retryAfterMs},
+            {QStringLiteral("afterAttempt"), m_attempt + 1},
+        }, m_traceParent);
+    }
     ++m_attempt;
 
     if (!m_retryTimer) {
@@ -330,6 +394,17 @@ void OpenAIResponseStream::handleData()
 
     const int status = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray chunk = m_reply->readAll();
+
+    if (m_tracing && !chunk.isEmpty()) {
+        if (m_attemptBytes == 0 && m_attemptSpan) {
+            LiveEvents::marker(QStringLiteral("ai"), QStringLiteral("first-byte"), {{QStringLiteral("status"), status}}, -1, m_attemptSpan);
+            if (status >= 200 && status < 300) {
+                m_stats.firstByteNs = LiveEvents::nowNs();
+            }
+        }
+        m_attemptBytes += chunk.size();
+        m_stats.bytesReceived += chunk.size();
+    }
 
     if (status < 200 || status >= 300) {
         m_errorBody += chunk;
@@ -370,11 +445,39 @@ void OpenAIResponseStream::handleBlock(const QByteArray &block)
     }
 
     const QJsonObject event = QJsonDocument::fromJson(data).object();
+    if (m_tracing) {
+        const QString type = event.value(QStringLiteral("type")).toString();
+        bool delta = type == QStringLiteral("response.output_text.delta") || type == QStringLiteral("response.refusal.delta");
+        if (m_config.chatCompletions) {
+            const QJsonValue content = event.value(QStringLiteral("choices")).toArray().at(0).toObject()
+                .value(QStringLiteral("delta")).toObject().value(QStringLiteral("content"));
+            delta = content.isString() && !content.toString().isEmpty();
+        }
+        noteEvent(delta);
+        // Token usage, only as the provider reports it.
+        const QJsonObject usage = m_config.chatCompletions
+            ? event.value(QStringLiteral("usage")).toObject()
+            : event.value(QStringLiteral("response")).toObject().value(QStringLiteral("usage")).toObject();
+        if (!usage.isEmpty()) {
+            const QJsonValue in = usage.value(m_config.chatCompletions ? QStringLiteral("prompt_tokens") : QStringLiteral("input_tokens"));
+            const QJsonValue out = usage.value(m_config.chatCompletions ? QStringLiteral("completion_tokens") : QStringLiteral("output_tokens"));
+            if (in.isDouble()) {
+                m_stats.inputTokens = in.toInt();
+            }
+            if (out.isDouble()) {
+                m_stats.outputTokens = out.toInt();
+            }
+        }
+    }
 
     if (event.value(QStringLiteral("error")).isObject()) {
         // The SDK throws APIError(undefined, data.error) for these.
         const QJsonObject error = event.value(QStringLiteral("error")).toObject();
         m_done = true;
+        if (m_tracing) {
+            const int status = m_reply ? m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() : m_stats.status;
+            endAttempt(0, {{QStringLiteral("status"), status}, {QStringLiteral("error"), QStringLiteral("stream-error-event")}});
+        }
         emit failed(
             error.value(QStringLiteral("message")).isString()
                 ? error.value(QStringLiteral("message")).toString()
@@ -437,9 +540,36 @@ void OpenAIResponseStream::handleFinished()
     }
 
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (m_tracing) {
+        m_stats.status = status;
+    }
+    // A transfer timeout aborts the reply with OperationCanceledError; our
+    // own abort() disconnects first, so it never gets here.
+    const auto networkError = [reply]() {
+        switch (reply->error()) {
+        case QNetworkReply::OperationCanceledError:
+        case QNetworkReply::TimeoutError:
+            return QStringLiteral("timeout");
+        case QNetworkReply::ConnectionRefusedError:
+            return QStringLiteral("connection-refused");
+        case QNetworkReply::RemoteHostClosedError:
+            return QStringLiteral("remote-closed");
+        case QNetworkReply::HostNotFoundError:
+            return QStringLiteral("host-not-found");
+        case QNetworkReply::SslHandshakeFailedError:
+            return QStringLiteral("tls-failed");
+        default:
+            return QStringLiteral("network-error");
+        }
+    };
 
     if (status == 0) {
-        retryOrFail(networkFailureMessage(reply), retryDelayMs(nullptr, m_attempt));
+        const int waitMs = retryDelayMs(nullptr, m_attempt);
+        if (m_tracing) {
+            const bool retrying = m_attempt < maximumRetries && !m_streaming;
+            endAttempt(0, {{QStringLiteral("status"), 0}, {QStringLiteral("error"), networkError()}, {QStringLiteral("retry"), retrying}});
+        }
+        retryOrFail(networkFailureMessage(reply), waitMs);
         return;
     }
 
@@ -448,6 +578,11 @@ void OpenAIResponseStream::handleFinished()
         const QString message = AIProvider::errorMessageFor(status, m_errorBody);
         const QByteArray shouldRetry = reply->rawHeader("x-should-retry");
         const bool retry = shouldRetry == "true" || (shouldRetry != "false" && retryableStatus(status));
+
+        if (m_tracing) {
+            endAttempt(0, {{QStringLiteral("status"), status}, {QStringLiteral("error"), QStringLiteral("http-status")},
+                           {QStringLiteral("retry"), retry && m_attempt < maximumRetries && !m_streaming}});
+        }
 
         if (retry) {
             retryOrFail(message, retryDelayMs(reply, m_attempt));
@@ -461,6 +596,9 @@ void OpenAIResponseStream::handleFinished()
 
     if (reply->error() != QNetworkReply::NoError) {
         m_done = true;
+        if (m_tracing) {
+            endAttempt(0, {{QStringLiteral("status"), status}, {QStringLiteral("error"), networkError()}, {QStringLiteral("interrupted"), m_streaming}});
+        }
         emit failed(networkFailureMessage(reply));
         return;
     }
@@ -472,6 +610,9 @@ void OpenAIResponseStream::handleFinished()
 
     if (!m_done) {
         m_done = true;
+        if (m_tracing) {
+            endAttempt(1, {{QStringLiteral("status"), status}, {QStringLiteral("events"), m_stats.events}});
+        }
 
         if (m_config.chatCompletions) {
             emitChatToolCalls();

@@ -37,15 +37,21 @@
 #include "Core/Domains/AI/ai_settings.h"
 #include "Core/Domains/Ide/ide_server.h"
 #include "Core/Domains/Themes/code_theme_library.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Support/app_profile.h"
 #include "Core/Support/login_environment.h"
 #include "Core/core_runtime.h"
 
 int main(int argc, char *argv[])
 {
+    // Startup stages are timed on the Observatory clock. They are reported
+    // only when something collects events from the start (the UI Lab);
+    // time before main() is not measured.
+    const qint64 mainNs = LiveEvents::nowNs();
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);
+    const qint64 appNs = LiveEvents::nowNs();
 
     QCoreApplication::setApplicationName("Archivist");
     QCoreApplication::setApplicationVersion("0.1.0");
@@ -73,6 +79,8 @@ int main(int argc, char *argv[])
         }
         qInfo().noquote() << "[UiLab] Test profile:" << AppProfile::directory();
     }
+    LiveEvents::span(QStringLiteral("startup"), QStringLiteral("qt-init"), mainNs, appNs);
+    LiveEvents::span(QStringLiteral("startup"), QStringLiteral("profile"), appNs, LiveEvents::nowNs());
 
     // Finder launches get a bare PATH; the terminal and language servers
     // need the same tools the user has in their shell.
@@ -80,7 +88,12 @@ int main(int argc, char *argv[])
 
     CoreRuntime coreRuntime;
 
-    if (coreRuntime.start(CoreRuntime::defaultDatabasePath())) {
+    const qint64 coreNs = LiveEvents::nowNs();
+    const bool coreStarted = coreRuntime.start(CoreRuntime::defaultDatabasePath());
+    // Opening the database and running its migrations.
+    LiveEvents::span(QStringLiteral("startup"), QStringLiteral("core-runtime"), coreNs, LiveEvents::nowNs(), coreStarted ? 1 : 0,
+                     {{QStringLiteral("schema"), coreRuntime.schemaVersion()}});
+    if (coreStarted) {
         qInfo().noquote() << "[Core]" << coreRuntime.databasePath()
                           << "· schema v" + QString::number(coreRuntime.schemaVersion());
     } else {
@@ -92,8 +105,12 @@ int main(int argc, char *argv[])
     // their own thread, against the same database.
     AIRuntime aiRuntime;
 
-    if (coreRuntime.ready() && !aiRuntime.start(coreRuntime.databasePath())) {
-        qWarning().noquote() << "[AI] Native AI runtime unavailable.";
+    {
+        LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("ai-runtime"));
+        if (coreRuntime.ready() && !aiRuntime.start(coreRuntime.databasePath())) {
+            live.setOk(false);
+            qWarning().noquote() << "[AI] Native AI runtime unavailable.";
+        }
     }
 
     // OpenAI key (Keychain), local model server address and model lists for
@@ -115,8 +132,12 @@ int main(int argc, char *argv[])
         return liveRecorder.handle(operation, body, caller);
     });
 
-    if (coreRuntime.ready() && !ideServer.start(coreRuntime.databasePath())) {
-        qWarning().noquote() << "[IDE] Native IDE host unavailable.";
+    {
+        LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("ide-host"));
+        if (coreRuntime.ready() && !ideServer.start(coreRuntime.databasePath())) {
+            live.setOk(false);
+            qWarning().noquote() << "[IDE] Native IDE host unavailable.";
+        }
     }
 
     AgentStore agentStore;
@@ -314,7 +335,19 @@ int main(int argc, char *argv[])
         Qt::QueuedConnection
     );
 
-    engine.loadFromModule("Archivist", "App");
+    // Marks when the root object exists inside qml-load, splitting compile
+    // and create from what runs after it before loadFromModule returns.
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app, [](QObject *object, const QUrl &) {
+        LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("qml-root-created"), {}, object ? 1 : 0);
+    });
+
+    {
+        // Compiling and creating the QML scene (the window and everything it
+        // creates synchronously).
+        LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("qml-load"));
+        engine.loadFromModule("Archivist", "App");
+    }
+    LiveEvents::marker(QStringLiteral("startup"), QStringLiteral("enter-event-loop"));
 
     return app.exec();
 }

@@ -189,8 +189,11 @@ describe("budgets", () => {
     const { budgets, source } = await loadBudgets(root);
     assert.deepEqual(budgets.problems, []);
     assert.match(source, /scripts\/observatory\/budgets\.json$/);
-    assert.deepEqual(Object.keys(budgets.categories).sort(), ["build:clean", "build:incremental", "build:no-change", "ui:sidebar", "ui:workspace"]);
+    assert.deepEqual(Object.keys(budgets.categories).sort(), ["build:clean", "build:incremental", "build:no-change", "ui:ai-pipeline", "ui:ai-provider", "ui:ai-turn", "ui:chat", "ui:sidebar", "ui:startup", "ui:workspace"]);
     assert.ok(budgets.categories["ui:sidebar"].compatibility.includes("scenarioVersion"));
+    for (const id of ["ui:ai-pipeline", "ui:ai-turn", "ui:ai-provider"]) {
+      assert.ok(budgets.categories[id].compatibility.includes("aiProvider"), `${id}: a mocked and a real provider are never compared`);
+    }
   });
 
   test("a local budgets file overrides the repository's", async () => {

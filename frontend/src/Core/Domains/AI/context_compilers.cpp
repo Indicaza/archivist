@@ -1,6 +1,7 @@
 #include "context_compilers.h"
 
 #include "Core/Domains/Agents/context_compiler_catalog.h"
+#include "Core/Domains/Observatory/live_events.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"
 #include "Core/Support/json_values.h"
@@ -132,6 +133,11 @@ Compiled finish(
     const QStringList &warnings
 )
 {
+    LiveEvents::Scope live(QStringLiteral("context"), QStringLiteral("assemble"), {
+        {QStringLiteral("selected"), selected.size()},
+        {QStringLiteral("eligible"), eligibleMessages.size()},
+        {QStringLiteral("estimatedTokens"), estimatedInputTokens},
+    });
     QSet<QString> includedIds;
     Compiled compiled;
 
@@ -966,6 +972,14 @@ Compiled compile(
 )
 {
     const QVariantMap compiler = descriptor(id, version);
+    // Inside the caller's context-compile span: the strategy's own
+    // selection is this span's self time; its searches and assembly are
+    // children.
+    LiveEvents::Scope live(QStringLiteral("context"), QStringLiteral("strategy"), {
+        {QStringLiteral("compiler"), id.left(48)},
+        {QStringLiteral("version"), version},
+        {QStringLiteral("messages"), messages.size()},
+    });
 
     if (id == QStringLiteral("recent-history")) {
         return recentHistory(compiler, currentMessageId, messages, config);
@@ -1010,6 +1024,10 @@ QVariantMap searchChatMessages(CoreDatabase &database, const QString &query, con
         return result;
     }
 
+    LiveEvents::Scope live(QStringLiteral("context"), QStringLiteral("chat-search"), {
+        {QStringLiteral("scope"), chatId.isEmpty() ? QStringLiteral("all-chats") : QStringLiteral("current-chat")},
+        {QStringLiteral("limit"), clampedLimit},
+    });
     const QString chatFilter = chatId.isEmpty() ? QString() : QStringLiteral("AND message_search.chat_id = ?2");
     auto statement = database.prepare(QStringLiteral(
         "SELECT message_search.message_id AS messageId, message_search.chat_id AS chatId, chats.title AS chatTitle, "
@@ -1052,6 +1070,7 @@ QVariantMap searchChatMessages(CoreDatabase &database, const QString &query, con
         });
     }
 
+    live.setField(QStringLiteral("candidates"), candidates.size());
     result.insert(QStringLiteral("candidates"), candidates);
     result.insert(QStringLiteral("searchedAt"), JsCompat::isoTimestamp(QDateTime::currentDateTimeUtc()));
     result.insert(QStringLiteral("durationMs"), roundedMilliseconds(timer));

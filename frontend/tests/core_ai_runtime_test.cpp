@@ -6,6 +6,8 @@
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
 #include "Core/Domains/Models/model_catalog_cache.h"
+#include "Core/Domains/Observatory/live_events.h"
+#include "Core/Domains/Observatory/live_session.h"
 #include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Support/core_values.h"
 
@@ -30,6 +32,11 @@ class FakeOpenAI final : public QObject
 {
 public:
     QList<QByteArray> responses;
+    // Per POST, in order: an HTTP status other than 200 answers with that
+    // status, a retry-after-ms of 5 and no stream (and keeps the queued body).
+    QList<int> statuses;
+    // When set, each SSE event of a 200 reply is written this long apart.
+    int gapMs = 0;
     QList<QJsonObject> requests;
     QStringList paths;
     QList<QByteArray> authorizations;
@@ -105,7 +112,40 @@ private:
             reply = modelsReply;
         } else {
             requests.append(QJsonDocument::fromJson(body).object());
+            const int status = statuses.isEmpty() ? 200 : statuses.takeFirst();
+            if (status != 200) {
+                const QByteArray error = R"({"error":{"message":"busy"}})";
+                socket->write("HTTP/1.1 " + QByteArray::number(status) + " Busy\r\nContent-Type: application/json\r\nretry-after-ms: 5\r\nContent-Length: "
+                              + QByteArray::number(error.size()) + "\r\nConnection: close\r\n\r\n" + error);
+                socket->disconnectFromHost();
+                return;
+            }
             reply = responses.isEmpty() ? QByteArray() : responses.takeFirst();
+            if (gapMs > 0) {
+                socket->write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: " + QByteArray::number(reply.size())
+                              + "\r\nConnection: close\r\n\r\n");
+                const QList<QByteArray> blocks = reply.split('\n');
+                QByteArray pending;
+                int delay = 0;
+                for (const QByteArray &line : blocks) {
+                    pending += line + '\n';
+                    if (line.isEmpty() && !pending.trimmed().isEmpty()) {
+                        delay += gapMs;
+                        const QByteArray piece = pending;
+                        QTimer::singleShot(delay, socket, [socket, piece]() { socket->write(piece); });
+                        pending.clear();
+                    }
+                }
+                // The split leaves one trailing newline too many; keep the
+                // byte count exact.
+                QTimer::singleShot(delay + 1, socket, [socket, pending]() {
+                    if (pending.size() > 1) {
+                        socket->write(pending.left(pending.size() - 1));
+                    }
+                    socket->disconnectFromHost();
+                });
+                return;
+            }
         }
 
         socket->write("HTTP/1.1 200 OK\r\nContent-Type: " + contentType + "\r\nContent-Length: "
@@ -290,6 +330,25 @@ private:
         return names;
     }
 
+    // Every event of a recording, by name (several of one name in order).
+    static QMultiMap<QString, QJsonObject> traceByName(const Live::Session &session, QJsonArray *all = nullptr)
+    {
+        QMultiMap<QString, QJsonObject> byName;
+        const QJsonArray events = Live::eventsJson(session.snapshot()).value(QStringLiteral("events")).toArray();
+        for (const QJsonValue &value : events) {
+            const QJsonObject event = value.toObject();
+            byName.insert(event.value(QStringLiteral("category")).toString() + QLatin1Char('.') + event.value(QStringLiteral("name")).toString(), event);
+        }
+        if (all) {
+            *all = events;
+        }
+        return byName;
+    }
+
+    static quint64 idOf(const QJsonObject &event) { return static_cast<quint64>(event.value(QStringLiteral("id")).toDouble()); }
+    static quint64 parentOf(const QJsonObject &event) { return static_cast<quint64>(event.value(QStringLiteral("parent")).toDouble()); }
+    static QJsonObject fieldsOf(const QJsonObject &event) { return event.value(QStringLiteral("fields")).toObject(); }
+
 private slots:
     void initTestCase()
     {
@@ -390,6 +449,149 @@ private slots:
         const QVariantList messages = ChatRepository::messages(database, m_chatId);
         QCOMPARE(messages.last().toMap().value(QStringLiteral("content")).toString(), QStringLiteral("The lights are green."));
         QCOMPARE(messages.last().toMap().value(QStringLiteral("status")).toString(), QStringLiteral("complete"));
+    }
+
+    // A complete mocked turn, recorded: the trace nests by cause from the
+    // call that started it, through preparation, provider rounds with their
+    // HTTP attempts (one refused and retried), the tool round and the
+    // persistence, and carries numbers only, never the conversation.
+    void aTracedTurnNestsByCauseAndCarriesNoContent()
+    {
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key-secret");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.statuses = {503};
+        openai.responses.append(toolTurn(QStringLiteral("resp_1"), QStringLiteral("list_directory"), QStringLiteral(R"({"path":"","limit":10})")));
+        openai.responses.append(FakeOpenAI::sse({
+            created(QStringLiteral("resp_2")),
+            delta(QStringLiteral("The lights ")),
+            delta(QStringLiteral("are green.")),
+            event(QStringLiteral("response.completed"), {{QStringLiteral("response"), QJsonObject{
+                {QStringLiteral("id"), QStringLiteral("resp_2")},
+                {QStringLiteral("usage"), QJsonObject{{QStringLiteral("input_tokens"), 321}, {QStringLiteral("output_tokens"), 7}}},
+            }}}),
+        }));
+        openai.gapMs = 30;
+
+        Live::Session session;
+        session.reset(LiveEvents::nowNs());
+        LiveEvents::setSink(&session);
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+        const Turn turn = runTurn(runtime, QStringLiteral("Test the library tools: what colour are the harbour lights?"));
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        runtime.stop();
+        LiveEvents::setSink(nullptr);
+
+        QJsonArray all;
+        const QMultiMap<QString, QJsonObject> trace = traceByName(session, &all);
+        const QJsonObject call = trace.value(QStringLiteral("ai.start-chat-run"));
+        const QJsonObject run = trace.value(QStringLiteral("ai.run"));
+        QVERIFY(!call.isEmpty() && !run.isEmpty());
+        QCOMPARE(parentOf(trace.value(QStringLiteral("ai.queue-wait"))), idOf(call));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("ai.callback-delay"))), idOf(call));
+        QCOMPARE(parentOf(run), idOf(call));
+        QCOMPARE(run.value(QStringLiteral("thread")).toString(), QStringLiteral("ArchivistAI"));
+        const QJsonObject runFields = fieldsOf(run);
+        QCOMPARE(runFields.value(QStringLiteral("outcome")).toString(), QStringLiteral("completed"));
+        QCOMPARE(runFields.value(QStringLiteral("toolCalls")).toInt(), 1);
+        QCOMPARE(runFields.value(QStringLiteral("rounds")).toInt(), 2);
+        QCOMPARE(runFields.value(QStringLiteral("inputTokens")).toInt(), 321);
+        QCOMPARE(runFields.value(QStringLiteral("outputTokens")).toInt(), 7);
+        QVERIFY(runFields.value(QStringLiteral("eventWrites")).toInt() > 3);
+        QCOMPARE(run.value(QStringLiteral("ok")).toBool(), true);
+
+        const QJsonObject prepare = trace.value(QStringLiteral("ai.prepare"));
+        QCOMPARE(parentOf(prepare), idOf(run));
+        for (const char *stage : {"ai.conversation-load", "ai.attachments", "ai.retrieval", "ai.context-compile"}) {
+            QVERIFY2(trace.contains(QLatin1String(stage)), stage);
+            QCOMPARE(parentOf(trace.value(QLatin1String(stage))), idOf(prepare));
+        }
+        QVERIFY(fieldsOf(trace.value(QStringLiteral("ai.context-compile"))).contains(QStringLiteral("estimatedTokens")));
+        // Retrieval and compiler stages nest under their step.
+        const QJsonObject search = trace.value(QStringLiteral("retrieval.library-search"));
+        QCOMPARE(parentOf(search), idOf(trace.value(QStringLiteral("ai.retrieval"))));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("retrieval.fts-query"))), idOf(search));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("retrieval.rank"))), idOf(search));
+        QVERIFY(fieldsOf(trace.value(QStringLiteral("retrieval.fts-query"))).value(QStringLiteral("rows")).toInt() >= 1);
+        QCOMPARE(parentOf(trace.value(QStringLiteral("retrieval.select"))), idOf(trace.value(QStringLiteral("ai.retrieval"))));
+        const QJsonObject strategy = trace.value(QStringLiteral("context.strategy"));
+        QCOMPARE(parentOf(strategy), idOf(trace.value(QStringLiteral("ai.context-compile"))));
+        QCOMPARE(parentOf(trace.value(QStringLiteral("context.assemble"))), idOf(strategy));
+
+        const QList<QJsonObject> rounds = trace.values(QStringLiteral("ai.provider-round"));
+        QCOMPARE(rounds.size(), 2);
+        QList<QJsonObject> attempts = trace.values(QStringLiteral("ai.http-attempt"));
+        QCOMPARE(attempts.size(), 3); // 503, then the tool round; then the answer
+        int refused = 0;
+        for (const QJsonObject &attempt : attempts) {
+            const quint64 parent = parentOf(attempt);
+            QVERIFY(parent == idOf(rounds.at(0)) || parent == idOf(rounds.at(1)));
+            if (fieldsOf(attempt).value(QStringLiteral("status")).toInt() == 503) {
+                ++refused;
+                QCOMPARE(fieldsOf(attempt).value(QStringLiteral("retry")).toBool(), true);
+                QCOMPARE(attempt.value(QStringLiteral("ok")).toBool(), false);
+            }
+        }
+        QCOMPARE(refused, 1);
+        const QJsonObject retry = trace.value(QStringLiteral("ai.retry-wait"));
+        QCOMPARE(fieldsOf(retry).value(QStringLiteral("waitMs")).toInt(), 5);
+        QVERIFY(trace.values(QStringLiteral("ai.request-serialize")).size() == 3);
+        QVERIFY(trace.values(QStringLiteral("ai.first-byte")).size() == 3);
+        QCOMPARE(trace.values(QStringLiteral("ai.first-delta")).size(), 1);
+
+        // The answer round: two deltas, 30 ms apart on the wire.
+        QJsonObject answer;
+        for (const QJsonObject &round : rounds) {
+            if (fieldsOf(round).value(QStringLiteral("deltas")).toInt() == 2) {
+                answer = round;
+            }
+        }
+        QVERIFY(!answer.isEmpty());
+        QCOMPARE(fieldsOf(answer).value(QStringLiteral("events")).toInt(), 4);
+        QVERIFY(fieldsOf(answer).value(QStringLiteral("maxGapMs")).toDouble() >= 20);
+        QCOMPARE(fieldsOf(answer).value(QStringLiteral("inputTokens")).toInt(), 321);
+        QVERIFY(fieldsOf(answer).value(QStringLiteral("bytesReceived")).toInt() > 100);
+
+        const QJsonObject toolRound = trace.value(QStringLiteral("ai.tool-round"));
+        QCOMPARE(parentOf(toolRound), idOf(run));
+        const QJsonObject tool = trace.value(QStringLiteral("ai.tool"));
+        QCOMPARE(parentOf(tool), idOf(toolRound));
+        QCOMPARE(fieldsOf(tool).value(QStringLiteral("tool")).toString(), QStringLiteral("list_directory"));
+        QCOMPARE(fieldsOf(tool).value(QStringLiteral("callId")).toString(), QStringLiteral("call_resp_1"));
+        QVERIFY(fieldsOf(tool).value(QStringLiteral("resultBytes")).toInt() > 0);
+        QCOMPARE(parentOf(trace.value(QStringLiteral("ai.persist"))), idOf(run));
+
+        // Never content: not the message, the reply, file names, the key.
+        const QByteArray text = QJsonDocument(all).toJson(QJsonDocument::Compact);
+        // The Node trace analysis tests read a trace made exactly this way.
+        if (const QString out = qEnvironmentVariable("ARCHIVIST_TRACE_EXPORT"); !out.isEmpty()) {
+            QFile file(out);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(QJsonDocument(QJsonObject{{QStringLiteral("events"), all}}).toJson(QJsonDocument::Indented));
+        }
+        for (const char *secret : {"harbour", "green", "notes.txt", "test-key-secret", "Bearer", "path"}) {
+            QVERIFY2(!text.contains(secret), secret);
+        }
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // Not recording: no spans, no ids, and the turn works the same.
+    void anUntracedTurnRecordsNothing()
+    {
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(textTurn(QStringLiteral("resp_1"), QStringLiteral("Fine.")));
+        QVERIFY(!LiveEvents::recording());
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+        const Turn turn = runTurn(runtime, QStringLiteral("Hello"));
+        QVERIFY(turn.events.contains(QStringLiteral("run.completed")));
+        QCOMPARE(LiveEvents::currentParent(), quint64(0));
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
     }
 
     // "Switch to Research", "try another", "put it back": each is one tool
