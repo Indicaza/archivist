@@ -313,6 +313,18 @@ Compiler tracing adds overhead, so its times are diagnostic, not ordinary
 incremental-build benchmarks. For a full separate profiling build instead,
 use `npm run observatory -- build --time-trace`.
 
+The AI Library read handlers now compile in
+`src/Core/Domains/AI/ai_tools_read.cpp` rather than the 2,100-line
+registry/executor. This keeps `QCollator`, file-reading and search logic out
+of the registry translation unit without changing tool schemas, IDs,
+outputs, or cancellation behavior. Measure ordinary single-file edit cost
+after the one-time build graph regeneration:
+
+```bash
+touch frontend/src/Core/Domains/AI/ai_tools.cpp
+npm run observatory:build
+```
+
 Compiler traces also identified the workspace composition header chain
 as the largest project-header cost in `ai_tools.cpp` (about 421 ms
 inclusive). AI tool schema construction now includes only the lightweight
