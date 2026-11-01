@@ -313,6 +313,16 @@ Compiler tracing adds overhead, so its times are diagnostic, not ordinary
 incremental-build benchmarks. For a full separate profiling build instead,
 use `npm run observatory -- build --time-trace`.
 
+Compiler traces also identified the workspace composition header chain
+as the largest project-header cost in `ai_tools.cpp` (about 421 ms
+inclusive). AI tool schema construction now includes only the lightweight
+workspace composition catalog rather than the full workspace model and
+dock layout types. To inspect the resulting include ranking:
+
+```bash
+npm run observatory:cpp-profile -- ai_tools.cpp
+```
+
 The Clang profiler identified `QtWebEngineQuick` as a major parsing cost
 (~2.85 s inclusive in `main.cpp`). WebEngine initialization now lives in
 `src/App/Services/web_engine_bootstrap.cpp`, keeping the heavy header out
