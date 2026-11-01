@@ -13,7 +13,6 @@
 #include <QStandardPaths>
 #include <QVariantMap>
 #include <QtEnvironmentVariables>
-#include <QtWebEngineQuick>
 #include <atomic>
 #include <memory>
 #include <qqml.h>
@@ -40,6 +39,7 @@
 #include "App/Services/interface_scale.h"
 #include "App/Services/live_recorder.h"
 #include "App/Services/ui_lab.h"
+#include "App/Services/web_engine_bootstrap.h"
 #if defined(Q_OS_MACOS)
 #include "App/Services/ui_lab_mac.h"
 #endif
@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
     // only when something collects events from the start (the UI Lab);
     // time before main() is not measured.
     const qint64 mainNs = LiveEvents::nowNs();
-    QtWebEngineQuick::initialize();
+    initializeWebEngine();
 
     QGuiApplication app(argc, argv);
     const bool uiLabBackground = UiLab::requested() && qEnvironmentVariableIsSet("ARCHIVIST_UI_LAB_BACKGROUND");
