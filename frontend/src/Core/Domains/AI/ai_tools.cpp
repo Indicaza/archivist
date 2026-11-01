@@ -4,7 +4,7 @@
 #include "Core/Domains/Libraries/library_file_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
 #include "Core/Domains/Libraries/library_repository.h"
-#include "Core/Domains/Workspace/workspace_compose.h"
+#include "Core/Domains/Workspace/workspace_compose_catalog.h"
 #include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Support/core_values.h"
 #include "Core/Support/js_compat.h"

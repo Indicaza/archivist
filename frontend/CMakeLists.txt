@@ -151,6 +151,7 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Workspace/workspace_preferences.h
     src/Core/Domains/Workspace/workspace_compose.cpp
     src/Core/Domains/Workspace/workspace_compose.h
+    src/Core/Domains/Workspace/workspace_compose_catalog.h
     src/Core/Domains/Shell/shell_navigation.cpp
     src/Core/Domains/Shell/shell_navigation.h
     src/Core/Domains/Shell/recent_items.cpp

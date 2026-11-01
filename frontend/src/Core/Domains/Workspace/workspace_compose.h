@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Domains/Workspace/workspace_compose_catalog.h"
 #include "Core/Domains/Workspace/workspace_model.h"
 
 #include <QJsonObject>
@@ -45,25 +46,6 @@
 // small: at most kMaximumSlots slots and kMaximumItems items in all.
 namespace Workspace::Compose
 {
-inline constexpr int kMaximumSlots = 6;
-inline constexpr int kMaximumItemsPerSlot = 8;
-inline constexpr int kMaximumItems = 16;
-
-struct Template
-{
-    QString id;
-    QString name;
-    int version = 1;
-    QString description;
-    QJsonObject recipe; // {tree, slots}; see workspace_compose.cpp
-};
-
-[[nodiscard]] const QList<Template> &templates();
-[[nodiscard]] QStringList templateIds();
-[[nodiscard]] QStringList strategies();
-// The words a slot's holds may use ("code", "docs", "chat", ...).
-[[nodiscard]] QStringList holdWords();
-
 struct Slot
 {
     QString name;
