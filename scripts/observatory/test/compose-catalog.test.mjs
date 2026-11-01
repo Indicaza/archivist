@@ -17,7 +17,7 @@ test("AI tool schemas use only the lightweight composition catalog", async () =>
   assert.doesNotMatch(catalog, /#include "Core\/Domains\/Workspace\/workspace_compose\.h"/);
 
   for (const name of ["templates", "templateIds", "strategies", "holdWords"]) {
-    assert.match(catalog, new RegExp(String.raw`\\b${name}\\(\\)`));
+    assert.match(catalog, new RegExp(`\\b${name}\\(\\)`));
   }
   for (const [name, value] of [["kMaximumSlots", 6], ["kMaximumItemsPerSlot", 8], ["kMaximumItems", 16]]) {
     assert.match(catalog, new RegExp(`inline constexpr int ${name} = ${value};`));
