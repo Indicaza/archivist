@@ -234,6 +234,8 @@ endif()
 
 qt_add_executable(archivist-qt
     src/main.cpp
+    src/App/Services/web_engine_bootstrap.cpp
+    src/App/Services/web_engine_bootstrap.h
     src/App/Domains/Agent/agent_store.cpp
     src/App/Domains/Agent/agent_store.h
     src/App/Domains/Chat/chat_message_model.cpp

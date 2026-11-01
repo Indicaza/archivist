@@ -313,6 +313,20 @@ Compiler tracing adds overhead, so its times are diagnostic, not ordinary
 incremental-build benchmarks. For a full separate profiling build instead,
 use `npm run observatory -- build --time-trace`.
 
+The Clang profiler identified `QtWebEngineQuick` as a major parsing cost
+(~2.85 s inclusive in `main.cpp`). WebEngine initialization now lives in
+`src/App/Services/web_engine_bootstrap.cpp`, keeping the heavy header out
+of the main entry-point translation unit while preserving startup order.
+After the initial CMake regeneration, measure a subsequent edit with:
+
+```bash
+touch frontend/src/main.cpp
+npm run observatory:build
+```
+
+Use `npm run observatory:cpp-profile -- main.cpp` to inspect the
+updated header rankings.
+
 Debug C++ builds use precompiled headers for stable Qt and C++ includes in
 `archivist-core` and `archivist-qt` (separate target-specific PCHs). The first
 build after enabling them recompiles the targets, so measure later edits rather
