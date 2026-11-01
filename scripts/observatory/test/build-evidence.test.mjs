@@ -78,6 +78,9 @@ test("jobs are categorized, timed and chained", () => {
   assert.equal(chain.lengthMs, 500);
   assert.deepEqual(chain.jobs.map((id) => jobs.find((j) => j.id === id).outputs[0]), ["b.o", "lib.a", "app"]);
   assert.equal(criticalPath(jobs, new Map()).available, false, "no graph, no claim");
+  assert.equal(categorize({ outputs: ["CMakeFiles/archivist-core.dir/cmake_pch.hxx.pch"] }, "CXX_COMPILER__core_unscanned_"), "pch");
+  assert.equal(categorize({ outputs: ["CMakeFiles/archivist-qt.dir/cmake_pch.hxx.gch"] }, null), "pch");
+  assert.equal(categorize({ outputs: ["CMakeFiles/archivist-qt.dir/src/main.cpp.o"] }, "CXX_COMPILER__qt_unscanned_"), "compile");
   assert.equal(categorize({ outputs: ["x.o"] }, "CXX_COMPILER__core_unscanned_"), "compile");
   assert.equal(categorize({ outputs: ["lib.a"] }, "CXX_STATIC_LIBRARY_LINKER__core_"), "archive");
   assert.equal(categorize({ outputs: ["app"] }, "CXX_EXECUTABLE_LINKER__app_"), "link");

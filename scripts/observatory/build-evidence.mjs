@@ -287,10 +287,11 @@ export function groupJobs(entries, buildDir = "") {
 
 const BOOKKEEPING = [/(^|\/)cmake\.verify_globs$/, /(^|\/)build\.ninja$/, /_autogen\/timestamp$/, /(^|\/)meta_types\/[^/]+_json_file_list\.txt(\.timestamp)?$/];
 
-// compile, link, archive, autogen (moc/uic/rcc), qml, resources, cmake, other.
+// pch, compile, link, archive, autogen (moc/uic/rcc), qml, resources, cmake, other.
 export function categorize(job, rule, compdb) {
   const output = job.outputs[0] ?? "";
   if (job.outputs.every((o) => BOOKKEEPING.some((p) => p.test(o))) || /^RERUN_CMAKE$/.test(rule ?? "")) return "cmake";
+  if (/(^|\/)cmake_pch\.[^/]+\.(pch|gch)$/.test(output)) return "pch";
   if (rule && /_COMPILER__/.test(rule)) return "compile";
   if (compdb?.compile) return "compile";
   if (rule && /_STATIC_LIBRARY_LINKER__/.test(rule)) return "archive";

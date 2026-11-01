@@ -296,6 +296,23 @@ local Observatory run (see `scripts/observatory/README.md`):
 npm run observatory:build
 ```
 
+Debug C++ builds use precompiled headers for stable Qt and C++ includes in
+`archivist-core` and `archivist-qt` (separate target-specific PCHs). The first
+build after enabling them recompiles the targets, so measure later edits rather
+than judging the migration build. PCH is not enabled in Release or in standalone
+native test executables. To turn it off locally if it increases build time or
+memory use:
+
+```bash
+cmake -S frontend -B build/frontend-debug -DARCHIVIST_DEBUG_PCH=OFF
+npm run build:fast
+```
+
+To enable it again, set `-DARCHIVIST_DEBUG_PCH=ON` with the same CMake
+command. Changing this flag triggers a one-time rebuild. In Observatory's
+build evidence, PCH generation is reported as its own job category.
+
+
 Time scripted sidebar and workspace interactions in an isolated app
 instance (it uses a throwaway profile, never your data):
 
