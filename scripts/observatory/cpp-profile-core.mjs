@@ -79,7 +79,7 @@ export function selectCompileJobs(compdb, sourceRoot, names) {
       const file = path.resolve(job.directory ?? sourceRoot, job.file);
       const relative = path.relative(sourceRoot, file);
       if (relative.startsWith("..") || path.isAbsolute(relative) || !relative.endsWith(".cpp")) return false;
-      return name.includes("/") ? relative === name.replace(/^frontend\//, "") : path.basename(file) === name;
+      return name.includes("/") ? relative === name.replace(/^(?:frontend\/src\/|src\/)/, "") : path.basename(file) === name;
     });
     if (matches.length !== 1) {
       throw new Error(`Expected one compilation entry for ${name}; found ${matches.length}. Use a path relative to frontend/src for ambiguous names.`);
