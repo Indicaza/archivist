@@ -17,7 +17,6 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QRegularExpression>
 #include <algorithm>
 #include <cmath>
 
