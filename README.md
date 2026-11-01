@@ -296,24 +296,36 @@ local Observatory run (see `scripts/observatory/README.md`):
 npm run observatory:build
 ```
 
+Profile the five slowest C++ translation units with Clang time traces,
+reusing the already-built Debug graph and precompiled headers:
+
+```bash
+npm run observatory:cpp-profile
+```
+
+This compiles only the selected files into a temporary folder, without
+modifying the app binary, Ninja objects, or the active build graph. It prints
+the slowest header and template parsing costs per source and writes
+`build/frontend-debug/cpp-profile-report.json`. Provide source filenames
+after `--` to profile a smaller selection, for example
+`npm run observatory:cpp-profile -- ai_tools.cpp chat_store.cpp`.
+Compiler tracing adds overhead, so its times are diagnostic, not ordinary
+incremental-build benchmarks. For a full separate profiling build instead,
+use `npm run observatory -- build --time-trace`.
+
 The Clang profiler identified `QtWebEngineQuick` as a major parsing cost
-(~2.85 s in `main.cpp`). WebEngine's early initialization now lives in
-`src/App/Services/web_engine_bootstrap.cpp`, keeping the large Qt WebEngine
-header out of the main entry-point translation unit. This changes neither
-the startup order nor release packaging. To measure an entry-point edit
-after the initial CMake regeneration:
+(~2.85 s inclusive in `main.cpp`). WebEngine initialization now lives in
+`src/App/Services/web_engine_bootstrap.cpp`, keeping the heavy header out
+of the main entry-point translation unit while preserving startup order.
+After the initial CMake regeneration, measure a subsequent edit with:
 
 ```bash
 touch frontend/src/main.cpp
 npm run observatory:build
 ```
 
-Use the targeted compiler profiler from PR #94 to compare per-source header
-rankings after that PR is merged:
-
-```bash
-npm run observatory:cpp-profile -- main.cpp
-```
+Use `npm run observatory:cpp-profile -- main.cpp` to inspect the
+updated header rankings.
 
 Debug C++ builds use precompiled headers for stable Qt and C++ includes in
 `archivist-core` and `archivist-qt` (separate target-specific PCHs). The first

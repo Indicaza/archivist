@@ -169,7 +169,24 @@ own records and tools; nothing is guessed:
 `build-evidence.json` has `schema: "archivist.observatory.build-evidence"`,
 `schemaVersion: 1`.
 
-**Compiler profiling (opt-in):** `npm run observatory -- build
+**Fast targeted compiler profiling (opt-in):** `npm run
+observatory:cpp-profile` profiles `main.cpp`, `ai_tools.cpp`,
+`chat_store.cpp`, `ai_runtime.cpp` and `library_store.cpp` in sequence.
+You can select individual files with `npm run observatory:cpp-profile --
+ai_tools.cpp`. It reads Ninja's current compilation database and reuses
+the already-configured Debug compiler flags and PCH without configuring a
+second build. Clang writes the temporary object, depfile and
+`-ftime-trace` JSON **outside** the active build directory; the script
+does not modify existing native objects, linked executables or source files.
+It prints ranked headers and templates for each translation unit and saves
+`build/frontend-debug/cpp-profile-report.json`. This is only for a
+configured and already-built Clang Debug graph; run
+`npm run build:fast` beforehand if the graph or PCH does not exist.
+Profiling executes compiler processes and uses extra CPU/memory, but it
+does not perform a full Ninja rebuild. Measurements from the compiler trace
+are diagnostic (and header timings inclusive), not performance baselines.
+
+**Full compiler profiling (opt-in):** `npm run observatory -- build
 --time-trace` builds in its own directory (`build/frontend-time-trace`,
 configured like `scripts/qt-configure` plus Clang's `-ftime-trace`), so the
 normal build's flags never change. The first run is a full build there. It
