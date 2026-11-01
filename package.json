@@ -57,6 +57,7 @@
     "test:native": "./scripts/qt-test",
     "observatory": "node scripts/observatory/cli.mjs",
     "observatory:build": "npm run check-node && node scripts/observatory/cli.mjs build",
+    "observatory:cpp-profile": "npm run check-node && node scripts/observatory/cpp-profile.mjs",
     "observatory:ui": "npm run check-node && node scripts/observatory/cli.mjs ui",
     "observatory:dashboard": "npm run check-node && node scripts/observatory/cli.mjs dashboard",
     "observatory:check": "npm run check-node && node scripts/observatory/cli.mjs check",
