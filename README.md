@@ -296,6 +296,25 @@ local Observatory run (see `scripts/observatory/README.md`):
 npm run observatory:build
 ```
 
+The Clang profiler identified `QtWebEngineQuick` as a major parsing cost
+(~2.85 s in `main.cpp`). WebEngine's early initialization now lives in
+`src/App/Services/web_engine_bootstrap.cpp`, keeping the large Qt WebEngine
+header out of the main entry-point translation unit. This changes neither
+the startup order nor release packaging. To measure an entry-point edit
+after the initial CMake regeneration:
+
+```bash
+touch frontend/src/main.cpp
+npm run observatory:build
+```
+
+Use the targeted compiler profiler from PR #94 to compare per-source header
+rankings after that PR is merged:
+
+```bash
+npm run observatory:cpp-profile -- main.cpp
+```
+
 Debug C++ builds use precompiled headers for stable Qt and C++ includes in
 `archivist-core` and `archivist-qt` (separate target-specific PCHs). The first
 build after enabling them recompiles the targets, so measure later edits rather
