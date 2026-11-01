@@ -296,6 +296,23 @@ local Observatory run (see `scripts/observatory/README.md`):
 npm run observatory:build
 ```
 
+Profile the five slowest C++ translation units with Clang time traces,
+reusing the already-built Debug graph and precompiled headers:
+
+```bash
+npm run observatory:cpp-profile
+```
+
+This compiles only the selected files into a temporary folder, without
+modifying the app binary, Ninja objects, or the active build graph. It prints
+the slowest header and template parsing costs per source and writes
+`build/frontend-debug/cpp-profile-report.json`. Provide source filenames
+after `--` to profile a smaller selection, for example
+`npm run observatory:cpp-profile -- ai_tools.cpp chat_store.cpp`.
+Compiler tracing adds overhead, so its times are diagnostic, not ordinary
+incremental-build benchmarks. For a full separate profiling build instead,
+use `npm run observatory -- build --time-trace`.
+
 Debug C++ builds use precompiled headers for stable Qt and C++ includes in
 `archivist-core` and `archivist-qt` (separate target-specific PCHs). The first
 build after enabling them recompiles the targets, so measure later edits rather
