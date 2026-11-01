@@ -93,7 +93,7 @@ export function isolatedCompile(job, objectFile, depFile) {
   const args = Array.isArray(job.arguments) ? [...job.arguments] : splitShellCommand(job.command);
   if (args.length < 3 || !args.includes("-c")) throw new Error("Expected a single C++ compile command.");
   const executable = args.shift();
-  if (!/clang(\\+\\+)?$/.test(path.basename(executable)) && !/^(c\\+\\+|g\\+\\+)$/.test(path.basename(executable))) {
+  if (!/clang(\+\+)?$/.test(path.basename(executable)) && !/^(c\+\+|g\+\+)$/.test(path.basename(executable))) {
     throw new Error(`Unsupported compiler executable: ${path.basename(executable)}`);
   }
   let foundOutput = false;
