@@ -613,6 +613,14 @@ if(ARCHIVIST_BUILD_TESTS)
     set_target_properties(core-ai-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-ai-test COMMAND core-ai-test)
 
+    qt_add_executable(core-ai-tool-contracts-test tests/core_ai_tool_contracts_test.cpp)
+    target_link_libraries(core-ai-tool-contracts-test PRIVATE archivist-core Qt6::Test)
+    target_compile_definitions(core-ai-tool-contracts-test PRIVATE
+        ARCHIVIST_TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+    )
+    set_target_properties(core-ai-tool-contracts-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-ai-tool-contracts-test COMMAND core-ai-tool-contracts-test)
+
     qt_add_executable(core-ai-runtime-test tests/core_ai_runtime_test.cpp)
     target_link_libraries(core-ai-runtime-test PRIVATE archivist-core Qt6::Network Qt6::Test)
     set_target_properties(core-ai-runtime-test PROPERTIES MACOSX_BUNDLE FALSE)
