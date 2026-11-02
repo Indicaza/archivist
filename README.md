@@ -325,6 +325,17 @@ touch frontend/src/Core/Domains/AI/ai_tools.cpp
 npm run observatory:build
 ```
 
+The rest of the AI tools are now split by responsibility as well (see
+`frontend/src/Core/Domains/AI/AI_TOOLS.md`): a catalog, input validation,
+one file per tool family (read, edit proposals, workspace) and the
+executor. Tool callbacks are plain function pointers instead of
+`std::function`, which removed most of the template instantiation time.
+Measured on AppleClang, alternating PR #97's head and this split, two rounds:
+the largest AI tools translation unit went from 6.07 s to 1.41 s (Clang
+time-trace medians), and a single-file edit plus relink of `archivist-qt`
+from 7.5 s to 3.0-3.6 s. Touching `ai_tools.h` now recompiles 7 units
+instead of 3, each about 1 s, built in parallel.
+
 Compiler traces also identified the workspace composition header chain
 as the largest project-header cost in `ai_tools.cpp` (about 421 ms
 inclusive). AI tool schema construction now includes only the lightweight
