@@ -17,7 +17,8 @@ test("read-only Library tools are compiled independently with identical registry
     assert.match(header, new RegExp("QVariantMap " + name + "\\("));
     assert.match(read, new RegExp("^QVariantMap " + name + "\\(", "m"));
     assert.doesNotMatch(dispatcher, new RegExp("^QVariantMap " + name + "\\(", "m"));
-    assert.ok(dispatcher.includes("using AITools::ReadTools::" + name + ";"));
+    // Registered beside the handlers (libraryReadTools()), not in the executor.
+    assert.ok(read.includes("ReadTools::" + name + ","), "Missing registration for " + name);
   }
   assert.match(cmake, /src\/Core\/Domains\/AI\/ai_tools_read\.cpp/);
   assert.match(cmake, /src\/Core\/Domains\/AI\/ai_tools_read\.h/);

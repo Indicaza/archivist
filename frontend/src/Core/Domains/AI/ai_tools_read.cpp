@@ -1,4 +1,6 @@
 #include "ai_tools_read.h"
+#include "ai_tools_definition.h"
+#include "ai_tools_input.h"
 
 #include "Core/Domains/Libraries/library_file_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
@@ -10,6 +12,7 @@
 #include <QSet>
 
 #include <algorithm>
+#include <limits>
 
 namespace AITools::ReadTools
 {
@@ -379,3 +382,283 @@ QVariantMap readFileRanges(const QVariantMap &input, Context &context)
 }
 
 } // namespace AITools::ReadTools
+
+// ---- tool definitions: schemas, input parsing and summaries ----
+
+namespace
+{
+using namespace AITools::Input;
+
+constexpr int maximumDirectoryEntries = 200;
+constexpr int maximumFilenameMatches = 100;
+constexpr int maximumSearchMatches = 24;
+constexpr int maximumReadRangeLines = 160;
+constexpr int maximumBatchReadRanges = 3;
+constexpr int maximumBatchReadLines = 240;
+
+const QString fileReferenceDescription = QStringLiteral(
+    "Catalog UUID from a source file-id attribute, or the exact Library-relative path from its path attribute."
+);
+
+QVariantMap parseRange(const QVariant &input)
+{
+    const QVariantMap map = strictObject(input, {QStringLiteral("fileId"), QStringLiteral("startLine"), QStringLiteral("endLine")});
+    const QString fileId = stringField(map, QStringLiteral("fileId"), 1, 2048);
+    const int startLine = intField(map, QStringLiteral("startLine"), 1, std::numeric_limits<int>::max());
+    const int endLine = intField(map, QStringLiteral("endLine"), 1, std::numeric_limits<int>::max());
+
+    if (endLine < startLine) {
+        invalid(QStringLiteral("endLine"), QStringLiteral("endLine must be greater than or equal to startLine."));
+    }
+
+    if (endLine - startLine + 1 > maximumReadRangeLines) {
+        invalid(QStringLiteral("endLine"), QStringLiteral("A file range may include at most %1 lines.").arg(maximumReadRangeLines));
+    }
+
+    return {{QStringLiteral("fileId"), fileId}, {QStringLiteral("startLine"), startLine}, {QStringLiteral("endLine"), endLine}};
+}
+
+QVariantMap rangeSchemaProperties()
+{
+    return {
+        {QStringLiteral("fileId"), stringSchema(1, 2048, fileReferenceDescription)},
+        {QStringLiteral("startLine"), integerSchema(1)},
+        {QStringLiteral("endLine"), integerSchema(1)},
+    };
+}
+
+int requestedLines(const QVariantList &ranges)
+{
+    int total = 0;
+
+    for (const QVariant &range : ranges) {
+        const QVariantMap map = range.toMap();
+        total += map.value(QStringLiteral("endLine")).toInt() - map.value(QStringLiteral("startLine")).toInt() + 1;
+    }
+
+    return total;
+}
+} // namespace
+
+namespace AITools
+{
+QList<Definition> libraryReadTools()
+{
+    using namespace AITools::Input;
+    QList<Definition> tools;
+    const QString readOnly = readOnlyPermission;
+    const QString direct = directMode;
+
+    tools.append({
+        QStringLiteral("list_directory"),
+        QStringLiteral("List Library Directory"),
+        QStringLiteral("List the immediate files and folders beneath one directory in the active Library catalog."),
+        readOnly, direct,
+        objectSchema({{QStringLiteral("path"), stringSchema(0, 1024)}, {QStringLiteral("limit"), integerSchema(1, maximumDirectoryEntries)}},
+                     {QStringLiteral("path"), QStringLiteral("limit")}),
+        [](const QVariant &input) {
+            const QVariantMap map = strictObject(input, {QStringLiteral("path"), QStringLiteral("limit")});
+            return QVariantMap{
+                {QStringLiteral("path"), stringField(map, QStringLiteral("path"), 0, 1024, false, QString())},
+                {QStringLiteral("limit"), intField(map, QStringLiteral("limit"), 1, maximumDirectoryEntries, 100)},
+            };
+        },
+        ReadTools::listDirectory,
+        [](const QVariantMap &input) {
+            const QString path = input.value(QStringLiteral("path")).toString();
+            return QVariantMap{{QStringLiteral("path"), path.isEmpty() ? QStringLiteral("/") : path}, {QStringLiteral("limit"), input.value(QStringLiteral("limit"))}};
+        },
+        [](const QVariantMap &output) {
+            const QString path = output.value(QStringLiteral("path")).toString();
+            return QVariantMap{
+                {QStringLiteral("path"), path.isEmpty() ? QStringLiteral("/") : path},
+                {QStringLiteral("entryCount"), output.value(QStringLiteral("entries")).toList().size()},
+                {QStringLiteral("totalEntries"), output.value(QStringLiteral("totalEntries"))},
+                {QStringLiteral("truncated"), output.value(QStringLiteral("truncated"))},
+            };
+        },
+    });
+
+    tools.append({
+        QStringLiteral("search_filenames"),
+        QStringLiteral("Search Library Filenames"),
+        QStringLiteral("Find active Library files whose name or relative path contains a case-insensitive text query."),
+        readOnly, direct,
+        objectSchema({{QStringLiteral("query"), stringSchema(1, 256)}, {QStringLiteral("limit"), integerSchema(1, maximumFilenameMatches)}},
+                     {QStringLiteral("query"), QStringLiteral("limit")}),
+        [](const QVariant &input) {
+            const QVariantMap map = strictObject(input, {QStringLiteral("query"), QStringLiteral("limit")});
+            return QVariantMap{
+                {QStringLiteral("query"), stringField(map, QStringLiteral("query"), 1, 256, true)},
+                {QStringLiteral("limit"), intField(map, QStringLiteral("limit"), 1, maximumFilenameMatches, 25)},
+            };
+        },
+        ReadTools::searchFilenames,
+        [](const QVariantMap &input) { return pick(input, {QStringLiteral("query"), QStringLiteral("limit")}); },
+        [](const QVariantMap &output) {
+            return QVariantMap{
+                {QStringLiteral("matchCount"), output.value(QStringLiteral("matches")).toList().size()},
+                {QStringLiteral("totalMatches"), output.value(QStringLiteral("totalMatches"))},
+                {QStringLiteral("truncated"), output.value(QStringLiteral("truncated"))},
+            };
+        },
+    });
+
+    tools.append({
+        QStringLiteral("search_library"),
+        QStringLiteral("Search Library Text"),
+        QStringLiteral("Search indexed Library text with SQLite FTS5 and return grounded file excerpts with line ranges."),
+        readOnly, direct,
+        objectSchema({{QStringLiteral("query"), stringSchema(1, 2000)}, {QStringLiteral("limit"), integerSchema(1, maximumSearchMatches)}},
+                     {QStringLiteral("query"), QStringLiteral("limit")}),
+        [](const QVariant &input) {
+            const QVariantMap map = strictObject(input, {QStringLiteral("query"), QStringLiteral("limit")});
+            return QVariantMap{
+                {QStringLiteral("query"), stringField(map, QStringLiteral("query"), 1, 2000, true)},
+                {QStringLiteral("limit"), intField(map, QStringLiteral("limit"), 1, maximumSearchMatches, 8)},
+            };
+        },
+        ReadTools::searchLibrary,
+        [](const QVariantMap &input) { return pick(input, {QStringLiteral("query"), QStringLiteral("limit")}); },
+        [](const QVariantMap &output) {
+            const QVariantList matches = output.value(QStringLiteral("matches")).toList();
+            QSet<QString> files;
+
+            for (const QVariant &match : matches) {
+                files.insert(match.toMap().value(QStringLiteral("fileId")).toString());
+            }
+
+            return QVariantMap{
+                {QStringLiteral("matchCount"), matches.size()},
+                {QStringLiteral("fileCount"), files.size()},
+                {QStringLiteral("warningCount"), output.value(QStringLiteral("warnings")).toList().size()},
+                {QStringLiteral("durationMs"), output.value(QStringLiteral("durationMs"))},
+            };
+        },
+    });
+
+    tools.append({
+        QStringLiteral("read_file"),
+        QStringLiteral("Read Library File"),
+        QStringLiteral("Read a guarded UTF-8 Library file by catalog ID or exact Library-relative path, capped for safe tool output."),
+        readOnly, direct,
+        objectSchema({{QStringLiteral("fileId"), stringSchema(1, 2048, fileReferenceDescription)}}, {QStringLiteral("fileId")}),
+        [](const QVariant &input) {
+            const QVariantMap map = strictObject(input, {QStringLiteral("fileId")});
+            return QVariantMap{{QStringLiteral("fileId"), stringField(map, QStringLiteral("fileId"), 1, 2048)}};
+        },
+        ReadTools::readFile,
+        [](const QVariantMap &input) { return QVariantMap{{QStringLiteral("fileReference"), input.value(QStringLiteral("fileId"))}}; },
+        [](const QVariantMap &output) {
+            return QVariantMap{
+                {QStringLiteral("relativePath"), output.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath"))},
+                {QStringLiteral("lineCount"), output.value(QStringLiteral("lineCount"))},
+                {QStringLiteral("characterCount"), output.value(QStringLiteral("content")).toString().size()},
+                {QStringLiteral("truncated"), output.value(QStringLiteral("truncated"))},
+            };
+        },
+    });
+
+    tools.append({
+        QStringLiteral("read_file_range"),
+        QStringLiteral("Read Library File Range"),
+        QStringLiteral("Read at most %1 lines from a guarded UTF-8 Library file by catalog ID or exact Library-relative path. Prefer copying one supplied source block's path and line range exactly.")
+            .arg(maximumReadRangeLines),
+        readOnly, direct,
+        objectSchema(rangeSchemaProperties(), {QStringLiteral("fileId"), QStringLiteral("startLine"), QStringLiteral("endLine")}),
+        parseRange,
+        ReadTools::readFileRange,
+        [](const QVariantMap &input) {
+            return QVariantMap{
+                {QStringLiteral("fileReference"), input.value(QStringLiteral("fileId"))},
+                {QStringLiteral("startLine"), input.value(QStringLiteral("startLine"))},
+                {QStringLiteral("endLine"), input.value(QStringLiteral("endLine"))},
+            };
+        },
+        [](const QVariantMap &output) {
+            return QVariantMap{
+                {QStringLiteral("relativePath"), output.value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath"))},
+                {QStringLiteral("startLine"), output.value(QStringLiteral("startLine"))},
+                {QStringLiteral("endLine"), output.value(QStringLiteral("endLine"))},
+                {QStringLiteral("characterCount"), output.value(QStringLiteral("content")).toString().size()},
+                {QStringLiteral("truncated"), output.value(QStringLiteral("truncated"))},
+            };
+        },
+    });
+
+    QVariantMap rangesProperty{
+        {QStringLiteral("type"), QStringLiteral("array")},
+        {QStringLiteral("minItems"), 1},
+        {QStringLiteral("maxItems"), maximumBatchReadRanges},
+        {QStringLiteral("items"), objectSchema(rangeSchemaProperties(), {QStringLiteral("fileId"), QStringLiteral("startLine"), QStringLiteral("endLine")})},
+    };
+
+    tools.append({
+        QStringLiteral("read_file_ranges"),
+        QStringLiteral("Read Library File Ranges"),
+        QStringLiteral("Read up to %1 guarded Library excerpts in one tool call. Each range is capped at %2 lines and the batch at %3 total lines. Prefer copying supplied source handles exactly.")
+            .arg(maximumBatchReadRanges)
+            .arg(maximumReadRangeLines)
+            .arg(maximumBatchReadLines),
+        readOnly, direct,
+        objectSchema({{QStringLiteral("ranges"), rangesProperty}}, {QStringLiteral("ranges")}),
+        [](const QVariant &input) {
+            const QVariantMap map = strictObject(input, {QStringLiteral("ranges")});
+            const QVariant value = map.value(QStringLiteral("ranges"));
+
+            if (value.typeId() != QMetaType::QVariantList) {
+                invalid(QStringLiteral("ranges"), QStringLiteral("Expected array."));
+            }
+
+            const QVariantList list = value.toList();
+
+            if (list.isEmpty() || list.size() > maximumBatchReadRanges) {
+                invalid(QStringLiteral("ranges"), QStringLiteral("Array length is out of range."));
+            }
+
+            QVariantList ranges;
+
+            for (const QVariant &range : list) {
+                ranges.append(parseRange(range));
+            }
+
+            if (requestedLines(ranges) > maximumBatchReadLines) {
+                invalid(QStringLiteral("ranges"), QStringLiteral("A batched file read may request at most %1 total lines.").arg(maximumBatchReadLines));
+            }
+
+            return QVariantMap{{QStringLiteral("ranges"), ranges}};
+        },
+        ReadTools::readFileRanges,
+        [](const QVariantMap &input) {
+            const QVariantList ranges = input.value(QStringLiteral("ranges")).toList();
+            QVariantList paths;
+
+            for (const QVariant &range : ranges) {
+                paths.append(range.toMap().value(QStringLiteral("fileId")));
+            }
+
+            return QVariantMap{
+                {QStringLiteral("rangeCount"), ranges.size()},
+                {QStringLiteral("totalRequestedLines"), requestedLines(ranges)},
+                {QStringLiteral("paths"), paths},
+            };
+        },
+        [](const QVariantMap &output) {
+            QVariantList paths;
+
+            for (const QVariant &range : output.value(QStringLiteral("ranges")).toList()) {
+                paths.append(range.toMap().value(QStringLiteral("file")).toMap().value(QStringLiteral("relativePath")));
+            }
+
+            return QVariantMap{
+                {QStringLiteral("rangeCount"), output.value(QStringLiteral("rangeCount"))},
+                {QStringLiteral("paths"), paths},
+                {QStringLiteral("returnedCharacterCount"), output.value(QStringLiteral("returnedCharacterCount"))},
+                {QStringLiteral("truncated"), output.value(QStringLiteral("truncated"))},
+            };
+        },
+    });
+
+    return tools;
+}
+} // namespace AITools
