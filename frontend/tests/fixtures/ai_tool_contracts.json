@@ -1,0 +1,4243 @@
+{
+    "discovery": [
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "list_directory",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "read_file",
+                "read_file_range",
+                "read_file_ranges"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "list_directory",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "read_file_ranges"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "list_directory",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "read_file",
+                "read_file_range",
+                "read_file_ranges"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "list_directory",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "rename_file"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "read_file_ranges",
+                "rename_file"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": false
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "list_directory",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "list_directory",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "read_file_ranges",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "list_directory",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": false,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "list_directory",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "rename_file",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": false,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "read_file_ranges",
+                "rename_file",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": false,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": false,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        },
+        {
+            "availability": {
+                "discovery": true,
+                "fullFileRead": true,
+                "mutationProposals": true,
+                "verification": true,
+                "workspace": true
+            },
+            "tools": [
+                "create_directory",
+                "create_file",
+                "list_directory",
+                "move_file",
+                "patch_file",
+                "read_file",
+                "read_file_range",
+                "read_file_ranges",
+                "rename_file",
+                "search_filenames",
+                "search_library",
+                "workspace_arrange",
+                "workspace_compose",
+                "workspace_layout",
+                "workspace_preference",
+                "workspace_restore",
+                "workspace_show",
+                "workspace_view"
+            ]
+        }
+    ],
+    "invalidInput": {
+        "create_directory": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"create_directory\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "create_directory",
+                            "toolName": "Propose Library Directory Creation"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"create_directory\" received invalid input.",
+                            "toolId": "create_directory"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"create_directory\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "create_directory",
+                            "toolName": "Propose Library Directory Creation"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"create_directory\" received invalid input.",
+                            "toolId": "create_directory"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "create_file": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"create_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "create_file",
+                            "toolName": "Propose Library File Creation"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"create_file\" received invalid input.",
+                            "toolId": "create_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"create_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "create_file",
+                            "toolName": "Propose Library File Creation"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"create_file\" received invalid input.",
+                            "toolId": "create_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "list_directory": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"list_directory\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "list_directory",
+                            "toolName": "List Library Directory"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"list_directory\" received invalid input.",
+                            "toolId": "list_directory"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"list_directory\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "list_directory",
+                            "toolName": "List Library Directory"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"list_directory\" received invalid input.",
+                            "toolId": "list_directory"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "move_file": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"move_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "move_file",
+                            "toolName": "Propose Library File Move"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"move_file\" received invalid input.",
+                            "toolId": "move_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"move_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "move_file",
+                            "toolName": "Propose Library File Move"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"move_file\" received invalid input.",
+                            "toolId": "move_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "patch_file": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"patch_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "patch_file",
+                            "toolName": "Propose Library File Patch"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"patch_file\" received invalid input.",
+                            "toolId": "patch_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"patch_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "patch_file",
+                            "toolName": "Propose Library File Patch"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"patch_file\" received invalid input.",
+                            "toolId": "patch_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "read_file": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"read_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "read_file",
+                            "toolName": "Read Library File"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"read_file\" received invalid input.",
+                            "toolId": "read_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"read_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "read_file",
+                            "toolName": "Read Library File"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"read_file\" received invalid input.",
+                            "toolId": "read_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "read_file_range": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"read_file_range\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "read_file_range",
+                            "toolName": "Read Library File Range"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"read_file_range\" received invalid input.",
+                            "toolId": "read_file_range"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"read_file_range\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "read_file_range",
+                            "toolName": "Read Library File Range"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"read_file_range\" received invalid input.",
+                            "toolId": "read_file_range"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "read_file_ranges": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"read_file_ranges\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "read_file_ranges",
+                            "toolName": "Read Library File Ranges"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"read_file_ranges\" received invalid input.",
+                            "toolId": "read_file_ranges"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"read_file_ranges\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "read_file_ranges",
+                            "toolName": "Read Library File Ranges"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"read_file_ranges\" received invalid input.",
+                            "toolId": "read_file_ranges"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "rename_file": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"rename_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "rename_file",
+                            "toolName": "Propose Library File Rename"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"rename_file\" received invalid input.",
+                            "toolId": "rename_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"rename_file\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "proposal",
+                            "permission": "safe-local-mutation",
+                            "toolId": "rename_file",
+                            "toolName": "Propose Library File Rename"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"rename_file\" received invalid input.",
+                            "toolId": "rename_file"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "search_filenames": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"search_filenames\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "search_filenames",
+                            "toolName": "Search Library Filenames"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"search_filenames\" received invalid input.",
+                            "toolId": "search_filenames"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"search_filenames\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "search_filenames",
+                            "toolName": "Search Library Filenames"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"search_filenames\" received invalid input.",
+                            "toolId": "search_filenames"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "search_library": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"search_library\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "search_library",
+                            "toolName": "Search Library Text"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"search_library\" received invalid input.",
+                            "toolId": "search_library"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"search_library\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "direct",
+                            "permission": "read-only",
+                            "toolId": "search_library",
+                            "toolName": "Search Library Text"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"search_library\" received invalid input.",
+                            "toolId": "search_library"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_arrange": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_arrange\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_arrange",
+                            "toolName": "Arrange Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_arrange\" received invalid input.",
+                            "toolId": "workspace_arrange"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_arrange\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_arrange",
+                            "toolName": "Arrange Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_arrange\" received invalid input.",
+                            "toolId": "workspace_arrange"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_compose": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_compose\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_compose",
+                            "toolName": "Compose Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_compose\" received invalid input.",
+                            "toolId": "workspace_compose"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_compose\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_compose",
+                            "toolName": "Compose Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_compose\" received invalid input.",
+                            "toolId": "workspace_compose"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_layout": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_layout\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_layout",
+                            "toolName": "Workspace Layouts"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_layout\" received invalid input.",
+                            "toolId": "workspace_layout"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_layout\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_layout",
+                            "toolName": "Workspace Layouts"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_layout\" received invalid input.",
+                            "toolId": "workspace_layout"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_preference": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_preference\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_preference",
+                            "toolName": "Workspace Preference"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_preference\" received invalid input.",
+                            "toolId": "workspace_preference"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_preference\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_preference",
+                            "toolName": "Workspace Preference"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_preference\" received invalid input.",
+                            "toolId": "workspace_preference"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_restore": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_restore\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_restore",
+                            "toolName": "Restore Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_restore\" received invalid input.",
+                            "toolId": "workspace_restore"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_restore\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_restore",
+                            "toolName": "Restore Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_restore\" received invalid input.",
+                            "toolId": "workspace_restore"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_show": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_show\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_show",
+                            "toolName": "Show in Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_show\" received invalid input.",
+                            "toolId": "workspace_show"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_show\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "safe-local-mutation",
+                            "toolId": "workspace_show",
+                            "toolName": "Show in Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_show\" received invalid input.",
+                            "toolId": "workspace_show"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        },
+        "workspace_view": {
+            "notAnObject": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Expected object.",
+                                "path": [
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_view\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "read-only",
+                            "toolId": "workspace_view",
+                            "toolName": "View Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_view\" received invalid input.",
+                            "toolId": "workspace_view"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            },
+            "unknownKey": {
+                "error": {
+                    "code": "invalid_input",
+                    "details": {
+                        "issues": [
+                            {
+                                "code": "custom",
+                                "message": "Unrecognized key.",
+                                "path": [
+                                    "__unexpected"
+                                ]
+                            }
+                        ]
+                    },
+                    "message": "AI tool \"workspace_view\" received invalid input.",
+                    "thrown": true
+                },
+                "events": [
+                    {
+                        "payload": {
+                            "executionMode": "workspace",
+                            "permission": "read-only",
+                            "toolId": "workspace_view",
+                            "toolName": "View Workspace"
+                        },
+                        "type": "tool.requested"
+                    },
+                    {
+                        "payload": {
+                            "errorCode": "invalid_input",
+                            "message": "AI tool \"workspace_view\" received invalid input.",
+                            "toolId": "workspace_view"
+                        },
+                        "type": "tool.failed"
+                    }
+                ]
+            }
+        }
+    },
+    "kinds": {
+        "create_directory": {
+            "mutationProposal": true,
+            "workspace": false
+        },
+        "create_file": {
+            "mutationProposal": true,
+            "workspace": false
+        },
+        "list_directory": {
+            "mutationProposal": false,
+            "workspace": false
+        },
+        "move_file": {
+            "mutationProposal": true,
+            "workspace": false
+        },
+        "patch_file": {
+            "mutationProposal": true,
+            "workspace": false
+        },
+        "read_file": {
+            "mutationProposal": false,
+            "workspace": false
+        },
+        "read_file_range": {
+            "mutationProposal": false,
+            "workspace": false
+        },
+        "read_file_ranges": {
+            "mutationProposal": false,
+            "workspace": false
+        },
+        "rename_file": {
+            "mutationProposal": true,
+            "workspace": false
+        },
+        "search_filenames": {
+            "mutationProposal": false,
+            "workspace": false
+        },
+        "search_library": {
+            "mutationProposal": false,
+            "workspace": false
+        },
+        "workspace_arrange": {
+            "mutationProposal": false,
+            "workspace": true
+        },
+        "workspace_compose": {
+            "mutationProposal": false,
+            "workspace": true
+        },
+        "workspace_layout": {
+            "mutationProposal": false,
+            "workspace": true
+        },
+        "workspace_preference": {
+            "mutationProposal": false,
+            "workspace": true
+        },
+        "workspace_restore": {
+            "mutationProposal": false,
+            "workspace": true
+        },
+        "workspace_show": {
+            "mutationProposal": false,
+            "workspace": true
+        },
+        "workspace_view": {
+            "mutationProposal": false,
+            "workspace": true
+        }
+    },
+    "lifecycles": {
+        "create_directory": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library Directory Creation"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "input": {
+                            "relativePath": "docs"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library Directory Creation"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "affectedPaths": [
+                            "new.txt",
+                            "alpha.txt",
+                            "docs"
+                        ],
+                        "operationCount": 3,
+                        "operationTypes": [
+                            "create_file",
+                            "patch_file",
+                            "create_directory"
+                        ],
+                        "writesPerformed": false
+                    },
+                    "type": "edit.proposed"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "expectedState": "absent",
+                            "relativePath": "docs",
+                            "writesPerformed": false
+                        },
+                        "toolName": "Propose Library Directory Creation"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "path": "docs"
+                },
+                "output": {
+                    "expectedState": "absent",
+                    "operationType": "create_directory",
+                    "relativePath": "docs",
+                    "status": "proposed",
+                    "writesPerformed": false
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "create_file": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Creation"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "input": {
+                            "contentCharacterCount": 1,
+                            "relativePath": "new.txt"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Creation"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "affectedPaths": [
+                            "new.txt"
+                        ],
+                        "operationCount": 1,
+                        "operationTypes": [
+                            "create_file"
+                        ],
+                        "writesPerformed": false
+                    },
+                    "type": "edit.proposed"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "expectedState": "absent",
+                            "relativePath": "new.txt",
+                            "writesPerformed": false
+                        },
+                        "toolName": "Propose Library File Creation"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "content": "x",
+                    "path": "new.txt"
+                },
+                "output": {
+                    "contentSha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+                    "expectedState": "absent",
+                    "operationType": "create_file",
+                    "relativePath": "new.txt",
+                    "status": "proposed",
+                    "writesPerformed": false
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "list_directory": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "permission": "read-only",
+                        "toolName": "List Library Directory"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "input": {
+                            "limit": 20,
+                            "path": "/"
+                        },
+                        "permission": "read-only",
+                        "toolName": "List Library Directory"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "entryCount": 4,
+                            "path": "/",
+                            "totalEntries": 4,
+                            "truncated": false
+                        },
+                        "toolName": "List Library Directory"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "limit": 20,
+                    "path": ""
+                },
+                "output": {
+                    "entries": [
+                        {
+                            "file": null,
+                            "name": "sub",
+                            "relativePath": "sub",
+                            "type": "directory"
+                        },
+                        {
+                            "file": {
+                                "extension": ".txt",
+                                "name": "alpha.txt",
+                                "relativePath": "alpha.txt",
+                                "sizeBytes": 29,
+                                "status": "available"
+                            },
+                            "name": "alpha.txt",
+                            "relativePath": "alpha.txt",
+                            "type": "file"
+                        },
+                        {
+                            "file": {
+                                "extension": ".txt",
+                                "name": "beta.txt",
+                                "relativePath": "beta.txt",
+                                "sizeBytes": 10,
+                                "status": "available"
+                            },
+                            "name": "beta.txt",
+                            "relativePath": "beta.txt",
+                            "type": "file"
+                        },
+                        {
+                            "file": {
+                                "extension": ".txt",
+                                "name": "gamma.txt",
+                                "relativePath": "gamma.txt",
+                                "sizeBytes": 11,
+                                "status": "available"
+                            },
+                            "name": "gamma.txt",
+                            "relativePath": "gamma.txt",
+                            "type": "file"
+                        }
+                    ],
+                    "path": "",
+                    "totalEntries": 4,
+                    "truncated": false
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        },
+        "move_file": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Move"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "input": {
+                            "destinationPath": "sub/gamma.txt",
+                            "sourcePath": "gamma.txt"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Move"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "affectedPaths": [
+                            "new.txt",
+                            "alpha.txt",
+                            "docs",
+                            "beta.txt",
+                            "beta2.txt",
+                            "gamma.txt",
+                            "sub/gamma.txt"
+                        ],
+                        "expectedHash": "d09d98eed51e8e31cf89c34321335e716903c49e4dcfe2499e7a1ca92f468a4e",
+                        "operationCount": 5,
+                        "operationTypes": [
+                            "create_file",
+                            "patch_file",
+                            "create_directory",
+                            "rename_file",
+                            "move_file"
+                        ],
+                        "writesPerformed": false
+                    },
+                    "type": "edit.proposed"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "destinationPath": "sub/gamma.txt",
+                            "expectedHash": "d09d98eed51e8e31cf89c34321335e716903c49e4dcfe2499e7a1ca92f468a4e",
+                            "sourcePath": "gamma.txt",
+                            "writesPerformed": false
+                        },
+                        "toolName": "Propose Library File Move"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "destinationPath": "sub/gamma.txt",
+                    "sourcePath": "gamma.txt"
+                },
+                "output": {
+                    "destinationPath": "sub/gamma.txt",
+                    "expectedHash": "d09d98eed51e8e31cf89c34321335e716903c49e4dcfe2499e7a1ca92f468a4e",
+                    "operationType": "move_file",
+                    "sourcePath": "gamma.txt",
+                    "sourceSizeBytes": 11,
+                    "status": "proposed",
+                    "writesPerformed": false
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "patch_file": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Patch"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "input": {
+                            "contentCharacterCount": 8,
+                            "relativePath": "alpha.txt"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Patch"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "affectedPaths": [
+                            "new.txt",
+                            "alpha.txt"
+                        ],
+                        "expectedHash": "bce2aeea9e6fc31f09b164dbaf832b013ee75fbd323262cbee9d42b8b51077b1",
+                        "operationCount": 2,
+                        "operationTypes": [
+                            "create_file",
+                            "patch_file"
+                        ],
+                        "writesPerformed": false
+                    },
+                    "type": "edit.proposed"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "expectedHash": "bce2aeea9e6fc31f09b164dbaf832b013ee75fbd323262cbee9d42b8b51077b1",
+                            "relativePath": "alpha.txt",
+                            "writesPerformed": false
+                        },
+                        "toolName": "Propose Library File Patch"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "content": "changed\n",
+                    "path": "alpha.txt"
+                },
+                "output": {
+                    "afterSizeBytes": 8,
+                    "beforeSizeBytes": 29,
+                    "expectedHash": "bce2aeea9e6fc31f09b164dbaf832b013ee75fbd323262cbee9d42b8b51077b1",
+                    "operationType": "patch_file",
+                    "proposedContentSha256": "7f8b1dfc466b6249f06cbe55c9174df2578e7754da793fded244ef5cba2a38f1",
+                    "relativePath": "alpha.txt",
+                    "status": "proposed",
+                    "writesPerformed": false
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "read_file": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "permission": "read-only",
+                        "toolName": "Read Library File"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "input": {
+                            "fileReference": "alpha.txt"
+                        },
+                        "permission": "read-only",
+                        "toolName": "Read Library File"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "characterCount": 29,
+                            "lineCount": 4,
+                            "relativePath": "alpha.txt",
+                            "truncated": false
+                        },
+                        "toolName": "Read Library File"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                },
+                "output": {
+                    "content": "line one\nline two\nline three\n",
+                    "encoding": "utf-8",
+                    "file": {
+                        "extension": ".txt",
+                        "name": "alpha.txt",
+                        "relativePath": "alpha.txt",
+                        "sizeBytes": 29,
+                        "status": "available"
+                    },
+                    "lineCount": 4,
+                    "totalCharacterCount": 29,
+                    "truncated": false
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        },
+        "read_file_range": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "permission": "read-only",
+                        "toolName": "Read Library File Range"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "input": {
+                            "endLine": 2,
+                            "fileReference": "alpha.txt",
+                            "startLine": 1
+                        },
+                        "permission": "read-only",
+                        "toolName": "Read Library File Range"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "characterCount": 17,
+                            "endLine": 2,
+                            "relativePath": "alpha.txt",
+                            "startLine": 1,
+                            "truncated": false
+                        },
+                        "toolName": "Read Library File Range"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "endLine": 2,
+                    "startLine": 1
+                },
+                "output": {
+                    "content": "line one\nline two",
+                    "endLine": 2,
+                    "file": {
+                        "extension": ".txt",
+                        "name": "alpha.txt",
+                        "relativePath": "alpha.txt",
+                        "sizeBytes": 29,
+                        "status": "available"
+                    },
+                    "requestedEndLine": 2,
+                    "requestedStartLine": 1,
+                    "startLine": 1,
+                    "totalCharacterCount": 17,
+                    "totalLineCount": 4,
+                    "truncated": false
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        },
+        "read_file_ranges": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "permission": "read-only",
+                        "toolName": "Read Library File Ranges"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "input": {
+                            "paths": [
+                                "alpha.txt"
+                            ],
+                            "rangeCount": 1,
+                            "totalRequestedLines": 2
+                        },
+                        "permission": "read-only",
+                        "toolName": "Read Library File Ranges"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "paths": [
+                                "alpha.txt"
+                            ],
+                            "rangeCount": 1,
+                            "returnedCharacterCount": 17,
+                            "truncated": false
+                        },
+                        "toolName": "Read Library File Ranges"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "ranges": [
+                        {
+                            "endLine": 2,
+                            "startLine": 1
+                        }
+                    ]
+                },
+                "output": {
+                    "rangeCount": 1,
+                    "ranges": [
+                        {
+                            "content": "line one\nline two",
+                            "endLine": 2,
+                            "file": {
+                                "extension": ".txt",
+                                "name": "alpha.txt",
+                                "relativePath": "alpha.txt",
+                                "sizeBytes": 29,
+                                "status": "available"
+                            },
+                            "requestedEndLine": 2,
+                            "requestedStartLine": 1,
+                            "startLine": 1,
+                            "totalCharacterCount": 17,
+                            "totalLineCount": 4,
+                            "truncated": false
+                        }
+                    ],
+                    "returnedCharacterCount": 17,
+                    "totalCharacterCount": 17,
+                    "truncated": false
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        },
+        "rename_file": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Rename"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "proposal",
+                        "input": {
+                            "destinationPath": "beta2.txt",
+                            "sourcePath": "beta.txt"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Propose Library File Rename"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "affectedPaths": [
+                            "new.txt",
+                            "alpha.txt",
+                            "docs",
+                            "beta.txt",
+                            "beta2.txt"
+                        ],
+                        "expectedHash": "73185d13bdbe224f4bb9150b4a21d8e1b5255c8f4e493ae3b1520f0954c84a5f",
+                        "operationCount": 4,
+                        "operationTypes": [
+                            "create_file",
+                            "patch_file",
+                            "create_directory",
+                            "rename_file"
+                        ],
+                        "writesPerformed": false
+                    },
+                    "type": "edit.proposed"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "destinationPath": "beta2.txt",
+                            "expectedHash": "73185d13bdbe224f4bb9150b4a21d8e1b5255c8f4e493ae3b1520f0954c84a5f",
+                            "sourcePath": "beta.txt",
+                            "writesPerformed": false
+                        },
+                        "toolName": "Propose Library File Rename"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "destinationPath": "beta2.txt",
+                    "sourcePath": "beta.txt"
+                },
+                "output": {
+                    "destinationPath": "beta2.txt",
+                    "expectedHash": "73185d13bdbe224f4bb9150b4a21d8e1b5255c8f4e493ae3b1520f0954c84a5f",
+                    "operationType": "rename_file",
+                    "sourcePath": "beta.txt",
+                    "sourceSizeBytes": 10,
+                    "status": "proposed",
+                    "writesPerformed": false
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "search_filenames": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "permission": "read-only",
+                        "toolName": "Search Library Filenames"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "input": {
+                            "limit": 5,
+                            "query": "a"
+                        },
+                        "permission": "read-only",
+                        "toolName": "Search Library Filenames"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "matchCount": 3,
+                            "totalMatches": 3,
+                            "truncated": false
+                        },
+                        "toolName": "Search Library Filenames"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "limit": 5,
+                    "query": "a"
+                },
+                "output": {
+                    "matches": [
+                        {
+                            "extension": ".txt",
+                            "name": "alpha.txt",
+                            "relativePath": "alpha.txt",
+                            "sizeBytes": 29,
+                            "status": "available"
+                        },
+                        {
+                            "extension": ".txt",
+                            "name": "beta.txt",
+                            "relativePath": "beta.txt",
+                            "sizeBytes": 10,
+                            "status": "available"
+                        },
+                        {
+                            "extension": ".txt",
+                            "name": "gamma.txt",
+                            "relativePath": "gamma.txt",
+                            "sizeBytes": 11,
+                            "status": "available"
+                        }
+                    ],
+                    "query": "a",
+                    "totalMatches": 3,
+                    "truncated": false
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        },
+        "search_library": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "permission": "read-only",
+                        "toolName": "Search Library Text"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "direct",
+                        "input": {
+                            "limit": 5,
+                            "query": "line"
+                        },
+                        "permission": "read-only",
+                        "toolName": "Search Library Text"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "fileCount": 4,
+                            "matchCount": 4,
+                            "warningCount": 0
+                        },
+                        "toolName": "Search Library Text"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "limit": 5,
+                    "query": "line"
+                },
+                "output": {
+                    "matches": [
+                        {
+                            "content": "line one\nline two\nline three",
+                            "endLine": 3,
+                            "estimatedTokens": 7,
+                            "fileName": "alpha.txt",
+                            "reason": "Matched indexed Library text using SQLite FTS5 with subject-aware reranking.",
+                            "relativePath": "alpha.txt",
+                            "score": 1e-06,
+                            "startLine": 1
+                        },
+                        {
+                            "content": "beta line",
+                            "endLine": 1,
+                            "estimatedTokens": 3,
+                            "fileName": "beta.txt",
+                            "reason": "Matched indexed Library text using SQLite FTS5 with subject-aware reranking.",
+                            "relativePath": "beta.txt",
+                            "score": 1e-06,
+                            "startLine": 1
+                        },
+                        {
+                            "content": "gamma line",
+                            "endLine": 1,
+                            "estimatedTokens": 3,
+                            "fileName": "gamma.txt",
+                            "reason": "Matched indexed Library text using SQLite FTS5 with subject-aware reranking.",
+                            "relativePath": "gamma.txt",
+                            "score": 1e-06,
+                            "startLine": 1
+                        },
+                        {
+                            "content": "other line",
+                            "endLine": 1,
+                            "estimatedTokens": 3,
+                            "fileName": "other.txt",
+                            "reason": "Matched indexed Library text using SQLite FTS5 with subject-aware reranking.",
+                            "relativePath": "sub/other.txt",
+                            "score": 1e-06,
+                            "startLine": 1
+                        }
+                    ],
+                    "query": "line",
+                    "warnings": [
+                    ]
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        },
+        "storedExecutionCount": 54,
+        "workspace_arrange": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Arrange Workspace"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                            "saveAs": "",
+                            "steps": [
+                                "focus",
+                                "resize"
+                            ]
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Arrange Workspace"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "notes": [
+                                "note"
+                            ],
+                            "status": "applied"
+                        },
+                        "toolName": "Arrange Workspace"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "save_as": "",
+                    "steps": [
+                        {
+                            "action": "focus",
+                            "area": "the code",
+                            "change": "",
+                            "name": "",
+                            "to": ""
+                        },
+                        {
+                            "action": "resize",
+                            "area": "the chat",
+                            "change": "larger",
+                            "name": "",
+                            "to": ""
+                        }
+                    ]
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "steps",
+                        "asked": false,
+                        "explicit": false,
+                        "saveAs": "",
+                        "steps": [
+                            {
+                                "action": "focus",
+                                "change": "",
+                                "name": "",
+                                "target": "the code",
+                                "to": ""
+                            },
+                            {
+                                "action": "resize",
+                                "change": "larger",
+                                "name": "",
+                                "target": "the chat",
+                                "to": ""
+                            }
+                        ]
+                    },
+                    "status": "applied",
+                    "unresolved": null
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "workspace_compose": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Compose Workspace"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                            "panels": [
+                                "Code"
+                            ],
+                            "template": "none"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Compose Workspace"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "notes": [
+                                "note"
+                            ],
+                            "status": "applied",
+                            "unresolved": [
+                                "A file needs its Library path, file name or file id."
+                            ]
+                        },
+                        "toolName": "Compose Workspace"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "arrangement": "auto",
+                    "columns": 0,
+                    "focus": "",
+                    "mode": "patch",
+                    "rows": 0,
+                    "save_as": "",
+                    "slots": [
+                        {
+                            "holds": [
+                            ],
+                            "items": [
+                                {
+                                    "kind": "file",
+                                    "library": "",
+                                    "reference": "alpha.txt"
+                                },
+                                {
+                                    "kind": "file",
+                                    "library": "",
+                                    "reference": ""
+                                }
+                            ],
+                            "name": "Code",
+                            "position": "",
+                            "weight": 0
+                        }
+                    ],
+                    "template": "none"
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "compose",
+                        "asked": false,
+                        "columns": 0,
+                        "explicit": false,
+                        "focus": "",
+                        "mode": "patch",
+                        "rows": 0,
+                        "saveAs": "",
+                        "slots": [
+                            {
+                                "holds": [
+                                ],
+                                "items": [
+                                    {
+                                        "file": {
+                                            "extension": ".txt",
+                                            "name": "alpha.txt",
+                                            "relativePath": "alpha.txt",
+                                            "sizeBytes": 29,
+                                            "status": "available"
+                                        },
+                                        "kind": "file",
+                                        "lookup": "found",
+                                        "reference": "alpha.txt"
+                                    }
+                                ],
+                                "name": "Code",
+                                "position": "",
+                                "weight": 0
+                            }
+                        ],
+                        "strategy": "",
+                        "template": "",
+                        "unresolved": [
+                            "A file needs its Library path, file name or file id."
+                        ]
+                    },
+                    "status": "applied",
+                    "unresolved": [
+                        "A file needs its Library path, file name or file id."
+                    ]
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "workspace_layout": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Workspace Layouts"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                            "action": "list",
+                            "name": ""
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Workspace Layouts"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "notes": [
+                                "note"
+                            ],
+                            "status": "applied"
+                        },
+                        "toolName": "Workspace Layouts"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "action": "list",
+                    "name": "",
+                    "new_name": "",
+                    "replace": false
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "layout",
+                        "asked": false,
+                        "explicit": false,
+                        "name": "",
+                        "newName": "",
+                        "op": "list",
+                        "replace": false
+                    },
+                    "status": "applied",
+                    "unresolved": null
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "workspace_preference": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Workspace Preference"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                            "action": "set",
+                            "duration": "always",
+                            "preference": "chat_location"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Workspace Preference"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "notes": [
+                                "note"
+                            ],
+                            "status": "applied"
+                        },
+                        "toolName": "Workspace Preference"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "action": "set",
+                    "area": "",
+                    "duration": "always",
+                    "preference": "chat_location",
+                    "value": "bottom"
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "preference",
+                        "area": "",
+                        "asked": false,
+                        "explicit": false,
+                        "lasting": true,
+                        "lastingAllowed": false,
+                        "op": "set",
+                        "preference": "chat_location",
+                        "value": "bottom"
+                    },
+                    "status": "applied",
+                    "unresolved": null
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "workspace_restore": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Restore Workspace"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                            "scope": "last_change"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Restore Workspace"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "notes": [
+                                "note"
+                            ],
+                            "status": "applied"
+                        },
+                        "toolName": "Restore Workspace"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "layout": "",
+                    "scope": "last_change"
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "restore",
+                        "asked": false,
+                        "explicit": false,
+                        "layout": "",
+                        "scope": "last_change"
+                    },
+                    "status": "applied",
+                    "unresolved": null
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "workspace_show": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "safe-local-mutation",
+                        "toolName": "Show in Workspace"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                            "items": [
+                                "file:alpha.txt"
+                            ],
+                            "where": "right"
+                        },
+                        "permission": "safe-local-mutation",
+                        "toolName": "Show in Workspace"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "notes": [
+                                "note"
+                            ],
+                            "status": "applied"
+                        },
+                        "toolName": "Show in Workspace"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                    "focus": false,
+                    "items": [
+                        {
+                            "kind": "file",
+                            "library": "",
+                            "reference": "alpha.txt"
+                        }
+                    ],
+                    "purpose": "",
+                    "where": "right"
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "show",
+                        "asked": false,
+                        "explicit": false,
+                        "focus": false,
+                        "items": [
+                            {
+                                "file": {
+                                    "extension": ".txt",
+                                    "name": "alpha.txt",
+                                    "relativePath": "alpha.txt",
+                                    "sizeBytes": 29,
+                                    "status": "available"
+                                },
+                                "kind": "file",
+                                "lookup": "found",
+                                "reference": "alpha.txt"
+                            }
+                        ],
+                        "purpose": "",
+                        "where": "right"
+                    },
+                    "status": "applied",
+                    "unresolved": null
+                },
+                "permission": "safe-local-mutation",
+                "status": "completed"
+            }
+        },
+        "workspace_view": {
+            "events": [
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "permission": "read-only",
+                        "toolName": "View Workspace"
+                    },
+                    "type": "tool.requested"
+                },
+                {
+                    "payload": {
+                        "executionMode": "workspace",
+                        "input": {
+                        },
+                        "permission": "read-only",
+                        "toolName": "View Workspace"
+                    },
+                    "type": "tool.started"
+                },
+                {
+                    "payload": {
+                        "output": {
+                            "areaCount": 2
+                        },
+                        "toolName": "View Workspace"
+                    },
+                    "type": "tool.completed"
+                }
+            ],
+            "execution": {
+                "errorCode": null,
+                "errorMessage": null,
+                "input": {
+                },
+                "output": {
+                    "areas": [
+                        {
+                        },
+                        {
+                        }
+                    ],
+                    "notes": [
+                        "note"
+                    ],
+                    "request": {
+                        "action": "describe",
+                        "asked": false,
+                        "explicit": false
+                    },
+                    "status": "applied",
+                    "unresolved": null
+                },
+                "permission": "read-only",
+                "status": "completed"
+            }
+        }
+    },
+    "providerTools": [
+        {
+            "description": "Create a reviewable proposal for a new directory in the active Library. The parent directory must already exist. This tool never creates the directory; execution requires later user approval.",
+            "name": "create_directory",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "path": {
+                        "description": "Library-relative path for the proposed new directory. Its parent directory must already exist.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "path"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Create a reviewable proposal for a new UTF-8 text file in the active Library. This tool never writes the file; execution requires later user approval.",
+            "name": "create_file",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "content": {
+                        "description": "Complete UTF-8 text content proposed for the new file.",
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "Library-relative destination path for the proposed new file.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "path",
+                    "content"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "List the immediate files and folders beneath one directory in the active Library catalog.",
+            "name": "list_directory",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "limit": {
+                        "maximum": 200,
+                        "minimum": 1,
+                        "type": "integer"
+                    },
+                    "path": {
+                        "maxLength": 1024,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "path",
+                    "limit"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Create a reviewable proposal to move an existing supported UTF-8 Library text file to another existing Library directory while preserving its file name. Archivist snapshots the exact current SHA-256 and requires the destination to be absent. This tool never moves the file.",
+            "name": "move_file",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "destinationPath": {
+                        "description": "Library-relative path in another existing directory. Preserve the source file name.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "sourcePath": {
+                        "description": "Library-relative path of the existing text file to move.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "sourcePath",
+                    "destinationPath"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Create a reviewable proposal to replace the complete UTF-8 text content of an existing Library file. Archivist snapshots the exact current content and SHA-256 first; this tool never writes the file.",
+            "name": "patch_file",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "content": {
+                        "description": "Complete replacement UTF-8 text content proposed for the file. Preserve any content that should remain unchanged.",
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "Library-relative path of the existing text file to change.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "path",
+                    "content"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Read a guarded UTF-8 Library file by catalog ID or exact Library-relative path, capped for safe tool output.",
+            "name": "read_file",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "fileId": {
+                        "description": "Catalog UUID from a source file-id attribute, or the exact Library-relative path from its path attribute.",
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "fileId"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Read at most 160 lines from a guarded UTF-8 Library file by catalog ID or exact Library-relative path. Prefer copying one supplied source block's path and line range exactly.",
+            "name": "read_file_range",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "endLine": {
+                        "minimum": 1,
+                        "type": "integer"
+                    },
+                    "fileId": {
+                        "description": "Catalog UUID from a source file-id attribute, or the exact Library-relative path from its path attribute.",
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "startLine": {
+                        "minimum": 1,
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "fileId",
+                    "startLine",
+                    "endLine"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Read up to 3 guarded Library excerpts in one tool call. Each range is capped at 160 lines and the batch at 240 total lines. Prefer copying supplied source handles exactly.",
+            "name": "read_file_ranges",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "ranges": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "endLine": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                },
+                                "fileId": {
+                                    "description": "Catalog UUID from a source file-id attribute, or the exact Library-relative path from its path attribute.",
+                                    "maxLength": 2048,
+                                    "minLength": 1,
+                                    "type": "string"
+                                },
+                                "startLine": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "fileId",
+                                "startLine",
+                                "endLine"
+                            ],
+                            "type": "object"
+                        },
+                        "maxItems": 3,
+                        "minItems": 1,
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "ranges"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Create a reviewable proposal to rename an existing supported UTF-8 Library text file within its current directory. Archivist snapshots the exact current SHA-256 and requires the destination to be absent. This tool never renames the file.",
+            "name": "rename_file",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "destinationPath": {
+                        "description": "Library-relative destination path in the same directory, using the new file name.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "sourcePath": {
+                        "description": "Library-relative path of the existing text file to rename.",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "sourcePath",
+                    "destinationPath"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Find active Library files whose name or relative path contains a case-insensitive text query.",
+            "name": "search_filenames",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "limit": {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer"
+                    },
+                    "query": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "query",
+                    "limit"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Search indexed Library text with SQLite FTS5 and return grounded file excerpts with line ranges.",
+            "name": "search_library",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "limit": {
+                        "maximum": 24,
+                        "minimum": 1,
+                        "type": "integer"
+                    },
+                    "query": {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "query",
+                    "limit"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Small edits to the panels that exist: steps run in order as one change, and nothing applies unless every step works. For any arrangement of several panels (grids, columns, \"4 panes\", a new layout) use workspace_compose instead; at most one add per call. Step actions: focus (bring an area forward), resize (change: larger, smaller, maximize, restore, equal, or a share like 0.6), move (to: left, right, top, bottom, \"beside <area>\", or another area), keep (lock it where it is), label (name: what the person calls it), add (a new empty panel: to = side, area = the area it goes beside or \"\" for the window edge, name = optional), remove (take a panel away; its tabs move to the area in to, else the main editor; nothing closes). save_as: after the steps, save the result as a new named layout (\"\" to not save). Locked areas refuse changes; never try to unlock one.",
+            "name": "workspace_arrange",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "save_as": {
+                        "description": "A new layout name to save the result as, else \"\".",
+                        "maxLength": 80,
+                        "type": "string"
+                    },
+                    "steps": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "action": {
+                                    "enum": [
+                                        "focus",
+                                        "resize",
+                                        "move",
+                                        "keep",
+                                        "label",
+                                        "add",
+                                        "remove"
+                                    ],
+                                    "type": "string"
+                                },
+                                "area": {
+                                    "description": "An area from workspace_view (its name or id), or a plain description: \"the code\", \"the chat\", \"the documentation\", \"the right panel\", \"this\".",
+                                    "maxLength": 200,
+                                    "type": "string"
+                                },
+                                "change": {
+                                    "description": "resize only, else \"\".",
+                                    "maxLength": 32,
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "description": "label and add only, else \"\".",
+                                    "maxLength": 80,
+                                    "type": "string"
+                                },
+                                "to": {
+                                    "description": "move, add and remove only, else \"\".",
+                                    "maxLength": 200,
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "action",
+                                "area",
+                                "change",
+                                "to",
+                                "name"
+                            ],
+                            "type": "object"
+                        },
+                        "maxItems": 12,
+                        "minItems": 1,
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "steps",
+                    "save_as"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Set the workspace to the state the person asked for, in one call. You only choose; Archivist finds the files, builds and sizes the panels, reuses what is open and applies it as one change the person can undo or redo. Never build layouts from moves or splits. mode patch (the usual case): the current panels stay where they are; a slot named like an existing panel gets its items there, a new name adds one panel at its position (left, right, top or bottom), and panels you don't name are left alone. Use it for \"put the PDF beside the chat\" or \"add my notes on the right\": arrangement auto, rows and columns 0. mode replace: a whole new arrangement from a recipe, only when the person asks for one (\"4 panes\", \"three columns\", \"chat dominant\", a template). Recipes: grid (rows x columns; \"4 panes, chat bottom-left\" is grid, rows 2, columns 2, chat at bottom-left; empty places become panels showing what was open), columns (left, center, right), rows (top, middle, bottom), split (one large panel at position primary, the rest stacked on one side: \"chat dominant, three images stacked on the right\"), stack (everything as tabs in one panel). Weights are relative (1 normal, 2 about twice); panels that don't fit become tabs. Files can be named by file name, path or an open tab's title; nothing closes. Templates fill their panels by name: focus_references (One large panel for the work, reference material at the side: Focus, References); chat_code (The code beside a conversation: Code, Chat); code_diff (A file next to the changes under review: Code, Changes); research_desk (Sources on the left, notes and references stacked on the right: Sources, Notes, Reference); agent_overview (Agent conversations across the top, their terminal and changes below: Agents, Terminal, Changes). save_as also saves it as a named layout (\"\" keeps it temporary). focus: a panel name to bring forward, only when asked.",
+            "name": "workspace_compose",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "arrangement": {
+                        "enum": [
+                            "auto",
+                            "grid",
+                            "columns",
+                            "rows",
+                            "split",
+                            "stack"
+                        ],
+                        "type": "string"
+                    },
+                    "columns": {
+                        "description": "grid only, else 0.",
+                        "maximum": 3,
+                        "minimum": 0,
+                        "type": "integer"
+                    },
+                    "focus": {
+                        "description": "A panel name, or \"\".",
+                        "maxLength": 40,
+                        "type": "string"
+                    },
+                    "mode": {
+                        "enum": [
+                            "patch",
+                            "replace"
+                        ],
+                        "type": "string"
+                    },
+                    "rows": {
+                        "description": "grid only, else 0.",
+                        "maximum": 3,
+                        "minimum": 0,
+                        "type": "integer"
+                    },
+                    "save_as": {
+                        "description": "A new layout name, or \"\".",
+                        "maxLength": 80,
+                        "type": "string"
+                    },
+                    "slots": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "holds": {
+                                    "description": "What kind of content belongs there; can be empty when items say it.",
+                                    "items": {
+                                        "enum": [
+                                            "code",
+                                            "docs",
+                                            "preview",
+                                            "chat",
+                                            "agents",
+                                            "terminal",
+                                            "diff"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "maxItems": 4,
+                                    "type": "array"
+                                },
+                                "items": {
+                                    "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "kind": {
+                                                "description": "file: a Library file. chat: a conversation (\"\" for this one). terminal: \"\" for the terminal, \"new\" for another. diff: changes under review. open_view: something already open, by view id or title.",
+                                                "enum": [
+                                                    "file",
+                                                    "chat",
+                                                    "terminal",
+                                                    "diff",
+                                                    "open_view"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            "library": {
+                                                "description": "\"\" for this chat's Library, else a Library or worktree name or id. Files keep the Library they belong to.",
+                                                "maxLength": 256,
+                                                "type": "string"
+                                            },
+                                            "reference": {
+                                                "description": "file: Library-relative path or file id. chat: chat id or \"\". terminal: \"\" or \"new\". open_view: view id or title.",
+                                                "maxLength": 1024,
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "kind",
+                                            "reference",
+                                            "library"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "maxItems": 8,
+                                    "type": "array"
+                                },
+                                "name": {
+                                    "description": "What the panel is called: \"Code\", \"Docs\", \"Chat\".",
+                                    "maxLength": 40,
+                                    "minLength": 1,
+                                    "type": "string"
+                                },
+                                "position": {
+                                    "description": "Where it goes. grid: top-left, top-right, bottom-left, bottom-right, top, bottom-center, r2c1. columns: left, center, right. rows: top, middle, bottom. split: primary for the large one; the first other panel's right/left/top/bottom says the side. : the next free place.",
+                                    "maxLength": 24,
+                                    "type": "string"
+                                },
+                                "weight": {
+                                    "description": "Relative room: 1 normal, 2 about twice; 0 keeps the default.",
+                                    "maximum": 10,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "holds",
+                                "weight",
+                                "position",
+                                "items"
+                            ],
+                            "type": "object"
+                        },
+                        "maxItems": 6,
+                        "type": "array"
+                    },
+                    "template": {
+                        "enum": [
+                            "none",
+                            "focus_references",
+                            "chat_code",
+                            "code_diff",
+                            "research_desk",
+                            "agent_overview"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "mode",
+                    "template",
+                    "arrangement",
+                    "rows",
+                    "columns",
+                    "slots",
+                    "focus",
+                    "save_as"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Named layouts: whole arrangements of panels the person can switch between. list shows the built-in and saved ones. apply switches to one by name (open tabs move into it; nothing closes; undoable); \"try another\" means apply a different one than the current layout. save stores the current arrangement under name (workspace_arrange save_as does this in the same call as the arranging). Saving over an existing name needs replace true, and only when the person said to replace it. rename (new_name) and delete work on the person's saved layouts only, and only when they ask.",
+            "name": "workspace_layout",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "action": {
+                        "enum": [
+                            "list",
+                            "apply",
+                            "save",
+                            "rename",
+                            "delete"
+                        ],
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "The layout's name; \"\" for list.",
+                        "maxLength": 80,
+                        "type": "string"
+                    },
+                    "new_name": {
+                        "description": "rename only, else \"\".",
+                        "maxLength": 80,
+                        "type": "string"
+                    },
+                    "replace": {
+                        "description": "save only: replace a saved layout with the same name.",
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "action",
+                    "name",
+                    "new_name",
+                    "replace"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Remember how the person likes their workspace, only when they state a preference (not for a one-off request). chat_location: bottom | docked (\"I like my chat at the bottom\"). main_editor: large | normal (\"keep my main editor large\"). rearranging: only_when_asked | when_helpful (\"don't rearrange my windows unless I ask\"). area_purpose: value is what a panel is for, e.g. documentation, and area names the panel (\"use the right panel for documentation\"). duration: always only when they say always, from now on, by default or describe a standing habit; otherwise this_session. clear forgets one; list shows them.",
+            "name": "workspace_preference",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "action": {
+                        "enum": [
+                            "set",
+                            "clear",
+                            "list"
+                        ],
+                        "type": "string"
+                    },
+                    "area": {
+                        "description": "area_purpose only: the panel, e.g. \"the right panel\" or \"this panel\"; else \"\".",
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "duration": {
+                        "enum": [
+                            "this_session",
+                            "always"
+                        ],
+                        "type": "string"
+                    },
+                    "preference": {
+                        "enum": [
+                            "chat_location",
+                            "main_editor",
+                            "rearranging",
+                            "area_purpose"
+                        ],
+                        "type": "string"
+                    },
+                    "value": {
+                        "description": "set: the value; clear: \"\" (or the purpose for area_purpose).",
+                        "maxLength": 40,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "action",
+                    "preference",
+                    "value",
+                    "area",
+                    "duration"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Put the workspace back. before_task: how it was before you started rearranging (\"put everything back\", \"restore my workspace\", \"put it back\"). last_change: undo the most recent workspace change (\"undo that\", \"switch back\" after a change). redo: redo the change just undone (\"redo\", \"actually, put it back how you had it\"). saved_layout: apply one of the person's saved layouts by name. Open files, chats and terminals stay open; unsaved work is never closed.",
+            "name": "workspace_restore",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "layout": {
+                        "description": "saved_layout only: the layout's name, else \"\".",
+                        "maxLength": 120,
+                        "type": "string"
+                    },
+                    "scope": {
+                        "enum": [
+                            "last_change",
+                            "redo",
+                            "before_task",
+                            "saved_layout"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "scope",
+                    "layout"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Open or bring forward files, chats or terminals in the workspace. Things already open are reused, not duplicated; several files share one area as tabs. Put every item in one call and leave where empty unless the person said where. Only call this when the person asked to see, open or bring something up; to find which files matter, use Library evidence first and show two to five.",
+            "name": "workspace_show",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                    "focus": {
+                        "description": "Move keyboard focus there. Only when the person asked to switch to it.",
+                        "type": "boolean"
+                    },
+                    "items": {
+                        "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "kind": {
+                                    "description": "file: a Library file. chat: a conversation (\"\" for this one). terminal: \"\" for the terminal, \"new\" for another. diff: changes under review. open_view: something already open, by view id or title.",
+                                    "enum": [
+                                        "file",
+                                        "chat",
+                                        "terminal",
+                                        "diff",
+                                        "open_view"
+                                    ],
+                                    "type": "string"
+                                },
+                                "library": {
+                                    "description": "\"\" for this chat's Library, else a Library or worktree name or id. Files keep the Library they belong to.",
+                                    "maxLength": 256,
+                                    "type": "string"
+                                },
+                                "reference": {
+                                    "description": "file: Library-relative path or file id. chat: chat id or \"\". terminal: \"\" or \"new\". open_view: view id or title.",
+                                    "maxLength": 1024,
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "kind",
+                                "reference",
+                                "library"
+                            ],
+                            "type": "object"
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array"
+                    },
+                    "purpose": {
+                        "description": "\"\", or what the items are for: \"documentation\", \"reference\", \"code\".",
+                        "maxLength": 64,
+                        "type": "string"
+                    },
+                    "where": {
+                        "description": "\"\" to choose, or e.g. \"right\", \"left\", \"bottom\", \"beside the chat\", an area name, \"new panel\".",
+                        "maxLength": 200,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "items",
+                    "where",
+                    "purpose",
+                    "focus"
+                ],
+                "type": "object"
+            }
+        },
+        {
+            "description": "Describe the person's workspace: each area (panel) with its name, position, size, what it shows and its locks, where the conversation is, whether a temporary arrangement can be undone, and the person's workspace preferences. Usually not needed: a summary is in your instructions when the person asks for a change.",
+            "name": "workspace_view",
+            "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                },
+                "required": [
+                ],
+                "type": "object"
+            }
+        }
+    ],
+    "toolIds": [
+        "create_directory",
+        "create_file",
+        "list_directory",
+        "move_file",
+        "patch_file",
+        "read_file",
+        "read_file_range",
+        "read_file_ranges",
+        "rename_file",
+        "search_filenames",
+        "search_library",
+        "workspace_arrange",
+        "workspace_compose",
+        "workspace_layout",
+        "workspace_preference",
+        "workspace_restore",
+        "workspace_show",
+        "workspace_view"
+    ],
+    "unknownTool": {
+        "execution": {
+            "error": {
+                "code": "tool_not_found",
+                "details": {
+                },
+                "message": "AI tool \"delete_everything\" is not registered.",
+                "thrown": true
+            },
+            "events": [
+            ]
+        },
+        "mutationProposal": false,
+        "workspace": false
+    }
+}

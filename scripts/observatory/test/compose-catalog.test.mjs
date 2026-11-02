@@ -8,7 +8,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const source = (file) => readFile(path.join(root, "frontend", file), "utf8");
 
 test("AI tool schemas use only the lightweight composition catalog", async () => {
-  const tools = await source("src/Core/Domains/AI/ai_tools.cpp");
+  // The workspace tools (and their schemas) moved to ai_tools_workspace.cpp.
+  const tools = await source("src/Core/Domains/AI/ai_tools_workspace.cpp");
   const catalog = await source("src/Core/Domains/Workspace/workspace_compose_catalog.h");
 
   assert.match(tools, /#include "Core\/Domains\/Workspace\/workspace_compose_catalog\.h"/);
