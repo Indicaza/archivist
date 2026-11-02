@@ -63,6 +63,8 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/AI/edit_proposals.h
     src/Core/Domains/AI/ai_tools.cpp
     src/Core/Domains/AI/ai_tools.h
+    src/Core/Domains/AI/ai_tools_read.cpp
+    src/Core/Domains/AI/ai_tools_read.h
     src/Core/Domains/AI/edit_transactions.cpp
     src/Core/Domains/AI/edit_transactions.h
     src/Core/Domains/AI/ai_provider.cpp
