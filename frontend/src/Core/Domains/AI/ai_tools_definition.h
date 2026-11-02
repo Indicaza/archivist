@@ -36,12 +36,14 @@ struct Definition
     QString permission;
     QString executionMode;
     QVariantMap schema;
+    // Plain function pointers: functions or captureless lambdas. (A
+    // std::function per lambda cost seconds of template instantiation.)
     // Throws InvalidInput (ai_tools_input.h).
-    std::function<QVariantMap(const QVariant &)> parse;
+    QVariantMap (*parse)(const QVariant &input) = nullptr;
     // Throws ToolError, ReadTools::ToolCancelled, CoreError or std::exception.
-    std::function<QVariantMap(const QVariantMap &, Context &)> run;
-    std::function<QVariantMap(const QVariantMap &)> summarizeInput;
-    std::function<QVariantMap(const QVariantMap &)> summarizeOutput;
+    QVariantMap (*run)(const QVariantMap &input, Context &context) = nullptr;
+    QVariantMap (*summarizeInput)(const QVariantMap &input) = nullptr;
+    QVariantMap (*summarizeOutput)(const QVariantMap &output) = nullptr;
 };
 
 // Tool families, each defined beside its handlers.

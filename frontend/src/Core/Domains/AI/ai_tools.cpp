@@ -116,7 +116,7 @@ void finishFailed(Context &context, const Definition &tool, const ToolError &err
     }
 }
 
-QVariantMap safeSummary(const std::function<QVariantMap(const QVariantMap &)> &summarize, const QVariantMap &value)
+QVariantMap safeSummary(QVariantMap (*summarize)(const QVariantMap &), const QVariantMap &value)
 {
     try {
         return summarize ? summarize(value) : QVariantMap();

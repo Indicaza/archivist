@@ -69,6 +69,32 @@ const QStringList &preferenceDurations()
     return durations;
 }
 
+// Fixed field lists, shared by a schema and its parser.
+const QStringList &arrangeStepFields()
+{
+    static const QStringList fields{QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")};
+    return fields;
+}
+
+const QStringList &composeSlotFields()
+{
+    static const QStringList fields{QStringLiteral("name"), QStringLiteral("holds"), QStringLiteral("weight"), QStringLiteral("position"), QStringLiteral("items")};
+    return fields;
+}
+
+// "none" and every template id, in catalog order.
+const QStringList &composeTemplateChoices()
+{
+    static const QStringList choices = []() {
+        QStringList result{QStringLiteral("none")};
+        for (const Workspace::Compose::Template &recipe : Workspace::Compose::templates()) {
+            result.append(recipe.id);
+        }
+        return result;
+    }();
+    return choices;
+}
+
 // The Library a file reference belongs to: this chat's, or another by id or
 // name (a worktree is a Library of its own).
 QVariantMap resolveLibrary(CoreDatabase &database, const Context &context, const QString &reference)
@@ -409,7 +435,7 @@ QList<Definition> workspaceTools()
         workspaceOutputSummary,
     });
 
-    const QStringList stepFields{QStringLiteral("action"), QStringLiteral("area"), QStringLiteral("change"), QStringLiteral("to"), QStringLiteral("name")};
+    const QStringList &stepFields = arrangeStepFields();
     const QVariantMap arrangeStep = objectSchema(
         {
             {QStringLiteral("action"), enumSchema(arrangeActions())},
@@ -433,7 +459,7 @@ QList<Definition> workspaceTools()
             },
             {QStringLiteral("steps"), QStringLiteral("save_as")}
         ),
-        [stepFields](const QVariant &input) {
+        [](const QVariant &input) {
             const QVariantMap map = strictObject(input, {QStringLiteral("steps"), QStringLiteral("save_as")});
             const QVariant stepsValue = map.value(QStringLiteral("steps"));
             if (stepsValue.typeId() != QMetaType::QVariantList) {
@@ -445,7 +471,7 @@ QList<Definition> workspaceTools()
             }
             QVariantList steps;
             for (const QVariant &value : list) {
-                const QVariantMap step = strictObject(value, stepFields);
+                const QVariantMap step = strictObject(value, arrangeStepFields());
                 steps.append(QVariantMap{
                     {QStringLiteral("action"), enumField(step, QStringLiteral("action"), arrangeActions())},
                     {QStringLiteral("area"), stringField(step, QStringLiteral("area"), 0, 200, true, QString())},
@@ -479,7 +505,7 @@ QList<Definition> workspaceTools()
         workspaceOutputSummary,
     });
 
-    const QStringList slotFields{QStringLiteral("name"), QStringLiteral("holds"), QStringLiteral("weight"), QStringLiteral("position"), QStringLiteral("items")};
+    const QStringList &slotFields = composeSlotFields();
     const QVariantMap composeSlot = objectSchema(
         {
             {QStringLiteral("name"), stringSchema(1, 40, QStringLiteral("What the panel is called: \"Code\", \"Docs\", \"Chat\"."))},
@@ -490,10 +516,9 @@ QList<Definition> workspaceTools()
         },
         slotFields
     );
-    QStringList templateChoices{QStringLiteral("none")};
+    const QStringList &templateChoices = composeTemplateChoices();
     QStringList templateLines;
     for (const Workspace::Compose::Template &recipe : Workspace::Compose::templates()) {
-        templateChoices.append(recipe.id);
         QStringList slotNames;
         for (const QJsonValue &slot : recipe.recipe.value(QStringLiteral("slots")).toArray()) {
             slotNames.append(slot.toObject().value(QStringLiteral("name")).toString());
@@ -519,7 +544,7 @@ QList<Definition> workspaceTools()
             },
             {QStringLiteral("mode"), QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")}
         ),
-        [slotFields, templateChoices](const QVariant &input) {
+        [](const QVariant &input) {
             const QVariantMap map = strictObject(input, {QStringLiteral("mode"), QStringLiteral("template"), QStringLiteral("arrangement"), QStringLiteral("rows"), QStringLiteral("columns"), QStringLiteral("slots"), QStringLiteral("focus"), QStringLiteral("save_as")});
             const QVariant slotsValue = map.value(QStringLiteral("slots"));
             if (slotsValue.typeId() != QMetaType::QVariantList) {
@@ -531,7 +556,7 @@ QList<Definition> workspaceTools()
             }
             QVariantList panelSlots;
             for (const QVariant &value : list) {
-                const QVariantMap slot = strictObject(value, slotFields);
+                const QVariantMap slot = strictObject(value, composeSlotFields());
                 QStringList holds;
                 const QVariantList holdList = slot.value(QStringLiteral("holds")).toList();
                 if (holdList.size() > 4) {
@@ -567,7 +592,7 @@ QList<Definition> workspaceTools()
             }
             return QVariantMap{
                 {QStringLiteral("mode"), map.contains(QStringLiteral("mode")) ? enumField(map, QStringLiteral("mode"), QStringList{QStringLiteral("patch"), QStringLiteral("replace")}) : QString()},
-                {QStringLiteral("template"), enumField(map, QStringLiteral("template"), templateChoices)},
+                {QStringLiteral("template"), enumField(map, QStringLiteral("template"), composeTemplateChoices())},
                 {QStringLiteral("arrangement"), enumField(map, QStringLiteral("arrangement"), QStringList{QStringLiteral("auto")} + Workspace::Compose::strategies())},
                 {QStringLiteral("rows"), map.contains(QStringLiteral("rows")) ? intField(map, QStringLiteral("rows"), 0, 3, 0) : 0},
                 {QStringLiteral("columns"), map.contains(QStringLiteral("columns")) ? intField(map, QStringLiteral("columns"), 0, 3, 0) : 0},
