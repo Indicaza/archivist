@@ -51,3 +51,45 @@ test("read tool behavioral contracts retain result fields and guard checks", asy
   assert.match(read, /resolveLibraryFileId\(\*context\.database, libraryId/);
   assert.match(read, /std::stable_sort\(entries\.begin\(\), entries\.end\(\)/);
 });
+
+test("AI tool families stay behind the internal definition contract", async () => {
+  const files = {
+    executor: await source("src/Core/Domains/AI/ai_tools.cpp"),
+    catalog: await source("src/Core/Domains/AI/ai_tools_catalog.cpp"),
+    definition: await source("src/Core/Domains/AI/ai_tools_definition.h"),
+    input: await source("src/Core/Domains/AI/ai_tools_input.cpp"),
+    read: await source("src/Core/Domains/AI/ai_tools_read.cpp"),
+    mutation: await source("src/Core/Domains/AI/ai_tools_mutation.cpp"),
+    workspace: await source("src/Core/Domains/AI/ai_tools_workspace.cpp"),
+  };
+  const cmake = await source("CMakeLists.txt");
+  for (const file of ["ai_tools_catalog.cpp", "ai_tools_definition.h", "ai_tools_input.cpp", "ai_tools_input.h", "ai_tools_mutation.cpp", "ai_tools_workspace.cpp"]) {
+    assert.match(cmake, new RegExp("src/Core/Domains/AI/" + file.replace(".", "\\.")));
+  }
+  assert.match(cmake, /tests\/core_ai_tool_contracts_test\.cpp/);
+
+  // Only the workspace family reaches the Workspace domain.
+  for (const [name, text] of Object.entries(files)) {
+    if (name !== "workspace") assert.doesNotMatch(text, /Domains\/Workspace\//, name + " must not include Workspace headers");
+  }
+  // The executor and catalog know no family's domain.
+  for (const text of [files.executor, files.catalog]) {
+    assert.doesNotMatch(text, /Domains\/Libraries\/|edit_proposals\.h|library_retrieval\.h/);
+  }
+  // Each family registers through its own list; the catalog combines them.
+  assert.match(files.read, /QList<Definition> libraryReadTools\(\)/);
+  assert.match(files.mutation, /QList<Definition> libraryMutationTools\(\)/);
+  assert.match(files.workspace, /QList<Definition> workspaceTools\(\)/);
+  for (const family of ["libraryReadTools", "libraryMutationTools", "workspaceTools"]) {
+    assert.ok(files.catalog.includes("tools.append(" + family + "());"), family);
+  }
+  // Callbacks stay plain function pointers (no per-lambda std::function).
+  assert.doesNotMatch(files.definition, /std::function</);
+  // The executor alone records executions and lifecycle events.
+  for (const event of ["tool.requested", "tool.started", "tool.completed", "tool.failed", "tool.cancelled"]) {
+    assert.ok(files.executor.includes('"' + event + '"'), event);
+  }
+  for (const [name, text] of Object.entries(files)) {
+    if (name !== "executor") assert.doesNotMatch(text, /(INSERT INTO|UPDATE|FROM) ai_tool_executions/, name);
+  }
+});
