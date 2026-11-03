@@ -207,6 +207,70 @@ Retrieval libraryEvidence(CoreDatabase &database, const QString &libraryId, cons
     return result;
 }
 
+Retrieval hybridLibraryEvidence(
+    CoreDatabase &database,
+    const QString &libraryId,
+    const QString &query,
+    const QVector<float> &queryVector,
+    const ::Retrieval::HybridPolicy &policy,
+    int limit
+)
+{
+    Retrieval result;
+
+    if (libraryId.isEmpty()) {
+        return result;
+    }
+
+    const auto library = LibraryRepository::libraryById(database, libraryId);
+
+    if (!library || !library->value(QStringLiteral("archivedAt")).isNull()) {
+        result.warnings.append(QStringLiteral("Automatic Library retrieval was skipped because this Chat's Library is unavailable."));
+        return result;
+    }
+
+    const QString libraryName = library->value(QStringLiteral("name")).toString();
+    const ::Retrieval::HybridResult search = ::Retrieval::searchLibrary(database, libraryId, query, queryVector, policy, limit);
+    static const QSet<QString> benignWarnings{
+        QStringLiteral("No indexed Library text matched the search query."),
+        QStringLiteral("The query did not contain any searchable terms."),
+    };
+
+    for (const QString &warning : search.warnings) {
+        if (!benignWarnings.contains(warning)) {
+            result.warnings.append(warning);
+        }
+    }
+
+    const bool hybrid = search.diagnostics.value(QStringLiteral("mode")).toString() == QStringLiteral("hybrid");
+
+    for (const ::Retrieval::HybridHit &hit : search.hits) {
+        SearchCandidate item;
+        item.kind = Kind::LibraryEvidence;
+        item.content = hit.content;
+        item.score = hit.score;
+        item.reason = hit.reason;
+        item.ref.sourceType = QStringLiteral("library-chunk");
+        item.ref.sourceId = hit.chunkId;
+        item.ref.libraryId = hit.libraryId.isEmpty() ? libraryId : hit.libraryId;
+        item.ref.libraryName = libraryName;
+        item.ref.fileId = hit.fileId;
+        item.ref.relativePath = hit.relativePath;
+        item.ref.startLine = hit.startLine;
+        item.ref.endLine = hit.endLine;
+        // Who found it, so the Inspector can tell keyword from semantic hits.
+        item.ref.producer = !hybrid                ? LibraryRetrieval::toolId
+            : hit.lexicalRank > 0 && hit.semanticRank > 0 ? QStringLiteral("library-hybrid")
+            : hit.semanticRank > 0                        ? QStringLiteral("library-semantic")
+                                                          : LibraryRetrieval::toolId;
+        result.candidates.append(item);
+    }
+
+    result.diagnostics = search.diagnostics;
+    result.diagnostics.insert(QStringLiteral("policy"), policy.toVariant());
+    return result;
+}
+
 Retrieval conversationRecall(CoreDatabase &database, const QString &query, const QString &chatId, int limit)
 {
     Retrieval result;

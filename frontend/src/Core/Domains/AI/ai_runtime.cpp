@@ -7,6 +7,8 @@
 #include "Core/Domains/Libraries/library_repository.h"
 #include "Core/Domains/Models/model_catalog_cache.h"
 #include "Core/Domains/Observatory/live_events.h"
+#include "Core/Domains/Retrieval/embedding_client.h"
+#include "Core/Domains/Retrieval/hybrid_retrieval.h"
 #include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Domains/Worktrees/worktree_repository.h"
 #include "Core/Support/core_values.h"
@@ -732,7 +734,7 @@ public:
             const QString cachePath = ModelCatalogCache::cachePathForDatabase(m_worker.databasePath());
 
             if (ModelCatalogCache::definition(cachePath, m_provider, m_model) || !AIProvider::isKnownProvider(m_provider)) {
-                prepare();
+                embedQueryThenPrepare();
                 return;
             }
 
@@ -740,7 +742,7 @@ public:
             const AIProvider::OpenAIConfig config = AIProvider::configFor(m_provider, m_worker.databasePath());
 
             if (config.apiKey.isEmpty() && !config.chatCompletions) {
-                prepare();
+                embedQueryThenPrepare();
                 return;
             }
 
@@ -752,7 +754,7 @@ public:
                 ModelCatalogCache::applyDiscovery(cachePath, m_provider, models);
                 guarded([this]() {
                     throwIfAborted();
-                    prepare();
+                    embedQueryThenPrepare();
                 });
             });
             connect(list, &OpenAIModelList::failed, this, [this, list, cachePath, catalog](const QString &message) {
@@ -761,7 +763,7 @@ public:
                 ModelCatalogCache::recordDiscoveryFailure(cachePath, m_provider, message);
                 guarded([this]() {
                     throwIfAborted();
-                    prepare();
+                    embedQueryThenPrepare();
                 });
             });
             list->start();
@@ -771,6 +773,16 @@ public:
     void abort()
     {
         m_aborted = true;
+
+        if (m_queryEmbedder && m_queryEmbedder->busy()) {
+            // Settles through its callback on the next turn, like the stream.
+            QPointer<Retrieval::OpenAIEmbeddingClient> embedder = m_queryEmbedder;
+            QTimer::singleShot(0, this, [embedder]() {
+                if (embedder) {
+                    embedder->cancel();
+                }
+            });
+        }
 
         if (m_stream) {
             endRoundTrace(0, m_stream->stats());
@@ -833,6 +845,10 @@ private:
     CoreDatabase &db() { return m_worker.database(); }
 
     void prepare();
+    // Context Assembly v3 with hybrid retrieval: embeds the user's message
+    // for semantic search when the Agent and Library allow it, then prepares.
+    // Any failure falls back to keyword search with a context warning.
+    void embedQueryThenPrepare();
 
     struct ToolPlan
     {
@@ -915,6 +931,12 @@ private:
     int m_truncatedToolResults = 0;
     bool m_finalRound = false; // the tool limit was reached: this round answers without tools
 
+    // Hybrid retrieval: the user's message as a unit vector (empty: keyword
+    // search only) and why semantic search was not used, when it should have been.
+    QVector<float> m_queryVector;
+    QString m_semanticWarning;
+    QPointer<Retrieval::OpenAIEmbeddingClient> m_queryEmbedder;
+
     // Provider loop
     QPointer<OpenAIResponseStream> m_stream;
     AIProvider::OpenAIConfig m_config;
@@ -973,6 +995,54 @@ void ChatRunJob::endRoundTrace(int ok, const StreamStats &stats)
         fields.insert(QStringLiteral("outputTokens"), stats.outputTokens);
     }
     LiveEvents::end(std::exchange(m_roundSpan, 0), ok, fields);
+}
+
+void ChatRunJob::embedQueryThenPrepare()
+{
+    const QVariantMap context = m_agent.value(QStringLiteral("context")).toMap();
+    const QVariantMap compiler = context.value(QStringLiteral("compiler")).toMap();
+    const QString compilerId = compiler.value(QStringLiteral("id")).toString();
+    const int compilerVersion = compiler.value(QStringLiteral("version")).toInt();
+
+    // Legacy compilers never see semantic search.
+    if (!Context::isAssembly(compilerId, compilerVersion) || m_libraryId.isEmpty()) {
+        prepare();
+        return;
+    }
+
+    const QVariantMap config = ContextCompilers::parseConfig(compilerId, compilerVersion, context.value(QStringLiteral("config")).toMap());
+    const Retrieval::HybridPolicy policy = Retrieval::HybridPolicy::fromConfig(config);
+    const QString userContent = m_userMessage.value(QStringLiteral("content")).toString();
+
+    if (!policy.semanticEnabled || userContent.trimmed().isEmpty() || !Retrieval::semanticAvailable(db(), m_libraryId)) {
+        prepare();
+        return;
+    }
+
+    const QString databasePath = m_worker.databasePath();
+    auto *embedder = new Retrieval::OpenAIEmbeddingClient(
+        m_worker.network(),
+        [databasePath]() { return AIProvider::openAIConfig(databasePath); },
+        8000,
+        this
+    );
+    m_queryEmbedder = embedder;
+    const quint64 span = LiveEvents::begin(QStringLiteral("ai"), QStringLiteral("query-embedding"), {}, m_traceRun);
+    embedder->embed({userContent}, Retrieval::currentEmbeddingConfig(), [this, embedder, span](const Retrieval::EmbeddingResult &result) {
+        LiveEvents::end(span, result.ok() ? 1 : 0, {{QStringLiteral("tokens"), result.promptTokens}});
+        embedder->deleteLater();
+        guarded([this, result]() {
+            throwIfAborted();
+
+            if (result.ok() && !result.vectors.isEmpty()) {
+                m_queryVector = result.vectors.first();
+            } else {
+                m_semanticWarning = QStringLiteral("Semantic Library search was unavailable (%1), so keyword search was used.").arg(result.message);
+            }
+
+            prepare();
+        });
+    });
 }
 
 void ChatRunJob::prepare()
@@ -1422,9 +1492,17 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
     throwIfAborted();
 
     LiveEvents::Step retrievalStep(QStringLiteral("ai"), QStringLiteral("retrieval"), {{QStringLiteral("skipped"), skipRetrieval}});
-    const ContextSources::Retrieval library = skipRetrieval
-        ? ContextSources::Retrieval()
+    // Hybrid search only when the query was embedded; otherwise exactly the
+    // keyword search v3 has always used.
+    const Retrieval::HybridPolicy hybridPolicy = Retrieval::HybridPolicy::fromConfig(config);
+    ContextSources::Retrieval library = skipRetrieval ? ContextSources::Retrieval()
+        : !m_queryVector.isEmpty()
+        ? ContextSources::hybridLibraryEvidence(db(), m_libraryId, userContent, m_queryVector, hybridPolicy, 16)
         : ContextSources::libraryEvidence(db(), m_libraryId, userContent, 16);
+
+    if (!skipRetrieval && !m_semanticWarning.isEmpty()) {
+        library.warnings.append(m_semanticWarning);
+    }
     const int recallLimit = config.value(QStringLiteral("maxEvidenceItems")).toInt() * 2;
     const ContextSources::Retrieval recall = skipRetrieval || config.value(QStringLiteral("recallTokens")).toInt() <= 0
         ? ContextSources::Retrieval()
@@ -1442,6 +1520,12 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
         QVariantMap metadata = candidate.ref.toVariant();
         metadata.insert(QStringLiteral("chunkId"), candidate.ref.sourceId);
         metadata.insert(QStringLiteral("retrievalMode"), QStringLiteral("automatic"));
+
+        if (!library.diagnostics.isEmpty()) {
+            metadata.insert(QStringLiteral("retrievalReason"), candidate.reason);
+            metadata.insert(QStringLiteral("retrievalScore"), candidate.score);
+        }
+
         retrievedSources.append(QVariantMap{
             {QStringLiteral("id"), candidate.ref.sourceId},
             {QStringLiteral("source"), QStringLiteral("library-file")},
@@ -1601,6 +1685,12 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
     m_assemblyLedger = compiled.ledger;
     m_assemblyCaps = compiled.caps;
     m_contextManifest = compiled.manifest(descriptor, roundedMs(timer));
+
+    if (!library.diagnostics.isEmpty()) {
+        // How Library retrieval ran: mode, signal counts, latency, vectors read.
+        m_contextManifest.insert(QStringLiteral("retrieval"), library.diagnostics);
+    }
+
     m_contextWarnings.clear();
 
     for (const QString &warning : compiled.warnings + attachments.warnings + library.warnings + recall.warnings) {

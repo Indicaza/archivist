@@ -19,7 +19,7 @@ keep their compiler; nothing is migrated.
 Dependency direction:
 
 ```
-ai_runtime.cpp ──► context_sources ──► ChatRepository, LibraryFiles, LibraryRetrieval, chat-message FTS
+ai_runtime.cpp ──► context_sources ──► ChatRepository, LibraryFiles, LibraryRetrieval, chat-message FTS, Retrieval (hybrid)
        │                 │
        └──────────► context_assembler ──► budget_ledger, token_estimator, context_contracts
 ```
@@ -109,6 +109,19 @@ final ledger, including tool output, is stored with the context run.
 
 Run events, Observatory steps, streaming, cancellation, tool permissions and
 edit proposals are shared with the older path.
+
+## Hybrid Library retrieval
+
+When the Chat's Library opted in to semantic indexing and the Agent's config
+does not set `semanticRetrieval: "off"`, the runtime embeds the user's
+message before `prepareAssembly` and Library evidence comes from
+`ContextSources::hybridLibraryEvidence` (FTS5 + vectors, reciprocal rank
+fusion, exact matches first) instead of `libraryEvidence`. Candidates keep the
+same kind, source type and chunk ids, so nothing below changes; `producer` is
+`library-semantic` or `library-hybrid` for vector hits, and the manifest gains
+`retrieval {mode, timings, counts, policy}`. Any embedding failure falls back
+to keyword search with a context warning. See
+`Core/Domains/Retrieval/RETRIEVAL.md`.
 
 ## Adding a retriever (semantic search, Wiki, memory)
 

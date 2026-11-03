@@ -11,6 +11,7 @@
 
 class QNetworkAccessManager;
 class QNetworkReply;
+class QNetworkRequest;
 class QTimer;
 
 // Native port of backend/src/core/ai/providers/OpenAIProvider.ts on top of
@@ -53,6 +54,16 @@ void setLocalBaseUrl(const QString &url);
 
 // "The SDK error message" for a failed HTTP response.
 [[nodiscard]] QString errorMessageFor(int status, const QByteArray &body);
+
+// The building blocks the streams use, for other OpenAI endpoints
+// (embeddings): a JSON POST/GET to `path` under the base URL with the key,
+// whether a status is worth retrying, how long to wait before attempt
+// `attempt` (honoring retry-after headers), and the message for a reply that
+// never got an HTTP status.
+[[nodiscard]] QNetworkRequest jsonRequest(const OpenAIConfig &config, const QString &path, int timeoutMs = 0);
+[[nodiscard]] bool isRetryableStatus(int status);
+[[nodiscard]] int retryDelayFor(QNetworkReply *reply, int attempt);
+[[nodiscard]] QString networkFailureFor(QNetworkReply *reply);
 }
 
 // What one streamed round cost on the wire, for the Observatory. Collected

@@ -117,6 +117,32 @@ QString networkFailureMessage(QNetworkReply *reply)
 
 namespace AIProvider
 {
+QNetworkRequest jsonRequest(const OpenAIConfig &config, const QString &path, int timeoutMs)
+{
+    QNetworkRequest request = requestFor(config, path);
+
+    if (timeoutMs > 0) {
+        request.setTransferTimeout(timeoutMs);
+    }
+
+    return request;
+}
+
+bool isRetryableStatus(int status)
+{
+    return retryableStatus(status);
+}
+
+int retryDelayFor(QNetworkReply *reply, int attempt)
+{
+    return retryDelayMs(reply, attempt);
+}
+
+QString networkFailureFor(QNetworkReply *reply)
+{
+    return networkFailureMessage(reply);
+}
+
 namespace
 {
 QString dotEnvPath(const QString &databasePath)

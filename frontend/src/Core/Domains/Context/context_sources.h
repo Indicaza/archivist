@@ -2,6 +2,7 @@
 
 #include "Core/Database/core_database.h"
 #include "context_contracts.h"
+#include "Core/Domains/Retrieval/hybrid_retrieval.h"
 
 #include <QList>
 #include <QSet>
@@ -47,10 +48,26 @@ struct Retrieval
 {
     QList<Context::SearchCandidate> candidates;
     QStringList warnings;
+    // How the retriever ran (mode, timings, counts); empty for plain FTS.
+    QVariantMap diagnostics;
 };
 
 // Library full-text search as SearchCandidates.
 [[nodiscard]] Retrieval libraryEvidence(CoreDatabase &database, const QString &libraryId, const QString &query, int limit);
+
+// Hybrid Library search (FTS5 + semantic vectors, fused; see
+// Core/Domains/Retrieval/RETRIEVAL.md) as SearchCandidates. Same kind, source
+// type and chunk ids as libraryEvidence(), so de-duplication, scope and
+// citations work unchanged; `score` is the fused score and `reason` names
+// the signals. With an empty `queryVector` it is keyword search alone.
+[[nodiscard]] Retrieval hybridLibraryEvidence(
+    CoreDatabase &database,
+    const QString &libraryId,
+    const QString &query,
+    const QVector<float> &queryVector,
+    const ::Retrieval::HybridPolicy &policy,
+    int limit
+);
 
 // Older Chat messages that share distinctive terms with the query. `chatId`
 // empty searches every Chat.

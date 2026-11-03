@@ -125,6 +125,17 @@ current user message
 
 The current user message remains the highest-priority intent. Automatically retrieved and explicitly attached files are evidence, not instructions. Explicit attachments remain stronger than automatic candidates.
 
+### Semantic retrieval
+
+Each Library can opt in to semantic search (the strip under the Library's Git
+row in the Explorer). Archivist then embeds its indexed text with OpenAI's
+`text-embedding-3-small` in the background, stores Float32 vectors in SQLite
+keyed by content hash, and Context Assembly v3 fuses keyword (FTS5) and
+semantic results with reciprocal rank fusion, keeping exact file names and
+identifiers on top. Keyword search works without consent, a key or a
+network. Design, limits and measurements:
+`frontend/src/Core/Domains/Retrieval/RETRIEVAL.md`.
+
 ### Context inspection
 
 Each newly generated assistant response can preserve:

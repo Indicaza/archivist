@@ -45,6 +45,7 @@
 #endif
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
+#include "Core/Domains/Retrieval/semantic_index_service.h"
 #include "Core/Domains/Ide/ide_server.h"
 #include "Core/Domains/Themes/code_theme_library.h"
 #include "Core/Domains/Observatory/live_events.h"
@@ -175,6 +176,17 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Semantic indexing of the Libraries that opted in, on its own thread.
+    Retrieval::SemanticIndexService semanticIndex;
+
+    {
+        LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("semantic-index"));
+        if (coreRuntime.ready() && !semanticIndex.start(coreRuntime.databasePath())) {
+            live.setOk(false);
+            qWarning().noquote() << "[Embeddings] Semantic indexing unavailable; keyword search still works.";
+        }
+    }
+
     // OpenAI key (Keychain), local model server address and model lists for
     // the Agent editor.
     AISettings aiSettings;
@@ -284,6 +296,15 @@ int main(int argc, char *argv[])
         &worktreeStore,
         &WorktreeStore::handleRunEvent
     );
+    // A finished scan or a saved file may have changed indexed chunks.
+    QObject::connect(&libraryStore, &LibraryStore::scanningChanged, &semanticIndex, [&libraryStore, &semanticIndex]() {
+        if (!libraryStore.scanning()) {
+            semanticIndex.sync(libraryStore.selectedLibraryId());
+        }
+    });
+    QObject::connect(&libraryStore, &LibraryStore::fileSaved, &semanticIndex, [&semanticIndex](const QString &libraryId) {
+        semanticIndex.sync(libraryId);
+    });
     QObject::connect(
         &worktreeStore,
         &WorktreeStore::worktreeOpened,
@@ -313,6 +334,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "IdeServer", &ideServer);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LiveRecorder", &liveRecorder);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AISettings", &aiSettings);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "SemanticIndex", &semanticIndex);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
     qmlRegisterSingletonInstance(
         "Archivist.Services",

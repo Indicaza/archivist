@@ -9,6 +9,7 @@
 #include "Core/Domains/Models/model_catalog_cache.h"
 #include "Core/Domains/Observatory/live_events.h"
 #include "Core/Domains/Observatory/live_session.h"
+#include "Core/Domains/Retrieval/embedding_index.h"
 #include "Core/Domains/Workspace/workspace_gateway.h"
 #include "Core/Support/core_values.h"
 
@@ -42,6 +43,10 @@ public:
     QStringList paths;
     QList<QByteArray> authorizations;
     QByteArray modelsReply = R"({"object":"list","data":[{"id":"gpt-5-mini","created":1,"owned_by":"openai"}]})";
+    // POST /v1/embeddings: each request body, and the status to answer with
+    // (200 answers with one unit vector per input along the first axis).
+    QList<QJsonObject> embeddingRequests;
+    int embeddingStatus = 200;
     QTcpServer server;
 
     FakeOpenAI()
@@ -111,6 +116,25 @@ private:
         if (head.startsWith("GET")) {
             contentType = "application/json";
             reply = modelsReply;
+        } else if (paths.last().endsWith(QStringLiteral("/embeddings"))) {
+            const QJsonObject request = QJsonDocument::fromJson(body).object();
+            embeddingRequests.append(request);
+            QJsonArray data;
+            const int dimensions = request.value(QStringLiteral("dimensions")).toInt();
+            for (int index = 0; index < request.value(QStringLiteral("input")).toArray().size(); ++index) {
+                QJsonArray vector;
+                for (int position = 0; position < dimensions; ++position) {
+                    vector.append(position == 0 ? 1.0 : 0.0);
+                }
+                data.append(QJsonObject{{QStringLiteral("index"), index}, {QStringLiteral("embedding"), vector}});
+            }
+            const QByteArray json = embeddingStatus == 200
+                ? QJsonDocument(QJsonObject{{QStringLiteral("data"), data}, {QStringLiteral("usage"), QJsonObject{{QStringLiteral("prompt_tokens"), 5}}}}).toJson(QJsonDocument::Compact)
+                : QByteArray(R"({"error":{"message":"embeddings unavailable"}})");
+            socket->write("HTTP/1.1 " + QByteArray::number(embeddingStatus) + " X\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(json.size()) + "\r\nConnection: close\r\n\r\n" + json);
+            socket->disconnectFromHost();
+            return;
         } else {
             requests.append(QJsonDocument::fromJson(body).object());
             const int status = statuses.isEmpty() ? 200 : statuses.takeFirst();
@@ -1127,6 +1151,131 @@ private slots:
         const QVariantList sources = contextRun.value(QStringLiteral("sources")).toList();
         QCOMPARE(sources.size(), 1);
         QCOMPARE(sources.first().toMap().value(QStringLiteral("status")).toString(), QStringLiteral("included"));
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // Hybrid retrieval: the Chat's Library opted in and its chunk already has
+    // a vector along the axis the fake embeddings endpoint answers with.
+    void indexLibrarySemantically()
+    {
+        CoreDatabase database;
+        database.open(m_databasePath);
+        const QString libraryId = ChatRepository::chatById(database, m_chatId)->value(QStringLiteral("libraryId")).toString();
+        const Retrieval::EmbeddingConfig config = Retrieval::currentEmbeddingConfig();
+        EmbeddingIndex::setLibraryEnabled(database, libraryId, true);
+        for (const QVariantMap &chunk : database.prepare(QStringLiteral(
+                 "SELECT id, content_hash AS hash, library_file_id AS fileId FROM library_chunks WHERE library_id = ?"
+             )).bind(1, libraryId).all()) {
+            QVector<float> vector(config.dimensions, 0.0f);
+            vector[0] = 1.0f;
+            EmbeddingIndex::storeVector(database, chunk.value(QStringLiteral("hash")).toString(), config, vector, 0);
+            EmbeddingIndex::SourceText source;
+            source.sourceType = Retrieval::SourceType::libraryChunk;
+            source.sourceId = chunk.value(QStringLiteral("id")).toString();
+            source.scopeType = Retrieval::ScopeType::library;
+            source.scopeId = libraryId;
+            source.contentHash = chunk.value(QStringLiteral("hash")).toString();
+            source.parentId = chunk.value(QStringLiteral("fileId")).toString();
+            EmbeddingIndex::upsertSource(database, source);
+        }
+    }
+
+private slots:
+    // v3 + an opted-in Library: the question is embedded and a chunk that
+    // shares no keyword with it reaches the model, cited as usual.
+    void contextAssemblyUsesHybridRetrievalWhenTheLibraryOptedIn()
+    {
+        useContextAssembly();
+        indexLibrarySemantically();
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(textTurn(QStringLiteral("resp_hybrid"), QStringLiteral("Green.")));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        // No keyword in common with "The harbour lights are green."
+        const QString question = QStringLiteral("Describe the maritime beacons");
+        const Turn turn = runTurn(runtime, question);
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        QCOMPARE(openai.embeddingRequests.size(), 1);
+        QCOMPARE(openai.embeddingRequests.first().value(QStringLiteral("model")).toString(), QStringLiteral("text-embedding-3-small"));
+        QCOMPARE(openai.embeddingRequests.first().value(QStringLiteral("input")).toArray().first().toString(), question);
+
+        const QJsonArray input = openai.requests.first().value(QStringLiteral("input")).toArray();
+        const QString reference = input.at(input.size() - 2).toObject().value(QStringLiteral("content")).toString();
+        QVERIFY2(reference.contains(QStringLiteral("The harbour lights are green.")), qPrintable(reference.left(300)));
+        QVERIFY(reference.contains(QStringLiteral("path=\"notes.txt\"")));
+
+        const QVariantMap contextRun = contextRunFor(question);
+        const QVariantMap manifest = contextRun.value(QStringLiteral("manifest")).toMap();
+        const QVariantMap retrieval = manifest.value(QStringLiteral("retrieval")).toMap();
+        QCOMPARE(retrieval.value(QStringLiteral("mode")).toString(), QStringLiteral("hybrid"));
+        QCOMPARE(retrieval.value(QStringLiteral("semanticCandidates")).toInt(), 1);
+        QCOMPARE(manifest.value(QStringLiteral("includedSources")).toList().size(), 1);
+        bool semanticItem = false;
+        for (const QVariant &item : manifest.value(QStringLiteral("assembly")).toMap().value(QStringLiteral("items")).toList()) {
+            const QVariantMap ref = item.toMap().value(QStringLiteral("ref")).toMap();
+            semanticItem = semanticItem || ref.value(QStringLiteral("producer")).toString() == QStringLiteral("library-semantic");
+        }
+        QVERIFY(semanticItem);
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // The embeddings endpoint failing never fails the turn: keyword search
+    // is used and the Context Inspector says why.
+    void hybridRetrievalFallsBackToKeywordSearch()
+    {
+        useContextAssembly();
+        indexLibrarySemantically();
+        FakeOpenAI openai;
+        openai.embeddingStatus = 500;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(textTurn(QStringLiteral("resp_fallback"), QStringLiteral("Green.")));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        const QString question = QStringLiteral("What colour are the harbour lights?");
+        const Turn turn = runTurn(runtime, question);
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        QCOMPARE(openai.embeddingRequests.size(), 1);
+        const QVariantMap contextRun = contextRunFor(question);
+        const QVariantMap manifest = contextRun.value(QStringLiteral("manifest")).toMap();
+        QVERIFY(!manifest.contains(QStringLiteral("retrieval"))); // plain FTS
+        QCOMPARE(manifest.value(QStringLiteral("includedSources")).toList().size(), 1);
+        bool warned = false;
+        for (const QVariant &warning : contextRun.value(QStringLiteral("warnings")).toList()) {
+            warned = warned || warning.toString().startsWith(QStringLiteral("Semantic Library search was unavailable"));
+        }
+        QVERIFY(warned);
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // Saved compilers, and v3 with semantic retrieval off, never embed.
+    void legacyCompilersAndSemanticOffNeverEmbed()
+    {
+        indexLibrarySemantically();
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(textTurn(QStringLiteral("resp_legacy_semantic"), QStringLiteral("Green.")));
+        openai.responses.append(textTurn(QStringLiteral("resp_off"), QStringLiteral("Green.")));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        const Turn legacy = runTurn(runtime, QStringLiteral("What colour are the harbour lights?"));
+        QVERIFY(legacy.events.contains(QStringLiteral("run.completed")));
+        QCOMPARE(openai.embeddingRequests.size(), 0);
+        QVERIFY(inputRoles(openai.requests.first()).contains(QStringLiteral("system")));
+
+        useContextAssembly({{QStringLiteral("semanticRetrieval"), QStringLiteral("off")}});
+        const Turn off = runTurn(runtime, QStringLiteral("And the harbour lights again?"));
+        QVERIFY(off.events.contains(QStringLiteral("run.completed")));
+        QCOMPARE(openai.embeddingRequests.size(), 0);
         qunsetenv("OPENAI_BASE_URL");
         qunsetenv("OPENAI_API_KEY");
     }
