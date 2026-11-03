@@ -22,6 +22,7 @@ struct EnumField
 {
     QString key;
     QStringList options;
+    bool hasDefault = false;
 };
 
 enum class Refinement
@@ -90,6 +91,29 @@ const QList<CompilerSchema> &schemas()
          },
          {searchScope},
          {Refinement::AutoBalancedBudgets}},
+        // Context Assembly v3 (Core/Domains/Context). Every field but the two
+        // budgets is optional; ContextCompilers::parseConfig fills defaults.
+        {QStringLiteral("context-assembly"),
+         3,
+         {
+             totalTokens,
+             reserve,
+             {QStringLiteral("toolResultTokens"), 500, 100000, true},
+             {QStringLiteral("historyTokens"), 0, 200000, true},
+             {QStringLiteral("attachmentTokens"), 0, 200000, true},
+             {QStringLiteral("perFileAttachmentTokens"), 256, 100000, true},
+             {QStringLiteral("libraryEvidenceTokens"), 0, 200000, true},
+             {QStringLiteral("recallTokens"), 0, 200000, true},
+             {QStringLiteral("maxEvidenceItems"), 1, 50, true},
+             {QStringLiteral("maxExcerptsPerFile"), 1, 20, true},
+             {QStringLiteral("historyFloorMessages"), 0, 20, true},
+             {QStringLiteral("attachmentPriority"), 0, 100, true},
+             {QStringLiteral("libraryEvidencePriority"), 0, 100, true},
+             {QStringLiteral("historyPriority"), 0, 100, true},
+             {QStringLiteral("recallPriority"), 0, 100, true},
+         },
+         {{QStringLiteral("recallScope"), {QStringLiteral("current-chat"), QStringLiteral("all-chats")}, true}},
+         {Refinement::ReserveBelowTotal}},
     };
 
     return list;
@@ -192,6 +216,10 @@ void validateConfig(const QString &id, int version, const QVariantMap &config)
 
     for (const EnumField &field : schema->enums) {
         const QVariant value = config.value(field.key);
+
+        if (!value.isValid() && field.hasDefault) {
+            continue;
+        }
 
         if (!AgentSchemas::isString(value) || !field.options.contains(value.toString())) {
             QStringList quoted;

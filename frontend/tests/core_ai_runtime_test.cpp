@@ -1,6 +1,7 @@
 #include "Core/Database/core_database.h"
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
+#include "Core/Domains/Agents/agent_defaults.h"
 #include "Core/Domains/Agents/agent_repository.h"
 #include "Core/Domains/Chats/chat_repository.h"
 #include "Core/Domains/Libraries/library_files.h"
@@ -1007,6 +1008,220 @@ private slots:
         } else {
             QVERIFY2(started.errorMessage.contains(QStringLiteral("OPENAI_API_KEY")), qPrintable(started.errorMessage));
         }
+    }
+
+private:
+    // Context Assembly v3 is chosen per Agent, never by migration.
+    void useContextAssembly(const QVariantMap &extra = {})
+    {
+        CoreDatabase database;
+        database.open(m_databasePath);
+        QVariantMap config{{QStringLiteral("totalTokens"), 32000}, {QStringLiteral("responseTokenReserve"), 4000}};
+        config.insert(extra);
+        AgentRepository::updateAgent(database, AgentDefaults::defaultAgentId, {
+            {QStringLiteral("context"), QVariantMap{
+                {QStringLiteral("compiler"), QVariantMap{{QStringLiteral("id"), QStringLiteral("context-assembly")}, {QStringLiteral("version"), 3}}},
+                {QStringLiteral("config"), config},
+            }},
+        });
+    }
+
+    QVariantMap contextRunFor(const QString &userContent)
+    {
+        CoreDatabase database;
+        database.open(m_databasePath);
+        const QVariantList messages = ChatRepository::messages(database, m_chatId);
+        for (qsizetype index = 0; index + 1 < messages.size(); ++index) {
+            if (messages.at(index).toMap().value(QStringLiteral("content")).toString() == userContent) {
+                return ChatRepository::contextRun(database, m_chatId, messages.at(index + 1).toMap().value(QStringLiteral("id")).toString());
+            }
+        }
+        return {};
+    }
+
+    static QStringList inputRoles(const QJsonObject &request)
+    {
+        QStringList roles;
+        for (const QJsonValue &value : request.value(QStringLiteral("input")).toArray()) {
+            roles.append(value.toObject().value(QStringLiteral("role")).toString());
+        }
+        return roles;
+    }
+
+private slots:
+    // Saved Agents keep the compiler they have, and its message shape.
+    void savedCompilersKeepTheirShape()
+    {
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(textTurn(QStringLiteral("resp_legacy"), QStringLiteral("Green.")));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        const QString question = QStringLiteral("What colour are the harbour lights?");
+        const Turn turn = runTurn(runtime, question);
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        QVERIFY(!turn.payloads.value(QStringLiteral("context.completed")).contains(QStringLiteral("assemblyVersion")));
+        const QVariantMap contextRun = contextRunFor(question);
+        const QVariantMap manifest = contextRun.value(QStringLiteral("manifest")).toMap();
+        QCOMPARE(manifest.value(QStringLiteral("compiler")).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("recent-history"));
+        QVERIFY(!manifest.contains(QStringLiteral("assembly")));
+        // The older pipeline still sends Library evidence as a system message.
+        QVERIFY(inputRoles(openai.requests.first()).contains(QStringLiteral("system")));
+        QCOMPARE(inputRoles(openai.requests.first()).last(), QStringLiteral("user"));
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // v3: evidence reaches the model as quoted user-role data before the
+    // question, the ledger covers the whole request, and the Context
+    // Inspector gets its usual fields plus the assembly record.
+    void contextAssemblySendsEvidenceAsQuotedData()
+    {
+        useContextAssembly();
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(FakeOpenAI::sse({created(QStringLiteral("resp_v3")), delta(QStringLiteral("They are ")), delta(QStringLiteral("green.")), completed(QStringLiteral("resp_v3"))}));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        const QString question = QStringLiteral("What colour are the harbour lights?");
+        const Turn turn = runTurn(runtime, question);
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        QCOMPARE(turn.streamed, QStringLiteral("They are green."));
+        QCOMPARE(turn.payloads.value(QStringLiteral("context.completed")).value(QStringLiteral("assemblyVersion")).toInt(), 3);
+
+        QCOMPARE(openai.requests.size(), 1);
+        const QJsonObject request = openai.requests.first();
+        const QJsonArray input = request.value(QStringLiteral("input")).toArray();
+        QVERIFY(!inputRoles(request).contains(QStringLiteral("system")));
+        QVERIFY(!inputRoles(request).contains(QStringLiteral("developer")));
+        QCOMPARE(input.last().toObject().value(QStringLiteral("content")).toString(), question);
+        const QString reference = input.at(input.size() - 2).toObject().value(QStringLiteral("content")).toString();
+        QCOMPARE(input.at(input.size() - 2).toObject().value(QStringLiteral("role")).toString(), QStringLiteral("user"));
+        QVERIFY2(reference.startsWith(QStringLiteral("<archivist-reference-material>")), qPrintable(reference.left(200)));
+        QVERIFY(reference.contains(QStringLiteral("The harbour lights are green.")));
+        QVERIFY(reference.contains(QStringLiteral("path=\"notes.txt\"")));
+        QVERIFY(request.value(QStringLiteral("instructions")).toString().contains(QStringLiteral("<archivist-reference-material>")));
+
+        const QVariantMap contextRun = contextRunFor(question);
+        const QVariantMap manifest = contextRun.value(QStringLiteral("manifest")).toMap();
+        QCOMPARE(manifest.value(QStringLiteral("compiler")).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("context-assembly"));
+        QCOMPARE(manifest.value(QStringLiteral("includedSources")).toList().size(), 1);
+        const QVariantMap ledger = manifest.value(QStringLiteral("assembly")).toMap().value(QStringLiteral("ledger")).toMap();
+        QCOMPARE(ledger.value(QStringLiteral("used")).toInt(), manifest.value(QStringLiteral("estimatedInputTokens")).toInt());
+        QVERIFY(!ledger.value(QStringLiteral("overBudget")).toBool());
+        QStringList kinds;
+        for (const QVariant &line : ledger.value(QStringLiteral("lines")).toList()) {
+            if (line.toMap().value(QStringLiteral("tokens")).toInt() > 0) {
+                kinds.append(line.toMap().value(QStringLiteral("kind")).toString());
+            }
+        }
+        QVERIFY2(kinds.contains(QStringLiteral("instructions")) && kinds.contains(QStringLiteral("library-evidence"))
+                     && kinds.contains(QStringLiteral("current-request")),
+                 qPrintable(kinds.join(QLatin1Char(','))));
+        // Tools offered this turn are charged too.
+        QCOMPARE(kinds.contains(QStringLiteral("tool-definitions")), !request.value(QStringLiteral("tools")).toArray().isEmpty());
+        const QVariantList sources = contextRun.value(QStringLiteral("sources")).toList();
+        QCOMPARE(sources.size(), 1);
+        QCOMPARE(sources.first().toMap().value(QStringLiteral("status")).toString(), QStringLiteral("included"));
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // v3: a tool result larger than the tool-result reserve is cut to a
+    // valid JSON notice instead of being sent over budget.
+    void contextAssemblyKeepsToolResultsInBudget()
+    {
+        useContextAssembly({{QStringLiteral("toolResultTokens"), 500}});
+        {
+            CoreDatabase database;
+            database.open(m_databasePath);
+            const QVariantMap chat = ChatRepository::chatById(database, m_chatId).value();
+            const QString libraryId = chat.value(QStringLiteral("libraryId")).toString();
+            const QString root = LibraryRepository::libraryById(database, libraryId)->value(QStringLiteral("rootPath")).toString();
+            for (int index = 0; index < 120; ++index) {
+                QFile file(QDir(root).filePath(QStringLiteral("a-rather-long-file-name-for-budget-testing-%1.txt").arg(index, 3, 10, QLatin1Char('0'))));
+                QVERIFY(file.open(QIODevice::WriteOnly));
+                file.write("x\n");
+            }
+            LibraryFiles::scan(database, libraryId);
+        }
+
+        FakeOpenAI openai;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        openai.responses.append(toolTurn(QStringLiteral("resp_t1"), QStringLiteral("list_directory"), QStringLiteral(R"({"path":"","limit":200})")));
+        openai.responses.append(textTurn(QStringLiteral("resp_t2"), QStringLiteral("Lots of files.")));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        const QString question = QStringLiteral("Test the library tools: list the directory.");
+        const Turn turn = runTurn(runtime, question);
+        QVERIFY2(turn.events.contains(QStringLiteral("run.completed")), qPrintable(turn.events.join(QLatin1Char(','))));
+        QCOMPARE(openai.requests.size(), 2);
+        const QJsonObject output = openai.requests.at(1).value(QStringLiteral("input")).toArray().first().toObject();
+        QCOMPARE(output.value(QStringLiteral("type")).toString(), QStringLiteral("function_call_output"));
+        const QString sent = output.value(QStringLiteral("output")).toString();
+        const QJsonObject wrapper = QJsonDocument::fromJson(sent.toUtf8()).object();
+        QVERIFY2(wrapper.value(QStringLiteral("truncated")).toBool(), qPrintable(sent.left(200)));
+        QVERIFY(sent.size() <= 500 * 4);
+
+        const QVariantMap assembly = contextRunFor(question).value(QStringLiteral("manifest")).toMap().value(QStringLiteral("assembly")).toMap();
+        QCOMPARE(assembly.value(QStringLiteral("truncatedToolResults")).toInt(), 1);
+        const QVariantMap reserve = assembly.value(QStringLiteral("ledger")).toMap().value(QStringLiteral("reserves")).toMap().value(QStringLiteral("tool-results")).toMap();
+        QCOMPARE(reserve.value(QStringLiteral("tokens")).toInt(), 500);
+        QCOMPARE(reserve.value(QStringLiteral("drawn")).toInt(), 500);
+        QVERIFY(contextRunFor(question).value(QStringLiteral("warnings")).toList().size() >= 1);
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
+    }
+
+    // v3 keeps streaming and cancellation: a run cancelled mid-stream keeps
+    // what streamed so far and settles as cancelled.
+    void contextAssemblyStreamsAndCancels()
+    {
+        useContextAssembly();
+        FakeOpenAI openai;
+        openai.gapMs = 150;
+        qputenv("OPENAI_API_KEY", "test-key");
+        qputenv("OPENAI_BASE_URL", openai.baseUrl().toUtf8());
+        QList<QJsonObject> events{created(QStringLiteral("resp_slow"))};
+        for (int index = 0; index < 20; ++index) {
+            events.append(delta(QStringLiteral("word%1 ").arg(index)));
+        }
+        events.append(completed(QStringLiteral("resp_slow")));
+        openai.responses.append(FakeOpenAI::sse(events));
+        AIRuntime runtime;
+        QVERIFY(runtime.start(m_databasePath));
+
+        QStringList seen;
+        connect(&runtime, &AIRuntime::runEvent, this, [&](const QVariantMap &value) {
+            seen.append(value.value(QStringLiteral("eventType")).toString());
+        });
+        const CoreResult started = call([&](AIRuntime::Callback done) {
+            runtime.startChatRun(m_chatId, QStringLiteral("Tell me a long story about the harbour."), this, done);
+        });
+        QVERIFY2(started.ok, qPrintable(started.errorMessage));
+        const QString runId = started.value.toMap().value(QStringLiteral("run")).toMap().value(QStringLiteral("id")).toString();
+        QTRY_VERIFY_WITH_TIMEOUT(seen.contains(QStringLiteral("model.delta")), 10000);
+        QVERIFY(seen.contains(QStringLiteral("context.completed")));
+
+        const CoreResult cancelled = call([&](AIRuntime::Callback done) { runtime.cancelRun(runId, this, done); });
+        QVERIFY2(cancelled.ok, qPrintable(cancelled.errorMessage));
+        QCOMPARE(cancelled.value.toMap().value(QStringLiteral("status")).toString(), QStringLiteral("cancelled"));
+        QTRY_VERIFY_WITH_TIMEOUT(seen.contains(QStringLiteral("run.cancelled")), 10000);
+        QVERIFY(!seen.contains(QStringLiteral("run.completed")));
+
+        CoreDatabase database;
+        database.open(m_databasePath);
+        const QVariantMap assistant = ChatRepository::messages(database, m_chatId).last().toMap();
+        QCOMPARE(assistant.value(QStringLiteral("status")).toString(), QStringLiteral("cancelled"));
+        QVERIFY(assistant.value(QStringLiteral("content")).toString().startsWith(QStringLiteral("word0")));
+        qunsetenv("OPENAI_BASE_URL");
+        qunsetenv("OPENAI_API_KEY");
     }
 
 private:
