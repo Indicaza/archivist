@@ -985,8 +985,8 @@ async function main() {
   });
 
   assert(
-    schemaVersion === 21,
-    `Expected schema version 21, found ${schemaVersion}.`,
+    schemaVersion === 22,
+    `Expected schema version 22, found ${schemaVersion}.`,
   );
 
   console.log("AI edit transaction smoke test: PASS");

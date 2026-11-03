@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Archivist.Services 1.0
 import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
+import "SemanticIndexStrip"
 import "WorkspaceNavigator"
 import "WorktreeBar"
 import "../../Dock"
@@ -2853,6 +2854,13 @@ Rectangle {
                             onClicked: LibraryStore.refreshSelectedGitStatus()
                         }
                     }
+                }
+
+                SemanticIndexStrip {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    theme: root.theme
+                    libraryId: LibraryStore.selectedLibraryId
                 }
 
                 Rectangle {

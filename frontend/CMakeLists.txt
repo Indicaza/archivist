@@ -52,6 +52,21 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Context/context_sources.cpp
     src/Core/Domains/Context/context_sources.h
     src/Core/Domains/Context/token_estimator.h
+    src/Core/Domains/Retrieval/embedding_client.cpp
+    src/Core/Domains/Retrieval/embedding_client.h
+    src/Core/Domains/Retrieval/embedding_config.h
+    src/Core/Domains/Retrieval/embedding_index.cpp
+    src/Core/Domains/Retrieval/embedding_index.h
+    src/Core/Domains/Retrieval/embedding_indexer.cpp
+    src/Core/Domains/Retrieval/embedding_indexer.h
+    src/Core/Domains/Retrieval/hybrid_retrieval.cpp
+    src/Core/Domains/Retrieval/hybrid_retrieval.h
+    src/Core/Domains/Retrieval/semantic_index_service.cpp
+    src/Core/Domains/Retrieval/semantic_index_service.h
+    src/Core/Domains/Retrieval/vector_codec.cpp
+    src/Core/Domains/Retrieval/vector_codec.h
+    src/Core/Domains/Retrieval/vector_store.cpp
+    src/Core/Domains/Retrieval/vector_store.h
     src/Core/Domains/Composer/composer_state.cpp
     src/Core/Domains/Composer/composer_state.h
     src/Core/Domains/Chats/chat_drafts.cpp
@@ -348,6 +363,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerDock.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceDragSession.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/SemanticIndexStrip/SemanticIndexStrip.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeBar.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeRow.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeField.qml
@@ -632,6 +648,11 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-context-assembly-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-context-assembly-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-context-assembly-test COMMAND core-context-assembly-test)
+
+    qt_add_executable(core-retrieval-test tests/core_retrieval_test.cpp)
+    target_link_libraries(core-retrieval-test PRIVATE archivist-core Qt6::Network Qt6::Test)
+    set_target_properties(core-retrieval-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-retrieval-test COMMAND core-retrieval-test)
 
     qt_add_executable(core-ai-tool-contracts-test tests/core_ai_tool_contracts_test.cpp)
     target_link_libraries(core-ai-tool-contracts-test PRIVATE archivist-core Qt6::Test)

@@ -698,7 +698,7 @@ async function main() {
     simple: true,
   });
 
-  assert(schemaVersion === 21, `Expected schema version 21, found ${schemaVersion}.`);
+  assert(schemaVersion === 22, `Expected schema version 22, found ${schemaVersion}.`);
 
   console.log("AI edit proposal smoke test: PASS");
   console.log("  durable proposal and operation persistence");

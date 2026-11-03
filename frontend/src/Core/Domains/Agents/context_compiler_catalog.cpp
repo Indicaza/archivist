@@ -111,8 +111,15 @@ const QList<CompilerSchema> &schemas()
              {QStringLiteral("libraryEvidencePriority"), 0, 100, true},
              {QStringLiteral("historyPriority"), 0, 100, true},
              {QStringLiteral("recallPriority"), 0, 100, true},
+             // Hybrid retrieval (Core/Domains/Retrieval/RETRIEVAL.md), in percent.
+             {QStringLiteral("lexicalWeight"), 0, 100, true},
+             {QStringLiteral("semanticWeight"), 0, 100, true},
+             {QStringLiteral("semanticMinSimilarity"), 0, 100, true},
          },
-         {{QStringLiteral("recallScope"), {QStringLiteral("current-chat"), QStringLiteral("all-chats")}, true}},
+         {
+             {QStringLiteral("recallScope"), {QStringLiteral("current-chat"), QStringLiteral("all-chats")}, true},
+             {QStringLiteral("semanticRetrieval"), {QStringLiteral("auto"), QStringLiteral("off")}, true},
+         },
          {Refinement::ReserveBelowTotal}},
     };
 
