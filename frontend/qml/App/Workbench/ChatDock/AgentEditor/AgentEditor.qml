@@ -9,6 +9,10 @@ Popup {
     required property var theme
     property bool editing: false
     property var editingAgent: ({})
+    // Context Assembly v3 is opt-in per Agent; saved compilers stay as they are.
+    readonly property string assemblyCompilerId: "context-assembly"
+    readonly property int assemblyCompilerVersion: 3
+    property bool originalAssembly: false
     property bool confirmingArchive: false
     property bool confirmingDelete: false
 
@@ -317,6 +321,53 @@ Popup {
         }
     }
 
+    function savedCompiler() {
+        var context = editingAgent.context || ({})
+        return context.compiler || ({})
+    }
+
+    function isAssembly(compiler) {
+        return String(compiler.id || "") === assemblyCompilerId
+            && Number(compiler.version || 0) === assemblyCompilerVersion
+    }
+
+    function classicCompilerLabel() {
+        var compiler = savedCompiler()
+
+        if (!editing || isAssembly(compiler) || String(compiler.id || "").length === 0) {
+            return "Classic (Recent History v1)"
+        }
+
+        return "Classic (" + String(compiler.id) + " v" + String(compiler.version || 1) + ")"
+    }
+
+    function loadContext() {
+        originalAssembly = editing && isAssembly(savedCompiler())
+        contextVersionField.currentIndex = originalAssembly ? 1 : 0
+    }
+
+    // Only sent when the choice changed, so an Agent's saved compiler and
+    // its settings are never rewritten by an ordinary edit.
+    function contextPayload() {
+        var saved = (editingAgent.context || ({})).config || ({})
+        var config = {
+            totalTokens: Number(saved.totalTokens || 32000),
+            responseTokenReserve: Number(saved.responseTokenReserve || 4000)
+        }
+
+        if (contextVersionField.currentIndex === 1) {
+            return {
+                compiler: { id: assemblyCompilerId, version: assemblyCompilerVersion },
+                config: config
+            }
+        }
+
+        return {
+            compiler: { id: "recent-history", version: 1 },
+            config: config
+        }
+    }
+
     function loadGeneration(generation) {
         var value = generation || ({})
         generationProvider = stringValue(value.provider) || "openai"
@@ -369,6 +420,7 @@ Popup {
         resetConfirmations()
         resetFields()
         loadGeneration(null)
+        loadContext()
         nameField.text = "New Agent"
         open()
         Qt.callLater(function() {
@@ -413,6 +465,7 @@ Popup {
         followUpField.text = stringValue(output.followUpBehavior)
         systemInstructionsField.text = stringValue(editingAgent.systemInstructions)
         loadGeneration(editingAgent.generation)
+        loadContext()
 
         open()
     }
@@ -511,6 +564,10 @@ Popup {
 
         input.generation = generationPayload()
 
+        if (contextVersionField.currentIndex === 1) {
+            input.context = contextPayload()
+        }
+
         return input
     }
 
@@ -546,6 +603,10 @@ Popup {
 
         if (generationProvider !== originalProvider || generationModel !== originalModel) {
             input.generation = generationPayload()
+        }
+
+        if ((contextVersionField.currentIndex === 1) !== originalAssembly) {
+            input.context = contextPayload()
         }
 
         return input
@@ -1472,13 +1533,54 @@ Popup {
                             enabled: editorRoot.formEnabled
                         }
 
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Text {
+                                text: "Context"
+                                color: editorRoot.theme.mutedText
+                                font.pixelSize: editorRoot.theme.typeCaption
+                                font.weight: Font.DemiBold
+                            }
+
+                            ComboBox {
+                                id: contextVersionField
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 34
+                                enabled: editorRoot.formEnabled
+                                model: [editorRoot.classicCompilerLabel(), "Context Assembly v3"]
+                                currentIndex: 0
+
+                                contentItem: Text {
+                                    leftPadding: 10
+                                    text: parent.displayText
+                                    color: editorRoot.theme.appText
+                                    font.pixelSize: editorRoot.theme.typeLabel
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    color: editorRoot.theme.controlSurfaceBg
+                                    border.width: 1
+                                    border.color: parent.activeFocus
+                                        ? "#5a4d8c"
+                                        : editorRoot.theme.quietBorder
+                                    radius: 4
+                                }
+                            }
+                        }
+
                         Text {
                             Layout.fillWidth: true
                             text: editorRoot.archived
                                 ? "Archived Agent profiles are read-only until restored."
-                                : editorRoot.editing
-                                    ? "Context Compiler settings are preserved unchanged."
-                                    : "New Agents use the default Context Compiler settings."
+                                : contextVersionField.currentIndex === 1
+                                    ? "Context Assembly v3 budgets the whole request and sends files and excerpts as quoted reference material."
+                                    : editorRoot.editing
+                                        ? "Context Compiler settings are preserved unchanged."
+                                        : "New Agents use the default Context Compiler settings."
                             color: editorRoot.theme.mutedText
                             font.pixelSize: editorRoot.theme.typeSize(9)
                             wrapMode: Text.Wrap

@@ -18,6 +18,32 @@ Item {
     readonly property var manifest: contextRun.manifest || ({})
     readonly property var warnings: contextRun.warnings || []
     readonly property var sources: contextRun.sources || []
+    // Context Assembly v3 runs carry their budget ledger; older runs do not.
+    readonly property var ledger: (manifest.assembly || ({})).ledger || ({})
+    readonly property var ledgerLines: ledger.lines || []
+
+    function ledgerKindLabel(kind) {
+        switch (String(kind || "")) {
+        case "instructions":
+            return "Instructions"
+        case "tool-definitions":
+            return "Tool definitions"
+        case "current-request":
+            return "Current message"
+        case "conversation-history":
+            return "Conversation"
+        case "conversation-recall":
+            return "Recalled messages"
+        case "attachment":
+            return "Attached files"
+        case "library-evidence":
+            return "Library excerpts"
+        case "tool-result":
+            return "Tool results"
+        default:
+            return String(kind || "")
+        }
+    }
     readonly property bool hasContext: String(contextRun.id || "").length > 0
 
     function statusLabel(status) {
@@ -342,6 +368,34 @@ Item {
                                 + " ms compile"
                             color: root.theme.mutedText
                             font.pixelSize: root.theme.typeSize(9)
+                            wrapMode: Text.Wrap
+                        }
+
+                        Repeater {
+                            model: root.ledgerLines
+
+                            delegate: Text {
+                                required property var modelData
+
+                                width: budgetColumn.width
+                                visible: Number(modelData.tokens || 0) > 0 || Number(modelData.items || 0) > 0
+                                text: root.ledgerKindLabel(modelData.kind)
+                                    + "  ·  " + String(modelData.tokens || 0) + " tokens"
+                                    + (modelData.cap === null || modelData.cap === undefined
+                                        ? ""
+                                        : " of " + String(modelData.cap))
+                                color: root.theme.mutedText
+                                font.pixelSize: root.theme.typeCaption
+                                wrapMode: Text.Wrap
+                            }
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: root.ledger.overBudget === true
+                            text: "Required context alone exceeded the input budget."
+                            color: root.theme.warning
+                            font.pixelSize: root.theme.typeCaption
                             wrapMode: Text.Wrap
                         }
                     }

@@ -57,6 +57,11 @@ struct Compiled
     const QVariantMap &config
 );
 
+// The distinctive terms auto-balanced v2 searches for: quoted phrases first,
+// then words of at least `minimumLength` characters that are not stop words.
+// At most 24.
+[[nodiscard]] QStringList distinctiveSearchTerms(const QString &content, int minimumLength);
+
 // ChatMessageFtsTool.search: {tool, query, candidates, searchedAt, durationMs, warnings}.
 // Candidates: {id, source, content, estimatedTokens, score, reason, metadata}.
 [[nodiscard]] QVariantMap searchChatMessages(CoreDatabase &database, const QString &query, const QString &chatId, int limit);

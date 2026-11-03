@@ -43,6 +43,15 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Agents/agent_schemas.h
     src/Core/Domains/Agents/context_compiler_catalog.cpp
     src/Core/Domains/Agents/context_compiler_catalog.h
+    src/Core/Domains/Context/budget_ledger.cpp
+    src/Core/Domains/Context/budget_ledger.h
+    src/Core/Domains/Context/context_assembler.cpp
+    src/Core/Domains/Context/context_assembler.h
+    src/Core/Domains/Context/context_contracts.cpp
+    src/Core/Domains/Context/context_contracts.h
+    src/Core/Domains/Context/context_sources.cpp
+    src/Core/Domains/Context/context_sources.h
+    src/Core/Domains/Context/token_estimator.h
     src/Core/Domains/Composer/composer_state.cpp
     src/Core/Domains/Composer/composer_state.h
     src/Core/Domains/Chats/chat_drafts.cpp
@@ -618,6 +627,11 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-ai-test PRIVATE archivist-core Qt6::Test)
     set_target_properties(core-ai-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-ai-test COMMAND core-ai-test)
+
+    qt_add_executable(core-context-assembly-test tests/core_context_assembly_test.cpp)
+    target_link_libraries(core-context-assembly-test PRIVATE archivist-core Qt6::Test)
+    set_target_properties(core-context-assembly-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-context-assembly-test COMMAND core-context-assembly-test)
 
     qt_add_executable(core-ai-tool-contracts-test tests/core_ai_tool_contracts_test.cpp)
     target_link_libraries(core-ai-tool-contracts-test PRIVATE archivist-core Qt6::Test)

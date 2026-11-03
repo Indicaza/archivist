@@ -929,6 +929,7 @@ QVariantMap descriptor(const QString &id, int version)
         {QStringLiteral("keyword-recency:1"), QStringLiteral("Keyword Recency")},
         {QStringLiteral("auto-balanced:1"), QStringLiteral("Auto Balanced")},
         {QStringLiteral("auto-balanced:2"), QStringLiteral("Auto Balanced")},
+        {QStringLiteral("context-assembly:3"), QStringLiteral("Context Assembly")},
     };
     const QString key = QStringLiteral("%1:%2").arg(id).arg(version);
 
@@ -958,6 +959,32 @@ QVariantMap parseConfig(const QString &id, int version, const QVariantMap &confi
         }
     }
 
+    if (id == QStringLiteral("context-assembly") && version == 3) {
+        // historyTokens stays absent when unset: history may then use
+        // whatever the total budget leaves.
+        static const QList<QPair<QString, QVariant>> defaults{
+            {QStringLiteral("toolResultTokens"), 6000},
+            {QStringLiteral("attachmentTokens"), 8000},
+            {QStringLiteral("perFileAttachmentTokens"), 4000},
+            {QStringLiteral("libraryEvidenceTokens"), 6000},
+            {QStringLiteral("recallTokens"), 1500},
+            {QStringLiteral("maxEvidenceItems"), 8},
+            {QStringLiteral("maxExcerptsPerFile"), 3},
+            {QStringLiteral("historyFloorMessages"), 2},
+            {QStringLiteral("attachmentPriority"), 90},
+            {QStringLiteral("libraryEvidencePriority"), 70},
+            {QStringLiteral("historyPriority"), 60},
+            {QStringLiteral("recallPriority"), 40},
+            {QStringLiteral("recallScope"), QStringLiteral("current-chat")},
+        };
+
+        for (const auto &[key, value] : defaults) {
+            if (!parsed.value(key).isValid()) {
+                parsed.insert(key, value);
+            }
+        }
+    }
+
     return parsed;
 }
 
@@ -981,6 +1008,12 @@ Compiled compile(
         {QStringLiteral("messages"), messages.size()},
     });
 
+    if (id == QStringLiteral("context-assembly")) {
+        throw CoreError(QStringLiteral(
+            "Context Compiler \"context-assembly:v3\" runs through Context Assembly, not ContextCompilers::compile."
+        ));
+    }
+
     if (id == QStringLiteral("recent-history")) {
         return recentHistory(compiler, currentMessageId, messages, config);
     }
@@ -1002,6 +1035,11 @@ Compiled compile(
     }
 
     return autoBalancedV2(database, compiler, chatId, currentMessageId, messages, config);
+}
+
+QStringList distinctiveSearchTerms(const QString &content, int minimumLength)
+{
+    return autoBalancedV2SearchTerms(content, minimumLength);
 }
 
 QVariantMap searchChatMessages(CoreDatabase &database, const QString &query, const QString &chatId, int limit)
