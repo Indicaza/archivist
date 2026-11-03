@@ -59,8 +59,8 @@ plus a full record of what was included and why the rest was not.
 | instructions, tool-definitions | authoritative | provider system text / tools field |
 | current-request | user-intent | last `user` message |
 | conversation-history | user-intent or model-output | `user` / `assistant` messages, oldest first |
-| attachment, library-evidence, conversation-recall | untrusted | one `user` message wrapped in `<archivist-reference-material>`, before the current request |
-| wiki-knowledge, memory | untrusted | reserved; same envelope once produced |
+| attachment, library-evidence, conversation-recall, wiki-knowledge | untrusted | one `user` message wrapped in `<archivist-reference-material>`, before the current request |
+| memory | untrusted | reserved; same envelope once produced |
 | tool-result | untrusted | the provider's tool-output channel |
 
 Trust comes from the kind, never from the source: a source cannot mark its
@@ -93,6 +93,7 @@ Default policy (all in the v3 config, all optional except the two budgets):
 | library-evidence | 6000, 8 items, 3 per file | 70 |
 | conversation-history | whatever is left | 60 (newest 2: 85) |
 | conversation-recall | 1500, current Chat | 40 |
+| wiki-knowledge | 2000 (`wikiTokens`), 6 items (`maxWikiItems`) | 50 (`wikiPriority`) |
 | tool results | 6000 reserve | — |
 
 ## Runtime integration
@@ -122,6 +123,21 @@ same kind, source type and chunk ids, so nothing below changes; `producer` is
 `retrieval {mode, timings, counts, policy}`. Any embedding failure falls back
 to keyword search with a context warning. See
 `Core/Domains/Retrieval/RETRIEVAL.md`.
+
+## Wiki knowledge
+
+When the Chat has a Library, `wikiTokens > 0` and `wikiRetrieval` is not
+`off`, `prepareAssembly` also asks `ContextSources::wikiKnowledge` for the
+Library's Living Wiki (FTS5, plus vectors when the question was embedded).
+Candidates are kind `wiki-knowledge`, source type `wiki-claim` or
+`wiki-page`, and never carry a Library file id, so they cannot count as
+evidence for a file or cover an attachment. Their `<source>` block says what
+they are: `kind="wiki-knowledge"`, the virtual `wiki-page` path, the claim
+type, verification status, confidence, freshness, and the `original-sources`
+(Library paths and lines) the claim rests on. Library evidence keeps the
+higher priority (70 vs 50), so when the budget is tight the originals win.
+Retracted and stale claims and inactive pages are never sent. The manifest
+gains `wikiRetrieval` diagnostics. See `Core/Domains/Knowledge/KNOWLEDGE.md`.
 
 ## Adding a retriever (semantic search, Wiki, memory)
 

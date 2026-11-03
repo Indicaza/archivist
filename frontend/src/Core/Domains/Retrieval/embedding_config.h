@@ -40,8 +40,11 @@ struct EmbeddingConfig
 namespace SourceType
 {
 inline const QString libraryChunk = QStringLiteral("library-chunk");
-// Reserved for the Knowledge Store; nothing produces them yet.
+// Knowledge Store records (Core/Domains/Knowledge): a Wiki page's title
+// and body, and one claim's statement.
 inline const QString wikiPage = QStringLiteral("wiki-page");
+inline const QString wikiClaim = QStringLiteral("wiki-claim");
+// Reserved for personal memories; nothing produces them yet.
 inline const QString memory = QStringLiteral("memory");
 }
 

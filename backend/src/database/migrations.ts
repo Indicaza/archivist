@@ -1525,6 +1525,419 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    // The Living Wiki's Knowledge Store: Library-scoped pages, the claims
+    // they make, the original-source citations behind each claim, typed
+    // relationships, immutable revisions, reviewable proposals and the
+    // durable job queue the Wiki librarians run on. Kept apart from the
+    // user's files: nothing here is ever written to disk inside a Library.
+    version: 23,
+    migrate(database) {
+      database.exec(`
+        CREATE TABLE knowledge_pages (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          slug TEXT NOT NULL CHECK (
+            length(trim(slug)) > 0
+          ),
+          title TEXT NOT NULL CHECK (
+            length(trim(title)) > 0
+          ),
+          page_type TEXT NOT NULL CHECK (
+            page_type IN ('overview', 'topic', 'concept', 'entity', 'decision-log', 'file-summary', 'question')
+          ),
+          content TEXT NOT NULL DEFAULT '',
+          content_hash TEXT NOT NULL CHECK (
+            length(content_hash) > 0
+          ),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (
+            status IN ('active', 'deprecated', 'merged')
+          ),
+          review_status TEXT NOT NULL DEFAULT 'reviewed' CHECK (
+            review_status IN ('reviewed', 'needs-review')
+          ),
+          revision INTEGER NOT NULL DEFAULT 1 CHECK (
+            revision >= 1
+          ),
+          origin TEXT NOT NULL CHECK (
+            origin IN ('ai', 'manual', 'mixed')
+          ),
+          manually_edited_at TEXT,
+          merged_into_page_id TEXT,
+          reconciled_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (merged_into_page_id)
+            REFERENCES knowledge_pages(id)
+            ON DELETE SET NULL,
+          UNIQUE (library_id, slug)
+        );
+
+        CREATE INDEX knowledge_pages_library_status_index
+          ON knowledge_pages(library_id, status, title);
+
+        CREATE TABLE knowledge_claims (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          page_id TEXT NOT NULL,
+          claim_type TEXT NOT NULL CHECK (
+            claim_type IN ('fact', 'decision', 'inference', 'question', 'assumption')
+          ),
+          statement TEXT NOT NULL CHECK (
+            length(trim(statement)) > 0
+          ),
+          statement_key TEXT NOT NULL,
+          content_hash TEXT NOT NULL CHECK (
+            length(content_hash) > 0
+          ),
+          position INTEGER NOT NULL DEFAULT 0,
+          model_confidence REAL CHECK (
+            model_confidence IS NULL OR (model_confidence >= 0 AND model_confidence <= 1)
+          ),
+          confidence REAL NOT NULL DEFAULT 0 CHECK (
+            confidence >= 0 AND confidence <= 1
+          ),
+          verification_status TEXT NOT NULL CHECK (
+            verification_status IN ('unverified', 'supported', 'verified', 'contested', 'stale', 'retracted')
+          ),
+          status_reason TEXT,
+          origin TEXT NOT NULL CHECK (
+            origin IN ('ai', 'manual')
+          ),
+          verified_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (page_id)
+            REFERENCES knowledge_pages(id)
+            ON DELETE CASCADE,
+          UNIQUE (page_id, statement_key)
+        );
+
+        CREATE INDEX knowledge_claims_page_index
+          ON knowledge_claims(page_id, position);
+
+        CREATE INDEX knowledge_claims_library_status_index
+          ON knowledge_claims(library_id, verification_status);
+
+        CREATE TABLE knowledge_citations (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          claim_id TEXT NOT NULL,
+          source_type TEXT NOT NULL DEFAULT 'library-chunk' CHECK (
+            source_type IN ('library-chunk')
+          ),
+          library_file_id TEXT,
+          relative_path TEXT NOT NULL,
+          chunk_id TEXT,
+          chunk_hash TEXT NOT NULL CHECK (
+            length(chunk_hash) > 0
+          ),
+          quote TEXT NOT NULL,
+          quote_key TEXT NOT NULL,
+          start_line INTEGER,
+          end_line INTEGER,
+          file_content_hash TEXT,
+          producer_chat_id TEXT,
+          producer_agent_id TEXT,
+          producer_run_id TEXT,
+          producer_job_id TEXT,
+          status TEXT NOT NULL DEFAULT 'valid' CHECK (
+            status IN ('valid', 'moved', 'reanchored', 'modified', 'deleted', 'unavailable')
+          ),
+          status_detail TEXT,
+          checked_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (claim_id)
+            REFERENCES knowledge_claims(id)
+            ON DELETE CASCADE,
+          UNIQUE (claim_id, chunk_hash, quote_key)
+        );
+
+        CREATE INDEX knowledge_citations_library_file_index
+          ON knowledge_citations(library_id, library_file_id);
+
+        CREATE INDEX knowledge_citations_chunk_index
+          ON knowledge_citations(chunk_id);
+
+        CREATE TABLE knowledge_relations (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          from_type TEXT NOT NULL CHECK (
+            from_type IN ('claim', 'page')
+          ),
+          from_id TEXT NOT NULL,
+          relation_type TEXT NOT NULL CHECK (
+            relation_type IN ('depends-on', 'related-to', 'contradicts', 'supersedes', 'derived-from', 'part-of')
+          ),
+          to_type TEXT NOT NULL CHECK (
+            to_type IN ('claim', 'page')
+          ),
+          to_id TEXT NOT NULL,
+          origin TEXT NOT NULL CHECK (
+            origin IN ('ai', 'manual', 'system')
+          ),
+          explanation TEXT,
+          proposal_id TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          CHECK (
+            NOT (from_type = to_type AND from_id = to_id)
+          ),
+          UNIQUE (from_type, from_id, relation_type, to_type, to_id)
+        );
+
+        CREATE INDEX knowledge_relations_to_index
+          ON knowledge_relations(to_type, to_id, relation_type);
+
+        CREATE INDEX knowledge_relations_library_index
+          ON knowledge_relations(library_id, relation_type);
+
+        CREATE TABLE knowledge_revisions (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          page_id TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (
+            revision >= 1
+          ),
+          previous_revision_id TEXT,
+          title TEXT NOT NULL,
+          page_type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          claims TEXT NOT NULL DEFAULT '[]',
+          change_kind TEXT NOT NULL CHECK (
+            change_kind IN ('create', 'proposal', 'manual-edit', 'restore', 'reconcile', 'merge', 'deprecate', 'claim-review')
+          ),
+          actor_type TEXT NOT NULL CHECK (
+            actor_type IN ('user', 'ai', 'system')
+          ),
+          actor_id TEXT,
+          proposal_id TEXT,
+          note TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (page_id)
+            REFERENCES knowledge_pages(id)
+            ON DELETE CASCADE,
+          UNIQUE (page_id, revision)
+        );
+
+        CREATE TRIGGER knowledge_revisions_immutable
+        BEFORE UPDATE ON knowledge_revisions
+        BEGIN
+          SELECT RAISE(ABORT, 'Wiki revisions are immutable.');
+        END;
+
+        CREATE TABLE knowledge_jobs (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          job_type TEXT NOT NULL CHECK (
+            job_type IN ('generate-page', 'expand-page', 'reconcile-sources', 'investigate-gap', 'discover-related', 'identify-contradictions', 'suggest-improvements', 'process-correction')
+          ),
+          status TEXT NOT NULL CHECK (
+            status IN ('queued', 'running', 'completed', 'failed', 'cancelled')
+          ),
+          stage TEXT,
+          request TEXT NOT NULL DEFAULT '{}',
+          request_key TEXT NOT NULL,
+          source_fingerprint TEXT,
+          progress INTEGER NOT NULL DEFAULT 0 CHECK (
+            progress >= 0 AND progress <= 100
+          ),
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (
+            attempt_count >= 0
+          ),
+          max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (
+            max_attempts >= 1
+          ),
+          error_code TEXT,
+          error_message TEXT,
+          result TEXT,
+          requested_by TEXT NOT NULL DEFAULT 'user',
+          model TEXT,
+          next_attempt_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          started_at TEXT,
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          completed_at TEXT,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX knowledge_jobs_one_active_per_request
+          ON knowledge_jobs(library_id, job_type, request_key)
+          WHERE status IN ('queued', 'running');
+
+        CREATE INDEX knowledge_jobs_library_created_index
+          ON knowledge_jobs(library_id, created_at);
+
+        CREATE TABLE knowledge_proposals (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          job_id TEXT,
+          proposal_type TEXT NOT NULL CHECK (
+            proposal_type IN ('create', 'modify', 'merge', 'deprecate', 'reconcile')
+          ),
+          target_page_id TEXT,
+          base_revision INTEGER,
+          title TEXT NOT NULL,
+          explanation TEXT NOT NULL DEFAULT '',
+          payload TEXT NOT NULL DEFAULT '{}',
+          evidence TEXT NOT NULL DEFAULT '[]',
+          diff TEXT NOT NULL DEFAULT '',
+          validation TEXT NOT NULL DEFAULT '{}',
+          fingerprint TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (
+            status IN ('pending', 'applied', 'rejected', 'superseded', 'conflicted')
+          ),
+          actor_type TEXT NOT NULL CHECK (
+            actor_type IN ('user', 'ai', 'system')
+          ),
+          actor_id TEXT,
+          reviewed_by TEXT,
+          review_note TEXT,
+          reviewed_at TEXT,
+          applied_revision INTEGER,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (job_id)
+            REFERENCES knowledge_jobs(id)
+            ON DELETE SET NULL,
+          FOREIGN KEY (target_page_id)
+            REFERENCES knowledge_pages(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX knowledge_proposals_one_pending_per_fingerprint
+          ON knowledge_proposals(library_id, fingerprint)
+          WHERE status = 'pending';
+
+        CREATE INDEX knowledge_proposals_library_status_index
+          ON knowledge_proposals(library_id, status, created_at);
+
+        CREATE INDEX knowledge_proposals_target_index
+          ON knowledge_proposals(target_page_id, status);
+
+        CREATE VIRTUAL TABLE knowledge_search USING fts5(
+          entry_type UNINDEXED,
+          entry_id UNINDEXED,
+          library_id UNINDEXED,
+          page_id UNINDEXED,
+          title,
+          content,
+          tokenize = 'unicode61'
+        );
+
+        CREATE TRIGGER knowledge_search_page_insert
+        AFTER INSERT ON knowledge_pages
+        BEGIN
+          INSERT INTO knowledge_search (entry_type, entry_id, library_id, page_id, title, content)
+          VALUES ('page', new.id, new.library_id, new.id, new.title, new.content);
+        END;
+
+        CREATE TRIGGER knowledge_search_page_update
+        AFTER UPDATE OF title, content ON knowledge_pages
+        BEGIN
+          DELETE FROM knowledge_search
+          WHERE entry_type = 'page'
+            AND entry_id = old.id;
+
+          INSERT INTO knowledge_search (entry_type, entry_id, library_id, page_id, title, content)
+          VALUES ('page', new.id, new.library_id, new.id, new.title, new.content);
+        END;
+
+        CREATE TRIGGER knowledge_page_delete
+        AFTER DELETE ON knowledge_pages
+        BEGIN
+          DELETE FROM knowledge_search
+          WHERE entry_type = 'page'
+            AND entry_id = old.id;
+
+          DELETE FROM knowledge_relations
+          WHERE (from_type = 'page' AND from_id = old.id)
+            OR (to_type = 'page' AND to_id = old.id);
+
+          DELETE FROM embedding_sources
+          WHERE source_type = 'wiki-page'
+            AND source_id = old.id;
+        END;
+
+        CREATE TRIGGER knowledge_search_claim_insert
+        AFTER INSERT ON knowledge_claims
+        BEGIN
+          INSERT INTO knowledge_search (entry_type, entry_id, library_id, page_id, title, content)
+          VALUES ('claim', new.id, new.library_id, new.page_id, '', new.statement);
+        END;
+
+        CREATE TRIGGER knowledge_search_claim_update
+        AFTER UPDATE OF statement, page_id ON knowledge_claims
+        BEGIN
+          DELETE FROM knowledge_search
+          WHERE entry_type = 'claim'
+            AND entry_id = old.id;
+
+          INSERT INTO knowledge_search (entry_type, entry_id, library_id, page_id, title, content)
+          VALUES ('claim', new.id, new.library_id, new.page_id, '', new.statement);
+        END;
+
+        CREATE TRIGGER knowledge_claim_delete
+        AFTER DELETE ON knowledge_claims
+        BEGIN
+          DELETE FROM knowledge_search
+          WHERE entry_type = 'claim'
+            AND entry_id = old.id;
+
+          DELETE FROM knowledge_relations
+          WHERE (from_type = 'claim' AND from_id = old.id)
+            OR (to_type = 'claim' AND to_id = old.id);
+
+          DELETE FROM embedding_sources
+          WHERE source_type = 'wiki-claim'
+            AND source_id = old.id;
+        END;
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

@@ -103,7 +103,18 @@ QString sourceBlock(const ContextItem &item, int index)
         }
     };
 
-    if (item.kind == Kind::ConversationRecall) {
+    if (item.kind == Kind::WikiKnowledge) {
+        // A Wiki interpretation, labelled as such so the model can tell it
+        // from the original passages it rests on.
+        add("library", ref.libraryName);
+        add("wiki-page", ref.relativePath);
+        add("wiki-record", ref.sourceType);
+        add("record-id", ref.sourceId);
+
+        for (const char *name : {"claim-type", "status", "confidence", "freshness", "original-sources"}) {
+            add(name, ref.attributes.value(QLatin1String(name)).toString());
+        }
+    } else if (item.kind == Kind::ConversationRecall) {
         add("message-id", ref.sourceId);
         add("original-role", item.role);
         add("created-at", ref.createdAt);
@@ -184,6 +195,8 @@ Policy policyFromConfig(const QVariantMap &config)
     policy.kinds.insert(Kind::LibraryEvidence, {configInt(config, "libraryEvidenceTokens", 6000), configInt(config, "libraryEvidencePriority", 70), maxEvidenceItems});
     policy.kinds.insert(Kind::ConversationHistory, {configInt(config, "historyTokens", -1), configInt(config, "historyPriority", 60), -1});
     policy.kinds.insert(Kind::ConversationRecall, {configInt(config, "recallTokens", 1500), configInt(config, "recallPriority", 40), maxEvidenceItems});
+    // Below original Library evidence: an interpretation never outranks its sources.
+    policy.kinds.insert(Kind::WikiKnowledge, {configInt(config, "wikiTokens", 2000), configInt(config, "wikiPriority", 50), configInt(config, "maxWikiItems", 6)});
     return policy;
 }
 

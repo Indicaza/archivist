@@ -45,6 +45,7 @@
 #endif
 #include "Core/Domains/AI/ai_runtime.h"
 #include "Core/Domains/AI/ai_settings.h"
+#include "Core/Domains/Knowledge/knowledge_service.h"
 #include "Core/Domains/Retrieval/semantic_index_service.h"
 #include "Core/Domains/Ide/ide_server.h"
 #include "Core/Domains/Themes/code_theme_library.h"
@@ -187,6 +188,18 @@ int main(int argc, char *argv[])
         }
     }
 
+    // The Living Wiki: reviewable, source-linked pages a person asks the
+    // model to write. Jobs run on their own thread; nothing runs unasked.
+    Knowledge::KnowledgeService wiki;
+
+    {
+        LiveEvents::Scope live(QStringLiteral("startup"), QStringLiteral("wiki"));
+        if (coreRuntime.ready() && !wiki.start(coreRuntime.databasePath())) {
+            live.setOk(false);
+            qWarning().noquote() << "[Wiki] Living Wiki unavailable.";
+        }
+    }
+
     // OpenAI key (Keychain), local model server address and model lists for
     // the Agent editor.
     AISettings aiSettings;
@@ -305,6 +318,11 @@ int main(int argc, char *argv[])
     QObject::connect(&libraryStore, &LibraryStore::fileSaved, &semanticIndex, [&semanticIndex](const QString &libraryId) {
         semanticIndex.sync(libraryId);
     });
+    // Approved Wiki pages and claims join the semantic index of Libraries
+    // that opted in.
+    QObject::connect(&wiki, &Knowledge::KnowledgeService::knowledgeChanged, &semanticIndex, [&semanticIndex](const QString &libraryId) {
+        semanticIndex.sync(libraryId);
+    });
     QObject::connect(
         &worktreeStore,
         &WorktreeStore::worktreeOpened,
@@ -335,6 +353,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "LiveRecorder", &liveRecorder);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AISettings", &aiSettings);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "SemanticIndex", &semanticIndex);
+    qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "Wiki", &wiki);
     qmlRegisterSingletonInstance("Archivist.Services", 1, 0, "AgentStore", &agentStore);
     qmlRegisterSingletonInstance(
         "Archivist.Services",

@@ -6,6 +6,7 @@ import Archivist.Services 1.0
 import "../../../Files/FileIdentity.js" as FileIdentity
 import "ExplorerItem"
 import "SemanticIndexStrip"
+import "WikiStrip"
 import "WorkspaceNavigator"
 import "WorktreeBar"
 import "../../Dock"
@@ -2857,6 +2858,13 @@ Rectangle {
                 }
 
                 SemanticIndexStrip {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    theme: root.theme
+                    libraryId: LibraryStore.selectedLibraryId
+                }
+
+                WikiStrip {
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
                     theme: root.theme

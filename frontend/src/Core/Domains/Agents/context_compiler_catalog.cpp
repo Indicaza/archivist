@@ -111,6 +111,10 @@ const QList<CompilerSchema> &schemas()
              {QStringLiteral("libraryEvidencePriority"), 0, 100, true},
              {QStringLiteral("historyPriority"), 0, 100, true},
              {QStringLiteral("recallPriority"), 0, 100, true},
+             // Living Wiki (Core/Domains/Knowledge/KNOWLEDGE.md).
+             {QStringLiteral("wikiTokens"), 0, 200000, true},
+             {QStringLiteral("wikiPriority"), 0, 100, true},
+             {QStringLiteral("maxWikiItems"), 1, 50, true},
              // Hybrid retrieval (Core/Domains/Retrieval/RETRIEVAL.md), in percent.
              {QStringLiteral("lexicalWeight"), 0, 100, true},
              {QStringLiteral("semanticWeight"), 0, 100, true},
@@ -119,6 +123,7 @@ const QList<CompilerSchema> &schemas()
          {
              {QStringLiteral("recallScope"), {QStringLiteral("current-chat"), QStringLiteral("all-chats")}, true},
              {QStringLiteral("semanticRetrieval"), {QStringLiteral("auto"), QStringLiteral("off")}, true},
+             {QStringLiteral("wikiRetrieval"), {QStringLiteral("auto"), QStringLiteral("off")}, true},
          },
          {Refinement::ReserveBelowTotal}},
     };
