@@ -1,8 +1,9 @@
 # Semantic retrieval
 
 Embeddings, background indexing and hybrid search for Library text. This is
-shared infrastructure: Library chunks are the first source; Wiki pages and
-memories will be indexed through the same tables, indexer and vector store.
+shared infrastructure: Library chunks were the first source; Living Wiki
+claims (`wiki-claim`) and pages (`wiki-page`) now ride the same tables,
+indexer and vector store, and memories will too.
 
 Semantic indexing is **opt-in per Library** because Library text is sent to
 OpenAI. Keyword search (SQLite FTS5) never depends on it: without consent, an
@@ -185,7 +186,19 @@ Observatory span `retrieval.hybrid-search`.
   the signals and ranks.
 - Legacy compilers (v1/v2) never embed and never see hybrid results.
 
-## Adding a source type (Wiki pages, memories)
+## Wiki sources
+
+A Library that opted in to semantic indexing also indexes its Living Wiki:
+every active page (title and body) and every claim that still stands
+(not retracted, not stale), scoped to the Library. `pendingLibrarySources`
+returns chunks first, then Wiki sources; their content hash is the SHA-256 of
+the embedded text, so an unchanged claim is never re-embedded, and
+`removeStaleLibrarySources` drops sources whose claim or page stopped being
+searchable or changed. Deleting a page or claim deletes its source row by
+trigger. `KnowledgeRetrieval::search` fuses FTS5 and these vectors the same
+way as Library search. See `Core/Domains/Knowledge/KNOWLEDGE.md`.
+
+## Adding a source type (memories)
 
 1. Pick a `SourceType` and a scope (`library` with the Library id, or a new
    scope such as a user id for personal memories).

@@ -49,6 +49,30 @@ const QString pendingCondition = QStringLiteral(
     "AND (s.source_id IS NULL OR s.content_hash != c.content_hash OR s.scope_id != c.library_id "
     "OR s.locator IS NOT f.relative_path OR s.start_line IS NOT c.start_line OR s.end_line IS NOT c.end_line OR v.id IS NULL) "
 );
+
+// Living Wiki records (Core/Domains/Knowledge) that should be searchable:
+// claims that still stand on active pages, and the active pages themselves.
+// A page is embedded as title, blank line, body; its content_hash is the
+// SHA-256 of exactly that text. Bindings: ?1 model, ?2 dimensions,
+// ?3 input version, ?4 Library id.
+const QString knowledgeSources = QStringLiteral(
+    "SELECT 'wiki-claim' AS sourceType, k.id AS sourceId, k.library_id AS scopeId, k.content_hash AS contentHash, "
+    "k.statement AS content, k.page_id AS parentId, p.slug AS locator, (length(k.statement) + 3) / 4 AS estimatedTokens "
+    "FROM knowledge_claims k INNER JOIN knowledge_pages p ON p.id = k.page_id "
+    "WHERE k.library_id = ?4 AND p.status = 'active' AND k.verification_status NOT IN ('retracted', 'stale') "
+    "UNION ALL "
+    "SELECT 'wiki-page' AS sourceType, p.id AS sourceId, p.library_id AS scopeId, p.content_hash AS contentHash, "
+    "p.title || char(10) || char(10) || p.content AS content, NULL AS parentId, p.slug AS locator, "
+    "(length(p.title) + length(p.content) + 5) / 4 AS estimatedTokens "
+    "FROM knowledge_pages p WHERE p.library_id = ?4 AND p.status = 'active'"
+);
+
+const QString knowledgePending = QStringLiteral(
+    "SELECT w.* , (v.id IS NULL) AS needsVector FROM (%1) w "
+    "LEFT JOIN embedding_sources s ON s.source_type = w.sourceType AND s.source_id = w.sourceId "
+    "LEFT JOIN embedding_vectors v ON v.content_hash = w.contentHash AND v.model = ?1 AND v.dimensions = ?2 AND v.input_version = ?3 "
+    "WHERE s.source_id IS NULL OR s.content_hash != w.contentHash OR s.locator IS NOT w.locator OR v.id IS NULL "
+).arg(knowledgeSources);
 }
 
 namespace EmbeddingIndex
@@ -156,6 +180,62 @@ QList<SourceText> pendingLibraryChunks(CoreDatabase &database, const QString &li
     return pending;
 }
 
+QList<SourceText> pendingKnowledgeSources(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config, int limit)
+{
+    QList<SourceText> pending;
+    const auto rows = database.prepare(knowledgePending + QStringLiteral("ORDER BY w.sourceType ASC, w.locator ASC, w.sourceId ASC LIMIT ?5"))
+                          .bind(1, config.model)
+                          .bind(2, config.dimensions)
+                          .bind(3, config.inputVersion)
+                          .bind(4, libraryId)
+                          .bind(5, std::max(1, limit))
+                          .all();
+
+    for (const QVariantMap &row : rows) {
+        SourceText source;
+        source.sourceType = row.value(QStringLiteral("sourceType")).toString();
+        source.sourceId = row.value(QStringLiteral("sourceId")).toString();
+        source.scopeType = Retrieval::ScopeType::library;
+        source.scopeId = row.value(QStringLiteral("scopeId")).toString();
+        source.contentHash = row.value(QStringLiteral("contentHash")).toString();
+        source.content = row.value(QStringLiteral("content")).toString();
+        source.parentId = row.value(QStringLiteral("parentId")).toString();
+        source.locator = row.value(QStringLiteral("locator")).toString();
+        source.estimatedTokens = std::max(1, row.value(QStringLiteral("estimatedTokens")).toInt());
+        pending.append(source);
+    }
+
+    return pending;
+}
+
+QList<SourceText> pendingLibrarySources(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config, int limit)
+{
+    QList<SourceText> pending = pendingLibraryChunks(database, libraryId, config, limit);
+
+    if (pending.size() < limit) {
+        pending.append(pendingKnowledgeSources(database, libraryId, config, limit - static_cast<int>(pending.size())));
+    }
+
+    return pending;
+}
+
+QString currentContentHash(CoreDatabase &database, const SourceText &source)
+{
+    QString sql;
+
+    if (source.sourceType == Retrieval::SourceType::libraryChunk) {
+        sql = QStringLiteral("SELECT content_hash FROM library_chunks WHERE id = ? AND library_id = ?");
+    } else if (source.sourceType == Retrieval::SourceType::wikiClaim) {
+        sql = QStringLiteral("SELECT content_hash FROM knowledge_claims WHERE id = ? AND library_id = ?");
+    } else if (source.sourceType == Retrieval::SourceType::wikiPage) {
+        sql = QStringLiteral("SELECT content_hash FROM knowledge_pages WHERE id = ? AND library_id = ?");
+    } else {
+        return {};
+    }
+
+    return database.prepare(sql).bind(1, source.sourceId).bind(2, source.scopeId).scalar().toString();
+}
+
 PendingSummary pendingLibrarySummary(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config)
 {
     const auto row = database
@@ -190,6 +270,25 @@ PendingSummary pendingLibrarySummary(CoreDatabase &database, const QString &libr
     summary.items = row ? row->value(QStringLiteral("items")).toInt() : 0;
     summary.uniqueContent = row ? row->value(QStringLiteral("uniqueContent")).toInt() : 0;
     summary.estimatedTokens = tokens.toLongLong();
+    // Wiki records of the Library ride along with its chunks.
+    const auto knowledge = database
+                               .prepare(QStringLiteral(
+                                            "SELECT COUNT(*) AS items, COUNT(DISTINCT CASE WHEN needsVector THEN contentHash END) AS uniqueContent, "
+                                            "COALESCE(SUM(CASE WHEN needsVector THEN estimatedTokens ELSE 0 END), 0) AS tokens FROM (%1)"
+                               )
+                                            .arg(knowledgePending))
+                               .bind(1, config.model)
+                               .bind(2, config.dimensions)
+                               .bind(3, config.inputVersion)
+                               .bind(4, libraryId)
+                               .one();
+
+    if (knowledge) {
+        summary.items += knowledge->value(QStringLiteral("items")).toInt();
+        summary.uniqueContent += knowledge->value(QStringLiteral("uniqueContent")).toInt();
+        summary.estimatedTokens += knowledge->value(QStringLiteral("tokens")).toLongLong();
+    }
+
     return summary;
 }
 
@@ -206,7 +305,19 @@ int removeStaleLibrarySources(CoreDatabase &database, const QString &libraryId)
         ))
         .bind(1, libraryId)
         .run();
-    return database.changes();
+    int removed = database.changes();
+    // Wiki records that were retracted, went stale, were deprecated or
+    // merged, or changed text since they were embedded.
+    database
+        .prepare(QStringLiteral(
+            "DELETE FROM embedding_sources WHERE source_type IN ('wiki-claim', 'wiki-page') AND scope_type = 'library' AND scope_id = ?4 "
+            "AND NOT EXISTS (SELECT 1 FROM (%1) w WHERE w.sourceType = embedding_sources.source_type "
+            "AND w.sourceId = embedding_sources.source_id AND w.contentHash = embedding_sources.content_hash)"
+        ).arg(knowledgeSources))
+        .bind(4, libraryId)
+        .run();
+    removed += database.changes();
+    return removed;
 }
 
 QSet<QString> existingVectors(CoreDatabase &database, const QStringList &hashes, const EmbeddingConfig &config)

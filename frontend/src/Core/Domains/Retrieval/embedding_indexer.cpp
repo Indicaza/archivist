@@ -330,7 +330,7 @@ bool EmbeddingIndexer::advance(const QVariantMap &startingJob)
                 fields.insert(QStringLiteral("totalItems"), job.value(QStringLiteral("processedItems")).toInt() + summary.items);
             }
 
-            pending = pendingLibraryChunks(m_database, libraryId, m_config, m_policy.batchSize * 4);
+            pending = pendingLibrarySources(m_database, libraryId, m_config, m_policy.batchSize * 4);
             QStringList hashes;
 
             for (const SourceText &source : pending) {
@@ -477,13 +477,9 @@ void EmbeddingIndexer::handleResult(const QString &libraryId, const EmbeddingRes
                 int associated = 0;
 
                 for (const SourceText &source : std::as_const(batch->sources)) {
-                    const QVariant currentHash = m_database
-                                                     .prepare(QStringLiteral("SELECT content_hash FROM library_chunks WHERE id = ? AND library_id = ?"))
-                                                     .bind(1, source.sourceId)
-                                                     .bind(2, source.scopeId)
-                                                     .scalar();
+                    const QString currentHash = currentContentHash(m_database, source);
 
-                    if (currentHash.toString() == source.contentHash && stored.contains(source.contentHash)) {
+                    if (currentHash == source.contentHash && stored.contains(source.contentHash)) {
                         upsertSource(m_database, source);
                         ++associated;
                     }

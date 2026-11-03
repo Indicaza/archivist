@@ -59,6 +59,15 @@ void setLibraryPaused(CoreDatabase &database, const QString &libraryId, bool pau
 // other content, or has no vector for `config`. Ordered by path and ordinal.
 [[nodiscard]] QList<SourceText> pendingLibraryChunks(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config, int limit);
 
+// Living Wiki claims and pages of the Library without a current source row
+// and vector (source types wiki-claim and wiki-page).
+[[nodiscard]] QList<SourceText> pendingKnowledgeSources(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config, int limit);
+// Chunks first, then Wiki records, up to `limit`: what the indexer embeds.
+[[nodiscard]] QList<SourceText> pendingLibrarySources(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config, int limit);
+// The content hash a source has now (chunk, claim or page); empty when it
+// is gone. Vectors are only associated when it still matches.
+[[nodiscard]] QString currentContentHash(CoreDatabase &database, const SourceText &source);
+
 struct PendingSummary
 {
     int items = 0;          // chunks to (re)associate
@@ -68,7 +77,8 @@ struct PendingSummary
 [[nodiscard]] PendingSummary pendingLibrarySummary(CoreDatabase &database, const QString &libraryId, const EmbeddingConfig &config);
 
 // Source rows of a Library whose chunk is gone, moved to another Library or
-// no longer searchable (file unavailable, document not indexed). Returns how
+// no longer searchable (file unavailable, document not indexed), and Wiki
+// source rows whose record is no longer searchable or changed. Returns how
 // many were removed.
 int removeStaleLibrarySources(CoreDatabase &database, const QString &libraryId);
 

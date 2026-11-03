@@ -976,6 +976,9 @@ QVariantMap parseConfig(const QString &id, int version, const QVariantMap &confi
             {QStringLiteral("historyPriority"), 60},
             {QStringLiteral("recallPriority"), 40},
             {QStringLiteral("recallScope"), QStringLiteral("current-chat")},
+            {QStringLiteral("wikiTokens"), 2000},
+            {QStringLiteral("wikiPriority"), 50},
+            {QStringLiteral("maxWikiItems"), 6},
         };
 
         for (const auto &[key, value] : defaults) {

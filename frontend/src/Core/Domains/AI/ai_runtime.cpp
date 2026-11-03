@@ -1512,6 +1512,12 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
               config.value(QStringLiteral("recallScope")).toString() == QStringLiteral("all-chats") ? QString() : m_chatId,
               recallLimit
           );
+    // Living Wiki interpretations, ranked below original evidence by policy.
+    const int wikiLimit = config.value(QStringLiteral("maxWikiItems")).toInt() * 2;
+    const ContextSources::Retrieval wiki = skipRetrieval || m_libraryId.isEmpty() || config.value(QStringLiteral("wikiTokens")).toInt() <= 0
+            || config.value(QStringLiteral("wikiRetrieval")).toString() == QStringLiteral("off")
+        ? ContextSources::Retrieval()
+        : ContextSources::wikiKnowledge(db(), m_libraryId, userContent, m_queryVector, hybridPolicy, std::max(1, wikiLimit));
     QSet<QString> retrievedFileIds;
     QVariantList retrievedSources;
 
@@ -1540,7 +1546,8 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
         {QStringLiteral("sources"), library.candidates.size()},
         {QStringLiteral("files"), retrievedFileIds.size()},
         {QStringLiteral("recalled"), recall.candidates.size()},
-        {QStringLiteral("warnings"), library.warnings.size() + recall.warnings.size()},
+        {QStringLiteral("wiki"), wiki.candidates.size()},
+        {QStringLiteral("warnings"), library.warnings.size() + recall.warnings.size() + wiki.warnings.size()},
     });
     throwIfAborted();
 
@@ -1606,7 +1613,7 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
     request.currentMessageId = userMessageId;
     request.currentRequest = ContextSources::currentRequest(m_chatId, current);
     request.policy = policy;
-    request.candidates = library.candidates + recall.candidates;
+    request.candidates = library.candidates + recall.candidates + wiki.candidates;
     request.items = attachments.items;
 
     for (const auto &unavailable : attachments.unavailable) {
@@ -1691,9 +1698,13 @@ ChatRunJob::PreparedContext ChatRunJob::prepareAssembly(
         m_contextManifest.insert(QStringLiteral("retrieval"), library.diagnostics);
     }
 
+    if (!wiki.diagnostics.isEmpty()) {
+        m_contextManifest.insert(QStringLiteral("wikiRetrieval"), wiki.diagnostics);
+    }
+
     m_contextWarnings.clear();
 
-    for (const QString &warning : compiled.warnings + attachments.warnings + library.warnings + recall.warnings) {
+    for (const QString &warning : compiled.warnings + attachments.warnings + library.warnings + recall.warnings + wiki.warnings) {
         m_contextWarnings.append(warning);
     }
 

@@ -112,6 +112,10 @@ QVariantMap EvidenceRef::toVariant() const
     put("chatId", chatId);
     put("createdAt", createdAt);
 
+    if (!attributes.isEmpty()) {
+        map.insert(QStringLiteral("attributes"), attributes);
+    }
+
     if (startLine > 0) {
         map.insert(QStringLiteral("startLine"), startLine);
         map.insert(QStringLiteral("endLine"), endLine);

@@ -69,6 +69,20 @@ struct Retrieval
     int limit
 );
 
+// Living Wiki pages and claims of the Library (see
+// Core/Domains/Knowledge/KNOWLEDGE.md) as WikiKnowledge candidates: FTS5 plus
+// semantic vectors when `queryVector` is set. Each carries its verification
+// status, confidence, freshness and the original passages it rests on, and
+// is quoted as an interpretation, never as a source.
+[[nodiscard]] Retrieval wikiKnowledge(
+    CoreDatabase &database,
+    const QString &libraryId,
+    const QString &query,
+    const QVector<float> &queryVector,
+    const ::Retrieval::HybridPolicy &policy,
+    int limit
+);
+
 // Older Chat messages that share distinctive terms with the query. `chatId`
 // empty searches every Chat.
 [[nodiscard]] Retrieval conversationRecall(CoreDatabase &database, const QString &query, const QString &chatId, int limit);

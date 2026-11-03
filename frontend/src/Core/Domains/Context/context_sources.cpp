@@ -1,5 +1,7 @@
 #include "context_sources.h"
 
+#include "Core/Domains/Knowledge/knowledge_retrieval.h"
+
 #include "Core/Domains/AI/context_compilers.h"
 #include "Core/Domains/AI/library_retrieval.h"
 #include "Core/Domains/Chats/chat_repository.h"
@@ -268,6 +270,65 @@ Retrieval hybridLibraryEvidence(
 
     result.diagnostics = search.diagnostics;
     result.diagnostics.insert(QStringLiteral("policy"), policy.toVariant());
+    return result;
+}
+
+Retrieval wikiKnowledge(
+    CoreDatabase &database,
+    const QString &libraryId,
+    const QString &query,
+    const QVector<float> &queryVector,
+    const ::Retrieval::HybridPolicy &policy,
+    int limit
+)
+{
+    Retrieval result;
+
+    if (libraryId.isEmpty() || !KnowledgeRetrieval::hasKnowledge(database, libraryId)) {
+        return result;
+    }
+
+    const auto library = LibraryRepository::libraryById(database, libraryId);
+
+    if (!library || !library->value(QStringLiteral("archivedAt")).isNull()) {
+        return result;
+    }
+
+    const QString libraryName = library->value(QStringLiteral("name")).toString();
+    const KnowledgeRetrieval::Result search = KnowledgeRetrieval::search(database, libraryId, query, queryVector, limit, policy);
+    const bool hybrid = search.diagnostics.value(QStringLiteral("mode")).toString() == QStringLiteral("hybrid");
+
+    for (const KnowledgeRetrieval::Hit &hit : search.hits) {
+        SearchCandidate item;
+        item.kind = Kind::WikiKnowledge;
+        item.content = KnowledgeRetrieval::contextText(hit);
+        item.score = hit.score;
+        item.reason = hit.reason;
+        item.ref.sourceType = hit.entryType == QStringLiteral("claim") ? QStringLiteral("wiki-claim") : QStringLiteral("wiki-page");
+        item.ref.sourceId = hit.entryId;
+        item.ref.libraryId = hit.libraryId;
+        item.ref.libraryName = libraryName;
+        // The virtual Wiki path: no file id, so it never counts against (or
+        // is covered by) a real Library file.
+        item.ref.relativePath = QStringLiteral("Wiki/%1.md").arg(hit.pageSlug);
+        item.ref.producer = !hybrid                           ? QStringLiteral("wiki-fts")
+            : hit.lexicalRank > 0 && hit.semanticRank > 0     ? QStringLiteral("wiki-hybrid")
+            : hit.semanticRank > 0                            ? QStringLiteral("wiki-semantic")
+                                                              : QStringLiteral("wiki-fts");
+        item.ref.createdAt = hit.updatedAt;
+        item.ref.attributes = {
+            {QStringLiteral("claim-type"), hit.claimType},
+            {QStringLiteral("status"), hit.verificationStatus},
+            {QStringLiteral("confidence"), QString::number(hit.confidence, 'f', 2)},
+            {QStringLiteral("freshness"), hit.reviewStatus == QStringLiteral("needs-review") ? QStringLiteral("needs-review") : QStringLiteral("current")},
+            {QStringLiteral("original-sources"), hit.sourceLabels.join(QStringLiteral("; "))},
+            {QStringLiteral("pageId"), hit.pageId},
+            {QStringLiteral("reconciledAt"), hit.reconciledAt},
+        };
+        result.candidates.append(item);
+    }
+
+    result.diagnostics = search.diagnostics;
     return result;
 }
 

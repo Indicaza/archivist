@@ -67,6 +67,25 @@ qt_add_library(archivist-core STATIC
     src/Core/Domains/Retrieval/vector_codec.h
     src/Core/Domains/Retrieval/vector_store.cpp
     src/Core/Domains/Retrieval/vector_store.h
+    src/Core/Domains/Knowledge/knowledge_generation.cpp
+    src/Core/Domains/Knowledge/knowledge_generation.h
+    src/Core/Domains/Knowledge/knowledge_jobs.cpp
+    src/Core/Domains/Knowledge/knowledge_jobs.h
+    src/Core/Domains/Knowledge/knowledge_model.cpp
+    src/Core/Domains/Knowledge/knowledge_model.h
+    src/Core/Domains/Knowledge/knowledge_proposals.cpp
+    src/Core/Domains/Knowledge/knowledge_proposals.h
+    src/Core/Domains/Knowledge/knowledge_repository.cpp
+    src/Core/Domains/Knowledge/knowledge_repository.h
+    src/Core/Domains/Knowledge/knowledge_retrieval.cpp
+    src/Core/Domains/Knowledge/knowledge_retrieval.h
+    src/Core/Domains/Knowledge/knowledge_service.cpp
+    src/Core/Domains/Knowledge/knowledge_service.h
+    src/Core/Domains/Knowledge/knowledge_sources.cpp
+    src/Core/Domains/Knowledge/knowledge_sources.h
+    src/Core/Domains/Knowledge/knowledge_text.cpp
+    src/Core/Domains/Knowledge/knowledge_text.h
+    src/Core/Domains/Knowledge/knowledge_types.h
     src/Core/Domains/Composer/composer_state.cpp
     src/Core/Domains/Composer/composer_state.h
     src/Core/Domains/Chats/chat_drafts.cpp
@@ -364,6 +383,7 @@ qt_add_qml_module(archivist-qt
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorkspaceDragSession.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/ExplorerItem/ExplorerItem.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/SemanticIndexStrip/SemanticIndexStrip.qml
+        qml/App/Workbench/WorkbenchShell/ExplorerDock/WikiStrip/WikiStrip.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeBar.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeRow.qml
         qml/App/Workbench/WorkbenchShell/ExplorerDock/WorktreeBar/WorktreeField.qml
@@ -653,6 +673,11 @@ if(ARCHIVIST_BUILD_TESTS)
     target_link_libraries(core-retrieval-test PRIVATE archivist-core Qt6::Network Qt6::Test)
     set_target_properties(core-retrieval-test PROPERTIES MACOSX_BUNDLE FALSE)
     add_test(NAME core-retrieval-test COMMAND core-retrieval-test)
+
+    qt_add_executable(core-knowledge-test tests/core_knowledge_test.cpp)
+    target_link_libraries(core-knowledge-test PRIVATE archivist-core Qt6::Network Qt6::Test)
+    set_target_properties(core-knowledge-test PROPERTIES MACOSX_BUNDLE FALSE)
+    add_test(NAME core-knowledge-test COMMAND core-knowledge-test)
 
     qt_add_executable(core-ai-tool-contracts-test tests/core_ai_tool_contracts_test.cpp)
     target_link_libraries(core-ai-tool-contracts-test PRIVATE archivist-core Qt6::Test)

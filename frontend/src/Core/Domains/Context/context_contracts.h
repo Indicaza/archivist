@@ -27,7 +27,7 @@ enum class Kind
     ConversationRecall,  // older messages found by search, quoted as reference
     Attachment,          // Library files the user attached to the Chat
     LibraryEvidence,     // excerpts retrieved from the Chat's Library
-    WikiKnowledge,       // reserved: Library Wiki pages (not produced yet)
+    WikiKnowledge,       // Living Wiki pages and claims (Core/Domains/Knowledge): AI-maintained interpretation, never an original source
     Memory,              // reserved: personal and relationship memories (not produced yet)
     ToolResult,          // output of a tool the model called
 };
@@ -85,6 +85,9 @@ struct EvidenceRef
     int endLine = 0;
     QString producer;      // what found it: "chat-history", "library-file-fts", "attachment", ...
     QString createdAt;
+    // Source-specific facts a citation shows, e.g. a Wiki claim's
+    // verification status, confidence, freshness and original sources.
+    QVariantMap attributes;
 
     [[nodiscard]] bool isEmpty() const { return sourceType.isEmpty(); }
     // "<sourceType>:<sourceId>": the identity used for de-duplication.
