@@ -5,6 +5,8 @@
 #include "knowledge_sources.h"
 #include "knowledge_text.h"
 #include "knowledge_types.h"
+#include "librarian_policy.h"
+#include "librarian_store.h"
 
 #include "Core/Domains/Observatory/live_events.h"
 #include "Core/Domains/Retrieval/embedding_config.h"
@@ -28,7 +30,7 @@ const QString jobColumns = QStringLiteral(
     "source_fingerprint AS sourceFingerprint, progress, attempt_count AS attemptCount, max_attempts AS maxAttempts, "
     "error_code AS errorCode, error_message AS errorMessage, result, requested_by AS requestedBy, model, "
     "next_attempt_at AS nextAttemptAt, created_at AS createdAt, started_at AS startedAt, updated_at AS updatedAt, "
-    "completed_at AS completedAt"
+    "completed_at AS completedAt, priority, librarian, run_id AS runId"
 );
 
 QVariantMap jobMap(const QVariantMap &row)
@@ -88,10 +90,18 @@ namespace KnowledgeJobs
 {
 bool isRunnable(const QString &jobType)
 {
-    return jobType == Knowledge::JobType::generatePage || jobType == Knowledge::JobType::expandPage || jobType == Knowledge::JobType::reconcileSources;
+    return jobType == Knowledge::JobType::generatePage || jobType == Knowledge::JobType::expandPage || jobType == Knowledge::JobType::reconcileSources
+        || jobType == Knowledge::JobType::investigateGap || jobType == Knowledge::JobType::discoverRelated || jobType == Knowledge::JobType::identifyContradictions;
 }
 
 QVariantMap enqueue(CoreDatabase &database, const QString &libraryId, const QString &jobType, const QVariantMap &request, const QString &requestedBy)
+{
+    JobOptions options;
+    options.requestedBy = requestedBy;
+    return enqueue(database, libraryId, jobType, request, options);
+}
+
+QVariantMap enqueue(CoreDatabase &database, const QString &libraryId, const QString &jobType, const QVariantMap &request, const JobOptions &options)
 {
     if (!isRunnable(jobType)) {
         throw CoreError(QStringLiteral("The “%1” librarian is not available yet.").arg(jobType), {{QStringLiteral("code"), QStringLiteral("WIKI_JOB_NOT_AVAILABLE")}});
@@ -108,23 +118,36 @@ QVariantMap enqueue(CoreDatabase &database, const QString &libraryId, const QStr
                                   .scalar();
 
         if (existing.isValid() && !existing.isNull()) {
-            return *job(database, existing.toString());
+            QVariantMap found = *job(database, existing.toString());
+            found.insert(QStringLiteral("created"), false);
+            return found;
+        }
+
+        if ((jobType == Knowledge::JobType::investigateGap || jobType == Knowledge::JobType::discoverRelated || jobType == Knowledge::JobType::identifyContradictions)
+            && options.librarian.isEmpty()) {
+            throw CoreError(QStringLiteral("“%1” jobs belong to a librarian run.").arg(jobType), {{QStringLiteral("code"), QStringLiteral("WIKI_JOB_NOT_AVAILABLE")}});
         }
 
         const QString id = newId();
         database
             .prepare(QStringLiteral(
-                "INSERT INTO knowledge_jobs (id, library_id, job_type, status, stage, request, request_key, requested_by) "
-                "VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?)"
+                "INSERT INTO knowledge_jobs (id, library_id, job_type, status, stage, request, request_key, requested_by, priority, librarian, run_id) "
+                "VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?, ?, ?, ?)"
             ))
             .bind(1, id)
             .bind(2, libraryId)
             .bind(3, jobType)
             .bind(4, requestJson)
             .bind(5, key)
-            .bind(6, requestedBy)
+            .bind(6, options.librarian.isEmpty() ? options.requestedBy : Librarian::actorId(options.librarian))
+            .bind(7, options.priority)
+            .bind(8, options.librarian.isEmpty() ? QVariant() : QVariant(options.librarian))
+            .bind(9, options.runId.isEmpty() ? QVariant() : QVariant(options.runId))
             .run();
-        return *job(database, id);
+        LibrarianStore::countRun(database, options.runId, QStringLiteral("jobs"));
+        QVariantMap created = *job(database, id);
+        created.insert(QStringLiteral("created"), true);
+        return created;
     });
 }
 
@@ -235,11 +258,22 @@ QList<QVariantMap> runnable(CoreDatabase &database, const QDateTime &now)
     for (const QVariantMap &row : database
                                       .prepare(QStringLiteral(
                                                    "SELECT %1 FROM knowledge_jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
-                                                   "ORDER BY created_at ASC, id ASC"
+                                                   "ORDER BY priority DESC, created_at ASC, id ASC"
                                       )
                                                    .arg(jobColumns))
                                       .bind(1, JsCompat::isoTimestamp(now))
                                       .all()) {
+        result.append(jobMap(row));
+    }
+
+    return result;
+}
+
+QVariantList runJobs(CoreDatabase &database, const QString &runId)
+{
+    QVariantList result;
+
+    for (const QVariantMap &row : database.prepare(QStringLiteral("SELECT %1 FROM knowledge_jobs WHERE run_id = ? ORDER BY created_at ASC, id ASC").arg(jobColumns)).bind(1, runId).all()) {
         result.append(jobMap(row));
     }
 
@@ -359,20 +393,30 @@ void KnowledgeJobRunner::cancelJob(const QString &jobId)
     if (!libraryId.isEmpty()) {
         emit jobChanged(libraryId, jobId);
     }
+
+    if (jobId != m_activeJobId) {
+        const auto job = KnowledgeJobs::job(m_database, jobId);
+        settleRunOf(libraryId, job ? job->value(QStringLiteral("runId")).toString() : QString());
+    }
 }
 
 void KnowledgeJobRunner::finishActive()
 {
     const QString libraryId = m_activeLibraryId;
     const QString jobId = m_activeJobId;
+    const QString runId = m_activeRunId;
     m_activeJobId.clear();
     m_activeLibraryId.clear();
+    m_activeLibrarian.clear();
+    m_activeRunId.clear();
+    m_activeJobType.clear();
     m_embedTimer.stop();
 
     if (!jobId.isEmpty()) {
         emit jobChanged(libraryId, jobId);
     }
 
+    settleRunOf(libraryId, runId);
     schedule();
 }
 
@@ -401,12 +445,47 @@ void KnowledgeJobRunner::processNext()
         return;
     }
 
-    const QVariantMap job = due.first();
+    // The highest-priority job that may start. Librarian jobs wait while
+    // their Library is paused or in provider backoff, and while a chat is
+    // streaming; a person's own jobs never wait for them.
+    QVariantMap job;
+
+    for (const QVariantMap &candidate : std::as_const(due)) {
+        bool allowed = true;
+
+        try {
+            allowed = LibrarianPolicy::mayStart(m_database, candidate, now(), m_interactiveBusy).ok;
+        } catch (const std::exception &) {
+            allowed = false;
+        }
+
+        if (allowed) {
+            job = candidate;
+            break;
+        }
+    }
+
+    if (job.isEmpty()) {
+        m_timer.start(m_policy.holdRecheckMs);
+        return;
+    }
+
     m_activeJobId = job.value(QStringLiteral("id")).toString();
     m_activeLibraryId = job.value(QStringLiteral("libraryId")).toString();
+    m_activeLibrarian = job.value(QStringLiteral("librarian")).toString();
+    m_activeRunId = job.value(QStringLiteral("runId")).toString();
+    m_activeJobType = job.value(QStringLiteral("jobType")).toString();
 
-    if (job.value(QStringLiteral("jobType")).toString() == JobType::reconcileSources) {
-        runReconcile(job);
+    if (m_activeJobType == JobType::reconcileSources) {
+        if (m_activeLibrarian == Librarian::Kind::maintenance) {
+            runMaintenance(job);
+        } else {
+            runReconcile(job);
+        }
+    } else if (m_activeJobType == JobType::discoverRelated) {
+        runDiscovery(job);
+    } else if (m_activeJobType == JobType::identifyContradictions) {
+        runVerification(job);
     } else {
         runGeneration(job);
     }
@@ -475,7 +554,9 @@ void KnowledgeJobRunner::runGeneration(const QVariantMap &job)
     emit jobChanged(m_activeLibraryId, jobId);
     const QString query = m_request.topic;
 
-    if (m_embedders && !query.isEmpty() && Retrieval::semanticAvailable(m_database, m_activeLibraryId)) {
+    // Librarian jobs never embed: they research from the folder's files and
+    // keyword search, so background work adds no embedding requests.
+    if (m_embedders && m_activeLibrarian.isEmpty() && !query.isEmpty() && Retrieval::semanticAvailable(m_database, m_activeLibraryId)) {
         // Hybrid evidence when the Library opted in; any failure falls back
         // to keyword search so the job never depends on embeddings.
         m_embedder = m_embedders();
@@ -517,6 +598,15 @@ void KnowledgeJobRunner::continueGeneration(const QString &jobId, const QVector<
         m_evidence = KnowledgeGeneration::selectEvidence(m_database, m_request, queryVector);
     } catch (const std::exception &error) {
         step.done(0);
+        const QString topicId = m_request.jobType == JobType::investigateGap ? KnowledgeJobs::job(m_database, jobId).value_or(QVariantMap()).value(QStringLiteral("request")).toMap().value(QStringLiteral("topicId")).toString() : QString();
+
+        if (!topicId.isEmpty() && codeOf(error) == QStringLiteral("WIKI_NO_EVIDENCE")) {
+            try {
+                LibrarianAnalysis::recordExhausted(m_database, topicId, jobId, messageOf(error));
+            } catch (const std::exception &) {
+            }
+        }
+
         failOrRetry(jobId, codeOf(error).isEmpty() ? QStringLiteral("evidence-failed") : codeOf(error), messageOf(error), false);
         return;
     }
@@ -559,6 +649,13 @@ void KnowledgeJobRunner::continueGeneration(const QString &jobId, const QVector<
                                                }},
                     {QStringLiteral("completedAt"), JsCompat::isoTimestamp(now())},
                 });
+                const QVariantMap done = KnowledgeJobs::job(m_database, jobId).value_or(QVariantMap());
+                const QString topicId = done.value(QStringLiteral("request")).toMap().value(QStringLiteral("topicId")).toString();
+
+                if (!topicId.isEmpty()) {
+                    LibrarianAnalysis::recordInvestigation(m_database, topicId, jobId, done.value(QStringLiteral("result")).toMap(),
+                                                           LibrarianStore::settings(m_database, m_activeLibraryId).maxDepth);
+                }
             });
             finishActive();
             return;
@@ -589,6 +686,18 @@ void KnowledgeJobRunner::continueGeneration(const QString &jobId, const QVector<
     }
 
     const ModelRequest prompt = KnowledgeGeneration::buildPrompt(m_request, m_evidence);
+
+    if (!m_activeLibrarian.isEmpty()) {
+        // Consent, the run's and the day's budget, checked at the moment of
+        // sending: nothing reaches OpenAI without them.
+        const auto admission = LibrarianPolicy::admitModelCall(m_database, m_activeLibraryId, m_activeRunId, LibrarianPolicy::estimateTokens(prompt), now());
+
+        if (!admission.ok) {
+            failOrRetry(jobId, admission.code, admission.message, false);
+            return;
+        }
+    }
+
     m_model->generate(prompt, [this, jobId](const ModelResult &result) {
         QMetaObject::invokeMethod(this, [this, jobId, result]() { onModelResult(jobId, result); }, Qt::QueuedConnection);
     });
@@ -605,6 +714,8 @@ void KnowledgeJobRunner::onModelResult(const QString &jobId, const ModelResult &
         finishActive();
         return;
     }
+
+    accountModelCall(result, m_request.model);
 
     if (!result.ok()) {
         failOrRetry(jobId, result.code(), result.message, result.retryable(), result.retryAfterMs);
@@ -637,6 +748,18 @@ void KnowledgeJobRunner::onModelResult(const QString &jobId, const ModelResult &
                                            }},
                 {QStringLiteral("completedAt"), JsCompat::isoTimestamp(now())},
             });
+
+            if (!m_activeLibrarian.isEmpty() && submission.created) {
+                LibrarianStore::countRun(m_database, m_activeRunId, QStringLiteral("proposals"));
+            }
+
+            const QVariantMap done = KnowledgeJobs::job(m_database, jobId).value_or(QVariantMap());
+            const QString topicId = done.value(QStringLiteral("request")).toMap().value(QStringLiteral("topicId")).toString();
+
+            if (!topicId.isEmpty()) {
+                LibrarianAnalysis::recordInvestigation(m_database, topicId, jobId, done.value(QStringLiteral("result")).toMap(),
+                                                       LibrarianStore::settings(m_database, m_activeLibraryId).maxDepth);
+            }
         });
         step.done(1);
     } catch (const std::exception &error) {

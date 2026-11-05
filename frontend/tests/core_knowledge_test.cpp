@@ -396,7 +396,7 @@ private slots:
     void migrationCreatesTheKnowledgeStore()
     {
         Fixture fixture;
-        QCOMPARE(fixture.database.userVersion(), 23);
+        QCOMPARE(fixture.database.userVersion(), 24);
 
         for (const QString &table : {QStringLiteral("knowledge_pages"), QStringLiteral("knowledge_claims"), QStringLiteral("knowledge_citations"),
                                      QStringLiteral("knowledge_relations"), QStringLiteral("knowledge_revisions"), QStringLiteral("knowledge_proposals"),

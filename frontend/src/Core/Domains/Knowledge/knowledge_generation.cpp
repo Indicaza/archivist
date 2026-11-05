@@ -317,11 +317,18 @@ Knowledge::ModelRequest buildPrompt(const Request &request, const Evidence &evid
 
     if (!evidence.targetPageId.isEmpty()) {
         const QString title = evidence.targetPage.value(QStringLiteral("title")).toString();
-        input.append(request.jobType == JobType::expandPage
+        input.append(request.jobType == JobType::expandPage || request.jobType == JobType::investigateGap
                          ? QStringLiteral("Task: expand the Wiki page “%1” with what the passages add. Keep its existing claims unless a passage contradicts them; return the complete revised page and every claim it should make.").arg(title)
                          : QStringLiteral("Task: revise the Wiki page “%1” so it matches the passages as they are now. Return the complete page and every claim it should make; leave out claims the passages no longer support.").arg(title));
     } else {
         input.append(QStringLiteral("Task: write a new Wiki page about “%1”.").arg(request.topic.isEmpty() ? QStringLiteral("the selected files") : request.topic));
+    }
+
+    if (request.jobType == JobType::investigateGap) {
+        // The Research Librarian's investigation: same page contract, plus
+        // the questions it should come back to.
+        input.append(QStringLiteral("This is background research for a part of the Library the Wiki does not cover well yet. Record what the passages establish, "
+                                    "and add up to three claims of type \"question\" for what they raise but do not answer."));
     }
 
     input.append(QString());
@@ -605,7 +612,7 @@ KnowledgeProposals::ProposalDraft parseResponse(
             || claim.value(QStringLiteral("verificationStatus")).toString() == Verification::verified;
         const bool repeated = keys.contains(KnowledgeText::statementKey(claim.value(QStringLiteral("statement")).toString()));
 
-        if (request.jobType != JobType::expandPage && !protectedClaim && !repeated) {
+        if (request.jobType != JobType::expandPage && request.jobType != JobType::investigateGap && !protectedClaim && !repeated) {
             retract.append(claim.value(QStringLiteral("id")).toString());
         } else if (!repeated) {
             keptClaimLines.append(line);
