@@ -83,10 +83,23 @@ Rectangle {
         }
 
         WikiButton {
+            objectName: "wikiLibrariansButton"
+            text: "Librarians…"
+            onClicked: librarians.open()
+        }
+
+        WikiButton {
             objectName: "wikiOpenButton"
             text: "Open…"
             onClicked: review.open()
         }
+    }
+
+    LibrarianPanel {
+        id: librarians
+
+        theme: root.theme
+        libraryId: root.libraryId
     }
 
     component WikiButton: Button {

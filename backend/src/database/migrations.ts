@@ -1938,6 +1938,286 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    // The Librarian Engine: background maintenance, research and
+    // verification of the Living Wiki. Librarian work runs on the existing
+    // knowledge_jobs queue (now with a priority, the librarian that asked and
+    // the run it belongs to), and claims remember the evidence a librarian
+    // last checked them against. The rest is the librarians' operational
+    // memory: per-Library settings, consent and budgets, the file snapshot
+    // maintenance compares against, bounded runs with their model usage,
+    // research topics with the evidence they were investigated against, and
+    // the issues the librarians found. None of it is personal memory and
+    // none of it changes a page: changes still go through proposals.
+    version: 24,
+    migrate(database) {
+      database.exec(`
+        ALTER TABLE knowledge_jobs
+          ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE knowledge_jobs
+          ADD COLUMN librarian TEXT CHECK (
+            librarian IS NULL OR librarian IN ('maintenance', 'research', 'verification')
+          );
+
+        ALTER TABLE knowledge_jobs
+          ADD COLUMN run_id TEXT;
+
+        ALTER TABLE knowledge_claims
+          ADD COLUMN checked_fingerprint TEXT;
+
+        ALTER TABLE knowledge_claims
+          ADD COLUMN checked_at TEXT;
+
+        CREATE INDEX knowledge_jobs_queue_index
+          ON knowledge_jobs(status, priority, created_at);
+
+        CREATE INDEX knowledge_jobs_run_index
+          ON knowledge_jobs(run_id)
+          WHERE run_id IS NOT NULL;
+
+        CREATE TABLE knowledge_librarian_settings (
+          library_id TEXT PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0 CHECK (
+            enabled IN (0, 1)
+          ),
+          ai_consented_at TEXT,
+          mode TEXT NOT NULL DEFAULT 'manual' CHECK (
+            mode IN ('manual', 'idle', 'scheduled')
+          ),
+          schedule_minutes INTEGER NOT NULL DEFAULT 1440 CHECK (
+            schedule_minutes >= 15
+          ),
+          idle_minutes INTEGER NOT NULL DEFAULT 10 CHECK (
+            idle_minutes >= 1
+          ),
+          maintenance_enabled INTEGER NOT NULL DEFAULT 1 CHECK (
+            maintenance_enabled IN (0, 1)
+          ),
+          research_enabled INTEGER NOT NULL DEFAULT 1 CHECK (
+            research_enabled IN (0, 1)
+          ),
+          verification_enabled INTEGER NOT NULL DEFAULT 1 CHECK (
+            verification_enabled IN (0, 1)
+          ),
+          paused INTEGER NOT NULL DEFAULT 0 CHECK (
+            paused IN (0, 1)
+          ),
+          model TEXT,
+          max_calls_per_run INTEGER NOT NULL DEFAULT 4 CHECK (
+            max_calls_per_run >= 0
+          ),
+          max_tokens_per_run INTEGER NOT NULL DEFAULT 60000 CHECK (
+            max_tokens_per_run >= 0
+          ),
+          daily_call_budget INTEGER NOT NULL DEFAULT 20 CHECK (
+            daily_call_budget >= 0
+          ),
+          daily_token_budget INTEGER NOT NULL DEFAULT 250000 CHECK (
+            daily_token_budget >= 0
+          ),
+          max_depth INTEGER NOT NULL DEFAULT 2 CHECK (
+            max_depth >= 0 AND max_depth <= 5
+          ),
+          change_noted_at TEXT,
+          last_maintenance_at TEXT,
+          last_research_at TEXT,
+          last_verification_at TEXT,
+          next_scheduled_at TEXT,
+          consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK (
+            consecutive_failures >= 0
+          ),
+          backoff_until TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE TABLE knowledge_librarian_snapshots (
+          library_id TEXT NOT NULL,
+          library_file_id TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          content_hash TEXT,
+          status TEXT NOT NULL,
+          PRIMARY KEY (library_id, library_file_id),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE TABLE knowledge_librarian_runs (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          librarian TEXT NOT NULL CHECK (
+            librarian IN ('maintenance', 'research', 'verification')
+          ),
+          trigger TEXT NOT NULL CHECK (
+            trigger IN ('change', 'idle', 'schedule', 'manual')
+          ),
+          status TEXT NOT NULL DEFAULT 'running' CHECK (
+            status IN ('running', 'completed', 'failed', 'cancelled')
+          ),
+          request TEXT NOT NULL DEFAULT '{}',
+          model_calls INTEGER NOT NULL DEFAULT 0 CHECK (
+            model_calls >= 0
+          ),
+          input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (
+            input_tokens >= 0
+          ),
+          output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (
+            output_tokens >= 0
+          ),
+          estimated_cost_usd REAL NOT NULL DEFAULT 0 CHECK (
+            estimated_cost_usd >= 0
+          ),
+          jobs_created INTEGER NOT NULL DEFAULT 0,
+          findings_created INTEGER NOT NULL DEFAULT 0,
+          proposals_created INTEGER NOT NULL DEFAULT 0,
+          summary TEXT NOT NULL DEFAULT '{}',
+          error_message TEXT,
+          started_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          completed_at TEXT,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX knowledge_librarian_runs_one_active
+          ON knowledge_librarian_runs(library_id, librarian)
+          WHERE status = 'running';
+
+        CREATE INDEX knowledge_librarian_runs_library_index
+          ON knowledge_librarian_runs(library_id, started_at);
+
+        CREATE TABLE knowledge_librarian_topics (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          topic TEXT NOT NULL CHECK (
+            length(trim(topic)) > 0
+          ),
+          topic_key TEXT NOT NULL,
+          origin TEXT NOT NULL CHECK (
+            origin IN ('subsystem', 'question', 'manual')
+          ),
+          scope TEXT NOT NULL DEFAULT '{}',
+          depth INTEGER NOT NULL DEFAULT 0 CHECK (
+            depth >= 0
+          ),
+          parent_topic_id TEXT,
+          status TEXT NOT NULL DEFAULT 'open' CHECK (
+            status IN ('open', 'queued', 'proposed', 'covered', 'needs-revisit', 'dismissed', 'exhausted')
+          ),
+          page_id TEXT,
+          evidence_fingerprint TEXT,
+          investigated_fingerprint TEXT,
+          findings TEXT NOT NULL DEFAULT '[]',
+          open_questions TEXT NOT NULL DEFAULT '[]',
+          last_job_id TEXT,
+          last_proposal_id TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0 CHECK (
+            attempts >= 0
+          ),
+          investigated_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (parent_topic_id)
+            REFERENCES knowledge_librarian_topics(id)
+            ON DELETE SET NULL,
+          FOREIGN KEY (page_id)
+            REFERENCES knowledge_pages(id)
+            ON DELETE SET NULL,
+          UNIQUE (library_id, topic_key)
+        );
+
+        CREATE INDEX knowledge_librarian_topics_status_index
+          ON knowledge_librarian_topics(library_id, status, depth);
+
+        CREATE TABLE knowledge_librarian_findings (
+          id TEXT PRIMARY KEY,
+          library_id TEXT NOT NULL,
+          librarian TEXT NOT NULL CHECK (
+            librarian IN ('maintenance', 'research', 'verification')
+          ),
+          kind TEXT NOT NULL CHECK (
+            kind IN ('stale-citation', 'unsupported-claim', 'contradiction', 'suspicious-assumption', 'coverage-gap', 'deprecation-candidate')
+          ),
+          status TEXT NOT NULL DEFAULT 'open' CHECK (
+            status IN ('open', 'proposed', 'dismissed', 'resolved')
+          ),
+          title TEXT NOT NULL,
+          detail TEXT NOT NULL DEFAULT '',
+          page_id TEXT,
+          claim_id TEXT,
+          related_claim_id TEXT,
+          evidence TEXT NOT NULL DEFAULT '[]',
+          proposal_id TEXT,
+          run_id TEXT,
+          job_id TEXT,
+          fingerprint TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          updated_at TEXT NOT NULL DEFAULT (
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ),
+          resolved_at TEXT,
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (page_id)
+            REFERENCES knowledge_pages(id)
+            ON DELETE CASCADE,
+          FOREIGN KEY (proposal_id)
+            REFERENCES knowledge_proposals(id)
+            ON DELETE SET NULL,
+          UNIQUE (library_id, fingerprint)
+        );
+
+        CREATE INDEX knowledge_librarian_findings_status_index
+          ON knowledge_librarian_findings(library_id, status, created_at);
+
+        CREATE TABLE knowledge_librarian_usage (
+          library_id TEXT NOT NULL,
+          day TEXT NOT NULL,
+          model_calls INTEGER NOT NULL DEFAULT 0 CHECK (
+            model_calls >= 0
+          ),
+          input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (
+            input_tokens >= 0
+          ),
+          output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (
+            output_tokens >= 0
+          ),
+          estimated_cost_usd REAL NOT NULL DEFAULT 0 CHECK (
+            estimated_cost_usd >= 0
+          ),
+          PRIMARY KEY (library_id, day),
+          FOREIGN KEY (library_id)
+            REFERENCES libraries(id)
+            ON DELETE CASCADE
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(database: Database.Database): void {

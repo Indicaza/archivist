@@ -29,7 +29,7 @@ inline constexpr int promptVersion = 1;
 struct Request
 {
     QString libraryId;
-    QString jobType;       // generate-page or expand-page
+    QString jobType;       // generate-page, expand-page or investigate-gap (a librarian's expansion)
     QString topic;         // what the page is about; the search query
     QStringList fileIds;   // explicit Library files to summarize (optional)
     QString targetPageId;  // revise this page (expand-page, or a refresh)

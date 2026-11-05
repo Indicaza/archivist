@@ -189,7 +189,8 @@ int main(int argc, char *argv[])
     }
 
     // The Living Wiki: reviewable, source-linked pages a person asks the
-    // model to write. Jobs run on their own thread; nothing runs unasked.
+    // model to write, kept up by librarians in Libraries that opted in. Jobs
+    // run on their own thread; no change reaches a page unapproved.
     Knowledge::KnowledgeService wiki;
 
     {
@@ -318,6 +319,32 @@ int main(int argc, char *argv[])
     QObject::connect(&libraryStore, &LibraryStore::fileSaved, &semanticIndex, [&semanticIndex](const QString &libraryId) {
         semanticIndex.sync(libraryId);
     });
+    // Librarians (Libraries that turned them on) notice changed sources and
+    // coalesce them into one maintenance pass; the scheduler also compares
+    // the index with its snapshot, so this is a hint, not the only signal.
+    QObject::connect(&libraryStore, &LibraryStore::scanningChanged, &wiki, [&libraryStore, &wiki]() {
+        if (!libraryStore.scanning()) {
+            wiki.noteLibraryChanged(libraryStore.selectedLibraryId());
+        }
+    });
+    QObject::connect(&libraryStore, &LibraryStore::fileSaved, &wiki, [&wiki](const QString &libraryId) {
+        wiki.noteLibraryChanged(libraryId);
+    });
+    QObject::connect(&libraryStore, &LibraryStore::fileMoved, &wiki, [&libraryStore, &wiki]() {
+        wiki.noteLibraryChanged(libraryStore.selectedLibraryId());
+    });
+    QObject::connect(&libraryStore, &LibraryStore::fileRenamed, &wiki, [&libraryStore, &wiki]() {
+        wiki.noteLibraryChanged(libraryStore.selectedLibraryId());
+    });
+    QObject::connect(&chatStore, &ChatStore::editTransactionSynchronized, &wiki, [&wiki](const QString &libraryId) {
+        wiki.noteLibraryChanged(libraryId);
+    });
+    // Librarian jobs wait while a chat streams, and idle mode needs to know
+    // when someone last used Archivist.
+    QObject::connect(&chatStore, &ChatStore::activeRunChanged, &wiki, [&chatStore, &wiki]() {
+        wiki.setInteractiveBusy(!chatStore.activeRunId().isEmpty());
+    });
+    app.installEventFilter(&wiki);
     // Approved Wiki pages and claims join the semantic index of Libraries
     // that opted in.
     QObject::connect(&wiki, &Knowledge::KnowledgeService::knowledgeChanged, &semanticIndex, [&semanticIndex](const QString &libraryId) {

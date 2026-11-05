@@ -5,12 +5,16 @@
 #include "knowledge_proposals.h"
 #include "knowledge_repository.h"
 #include "knowledge_types.h"
+#include "librarian_scheduler.h"
+#include "librarian_store.h"
+#include "librarian_types.h"
 
 #include "Core/Domains/AI/ai_provider.h"
 #include "Core/Domains/Retrieval/embedding_client.h"
 #include "Core/core_error.h"
 
 #include <QDebug>
+#include <QEvent>
 #include <QMetaObject>
 #include <QNetworkAccessManager>
 
@@ -58,11 +62,17 @@ public:
         });
         connect(m_runner, &KnowledgeJobRunner::jobChanged, this, [this](const QString &libraryId, const QString &) { emit changed(libraryId, false); });
         connect(m_runner, &KnowledgeJobRunner::knowledgeChanged, this, [this](const QString &libraryId) { emit changed(libraryId, true); });
+        m_scheduler = new LibrarianScheduler(m_database, *m_runner, SchedulerPolicy{}, this);
+        connect(m_scheduler, &LibrarianScheduler::changed, this, [this](const QString &libraryId) { emit changed(libraryId, false); });
+        connect(m_runner, &KnowledgeJobRunner::runFinished, this, [this](const QString &libraryId, const QString &) { emit changed(libraryId, true); });
         m_runner->start();
+        m_scheduler->start();
     }
 
     void close()
     {
+        delete m_scheduler;
+        m_scheduler = nullptr;
         delete m_runner;
         m_runner = nullptr;
         m_database.close();
@@ -82,6 +92,28 @@ public:
         }
     }
 
+    void suspend(const QString &libraryId)
+    {
+        if (m_runner) {
+            m_runner->suspendLibrarians(libraryId);
+            m_runner->poke();
+        }
+    }
+
+    void noteChanged(const QString &libraryId)
+    {
+        if (m_scheduler) {
+            m_scheduler->noteLibraryChanged(libraryId);
+        }
+    }
+
+    void activity(const QDateTime &lastInput, bool busy)
+    {
+        if (m_scheduler) {
+            m_scheduler->setActivity(lastInput, busy);
+        }
+    }
+
 signals:
     void changed(const QString &libraryId, bool content);
 
@@ -90,6 +122,7 @@ private:
     CoreDatabase m_database;
     QNetworkAccessManager *m_network = nullptr;
     KnowledgeJobRunner *m_runner = nullptr;
+    LibrarianScheduler *m_scheduler = nullptr;
 };
 
 KnowledgeService::KnowledgeService(QObject *parent)
@@ -354,6 +387,273 @@ QVariantMap KnowledgeService::proposeMerge(const QString &sourcePageId, const QS
         const auto submission = KnowledgeProposals::proposeMerge(m_database, sourcePageId, targetPageId, reason, {Actor::user, reviewer});
         return QVariantMap{{QStringLiteral("proposalId"), submission.proposalId}};
     });
+}
+
+// ---- Librarians --------------------------------------------------------------
+
+QVariantMap KnowledgeService::librarianStatus(const QString &libraryId)
+{
+    if (!m_ready || libraryId.isEmpty()) {
+        return {};
+    }
+
+    try {
+        LibrarianStore::syncWithProposals(m_database, libraryId);
+        const auto settings = LibrarianStore::settings(m_database, libraryId);
+        QVariantList active;
+        const QVariantList recent = LibrarianStore::runs(m_database, libraryId, 8);
+
+        for (const QVariant &value : recent) {
+            if (value.toMap().value(QStringLiteral("status")).toString() == Librarian::RunStatus::running) {
+                active.append(value);
+            }
+        }
+
+        QVariantMap findingCounts;
+        int open = 0;
+
+        for (const QVariant &value : LibrarianStore::findings(m_database, libraryId, {}, 500)) {
+            const QVariantMap finding = value.toMap();
+            const QString kind = finding.value(QStringLiteral("kind")).toString();
+            findingCounts.insert(kind, findingCounts.value(kind).toInt() + 1);
+            open += finding.value(QStringLiteral("status")).toString() == Librarian::FindingStatus::open ? 1 : 0;
+        }
+
+        QVariantMap topicCounts;
+
+        for (const QVariantMap &row : m_database.prepare(QStringLiteral("SELECT status, COUNT(*) AS n FROM knowledge_librarian_topics WHERE library_id = ? GROUP BY status")).bind(1, libraryId).all()) {
+            topicCounts.insert(row.value(QStringLiteral("status")).toString(), row.value(QStringLiteral("n")));
+        }
+
+        return {
+            {QStringLiteral("settings"), settings.toVariant()},
+            {QStringLiteral("usage"), LibrarianStore::usageSummary(m_database, libraryId, QDateTime::currentDateTimeUtc())},
+            {QStringLiteral("runs"), recent},
+            {QStringLiteral("activeRuns"), active},
+            {QStringLiteral("findings"), findingCounts},
+            {QStringLiteral("openFindings"), open},
+            {QStringLiteral("pendingProposals"), LibrarianStore::librarianProposalIds(m_database, libraryId).size()},
+            {QStringLiteral("topics"), topicCounts},
+            {QStringLiteral("interactiveBusy"), m_interactiveBusy},
+        };
+    } catch (const std::exception &error) {
+        qWarning().noquote() << "[Librarian]" << error.what();
+        return {};
+    }
+}
+
+QVariantList KnowledgeService::librarianFindings(const QString &libraryId, const QString &status)
+{
+    if (!m_ready) {
+        return {};
+    }
+
+    try {
+        LibrarianStore::syncWithProposals(m_database, libraryId);
+        return LibrarianStore::findings(m_database, libraryId, status, 100);
+    } catch (const std::exception &error) {
+        qWarning().noquote() << "[Librarian]" << error.what();
+        return {};
+    }
+}
+
+QVariantList KnowledgeService::librarianProposals(const QString &libraryId)
+{
+    if (!m_ready) {
+        return {};
+    }
+
+    try {
+        QVariantList result;
+
+        for (const QString &id : LibrarianStore::librarianProposalIds(m_database, libraryId)) {
+            if (const auto proposal = KnowledgeProposals::proposal(m_database, id)) {
+                result.append(*proposal);
+            }
+        }
+
+        return result;
+    } catch (const std::exception &error) {
+        qWarning().noquote() << "[Librarian]" << error.what();
+        return {};
+    }
+}
+
+QVariantList KnowledgeService::librarianTopics(const QString &libraryId, const QString &status)
+{
+    if (!m_ready) {
+        return {};
+    }
+
+    try {
+        return LibrarianStore::topics(m_database, libraryId, status, 100);
+    } catch (const std::exception &error) {
+        qWarning().noquote() << "[Librarian]" << error.what();
+        return {};
+    }
+}
+
+QVariantMap KnowledgeService::setLibrarianEnabled(const QString &libraryId, bool enabled)
+{
+    QVariantMap result = act(libraryId, [&]() {
+        if (!enabled) {
+            const QStringList cancelled = LibrarianRuns::disable(m_database, libraryId);
+
+            if (KnowledgeWorker *worker = m_worker) {
+                for (const QString &jobId : cancelled) {
+                    QMetaObject::invokeMethod(worker, [worker, jobId]() { worker->cancel(jobId); });
+                }
+
+                QMetaObject::invokeMethod(worker, [worker, libraryId]() { worker->suspend(libraryId); });
+            }
+        } else {
+            LibrarianStore::updateSettings(m_database, libraryId, {{QStringLiteral("enabled"), true}});
+        }
+
+        return LibrarianStore::settings(m_database, libraryId).toVariant();
+    });
+    pokeWorker();
+    return result;
+}
+
+QVariantMap KnowledgeService::setLibrarianConsent(const QString &libraryId, bool consented)
+{
+    return act(libraryId, [&]() {
+        LibrarianStore::setConsent(m_database, libraryId, consented);
+        return LibrarianStore::settings(m_database, libraryId).toVariant();
+    });
+}
+
+QVariantMap KnowledgeService::updateLibrarianSettings(const QString &libraryId, const QVariantMap &changes)
+{
+    QVariantMap filtered = changes;
+    // Turning librarians on or off and pausing have their own calls.
+    filtered.remove(QStringLiteral("enabled"));
+    filtered.remove(QStringLiteral("paused"));
+    QVariantMap result = act(libraryId, [&]() { return LibrarianStore::updateSettings(m_database, libraryId, filtered).toVariant(); });
+    pokeWorker();
+    return result;
+}
+
+QVariantMap KnowledgeService::startLibrarian(const QString &libraryId, const QString &librarian, const QString &topic)
+{
+    QVariantMap result = act(libraryId, [&]() {
+        return m_database.transaction([&]() {
+            return LibrarianRuns::startRun(m_database, libraryId, librarian, Librarian::Trigger::manual, {{QStringLiteral("topic"), topic}});
+        });
+    });
+    pokeWorker();
+    return result;
+}
+
+QVariantMap KnowledgeService::pauseLibrarians(const QString &libraryId)
+{
+    QVariantMap result = act(libraryId, [&]() { return LibrarianStore::updateSettings(m_database, libraryId, {{QStringLiteral("paused"), true}}).toVariant(); });
+
+    if (KnowledgeWorker *worker = m_worker) {
+        QMetaObject::invokeMethod(worker, [worker, libraryId]() { worker->suspend(libraryId); });
+    }
+
+    return result;
+}
+
+QVariantMap KnowledgeService::resumeLibrarians(const QString &libraryId)
+{
+    QVariantMap result = act(libraryId, [&]() { return LibrarianStore::updateSettings(m_database, libraryId, {{QStringLiteral("paused"), false}}).toVariant(); });
+    pokeWorker();
+    return result;
+}
+
+QVariantMap KnowledgeService::cancelLibrarianRun(const QString &runId)
+{
+    const QString libraryId = m_ready ? libraryOf(m_database, QStringLiteral("knowledge_librarian_runs"), runId) : QString();
+    return act(libraryId, [&]() {
+        const QStringList cancelled = m_database.transaction([&]() { return LibrarianRuns::cancelRun(m_database, runId); });
+
+        if (KnowledgeWorker *worker = m_worker) {
+            for (const QString &jobId : cancelled) {
+                QMetaObject::invokeMethod(worker, [worker, jobId]() { worker->cancel(jobId); });
+            }
+        }
+
+        return QVariantMap{{QStringLiteral("cancelledJobs"), cancelled.size()}};
+    });
+}
+
+QVariantMap KnowledgeService::dismissFinding(const QString &findingId)
+{
+    const QString libraryId = m_ready ? libraryOf(m_database, QStringLiteral("knowledge_librarian_findings"), findingId) : QString();
+    return act(libraryId, [&]() {
+        if (!LibrarianStore::setFindingStatus(m_database, findingId, Librarian::FindingStatus::dismissed)) {
+            throw CoreError(QStringLiteral("That finding no longer exists."), {{QStringLiteral("code"), QStringLiteral("LIBRARIAN_UNKNOWN_FINDING")}});
+        }
+
+        return QVariantMap{{QStringLiteral("changed"), true}};
+    });
+}
+
+QVariantMap KnowledgeService::reopenFinding(const QString &findingId)
+{
+    const QString libraryId = m_ready ? libraryOf(m_database, QStringLiteral("knowledge_librarian_findings"), findingId) : QString();
+    return act(libraryId, [&]() {
+        if (!LibrarianStore::setFindingStatus(m_database, findingId, Librarian::FindingStatus::open)) {
+            throw CoreError(QStringLiteral("That finding no longer exists."), {{QStringLiteral("code"), QStringLiteral("LIBRARIAN_UNKNOWN_FINDING")}});
+        }
+
+        return QVariantMap{{QStringLiteral("changed"), true}};
+    });
+}
+
+void KnowledgeService::noteLibraryChanged(const QString &libraryId)
+{
+    if (KnowledgeWorker *worker = m_worker; worker && !libraryId.isEmpty()) {
+        QMetaObject::invokeMethod(worker, [worker, libraryId]() { worker->noteChanged(libraryId); });
+    }
+}
+
+void KnowledgeService::setInteractiveBusy(bool busy)
+{
+    if (m_interactiveBusy == busy) {
+        return;
+    }
+
+    m_interactiveBusy = busy;
+    reportActivity(true);
+}
+
+bool KnowledgeService::eventFilter(QObject *watched, QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::KeyPress:
+    case QEvent::MouseButtonPress:
+    case QEvent::Wheel:
+    case QEvent::TouchBegin:
+        m_lastInput = QDateTime::currentDateTimeUtc();
+        reportActivity(false);
+        break;
+    default:
+        break;
+    }
+
+    return QObject::eventFilter(watched, event);
+}
+
+void KnowledgeService::reportActivity(bool force)
+{
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+
+    // Idle is measured in minutes, so telling the Wiki thread every 15 s is plenty.
+    if (!force && m_lastReported.isValid() && m_lastReported.secsTo(now) < 15) {
+        return;
+    }
+
+    m_lastReported = now;
+
+    if (KnowledgeWorker *worker = m_worker) {
+        const QDateTime last = m_lastInput.isValid() ? m_lastInput : now;
+        const bool busy = m_interactiveBusy;
+        QMetaObject::invokeMethod(worker, [worker, last, busy]() { worker->activity(last, busy); });
+    }
 }
 }
 

@@ -2,6 +2,7 @@
 
 #include "Core/Database/core_database.h"
 
+#include <QDateTime>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -21,8 +22,11 @@ class KnowledgeWorker;
 // actions (approve, reject, edit, verify, restore) are short transactions on
 // this thread's own connection.
 //
-// Nothing here runs by itself: every job starts from a person's action.
-// Failures come back as {ok: false, code, message}; reads return empty values.
+// A person's Wiki jobs start from their actions. Librarian work (see
+// LIBRARIAN.md) runs on the same thread only for Libraries where a person
+// turned librarians on, and model calls only with their consent; it never
+// changes a page without their approval. Failures come back as
+// {ok: false, code, message}; reads return empty values.
 class KnowledgeService final : public QObject
 {
     Q_OBJECT
@@ -71,15 +75,51 @@ public:
     Q_INVOKABLE QVariantMap proposeDeprecation(const QString &pageId, const QString &reason);
     Q_INVOKABLE QVariantMap proposeMerge(const QString &sourcePageId, const QString &targetPageId, const QString &reason);
 
+    // ---- Librarians ----
+    // {settings, usage: {today, last30Days}, runs, activeRuns, findings
+    //  (counts by kind), openFindings, pendingProposals, topics (counts by
+    //  status), interactiveBusy}
+    Q_INVOKABLE QVariantMap librarianStatus(const QString &libraryId);
+    // `status` empty: open and proposed.
+    Q_INVOKABLE QVariantList librarianFindings(const QString &libraryId, const QString &status = {});
+    // Pending proposals the librarians made, newest first.
+    Q_INVOKABLE QVariantList librarianProposals(const QString &libraryId);
+    Q_INVOKABLE QVariantList librarianTopics(const QString &libraryId, const QString &status = {});
+    Q_INVOKABLE QVariantMap setLibrarianEnabled(const QString &libraryId, bool enabled);
+    // Permission to send Library text to OpenAI for librarian research.
+    Q_INVOKABLE QVariantMap setLibrarianConsent(const QString &libraryId, bool consented);
+    // {mode, scheduleMinutes, idleMinutes, maintenance, research,
+    //  verification, model, maxCallsPerRun, maxTokensPerRun,
+    //  dailyCallBudget, dailyTokenBudget, maxDepth}
+    Q_INVOKABLE QVariantMap updateLibrarianSettings(const QString &libraryId, const QVariantMap &changes);
+    // librarian: "maintenance", "research" or "verification"; topic only for research.
+    Q_INVOKABLE QVariantMap startLibrarian(const QString &libraryId, const QString &librarian, const QString &topic = {});
+    Q_INVOKABLE QVariantMap pauseLibrarians(const QString &libraryId);
+    Q_INVOKABLE QVariantMap resumeLibrarians(const QString &libraryId);
+    Q_INVOKABLE QVariantMap cancelLibrarianRun(const QString &runId);
+    Q_INVOKABLE QVariantMap dismissFinding(const QString &findingId);
+    Q_INVOKABLE QVariantMap reopenFinding(const QString &findingId);
+
+    // From the app: a Library's files changed (scan, save, move, AI edit).
+    Q_INVOKABLE void noteLibraryChanged(const QString &libraryId);
+    // From the app: a chat is streaming, so librarian jobs wait.
+    void setInteractiveBusy(bool busy);
+
 signals:
     void readyChanged();
     void changed(const QString &libraryId);
     // Wiki content changed: the semantic index should pick it up.
     void knowledgeChanged(const QString &libraryId);
 
+protected:
+    // Installed on the application: any key, mouse or wheel input counts as
+    // activity for the librarians' idle mode.
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     template<typename Work>
     QVariantMap act(const QString &libraryId, Work &&work);
+    void reportActivity(bool force);
     void bump(const QString &libraryId, bool content);
     void pokeWorker();
 
@@ -88,5 +128,8 @@ private:
     CoreDatabase m_database;
     bool m_ready = false;
     int m_revision = 0;
+    bool m_interactiveBusy = false;
+    QDateTime m_lastInput;
+    QDateTime m_lastReported;
 };
 }
