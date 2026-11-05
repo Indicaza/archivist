@@ -146,12 +146,12 @@ or a refused request fails at once with a clear message. Jobs can be
 cancelled (the model request is dropped) and retried. Only one active job per
 (Library, type, request) can exist.
 
-Job types `investigate-gap`, `discover-related`, `identify-contradictions`,
-`suggest-improvements` and `process-correction` are reserved in the schema for future autonomous librarians and are
-refused by `KnowledgeJobs::enqueue` until one implements them. A librarian
-would enqueue jobs with `requested_by` naming itself and submit proposals
-through `KnowledgeProposals::submit`, so everything it does stays reviewable.
-There is no scheduler.
+Jobs carry a `priority` (a person's jobs first) and, for librarian work, the
+`librarian` and the `run_id` they belong to. `investigate-gap`,
+`discover-related` and `identify-contradictions` are librarian jobs and are
+refused without one; `suggest-improvements` and `process-correction` stay
+reserved. The Librarian Engine (scheduler, budgets, consent, findings,
+research topics) is described in [LIBRARIAN.md](LIBRARIAN.md).
 
 ## App
 
@@ -172,15 +172,15 @@ rejection and manual edits, reconciliation through re-indexing, moves,
 renames, modification and deletion, repeated processing without duplicates or
 confidence inflation, interrupted and cancelled jobs, provider failures and
 offline behaviour, Library isolation, retrieval into Context Assembly v3,
-merge and deprecation, and the app service.
+merge and deprecation, and the app service. Librarian behaviour is tested in
+`tests/core_librarian_test.cpp`.
 
 ## Limitations
 
 - Generation is one model call per page; very large topics are cut to
   `maxPassages` passages.
-- Contradiction detection is limited to what the model reports with evidence
-  in a single page pass; no cross-page scan yet (reserved for a librarian).
-- Reconciliation runs when a person starts it; it does not run after every
-  Library scan.
+- Cross-page contradiction checks and reconciliation after Library changes
+  are done by the librarians (LIBRARIAN.md) once a person turns them on;
+  otherwise they run only when a person starts them.
 - The review window is deliberately minimal (no inline page editor; manual
   edits go through `Wiki.editPage`).
